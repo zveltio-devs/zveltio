@@ -1,15 +1,14 @@
 # Zveltio Extension Cookbook
 
-Task-oriented recipes. Every snippet below is modelled on a **real shipped
-extension** (linked per recipe) — not pseudocode. For the conceptual reference
-(lifecycle, manifest fields, isolation tiers) see
-[developer-guide.md](developer-guide.md).
+Task-oriented recipes. Every snippet is modelled on a **shipped extension**
+(linked per recipe), not pseudocode. The contract behind them is
+[authoring.md](authoring.md); the page format is [ui-model.md](ui-model.md).
 
-> **The one rule that matters:** query through **`ctx.db`**. It is already scoped
-> to the caller's tenant (H-12) — every row you read or write is automatically
-> isolated. `ctx.adminDb` crosses tenants and throws unless your manifest declares
-> the `db:admin` permission, which is flagged at review + install. If you find
-> yourself reaching for `adminDb`, stop and ask why.
+> **The one rule that matters:** an extension declares collections and
+> actions; the engine creates and owns the collections and its rules decide
+> who reads and writes them (ADR 0002). Your code never writes SQL, never
+> checks a permission and never opens a table. It reaches data through
+> `host.collections`, which is the data API as the caller.
 
 ---
 
@@ -19,44 +18,53 @@ extension** (linked per recipe) — not pseudocode. For the conceptual reference
 zveltio extension create my-thing --category business
 ```
 
-Writes `manifest.json`, `engine/index.ts`, `engine/migrations/`, and
-`studio/src/pages/`. Then:
+Writes `manifest.json` (a collection, an action, a page),
+`schema/collections/my_thing_items.json`, `engine/index.ts` with the action,
+and `studio/schemas/my-thing.json`, a `zveltio.view/2` page. Then:
 
 ```bash
-zveltio extension validate --dir extensions/business/my-thing
-zveltio extension pack --dir extensions/business/my-thing   # bundles engine/index.js + integrity hash
+zveltio extension pack --dir extensions/business/my-thing      # engine/index.js + integrity hashes
+zveltio extension validate --dir extensions/business/my-thing  # manifest, collections, view, messages
 ```
 
-**Pack after every `engine/*.ts` change.** The engine loads the packed
-`engine/index.js` for the bundled code path; CI verifies the bundle hash matches
-the manifest (`engineSha256`) but does **not** rebuild it — a stale bundle ships
-stale behaviour silently.
+**Pack after every change under `engine/` or `schema/`.** The engine loads the
+packed `engine/index.js` and checks `integrity.engineSha256` and
+`integrity.schemaSha256`; a schema file edited after pack refuses the
+extension at load. `pack` prints `✓ pack complete` whether or not anything
+changed: check the hashes moved.
 
 ---
 
 ## 2. Extension anatomy
 
-The whole contract (see [`crm/engine/index.ts`](https://github.com/zveltio-devs/zveltio-extensions/blob/master/crm/engine/index.ts)):
+The whole of [`crm`](https://github.com/zveltio-devs/zveltio-extensions/blob/master/crm):
+
+```
+crm/
+├── manifest.json                 # collections, actions, the page
+├── schema/collections/
+│   ├── contacts.json             # the engine creates and owns each one
+│   ├── organizations.json
+│   └── transactions.json
+├── engine/
+│   ├── index.ts                  # default-exports the extension
+│   └── actions.ts                # business logic
+└── studio/
+    ├── schemas/crm.json          # the page: a zveltio.view/2 document
+    └── messages/en.json          # the keys the page owns
+```
 
 ```ts
+// engine/index.ts
 import type { ZveltioExtension } from '@zveltio/sdk/extension';
-import { join } from 'path';
+import { crmActions } from './actions.js';
 
 const extension: ZveltioExtension = {
-  name: 'business/my-thing',       // must match the manifest name
+  name: 'crm',              // must match the manifest name
   category: 'business',
-  mountStrategy: 'subapp',         // routes mount under /ext/business/my-thing
-
-  getMigrations() {
-    return [
-      join(import.meta.dir, 'migrations/001_initial.sql'),
-      join(import.meta.dir, 'migrations/002_tenant_rls.sql'),
-    ];
-  },
-
-  async register(app, ctx) {
-    // mount routes, subscribe to events, publish services — all here
-  },
+  mountStrategy: 'subapp',
+  actions: crmActions,
+  async register() {},      // nothing to mount: the engine serves the collections
 };
 
 export default extension;
@@ -64,212 +72,258 @@ export default extension;
 
 ---
 
-## 3. Add an API route
+## 3. Store data: declare a collection
 
-`register()` hands you a Hono sub-app. Everything you mount lands under
-`/ext/<name>/`.
-
-```ts
-async register(app, ctx) {
-  app.get('/widgets', async (c) => {
-    const session = await ctx.auth.api.getSession({ headers: c.req.raw.headers });
-    if (!session) return c.json({ error: 'Unauthorized' }, 401);
-
-    const rows = await ctx.db.selectFrom('zvd_widgets').selectAll().execute();
-    return c.json({ widgets: rows });   // tenant-scoped automatically
-  });
-}
-```
-
-Guard writes with a permission check:
-
-```ts
-if (!(await ctx.checkPermission(session.user.id, 'widgets', 'create'))) {
-  return c.json({ error: 'Forbidden' }, 403);
-}
-```
-
----
-
-## 4. Add a migration (and keep tenant isolation)
-
-Two files, always in this order — schema, then RLS:
-
-`migrations/001_initial.sql`
-```sql
-CREATE TABLE IF NOT EXISTS zvd_widgets (
-  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name       TEXT NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-```
-
-`migrations/002_tenant_rls.sql` — the canonical pattern every extension uses:
-```sql
-ALTER TABLE zvd_widgets ADD COLUMN IF NOT EXISTS tenant_id UUID;
-ALTER TABLE zvd_widgets
-  ALTER COLUMN tenant_id
-  SET DEFAULT NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid;
-CREATE INDEX IF NOT EXISTS idx_zvd_widgets_tenant ON zvd_widgets (tenant_id);
-```
-
-> `current_setting(guc, true)` returns `''` — **not NULL** — for a set-but-blank
-> GUC. Without the `NULLIF`, `''::uuid` throws on every insert made outside a
-> tenant context. This exact bug took down the whole data plane once.
-
-Register both in `getMigrations()`. Migrations run once, in array order, when the
-extension is enabled.
-
----
-
-## 5. React to record changes (e.g. email on insert)
-
-```ts
-async register(app, ctx) {
-  ctx.events.on('record.created', async ({ collection, id, record, tenantId }: any) => {
-    if (collection !== 'zvd_orders') return;          // always filter first
-    try {
-      const mail = ctx.services.get('mail.send');      // optional dependency
-      if (mail) await mail({ to: record.email, subject: `Order ${id}`, body: '…' });
-    } catch {
-      /* never let a side-effect break the write that triggered it */
-    }
-  });
-}
-```
-
-Available: `record.created`, `record.updated`, `record.deleted`. Payload:
-`{ collection, id, record, tenantId }`. Modelled on
-[`operations/traceability`](https://github.com/zveltio-devs/zveltio-extensions/blob/master/operations/traceability/engine/index.ts)
-and `ai`.
-
-**Gotcha:** `record.before*` hooks only fire on single-row, WHERE-by-id writes.
-A bulk update skips them — the engine logs a warning saying so. If you need
-per-row semantics on bulk, pre-fetch the ids and loop.
-
----
-
-## 6. Share data with other extensions (services)
-
-Don't duplicate another extension's tables — consume its service.
-
-**Publish** (from [`crm`](https://github.com/zveltio-devs/zveltio-extensions/blob/master/crm/engine/index.ts)):
-```ts
-ctx.services.register('crm.contacts.findByEmail', async (email: string) => {
-  const r = await sql<any>`SELECT * FROM zvd_contacts WHERE email = ${email} LIMIT 1`
-    .execute(ctx.db);
-  return r.rows[0] ?? null;
-});
-```
-
-**Consume** — declare `crm` in `optionalDependencies` (or `dependencies`, if
-you cannot work without it); `ctx.services.get` refuses a service whose owner
-your manifest does not name. Treat it as optional — the provider may not be
-installed:
-```ts
-const lookup = ctx.services.get('crm.contacts.findByEmail');
-const contact = lookup ? await lookup(email) : null;
-```
-
-Services are unregistered automatically when your extension unloads.
-
----
-
-## 7. Add an admin page without writing Svelte (SDUI)
-
-Declarative pages are **data**, rendered by the Studio host — no per-extension
-Studio build. See the full field catalog in [SDUI-SCHEMA-REFERENCE.md](../ui/sdui.md).
-Drop a schema in `studio/schemas/widgets.json`
-(modelled on [`content/drafts`](https://github.com/zveltio-devs/zveltio-extensions/blob/master/content/drafts/studio/schemas/drafts.json)):
+List it in the manifest and ship one file in the
+[schema-as-code](../engine/rfc-schema-as-code.md) format:
 
 ```json
+"collections": ["widgets"]
+```
+
+```json
+// schema/collections/widgets.json
 {
-  "sduiSchema": 1,
-  "title": "widgets.title",
-  "subtitle": "widgets.subtitle",
-  "resources": [
-    {
-      "id": "widgets",
-      "dataSource": "/ext/business/my-thing/widgets",
-      "dataPath": "widgets",
-      "columns": [
-        { "key": "name", "label": "common.col.name" },
-        { "key": "created_at", "label": "common.col.created", "type": "date" }
-      ]
-    }
+  "name": "widgets",
+  "fields": [
+    { "name": "name", "type": "text", "required": true },
+    { "name": "status", "type": "enum", "defaultValue": "draft",
+      "options": { "values": ["draft", "active"] } }
   ]
 }
 ```
 
-`dataSource` is your route; `dataPath` is the key inside its JSON response
-(`{ "widgets": [...] }` → `"widgets"`). Labels are i18n keys. CI's runtime probe
-boots a real engine and asserts every `dataPath` actually resolves — a typo here
-fails the build rather than shipping an empty table.
+When an administrator enables the extension the engine creates the table with
+its tenant isolation, grants and data API routes (`/api/data/widgets`).
+Studio, the SDKs and your page all read and write it there, under the
+collection's permissions, row and column rules. No migration, no RLS policy,
+no route. Field types, relations, `unique`, `indexes`, `defaultGrants` and
+`writtenBy` are in [authoring.md](authoring.md#collections--declared-created-by-the-engine).
 
 ---
 
-## 8. Expose a public (unauthenticated) route
+## 4. Enforce a business rule: an action
 
-Extension routes sit behind auth by default. Opt a specific one out:
+A rule a form could get around (only an open transaction can be paid) is an
+action, not a field edit. From
+[`crm/engine/actions.ts`](https://github.com/zveltio-devs/zveltio-extensions/blob/master/crm/engine/actions.ts):
+
+```json
+"actions": [{
+  "name": "markPaid",
+  "permission": { "resource": "transactions" },
+  "input": { "type": "object", "required": ["id"], "additionalProperties": false,
+             "properties": { "id": { "type": "string", "format": "uuid" } } },
+  "reads": ["transactions"], "writes": ["transactions"]
+}]
+```
 
 ```ts
-ctx.registerPublicRoute({
-  method: 'GET',
-  path: '/share/:token',                 // absolute path on the global app
-  handler: async (c) => {
-    const row = await ctx.db.selectFrom('zvd_shares')
-      .selectAll().where('token', '=', c.req.param('token')).executeTakeFirst();
-    return row ? c.json(row) : c.json({ error: 'Not found' }, 404);
+import { ActionRefusal, type ExtensionAction, todayIn } from '@zveltio/sdk/extension';
+
+const markPaid: ExtensionAction = async (input, host) => {
+  const { id } = input as { id: string };
+  const tx = await host.collections.read('transactions', id);
+  if (!tx) throw new ActionRefusal(404, 'transaction_not_found', 'No such transaction.');
+  if (tx.status !== 'draft' && tx.status !== 'pending') {
+    throw new ActionRefusal(409, 'transaction_not_open', 'Already settled.');
+  }
+  // `expect` re-checks the status on the locked row: a concurrent call gets 409.
+  return host.collections.update(
+    'transactions', id,
+    { status: 'completed', paid_date: todayIn(host.timezone) },
+    { expect: { status: ['draft', 'pending'] } },
+  );
+};
+```
+
+`POST /ext/crm/actions/markPaid` runs it. The engine checks the caller holds
+`execute` on `transactions` and that the body matches `input`, then runs it
+as the caller, in the request transaction. `ActionRefusal` answers that 4xx;
+any other throw answers 500; both roll back. To make the action the only way
+to write a field, flag it `"writtenBy": "actions"` in the collection file.
+
+---
+
+## 5. Do slow work after the write (email, PDF, a remote call)
+
+An action runs inside the caller's transaction, so it does no network I/O.
+It enqueues a **job**, which runs after the transaction commits and retries:
+
+```json
+"actions": [{ "name": "markPaid", "...": "...", "enqueues": ["sendReceipt"] }],
+"jobs": [{ "name": "sendReceipt", "input": { "type": "object" },
+           "reads": ["transactions"], "retry": { "limit": 3 } }]
+```
+
+```ts
+actions: {
+  async markPaid(input, host) {
+    // ... the write, as in recipe 4 ...
+    await host.enqueue('sendReceipt', { id });
   },
-});
+},
+jobs: {
+  async sendReceipt(input, host) {
+    const tx = await host.collections.read('transactions', (input as { id: string }).id);
+    // network I/O is fine here
+  },
+},
 ```
 
-Public means **the whole internet**. Validate the token, return only what that
-token grants, and never echo internal ids you didn't intend to share.
+The enqueue joins the action's transaction: a refused action leaves no job.
+A job needs `data:system` and acts as the extension, over the collections its
+`reads`/`writes` name. Modelled on
+[`communications/mail`](https://github.com/zveltio-devs/zveltio-extensions/blob/master/communications/mail)
+(the `send` job).
 
 ---
 
-## 9. Test an extension
+## 6. Use another extension's logic
 
-`@zveltio/sdk/testing` gives you the seams — no live services needed:
+Don't copy another extension's rule, and don't write its collections: run its
+action. Name the extension in `dependencies` (or `optionalDependencies`) and
+the action in `calls`:
 
-```ts
-import { createTestContext, mockDb } from '@zveltio/sdk/testing';
-import extension from '../engine/index.js';
-import { Hono } from 'hono';
-
-const app = new Hono();
-// mockDb presets are keyed by the QUERY CHAIN (suffix match), not the table name.
-const ctx = createTestContext({
-  db: mockDb({
-    'selectFrom.zvd_widgets.selectAll.execute': [{ id: '1', name: 'a' }],
-  }),
-});
-await extension.register(app, ctx);
-
-const res = await app.request('/widgets');
-expect(res.status).toBe(200);
+```json
+"dependencies": [{ "name": "finance/invoicing", "minVersion": "2.0.0" }],
+"actions": [{ "name": "settle", "...": "...", "calls": ["finance/invoicing.recordPayment"] }]
 ```
 
-Also available: `mockAuth`, `mockEventBus`, `mockServiceRegistry`, and
-`withTestDb` for a real Postgres when you need one.
+```ts
+await host.actions.run('finance/invoicing', 'recordPayment', { invoice_id, amount });
+```
+
+The engine checks the caller holds the called action's permission, validates
+its input and runs it in the same transaction. An absent optional dependency
+answers 404. Reading another extension's collection needs no code at all: list
+it in `reads`, and the caller's grants decide.
+
+---
+
+## 7. Add an admin page: a view
+
+The page is data, drawn by Studio, `@zveltio/react` or any other front end
+(ADR 0042). Point the manifest page at it and write a `zveltio.view/2`
+document, modelled on
+[`crm/studio/schemas/crm.json`](https://github.com/zveltio-devs/zveltio-extensions/blob/master/crm/studio/schemas/crm.json):
+
+```json
+"studio": { "pages": [{ "path": "/admin/crm", "label": "CRM", "icon": "Users",
+                         "schema": "schemas/crm.json" }] }
+```
+
+```json
+{
+  "spec": "zveltio.view/2",
+  "id": "crm.transactions",
+  "title": "crm.title",
+  "type": "list",
+  "collection": "transactions",
+  "fields": [
+    { "field": "number", "label": "crm.col.number" },
+    { "field": "status", "label": "crm.col.status" },
+    { "field": "created_at", "label": "common.added" }
+  ],
+  "sort": "-created_at",
+  "search": true,
+  "create": true,
+  "edit": true,
+  "rowActions": [{
+    "action": "markPaid", "label": "crm.action.markPaid",
+    "input": { "id": { "$record": "id" } },
+    "when": [{ "field": "status", "op": "in", "value": ["draft", "pending"] }]
+  }]
+}
+```
+
+Names, not addresses: a collection the extension declares, its fields, its
+actions. `extension validate` refuses a field the collection does not have,
+an action the extension does not declare and a label key missing from
+`studio/messages/en.json` (`common.*` keys come from the host). Kinds beyond
+`list` (`detail`, `form`, `split`, `tabs`, `board`, `map`, …) are in
+[ui-model.md](ui-model.md). No Svelte, no build.
+
+---
+
+## 8. Expose a public route
+
+Most extensions need none: an operator grants the `public` role `read` on a
+collection and `GET /api/data/<collection>` serves it (ADR 0017). A route is
+for a response the data API cannot give, like a sitemap. Declare it and
+export a plain function, as
+[`content/pages`](https://github.com/zveltio-devs/zveltio-extensions/blob/master/content/pages/engine/sitemap.ts)
+does:
+
+```json
+"routes": [{ "method": "GET", "path": "/sitemap.xml", "access": "public", "handler": "sitemap" }]
+```
+
+```ts
+import type { RouteHandler } from '@zveltio/sdk/extension';
+
+export const sitemap: RouteHandler = async (request, { host }) => {
+  const { records } = await host.collections.list('page_publications', { limit: 500 });
+  return new Response(toSitemap(records), { headers: { 'content-type': 'application/xml' } });
+};
+```
+
+```ts
+// engine/index.ts
+routes: { sitemap },
+```
+
+On a `public` route `host.collections` reads as the tenant's `public` role and
+cannot write: until an operator grants `public` read on the collection, the
+read is refused, never rows. Public means **the whole internet**: return only
+what the grant allows. An inbound webhook is a public route that enqueues a
+job; see [authoring.md](authoring.md#inbound-webhooks-a-public-route-enqueues-a-job-writes).
+
+---
+
+## 9. Test an action
+
+An action is a function of `(input, host)`. Hand it a host whose
+`collections` you control:
+
+```ts
+import { expect, it } from 'bun:test';
+import { ActionRefusal } from '@zveltio/sdk/extension';
+import { crmActions } from './actions.js';
+
+const host = (row: Record<string, unknown> | null) => ({
+  timezone: 'UTC',
+  collections: {
+    read: async () => row,
+    update: async (_c: string, id: string, patch: object) => ({ id, ...patch }),
+  },
+}) as never;
+
+it('refuses a settled transaction', async () => {
+  const run = crmActions.markPaid({ id: 't1' }, host({ id: 't1', status: 'completed' }));
+  await expect(run).rejects.toBeInstanceOf(ActionRefusal);
+});
+```
+
+This tests your logic. The engine's part (the permission, the input schema,
+row rules, the `expect` lock) needs a real engine: first-party extensions run
+`testing/ext-harness.ts` in `zveltio-extensions` against the packed bundle and
+Postgres.
 
 ---
 
 ## 10. Publish to the registry
 
 ```bash
-zveltio extension validate --dir <dir>   # manifest + schema + migration checks
-zveltio extension pack --dir <dir>       # bundle + integrity hash
+zveltio extension validate --dir <dir>   # manifest, collections, view, messages
+zveltio extension pack --dir <dir>       # bundle + integrity hashes
 zveltio extension publish --dir <dir>    # validate, archive, sign, upload
 ```
 
 The engine installs extensions from **registry.zveltio.com**, never from a repo
-checkout. Publishing is what makes an extension installable.
-
-**Isolation tier matters** (marketplace-policy.md §2): first-party/verified may run
-inline; community extensions must declare `engine.isolation: "worker"`. Declare it
-early — it changes how you're allowed to touch the process.
+checkout. Community extensions run worker-isolated (`engine.isolation:
+"worker"`, set by `pack`; [marketplace-policy.md](marketplace-policy.md) §2);
+actions and `host.collections` work the same there.
 
 ---
 
@@ -277,8 +331,9 @@ early — it changes how you're allowed to touch the process.
 
 | Symptom | Cause |
 | --- | --- |
-| Your change doesn't take effect | Stale `engine/index.js` — re-run `zveltio extension pack`. |
-| Every insert throws `invalid input syntax for type uuid: ""` | Missing `NULLIF(...)` in the tenant_id default (recipe 4). |
-| SDUI table renders empty | `dataPath` doesn't match your response key (recipe 7). |
-| Rows from other tenants appear | You used `ctx.adminDb`. Use `ctx.db`. |
-| Typecheck explodes on `.execute(db)` | Your repo's kysely drifted from the engine's — pin them equal. |
+| Your change doesn't take effect | Stale `engine/index.js`: re-run `zveltio extension pack`. |
+| The extension refuses to load after a schema edit | `schemaSha256` no longer matches `schema/`: re-pack. |
+| An action answers 403 | The caller lacks `execute` on the action's `permission.resource`, or `host.collections` was refused as the data API refuses that caller. |
+| Writing a field answers 409 `written_by_actions` | The field or collection is `writtenBy: "actions"`: only your actions and jobs write it. |
+| `validate` fails `VIEW_REFERENCE` | The view names a field, action or view the extension does not declare. |
+| An operator's edit to your collection answers 409 | Its fields belong to your package: change the collection file and ship a new version. |
