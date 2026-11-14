@@ -45,7 +45,8 @@ image's superuser is a normal thing.
 
 Before any of the three, boot refuses — everywhere, with no override — a
 database restored onto a server that lacked the engine's roles: the dump's
-grants to them were dropped, and only the dump has them
+grants to them were dropped, and only the dump has them. The built-in backup
+creates those roles first, in the same archive
 ([disaster-recovery.md § 4 Scenario B](disaster-recovery.md)).
 
 **The documented production installation does not use a superuser.**

@@ -38,18 +38,22 @@ export const EMPTY_ARCHIVE_BYTES = 20;
  *
  * Call it only after `pg_dump` has exited 0 — a dump that failed outright has a
  * better error than anything here. `pg_dump` writes the archive itself
- * (`-Z 6 -f`), so a write that died at the tail (disk full, SIGXFSZ) is its exit
- * code, which is what the separate `gzip` exit-code check used to cover.
+ * (`-Z 6`, into the file `writeBackupArchive` opened), so a write that died at
+ * the tail (disk full, SIGXFSZ) is its exit code, which is what the separate
+ * `gzip` exit-code check used to cover.
+ *
+ * `rolesBytes` is the engine-roles member in front of the dump (dump.ts): the
+ * size that counts is what `pg_dump` wrote after it.
  */
-export async function verifyArchive(filepath: string): Promise<number> {
+export async function verifyArchive(filepath: string, rolesBytes = 0): Promise<number> {
   if (!(await Bun.file(filepath).exists())) {
     throw new Error('Backup file was not created');
   }
 
   const size = Bun.file(filepath).size;
-  if (size <= EMPTY_ARCHIVE_BYTES) {
+  if (size - rolesBytes <= EMPTY_ARCHIVE_BYTES) {
     throw new Error(
-      `Backup archive contains no data (${size} bytes — an empty gzip stream is ` +
+      `Backup archive contains no data (${size - rolesBytes} bytes — an empty gzip stream is ` +
         `${EMPTY_ARCHIVE_BYTES}). The dump produced nothing.`,
     );
   }

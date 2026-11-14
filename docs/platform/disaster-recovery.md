@@ -33,7 +33,7 @@ are documented below; T4 is out of scope for v1.
 
 | Component             | Where                                    | Lost if…                          | Backup mechanism                |
 | --------------------- | ---------------------------------------- | --------------------------------- | ------------------------------- |
-| Postgres database     | `pg_data` (server) or managed DB         | Disk dies / DROP TABLE            | `pg_dump` + `pg_dumpall --roles-only` + WAL archive (PITR) |
+| Postgres database     | `pg_data` (server) or managed DB         | Disk dies / DROP TABLE            | built-in backup (engine roles + `pg_dump`) + WAL archive (PITR) |
 | Valkey/Redis cache    | `appendonly.aof` / `dump.rdb`            | Process dies                      | AOF on disk; rebuildable        |
 | File storage          | `STORAGE_LOCAL_DIR` or S3 bucket               | Filesystem corruption / bucket    | rsync / S3 versioning           |
 | Engine binary         | `/usr/local/bin/zveltio`                 | rm by accident                    | Re-download from `zveltio-get`  |
@@ -52,16 +52,21 @@ are documented below; T4 is out of scope for v1.
 
 ### 3.1 T1 — Nightly logical dump (default)
 
-Built-in. Triggered via `POST /api/backup` or the Studio "Backups" page; runs
-`pg_dump | gzip` to `BACKUP_DIR` (default `/tmp/zveltio-backups`). Retains 20
-backups. Schedule daily via `cron`:
+Built-in. Triggered via `POST /api/backup`, a backup schedule or the Studio
+"Backups" page; writes one gzip archive to `BACKUP_DIR` (default
+`/tmp/zveltio-backups`). Retains 20 backups.
+
+The archive opens with the engine's own database roles — `CREATE ROLE … NOLOGIN`
+for each one this database's grants name, only where it is absent, with no
+password and no grant — and `pg_dump`'s plain SQL follows. Roles belong to the
+cluster, so `pg_dump` alone does not carry them; this is what lets the archive
+restore onto a new server in one command (§ 4 Scenario B). It needs no
+superuser to take, unlike `pg_dumpall --roles-only`. Schedule daily via `cron`:
 
 ```sh
 # /etc/cron.d/zveltio-backup
 0 3 * * * root curl -s -X POST -H "Authorization: Bearer $ZV_ADMIN_TOKEN" \
   http://localhost:3000/api/backup -d '{"notes":"nightly"}'
-# The roles are not in the dump; a new server needs them first (§ 4 Scenario B).
-5 3 * * * postgres pg_dumpall --roles-only > /var/backups/zveltio/roles-$(date +\%F).sql
 ```
 
 Verify weekly that files exist, are non-zero, and decompress cleanly:
@@ -230,35 +235,52 @@ curl -sf http://localhost:3000/api/health || { echo "engine unhealthy"; exit 1; 
 
 Smoke-check (§ 5) before declaring complete.
 
-**Restoring onto a NEW server: the roles first, then the dump.** The engine's
-roles (`zveltio_rls`, `zveltio_worker`, `zveltio_flow_reader`, `zveltio_ext`,
-and one per extension) belong to the *cluster*, so `pg_dump` does not carry
-them — but it does carry every `GRANT` that names them. Replayed onto a server
-where they do not exist, each of those statements fails with
-`role "zveltio_rls" does not exist` and that grant is gone: the engine
-recreates the roles at boot but cannot recreate what migrations granted them one
-object at a time (the revision view, the media quota function, default
-privileges, the narrow roles' schema access). Only the dump has that list. So
-the roles have to exist **before** it is replayed:
+**Restoring onto a NEW server.** The engine's roles (`zveltio_rls`,
+`zveltio_worker`, `zveltio_flow_reader`, `zveltio_ext`, and one per extension)
+belong to the *cluster*, so `pg_dump` does not carry them — but it does carry
+every `GRANT` that names them. Replayed onto a server where they do not exist,
+each of those statements fails with `role "zveltio_rls" does not exist` and
+that grant is gone: the engine recreates the roles at boot but cannot recreate
+what migrations granted them one object at a time (the revision view, the media
+quota function, default privileges, the narrow roles' schema access). Only the
+dump has that list. So the roles have to exist **before** it is replayed — and
+the built-in backup's archive creates them itself, first:
 
 ```sh
-# On the old server, beside every nightly dump (the built-in backup does not take it):
-pg_dumpall --roles-only > roles-2026-05-18.sql      # not a superuser? add --no-role-passwords
-
-# On the new server, before the database exists:
-psql -U postgres -f roles-2026-05-18.sql            # one error is expected: role "postgres" already exists
+# On the new server: create the role the engine logs in as (scripts/bootstrap-db-role.sh
+# on a hardened install), then the database, then one restore:
 createdb -U postgres "$ZVELTIO_DB"
 gunzip -c backup-2026-05-18T03-00-00Z.sql.gz | psql -v ON_ERROR_STOP=1 -U postgres -d "$ZVELTIO_DB"
 ```
 
-`ON_ERROR_STOP=1` is the point: a missing role now stops the restore instead of
-scrolling past. On a hardened install, run `scripts/bootstrap-db-role.sh`
-afterwards as on any new server — it sets the engine role's password (lost with
+`ON_ERROR_STOP=1` is the point: a missing role stops the restore instead of
+scrolling past. The archive creates only the engine's `NOLOGIN` roles: the role
+the engine logs in as, and any role of your own that holds grants in the
+database, must exist before the restore, or it stops at the first statement
+that names one. Creating the roles needs `CREATEROLE` (and a superuser for the
+`BYPASSRLS` ones, `zveltio_ext_bypass` and `zveltio_extb_*`, which exist only
+where the engine itself bypasses RLS). Onto a cluster that already has them the
+same command creates nothing. The engine makes the roles' memberships when it
+boots.
+
+**A dump of your own** (`pg_dump` from cron, a managed-Postgres snapshot
+export) carries no roles. Take `pg_dumpall --roles-only` beside it (add
+`--no-role-passwords` if you are not a superuser) and restore that first:
+
+```sh
+psql -U postgres -f roles-2026-05-18.sql            # one error is expected: role "postgres" already exists
+createdb -U postgres "$ZVELTIO_DB"
+gunzip -c my-dump.sql.gz | psql -v ON_ERROR_STOP=1 -U postgres -d "$ZVELTIO_DB"
+```
+
+On a hardened install, run `scripts/bootstrap-db-role.sh` afterwards as on any
+new server — it sets the engine role's password (lost with
 `--no-role-passwords`), the database owner and the parameter grants — then
 start the engine.
 
-**No roles file?** Create the database, restore without `ON_ERROR_STOP` and start the
-engine. It sees that the grants did not survive, creates its roles, and refuses
+**No roles at all** (a dump of your own taken without them, or a built-in
+backup from before ADR 0047)? Create the database, restore without
+`ON_ERROR_STOP` and start the engine. It sees that the grants did not survive, creates its roles, and refuses
 to start:
 
 ```
@@ -280,9 +302,9 @@ them as `scripts/bootstrap-db-role.sh` does and restore again. A dump taken befo
 migration 121 carries no marker and the engine cannot tell: do not skip the
 roles step.
 
-`scripts/dr-drill.sh` rehearses exactly this when `DRILL_NEW_CLUSTER` points at
-a second, role-less cluster (§ 7), and fails unless every grant the engine's
-roles hold on the new server is the source's.
+`scripts/dr-drill.sh` rehearses the built-in backup onto a new server when
+`DRILL_NEW_CLUSTER` points at a second, role-less cluster (§ 7), and fails
+unless every grant the engine's roles hold there is the source's.
 
 ### Scenario C — PITR to a specific timestamp (T2)
 
@@ -398,7 +420,11 @@ Output is a markdown report at `docs/dr-drills/drill-<timestamp>.md` with
 pass/fail per scenario and measured wall-clock times.
 
 Set `DRILL_NEW_CLUSTER` to a `postgresql://` URL of the maintenance database of
-a second cluster that has none of the engine's roles, and the drill also
-restores the dump there the way § 4 Scenario B says — roles first, then the dump
-with `ON_ERROR_STOP=1` — and compares every grant the engine's roles hold with
-the source's. The weekly CI run (`.github/workflows/dr-smoke.yml`) does.
+a second cluster that has none of the engine's roles, and the drill also takes a
+built-in backup (`POST /api/backup`, as `DRILL_ADMIN_EMAIL`) and restores it
+there the way § 4 Scenario B says — one command, `ON_ERROR_STOP=1`, no roles
+step — then compares every grant the engine's roles hold with the source's,
+checks the restore marker the engine checks at boot, and reads `zvv__revisions`
+as `zveltio_rls`. It drops the roles it created there afterwards, so the cluster
+stays role-less for the next run. The weekly CI run
+(`.github/workflows/dr-smoke.yml`) does.

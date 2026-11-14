@@ -9,9 +9,10 @@
  * was — see `resolveDumpTarget` in `routes/backup.ts` for what that cost.
  */
 
-import { chmod } from 'node:fs/promises';
+import { chmod, mkdir } from 'node:fs/promises';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { writeBackupArchive } from './dump.js';
 import { uploadBackup } from './upload.js';
 import { verifyArchive } from './verify-archive.js';
 
@@ -121,41 +122,17 @@ export async function runScheduledBackup(
   const backupId = inserted.rows[0]!.id;
 
   try {
-    await Bun.spawn(['mkdir', '-p', BACKUP_DIR]).exited;
+    await mkdir(BACKUP_DIR, { recursive: true });
 
-    // pg_dump writes the gzip archive itself (see routes/backup.ts): no gzip
+    // The engine's roles, then pg_dump's own gzip output (dump.ts): no gzip
     // process, and no pipe copied through this process.
-    const pgdump = Bun.spawn(
-      [
-        'pg_dump',
-        '-h',
-        target.host,
-        '-p',
-        String(target.port),
-        '-U',
-        target.user,
-        '-d',
-        target.name,
-        '-Z',
-        '6',
-        '-f',
-        filepath,
-      ],
-      {
-        env: { ...process.env, PGPASSWORD: target.password } as Record<string, string>,
-        stdout: 'ignore',
-        stderr: 'pipe',
-      },
-    );
-    await pgdump.exited;
-
-    if (pgdump.exitCode !== 0) {
-      const stderr = await new Response(pgdump.stderr).text();
-      throw new Error(`pg_dump failed (exit ${pgdump.exitCode}): ${stderr}`);
+    const dump = await writeBackupArchive(db, target, filepath);
+    if (dump.exitCode !== 0) {
+      throw new Error(`pg_dump failed (exit ${dump.exitCode}): ${dump.stderr}`);
     }
 
     // The file and its size — see verify-archive.ts for what each one catches.
-    const size = await verifyArchive(filepath);
+    const size = await verifyArchive(filepath, dump.rolesBytes);
 
     // 0600: the file holds the whole database, password hashes and customer data
     // included, and the usual umask would leave it world-readable.

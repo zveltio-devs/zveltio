@@ -17,6 +17,8 @@
  */
 
 import { afterAll, afterEach, beforeAll, describe, expect, it, spyOn } from 'bun:test';
+import { readlinkSync, writeSync } from 'node:fs';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import type { Database } from '../../db/index.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
@@ -78,7 +80,12 @@ const EMPTY_ARCHIVE = 'x'.repeat(20);
  * left nothing behind.
  */
 function fakeSpawn(
-  opts: { dumpExit?: number; stderr?: string; writeFile?: boolean; payload?: string } = {},
+  opts: {
+    dumpExit?: number;
+    stderr?: string;
+    writeFile?: boolean;
+    payload?: string | Uint8Array;
+  } = {},
 ) {
   const { dumpExit = 0, stderr = '', writeFile = true, payload = PAYLOAD } = opts;
   lastDest = null;
@@ -95,14 +102,15 @@ function fakeSpawn(
     if (cmd[0] === 'pg_dump') {
       // Where the archive actually goes, taken from the call rather than rebuilt
       // from BACKUP_DIR: the module reads that env var once, at load, and which
-      // file loads it first is not this test's to decide.
-      const dest = cmd.includes('-f') ? cmd[cmd.indexOf('-f') + 1]! : null;
+      // file loads it first is not this test's to decide. pg_dump writes to the
+      // file descriptor it is handed as stdout (lib/backup/dump.ts).
+      const fd = (o as { stdout?: unknown } | undefined)?.stdout;
+      const dest = typeof fd === 'number' ? readlinkSync(`/proc/self/fd/${fd}`) : null;
       lastDest = dest;
       if (dest) written.push(dest);
-      const done =
-        writeFile && dest
-          ? Bun.write(dest, payload).then(() => dumpExit)
-          : Promise.resolve(dumpExit);
+      if (writeFile && typeof fd === 'number')
+        writeSync(fd, typeof payload === 'string' ? Buffer.from(payload) : payload);
+      const done = Promise.resolve(dumpExit);
       return record({
         exited: done,
         exitCode: dumpExit,
@@ -219,7 +227,7 @@ describe('runScheduledBackup — the run that did not', () => {
     spy.mockRestore();
 
     expect(out.status).toBe('failed');
-    expect(out.error).toContain('was not created');
+    expect(out.error).toContain('no data');
   });
 
   it('treats a dump that died mid-write as a failure, truncated archive and all', async () => {
@@ -346,8 +354,55 @@ describe('runScheduledBackup — the wiring itself', () => {
 
     const { cmd } = callFor('pg_dump');
     expect(cmd[cmd.indexOf('-Z') + 1]).toBe('6');
-    expect(cmd[cmd.indexOf('-f') + 1]).toBe(lastDest!);
+    expect(cmd).not.toContain('-f');
+    expect(typeof callFor('pg_dump').opts.stdout).toBe('number');
+    expect(lastDest).toContain('sched-pipe');
     expect(calls.some((c) => c.cmd[0] === 'gzip')).toBe(false);
+  });
+});
+
+describe('runScheduledBackup — the engine roles (ADR 0047)', () => {
+  // A role the database's grants depend on, as `engineRolesSql` reads it.
+  const withRoles = () =>
+    cannedDb().when(/pg_shdepend/i, [
+      { name: 'zveltio_rls', bypass: false },
+      { name: 'zveltio_extb_crm_0123456789', bypass: true },
+    ]);
+
+  it('opens the archive with the roles, then the dump, one gunzip apart', async () => {
+    const spy = fakeSpawn({ payload: gzipSync('-- PostgreSQL database dump\n') });
+    const out = await runScheduledBackup(withRoles().kysely as unknown as Database, {
+      scheduleId: 'sched-roles',
+      scheduleName: 'Nightly',
+      target: target(),
+      actorId: null,
+    });
+    spy.mockRestore();
+
+    expect(out.status).toBe('completed');
+    const text = gunzipSync(await Bun.file(lastDest!).bytes()).toString();
+    expect(text.indexOf('CREATE ROLE zveltio_rls NOLOGIN')).toBeGreaterThan(0);
+    expect(text).toContain('CREATE ROLE zveltio_extb_crm_0123456789 NOLOGIN NOSUPERUSER BYPASSRLS');
+    expect(text).not.toMatch(/PASSWORD|GRANT/);
+    expect(text.indexOf('$zveltio_engine_roles$;')).toBeLessThan(
+      text.indexOf('-- PostgreSQL database dump'),
+    );
+  });
+
+  it('still refuses an empty dump behind the roles', async () => {
+    // The roles member alone is well over 20 bytes: counted with it, a dump of
+    // nothing would pass as a backup.
+    const spy = fakeSpawn({ payload: EMPTY_ARCHIVE });
+    const out = await runScheduledBackup(withRoles().kysely as unknown as Database, {
+      scheduleId: 'sched-roles-hollow',
+      scheduleName: 'Nightly',
+      target: target(),
+      actorId: null,
+    });
+    spy.mockRestore();
+
+    expect(out.status).toBe('failed');
+    expect(out.error).toContain('no data');
   });
 });
 

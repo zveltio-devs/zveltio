@@ -69,7 +69,8 @@ jobs:
           --health-retries 5
       # The new server of disaster-recovery.md §4 Scenario B: a cluster with
       # none of the engine's roles, which the restore above (same cluster)
-      # cannot stand in for. dr-drill.sh section 1b restores onto it.
+      # cannot stand in for. dr-drill.sh section 1b restores the built-in
+      # backup (POST /api/backup, roles included — ADR 0047) onto it.
       postgres_new:
         image: pgvector/pgvector:pg18
         env:
