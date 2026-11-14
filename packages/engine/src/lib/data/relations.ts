@@ -6,7 +6,11 @@
 
 import { z } from 'zod';
 import type { Database } from '../../db/index.js';
-import { dynamicSetForeignKeyActions } from '../../db/dynamic.js';
+import {
+  dynamicSetForeignKeyActions,
+  type ForeignKeyChange,
+  validateForeignKeyChange,
+} from '../../db/dynamic.js';
 import { toJsonb } from '../jsonb.js';
 import { DDLManager } from './ddl-manager.js';
 import { announceSchemaChange } from './ddl-queue.js';
@@ -154,11 +158,13 @@ export async function refuseRequiredKey(db: Database, collection: string, field:
 /**
  * Sets what `PATCH /api/relations/:id` sets. A new action re-creates the key's
  * foreign key in the transaction that writes the row, so `zvd_relations` never
- * describes actions the database does not enforce.
+ * describes actions the database does not enforce. The key's rows are checked
+ * after that commit, outside the table's lock (`validateForeignKeyChange`); a
+ * check that fails puts the previous key and the row's previous values back.
  */
 export async function updateRelation(
   db: Database,
-  existing: RelationKeyed & { id: string },
+  existing: RelationKeyed & { id: string; metadata?: unknown },
   change: {
     name?: string;
     on_delete?: string;
@@ -174,9 +180,10 @@ export async function updateRelation(
   };
   if (actions) await refuseRequiredSetNull(db, { ...next, name: change.name ?? existing.name });
   const k = relationKey(next);
-  return db.transaction().execute(async (trx) => {
+  let fk: ForeignKeyChange | undefined;
+  const row = await db.transaction().execute(async (trx) => {
     if (actions && k) {
-      await dynamicSetForeignKeyActions(
+      fk = await dynamicSetForeignKeyActions(
         trx,
         DDLManager.getTableName(k.holder),
         k.column,
@@ -197,6 +204,21 @@ export async function updateRelation(
       .returningAll()
       .executeTakeFirst();
   });
+  if (fk) {
+    await validateForeignKeyChange(db, fk, (trx) =>
+      trx
+        .updateTable('zvd_relations')
+        .set({
+          ...(change.name !== undefined ? { name: String(existing.name) } : {}),
+          on_delete: existing.on_delete ?? null,
+          on_update: existing.on_update ?? null,
+          ...(change.metadata !== undefined ? { metadata: toJsonb(existing.metadata ?? {}) } : {}),
+        })
+        .where('id', '=', existing.id)
+        .execute(),
+    );
+  }
+  return row;
 }
 
 // The field helpers run on the CALLER's transaction, so a collection's fields and

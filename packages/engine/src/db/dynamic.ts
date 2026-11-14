@@ -949,15 +949,16 @@ const FK_ACTIONS: Record<string, string> = {
 /**
  * The foreign key on each of `keys` (`table.column`) as the database enforces
  * it — not as `zvd_relations` describes it; a column without one is absent.
+ * `validated` is false for a key added NOT VALID whose rows were never checked.
  */
 export async function foreignKeysOf(
   db: Database,
   keys: string[],
-): Promise<Map<string, { name: string; onDelete: string; onUpdate: string }>> {
+): Promise<Map<string, { name: string; onDelete: string; onUpdate: string; validated: boolean }>> {
   if (keys.length === 0) return new Map();
-  const { rows } = await sql<{ k: string; name: string; d: string; u: string }>`
+  const { rows } = await sql<{ k: string; name: string; d: string; u: string; v: boolean }>`
     SELECT c.relname || '.' || a.attname AS k, con.conname AS name,
-           con.confdeltype::text AS d, con.confupdtype::text AS u
+           con.confdeltype::text AS d, con.confupdtype::text AS u, con.convalidated AS v
       FROM pg_constraint con
       JOIN pg_class c ON c.oid = con.conrelid
       JOIN pg_namespace ns ON ns.oid = c.relnamespace
@@ -965,15 +966,37 @@ export async function foreignKeysOf(
      WHERE ns.nspname = 'public' AND con.contype = 'f' AND cardinality(con.conkey) = 1
        AND c.relname || '.' || a.attname IN (${sql.join(keys)})`.execute(db);
   return new Map(
-    rows.map((r) => [r.k, { name: r.name, onDelete: FK_ACTIONS[r.d], onUpdate: FK_ACTIONS[r.u] }]),
+    rows.map((r) => [
+      r.k,
+      { name: r.name, onDelete: FK_ACTIONS[r.d], onUpdate: FK_ACTIONS[r.u], validated: r.v },
+    ]),
   );
 }
 
+/** A foreign key `dynamicSetForeignKeyActions` re-created NOT VALID, and the one it replaced. */
+export interface ForeignKeyChange {
+  table: string;
+  column: string;
+  ref: string;
+  name: string;
+  /** Absent when the column had no key (drift). */
+  previous?: { onDelete: string; onUpdate: string; validated: boolean };
+}
+
+const fkClause = (column: string, ref: string, onDelete: string, onUpdate: string) =>
+  sql`FOREIGN KEY (${sql.id(column)}) REFERENCES ${sql.id(ref)}(id) ON DELETE ${sql.raw(onDelete)} ON UPDATE ${sql.raw(onUpdate)} NOT VALID`;
+
 /**
- * Gives the foreign key on `table.column` these actions: dropped and added back
- * under its own name in one statement, in the caller's transaction, so the key
- * and the relation row it is written beside change together. PostgreSQL has no
- * ALTER CONSTRAINT for referential actions.
+ * Gives the foreign key on `table.column` these actions, in the caller's
+ * transaction, so the key and the relation row written beside it change
+ * together. PostgreSQL has no ALTER CONSTRAINT for referential actions: the key
+ * is dropped and added back under its own name in one statement — there is no
+ * moment without a key — `NOT VALID`, which is catalog only.
+ *
+ * The rows are the caller's to check, after commit: `validateForeignKeyChange`.
+ * Checked inside this ALTER, every row was read under ACCESS EXCLUSIVE on the
+ * table and its parent, no reads and no writes on either (DR-38). Returns
+ * undefined when the key already is what is asked.
  */
 export async function dynamicSetForeignKeyActions(
   db: Database,
@@ -982,31 +1005,89 @@ export async function dynamicSetForeignKeyActions(
   refTable: string,
   onDelete: string,
   onUpdate: string,
-): Promise<void> {
+): Promise<ForeignKeyChange | undefined> {
   const od = onDelete.toUpperCase();
   const ou = onUpdate.toUpperCase();
   const allowed = ['CASCADE', 'SET NULL', 'RESTRICT', 'NO ACTION'];
   if (!allowed.includes(od) || !allowed.includes(ou)) {
     throw new Error(`Invalid on_delete/on_update value: ${od}/${ou}`);
   }
-  const table = sql.id(sanitizeIdentifier(tableName));
-  const col = sql.id(sanitizeIdentifier(columnName));
-  const ref = sql.id(sanitizeIdentifier(refTable));
-  const fk = (await foreignKeysOf(db, [`${tableName}.${columnName}`])).get(
-    `${tableName}.${columnName}`,
-  );
-  if (fk?.onDelete === od && fk.onUpdate === ou) return;
-  const key = sql`FOREIGN KEY (${col}) REFERENCES ${ref}(id) ON DELETE ${sql.raw(od)} ON UPDATE ${sql.raw(ou)}`;
+  const table = sanitizeIdentifier(tableName);
+  const column = sanitizeIdentifier(columnName);
+  const ref = sanitizeIdentifier(refTable);
+  const k = `${tableName}.${columnName}`;
+  const fk = (await foreignKeysOf(db, [k])).get(k);
+  if (fk?.onDelete === od && fk.onUpdate === ou && fk.validated) return undefined;
+  let name = fk?.name;
   await withLockTimeout(db, async (trx) => {
-    // A key the relation should have and does not (drift) is added.
-    if (!fk) await sql`ALTER TABLE ${table} ADD ${key}`.execute(trx);
-    else {
-      const name = sql.id(fk.name);
-      await sql`ALTER TABLE ${table} DROP CONSTRAINT ${name}, ADD CONSTRAINT ${name} ${key}`.execute(
+    const key = fkClause(column, ref, od, ou);
+    if (fk) {
+      await sql`ALTER TABLE ${sql.id(table)} DROP CONSTRAINT ${sql.id(fk.name)}, ADD CONSTRAINT ${sql.id(fk.name)} ${key}`.execute(
         trx,
       );
+    } else {
+      // A key the relation should have and does not (drift) is added.
+      await sql`ALTER TABLE ${sql.id(table)} ADD ${key}`.execute(trx);
+      name = (await foreignKeysOf(trx, [k])).get(k)?.name;
     }
   });
+  if (!name) throw new Error(`no foreign key on ${k} after adding one`);
+  return {
+    table,
+    column,
+    ref,
+    name,
+    previous: fk && { onDelete: fk.onDelete, onUpdate: fk.onUpdate, validated: fk.validated },
+  };
+}
+
+/**
+ * Checks the rows against the key `dynamicSetForeignKeyActions` re-created, once
+ * its transaction has committed. `VALIDATE CONSTRAINT` takes SHARE UPDATE
+ * EXCLUSIVE on the table and ROW SHARE on its parent: readers and writers go on.
+ * Its lock wait is not bounded, as a CONCURRENTLY build's is not — it queues
+ * only DDL and vacuum — and it cannot wait on a holder the ALTER did not.
+ *
+ * Refused — a row the previous key never checked (it was NOT VALID, or there
+ * was none), or the check cancelled — the change is undone: the previous key
+ * back as it was (none, NOT VALID, or validated again) and `undo` run in the
+ * same transaction for what was written beside it. Then the error is thrown.
+ * A key is never left NOT VALID in silence: a failed undo throws saying so.
+ */
+export async function validateForeignKeyChange(
+  db: Database,
+  change: ForeignKeyChange,
+  undo: (trx: Database) => Promise<unknown>,
+): Promise<void> {
+  const table = sql.id(change.table);
+  const name = sql.id(change.name);
+  const validate = () => sql`ALTER TABLE ${table} VALIDATE CONSTRAINT ${name}`.execute(db);
+  try {
+    await validate();
+    return;
+  } catch (err) {
+    const prev = change.previous;
+    try {
+      await withLockTimeout(db, async (trx) => {
+        await sql`ALTER TABLE ${table} DROP CONSTRAINT ${name}`.execute(trx);
+        if (prev) {
+          const key = fkClause(change.column, change.ref, prev.onDelete, prev.onUpdate);
+          await sql`ALTER TABLE ${table} ADD CONSTRAINT ${name} ${key}`.execute(trx);
+        }
+        await undo(trx);
+      });
+      // Valid before, so no row breaks it: only a cancel or a crash stops this.
+      if (prev?.validated) await validate();
+    } catch (undoErr) {
+      throw new Error(
+        `The foreign key "${change.name}" on ${change.table}.${change.column} was not validated ` +
+          `(${(err as Error).message}) and restoring the previous one failed ` +
+          `(${(undoErr as Error).message}): it is left NOT VALID. Repeat the change to validate it.`,
+        { cause: err },
+      );
+    }
+    throw err;
+  }
 }
 
 /**
