@@ -121,7 +121,8 @@ const RAW_NAV: NavGroup[] = [
         labelKey: 'nav.collections',
       },
       {
-        href: resolve(`templates`),
+        // The application templates are the `templates/*` extensions (ADR 0049).
+        href: resolve(`marketplace?category=templates`),
         icon: Sparkles,
         labelKey: 'nav.templates',
       },

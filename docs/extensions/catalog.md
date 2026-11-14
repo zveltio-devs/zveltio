@@ -1,8 +1,8 @@
 # Official Extension Catalog
 
-The 52 first-party extensions, maintained in the sibling repository
-`zveltio-extensions`. 51 ship engine code; `content/pdf-viewer` is Studio-only.
-24 categories.
+The 57 first-party extensions, maintained in the sibling repository
+`zveltio-extensions`. 56 ship engine code; `content/pdf-viewer` is Studio-only.
+25 categories.
 
 The rows are copied from the manifests by `bun run sync-catalog`, which also
 refreshes the engine's bundled `catalog.json`; it runs when a release is cut.
@@ -178,6 +178,20 @@ accurate counts.
 |---|---|---|---|
 | `storage/cloud` | Cloud Storage | 2.0.0 | Version history, favorites and retention policies over the engine's stored files |
 
+## templates
+
+Starter applications: collections and a page, no code. They were the engine's
+built-in templates (`/api/templates`, removed by ADR 0049); install one from the
+catalog and the engine creates its collections when it is enabled.
+
+| Extension | Name | Ver | What it does |
+|---|---|---|---|
+| `templates/invoicing` | Invoicing Starter | 1.0.0 | Starter app: customers, invoices, line items and payments as four collections. Was the built-in Invoicing template. |
+| `templates/project` | Project Starter | 1.0.0 | Starter app: projects, tasks, comments and time logs as four collections. Was the built-in Project Management template. |
+| `templates/helpdesk` | Help Desk Starter | 1.0.0 | Starter app: ticket categories, customers, tickets and replies as four collections. Was the built-in Help Desk template. |
+| `templates/inventory` | Asset Inventory Starter | 1.0.0 | Starter app: suppliers, locations, products and stock movements as four collections. Was the built-in Asset Inventory template. |
+| `templates/ansvsa` | ANSVSA Official Control | 1.0.0 | Starter app for the Romanian veterinary and food safety authority (ANSVSA): operators, units, requests, risk-based inspections, findings, samples, sanctions and alerts as 64 collections. Was the built-in ANSVSA template. |
+
 ## workflow
 
 | Extension | Name | Ver | What it does |
@@ -197,7 +211,7 @@ branches**, **tenants**, **collections**, **storage**, **webhooks**,
 Some capabilities moved the other way and their old core routes now return
 **410 Gone** with a forwarding address: approvals → `workflow/approvals`,
 export → `data/export`, import → `data/import`, media → `content/media`,
-briefing → `crm`. Edge function administration went back to the engine
+briefing → `crm`, templates → `templates/*`. Edge function administration went back to the engine
 (`/api/edge-functions`, Studio **Developer → Edge Functions**) and the
 `developer/edge-functions` extension was retired.
 

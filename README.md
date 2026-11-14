@@ -125,11 +125,11 @@ Build your own: `zveltio extension create <name>` scaffolds. `zveltio extension 
 
 ## What you can install today
 
-55 first-party extensions, organized by domain. Browse the full catalog at `/admin/marketplace` after install, or read [docs/extensions/catalog.md](docs/extensions/catalog.md).
+57 first-party extensions, organized by domain. Browse the full catalog at `/admin/marketplace` after install, or read [docs/extensions/catalog.md](docs/extensions/catalog.md).
 
 Some capabilities are the engine itself rather than an extension — collections,
 storage, webhooks, realtime, audit, notifications, automation flows, backup,
-insights, saved queries, schema branches, tenants — so they are not in that 56.
+insights, saved queries, schema branches, tenants — so they are not in that 57.
 See [What is not an extension](docs/extensions/overview.md#what-is-not-an-extension).
 
 **Data & Content** · `content/pages` (block-based pages and sites, including authenticated portals) · `content/documents` · `content/document-templates` · `content/media` · `content/drafts` · `content/pdf-viewer` · `forms` · `data/import` · `data/export`
@@ -137,6 +137,8 @@ See [What is not an extension](docs/extensions/overview.md#what-is-not-an-extens
 **Customer & Business** · `crm` · `ecommerce/store` · `operations/pos` · `operations/inventory` · `operations/assets` · `operations/traceability` · `finance/invoicing` · `finance/quotes` · `finance/expenses` · `finance/accounting` · `finance/banking` · `finance/subscriptions` · `billing`
 
 **Workflow & Automation** · `workflow/approvals` · `workflow/checklists` · `projects/management` · `projects/helpdesk` _(automation `flows` live in engine core, not as a plugin)_
+
+**Starter apps** · `templates/invoicing` · `templates/project` · `templates/helpdesk` · `templates/inventory` · `templates/ansvsa` (collections and a page, no code; they were the engine's built-in templates)
 
 **Communications & HR** · `communications/mail` · `sms` · `hr/employees` · `hr/time-tracking` · `hr/leave` · `hr/payroll`
 

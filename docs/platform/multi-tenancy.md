@@ -141,7 +141,7 @@ resolved beforehand, on the pool, as the engine role.
 
 ```
 /api/health  /api/metrics  /api/auth  /api/openapi
-/api/collections  /api/relations  /api/schema  /api/templates
+/api/collections  /api/relations  /api/schema
 /api/tenants  /api/invitations
 /api/insights  /api/flows  /api/backup  /api/admin/sql
 /api/admin/audit

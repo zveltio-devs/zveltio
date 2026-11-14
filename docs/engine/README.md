@@ -43,7 +43,6 @@ packages/engine/src/
 ├── db/             Kysely setup, migrations, auto-migrate, generated schema
 ├── field-types/    core field type registry
 ├── workers/        worker entry points
-├── templates/      seed templates
 └── tests/          unit/ integration/ harness/ stress/ fixtures/
 ```
 

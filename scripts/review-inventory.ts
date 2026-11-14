@@ -416,7 +416,7 @@ const SECTIONS: Section[] = [
   {
     id: 'A17',
     track: 'A — engine core',
-    title: 'Settings, audit trail, templates, RPC, data quality',
+    title: 'Settings, audit trail, RPC, data quality',
     focus: 'The audit writer itself, and the routes that read or reshape whole instances.',
     match: [
       `${E}lib/audit.ts`,
@@ -428,7 +428,6 @@ const SECTIONS: Section[] = [
       `${S}lib/map-tiles.ts`,
       `${E}lib/system-collections.ts`,
       `${E}lib/notifications.ts`,
-      `${E}routes/templates.ts`,
       `${E}routes/rpc.ts`,
     ],
   },
@@ -725,13 +724,12 @@ const SECTIONS: Section[] = [
   {
     id: 'C09',
     track: 'C — Studio & client',
-    title: 'Admin pages — flows, marketplace, schema branches, templates, onboarding',
+    title: 'Admin pages — flows, marketplace, schema branches, onboarding',
     focus: 'Screens that install or execute something.',
     match: [
       `${S}routes/(admin)/flows/`,
       `${S}routes/(admin)/marketplace/`,
       `${S}routes/(admin)/schema-branches/`,
-      `${S}routes/(admin)/templates/`,
       `${S}routes/(admin)/onboarding/`,
     ],
   },
@@ -1006,7 +1004,6 @@ const SECTIONS: Section[] = [
       'scripts/probe-ext-auth.ts',
       'scripts/probe-sdui-endpoints.ts',
       'scripts/report-slow-in-transaction.ts',
-      'scripts/seed-demo.ts',
       'scripts/setup-test-db.sh',
       'scripts/sql/',
       'scripts/sync-engine-version.ts',
