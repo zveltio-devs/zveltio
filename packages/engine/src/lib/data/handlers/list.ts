@@ -49,6 +49,21 @@ import type { ParsedQuery } from '../query-parse.js';
 import { getDb, getTenantId, selectReadable, getVirtualConfig } from '../write-pipeline.js';
 import { checkAccess } from '../auth.js';
 
+/**
+ * What `?search=` matches: the stored search columns, which cover every text
+ * field (undefined), or, for a caller who may not read one of them, the ones it
+ * can read.
+ */
+export function searchColumns(
+  def: CollectionDef,
+  readable: (column: string) => boolean,
+): string[] | undefined {
+  const searchable = normalizeFields(def)
+    .filter((f) => SEARCH_FIELD_TYPES.has(f.type) && f.name)
+    .map((f) => f.name);
+  return searchable.every(readable) ? undefined : searchable.filter(readable);
+}
+
 /** Batches the keyset walk reads to fill one page (ADR 0021). */
 export const LIST_REFILL_ROUNDS = 10;
 export async function listRecords(c: Context, db: Database, query: ParsedQuery): Promise<Response> {
@@ -321,14 +336,7 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
   // not exist: filtering on a hidden column read it back through the row count.
   const allowedCols = new Set([...buildAllowedCols(collectionDef)].filter(scope.readable));
 
-  // `?search=` matches the stored search columns, which cover every text field.
-  // A caller who may not read one of them searches the ones it can read.
-  const searchable = normalizeFields(collectionDef)
-    .filter((f) => SEARCH_FIELD_TYPES.has(f.type) && f.name)
-    .map((f) => f.name);
-  const ftsColumns = searchable.every(scope.readable)
-    ? undefined
-    : searchable.filter(scope.readable);
+  const ftsColumns = searchColumns(collectionDef, scope.readable);
 
   // Parse filters — bracket + JSON formats (JSON wins on the same field).
   const locationCols = buildLocationCols(collectionDef);

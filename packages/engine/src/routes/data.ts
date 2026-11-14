@@ -8,6 +8,7 @@ import { ANONYMOUS_SUBJECT } from '../lib/tenancy/index.js';
 import { anonymousReadRateLimit } from '../middleware/rate-limit.js';
 import { QuerySchema } from '../lib/data/query-parse.js';
 import { listRecords } from '../lib/data/handlers/list.js';
+import { AggregateQuerySchema, aggregateRecords } from '../lib/data/handlers/aggregate.js';
 import { listReadableCollections } from '../lib/data/handlers/collections.js';
 import { bulkCreate, bulkUpdate, bulkDelete } from '../lib/data/handlers/bulk.js';
 import {
@@ -74,6 +75,12 @@ export function dataRoutes(db: Database, auth: any): Hono {
   // GET /:collection — List records
   app.get('/:collection', zValidator('query', QuerySchema), (c) =>
     listRecords(c, db, c.req.valid('query')),
+  );
+
+  // GET /:collection/aggregate — counts and sums under the list's read gate
+  // (ADR 0050); before /:collection/:id, like /bulk.
+  app.get('/:collection/aggregate', zValidator('query', AggregateQuerySchema), (c) =>
+    aggregateRecords(c, c.req.valid('query')),
   );
 
   // Bulk collection routes (must be before /:collection/:id)

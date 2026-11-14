@@ -48,7 +48,7 @@ const INTERNAL_COLUMNS = new Set(['search_vector', 'search_text']);
 /** Cast database-side numeric strings back to JS numbers when the schema says
  * the field is numeric. Postgres `numeric/decimal` come back as strings via
  * Bun.SQL — clients shouldn't have to remember which fields to coerce. */
-const NUMERIC_FIELD_TYPES = new Set([
+export const NUMERIC_FIELD_TYPES = new Set([
   'number',
   'integer',
   'int',
