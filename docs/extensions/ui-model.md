@@ -283,7 +283,12 @@ the mail `send` job deletes the draft it sent.
 A row's `open` and a `navigate` go to the extension's page whose view file has
 that `id`; the page path's `:name` segments are filled from the parameters and
 the rest go in the query, and `$param` reads both. `open` passes the row as
-`id`.
+`id`. A view names its target by view id only, never by path: the target is
+always that extension and that view id, and each front end resolves the route
+itself (Studio from the extension's pages, `@zveltio/react` through
+`onNavigate`). A `{ "view": "<id>" }` result names a view of the extension
+whose action returned it. No view names another extension's view (ADR 0047
+decision 5).
 
 **Live preview.** *Developer → View preview* (`/admin/developer/views`) takes a
 `view/2` document, shows the specification's issues as you type, and draws it
