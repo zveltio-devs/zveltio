@@ -23,10 +23,12 @@ modules an operator installs, rather than code a developer forks.
 This matters more than it sounds, because it determines which threats are worth
 modelling and which are not.
 
-- **There is no anonymous data API.** Every data route under `/api/*` requires
-  a session or an API key. Public surfaces — a published site, a form
-  submission, a storefront, an SSO callback — exist only where an installed
-  extension declares them in its manifest.
+- **Anonymous callers only read, and only what an operator opened.** Every
+  write under `/api/*` requires a session or an API key. A request with no
+  credential may read `/api/data` as the tenant's `public` role, which holds
+  no grant until an operator gives it one (ADR 0017), and is rate limited.
+  Other public surfaces — a sitemap, a webhook, an SSO callback — exist only
+  where an installed extension declares a public route in its manifest.
 - **The tenant is an organisation, not an end user.** Users do not sign
   themselves up into isolated sandboxes; an operator provisions organisational
   units.

@@ -48,23 +48,29 @@ work", and a finding reported against source that never executes.
 
 ```
 <category>/<name>/
-├── manifest.json        identity, permissions, contributions, integrity
+├── manifest.json        identity, capabilities, collections, actions, jobs, routes, pages, integrity
+├── schema/collections/  one file per declared collection — the engine creates and owns it
 ├── engine/
-│   ├── index.ts         entry point — the ZveltioExtension object
-│   ├── routes.ts        Hono routes, mounted at /ext/<name>/
-│   ├── migrations/      NNN_name.sql, with -- UP and -- DOWN sections
+│   ├── index.ts         entry point — the ZveltioExtension object (actions, jobs, routes)
 │   └── index.js         the BUILT BUNDLE — this is what runs
-├── studio/              Svelte pages (Tier 3) — or:
-└── schemas/*.json       SDUI page schemas (preferred)
+└── studio/
+    ├── schemas/*.json   pages: zveltio.view/2 documents
+    └── messages/en.json the keys the pages own
 ```
+
+Extensions built on the legacy v1 surface may still carry `engine/routes.ts`
+(Hono), `engine/migrations/` and Svelte pages; see
+[authoring.md](authoring.md#legacy-surface-extension-api-v1-until-v2).
 
 ### The manifest
 
 Every manifest carries `name`, `displayName`, `category`, `description`,
 `version`, `zveltioMinVersion`, `zveltioMaxVersion`, `package`, `permissions`,
 `contributes`, and `studio`. 55 of 56 also carry `engine` and `integrity`.
-Optional: `resources`, `publicRoutes`, `apiKeyRoutes`, `dependencies`, `peerDependencies`,
-`sensitiveResources`, `globalRoutes`, `requires`.
+Optional: `collections`, `actions`, `jobs`, `routes`, `signInProviders`,
+`dependencies`, `optionalDependencies`, `peerDependencies`, `requires`; legacy
+(v1, not for new work): `resources`, `publicRoutes`, `apiKeyRoutes`,
+`sensitiveResources`, `globalRoutes`.
 
 JSON Schema: [`../manifest-v2.schema.json`](../manifest-v2.schema.json).
 Field-by-field reference: [developer-guide.md §4](developer-guide.md).
