@@ -12,6 +12,8 @@ All notable changes to Zveltio will be documented in this file.
 
 `analytics/quality` 3.0.0 in the bundled catalogue (#1699).
 
+**A view/2 button whose input names an unselected pane is disabled.** A toolbar button such as `analytics/quality`'s "Dismiss all" (`input: { scan_id: { $selected: "scan" } }`) was drawn enabled while no row was selected in pane `scan`; a click got only a "select first" notice (Studio) or a stale note (`@zveltio/react`). `@zveltio/sdk/view` now has `isBound(button, scope)` (every reference in the button's `input`, `params` or `files` has a value) and both renderers draw a button that is not bound disabled, so it is never sent. A prompted input is no reference; a form's submit button still resolves on the saved record.
+
 ## [3.0.0-beta.121] - 2026-11-14
 
 **SECURITY: a worker-isolated extension ignored per-firm activation.** The worker proxy registered its routes before the activation check, so a signed-in caller reached a worker extension turned off for their firm (or installed nowhere) and got 200, where an inline extension answers 404. Activation now runs first (#1690).
