@@ -12,10 +12,12 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { SHARED_MESSAGE_KEYS } from '@zveltio/sdk/validate';
+import cliPkg from '../../package.json' with { type: 'json' };
+import enginePkg from '../../../engine/package.json' with { type: 'json' };
 import { extensionCommand } from './extension.js';
 
 let dir: string;
@@ -94,6 +96,24 @@ describe('extension create — the declared model', () => {
   it('ships only the keys it owns — shared vocabulary is not re-declared', () => {
     const own = Object.keys(readJson(join(root(), 'studio', 'messages', 'en.json')));
     expect(own.every((k) => !k.startsWith('common.'))).toBe(true);
+  });
+});
+
+describe('extension create — package.json (DR-20)', () => {
+  it('outside a project, pins what a pack needs at the engine versions', async () => {
+    await extensionCommand('create', 'Inventory', { category: 'operations' });
+    const p = readJson(join(root(), 'package.json'));
+    expect(p.dependencies).toEqual({
+      '@zveltio/sdk': cliPkg.version,
+      kysely: enginePkg.dependencies.kysely,
+    });
+  });
+
+  it('inside a project that already installs kysely, writes none', async () => {
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ dependencies: { kysely: '1' } }));
+    await extensionCommand('create', 'Inventory', { category: 'operations' });
+    expect(existsSync(join(root(), 'manifest.json'))).toBe(true);
+    expect(existsSync(join(root(), 'package.json'))).toBe(false);
   });
 });
 

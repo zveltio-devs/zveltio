@@ -11,7 +11,7 @@
 
 import { createHash } from 'crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
-import { join, relative } from 'path';
+import { join, relative, resolve } from 'path';
 import {
   validateExtension,
   validateSduiSchema,
@@ -193,18 +193,20 @@ function readDependencyFiles(
 const stringsOf = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((c): c is string => typeof c === 'string') : [];
 
-function inferExpectedName(dir: string): string {
-  const norm = dir.replace(/\\/g, '/');
-  // lastIndexOf, not indexOf: GitHub Actions checks the repo out at
-  // `…/work/zveltio-extensions/zveltio-extensions/<ext>` — the segment appears
-  // twice. The real extensions root is the LAST occurrence; using the first
-  // infers "zveltio-extensions/<ext>" and spuriously fails MANIFEST_NAME_MISMATCH.
-  const marker = 'zveltio-extensions/';
-  const idx = norm.lastIndexOf(marker);
-  if (idx >= 0) {
-    return norm.slice(idx + marker.length).replace(/\/$/, '');
-  }
-  return norm.split('/').filter(Boolean).pop() ?? '';
+/**
+ * The name the folder path gives, read the way the manifest name is written:
+ * `group/name` names the last two folders, a bare `name` the last one.
+ *
+ * It used to look for a `zveltio-extensions/` segment and take everything after
+ * it, else the last folder alone. So `analytics/quality` failed
+ * MANIFEST_NAME_MISMATCH in a scaffold outside that repository, or in a
+ * worktree with another name (`wt-ext-q/analytics/quality` gave "quality").
+ * What the repository folder is called is not the extension's business; a real
+ * mismatch (`analytics/quality` in `analytics/qa`) still fails.
+ */
+function inferExpectedName(dir: string, manifestName?: unknown): string {
+  const depth = typeof manifestName === 'string' && manifestName ? manifestName.split('/').length : 1;
+  return resolve(dir).replace(/\\/g, '/').split('/').filter(Boolean).slice(-depth).join('/');
 }
 
 /**
@@ -466,7 +468,7 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
   const result = validateExtension({
     manifest: {
       manifest,
-      expectedName: inferExpectedName(dir),
+      expectedName: inferExpectedName(dir, (manifest as { name?: unknown } | null)?.name),
     },
     peerDeps: {
       peerDependencies:

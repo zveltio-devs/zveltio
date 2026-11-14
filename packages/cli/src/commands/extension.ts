@@ -1,8 +1,31 @@
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { mkdir, writeFile } from 'fs/promises';
-import { join } from 'path';
+import { dirname, join } from 'path';
 // Inlined by `bun build`, as in index.ts: the engine version this CLI ships with.
 import pkg from '../../package.json' with { type: 'json' };
+// Same: the kysely the engine pins, so a scaffold builds against the engine's own.
+import enginePkg from '../../../engine/package.json' with { type: 'json' };
+
+/**
+ * Does a project above `dir` already provide the dependencies a pack needs?
+ * `@zveltio/sdk/extension` imports kysely at runtime, so the nearest
+ * package.json that declares kysely (the extensions repository, the engine
+ * monorepo, the author's own project) is where the bundler finds it.
+ */
+function projectProvidesDeps(dir: string): boolean {
+  for (let at = dir; ; at = dirname(at)) {
+    const file = join(at, 'package.json');
+    if (existsSync(file)) {
+      try {
+        const p = JSON.parse(readFileSync(file, 'utf8'));
+        if (p?.dependencies?.kysely || p?.devDependencies?.kysely) return true;
+      } catch {
+        /* unreadable: keep walking */
+      }
+    }
+    if (dirname(at) === at) return false;
+  }
+}
 
 export async function extensionCommand(
   action: 'create' | 'build',
@@ -192,6 +215,24 @@ export default defineExtension(['data:write'], {
     }),
   );
 
+  // A scaffold outside a project that installs them cannot pack: the bundle
+  // inlines @zveltio/sdk/extension and the kysely it imports (DR-20).
+  if (!projectProvidesDeps(process.cwd())) {
+    await writeFile(
+      join(targetDir, 'package.json'),
+      json({
+        name: `@zveltio/ext-${safeName}`,
+        version: '1.0.0',
+        private: true,
+        type: 'module',
+        dependencies: {
+          '@zveltio/sdk': pkg.version,
+          kysely: enginePkg.dependencies.kysely,
+        },
+      }),
+    );
+  }
+
   // .gitattributes — keep the packed engine/index.js byte-identical
   await writeFile(
     join(targetDir, '.gitattributes'),
@@ -250,6 +291,7 @@ jobs:
       ${safeName}.json  <- THE PAGE, a zveltio.view/2 document
     messages/
       en.json         <- keys this view owns; other locales filled from en
+  package.json        <- only outside a project that already installs kysely
   .gitattributes
   .github/workflows/ci.yml
 
