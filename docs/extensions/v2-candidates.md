@@ -170,3 +170,16 @@ name, and loses to the delimited one; a variable with `__` after
 
 **What v2 should do.** Stop reading the single-underscore spelling, and drop the
 withholding logic that exists only for it.
+
+## 7. `forwardCredentials` matches a path for every method — narrowing
+
+**What happens.** A `forwardCredentials` entry is keyed by a `publicRoutes`
+path, so an approved header reaches every method on that path: approving
+`authorization` for `POST /scim/*` forwards it to `DELETE /scim/*` too. No
+first-party extension uses `forwardCredentials` (checked 2026-11-14).
+
+**What v1 does.** Nothing (ADR 0048, owner 2026-11-14): restricting it by method
+narrows what an approved manifest forwards, and narrowings wait for v2.
+
+**What v2 should do.** Carry the forwarded headers on the declared route entry
+(ADR 0039), which already names its method, and drop the path-keyed map.
