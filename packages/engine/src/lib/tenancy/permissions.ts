@@ -14,6 +14,7 @@ import {
   getCurrentDomain,
   getCurrentDomainOrNull,
   getCurrentTenantTrx,
+  getResolvedGod,
   onAfterCommit,
   runWithoutTenantTrx,
 } from './tenant-context.js';
@@ -1216,6 +1217,10 @@ async function lookupGod(userId: string): Promise<boolean> {
   // the anonymous caller: a "user" row that happened to be called `public`
   // must not make every visitor god.
   if (isApiKeySubject(userId) || userId === ANONYMOUS_SUBJECT) return false;
+  // The user this tenant transaction was opened for: answered once, before it
+  // took its connection, and that answer stands for the transaction (DR-40).
+  const pinned = getResolvedGod(userId);
+  if (pinned !== undefined) return pinned;
   // Checked before the remote cache: the point is to touch neither the pool nor
   // the network while a request holds its tenant transaction.
   const local = _localGod.get(userId);
@@ -1241,18 +1246,32 @@ async function lookupGod(userId: string): Promise<boolean> {
     }
   }
 
-  // Deliberately NOT savepoint-guarded, and that is measured rather than assumed.
+  // Inside a tenant transaction the miss is read ON it, like `unloadedRoles`:
+  // a pool read there is a second connection while the transaction holds one,
+  // and at `c = DB_POOL_MAX` it never comes (DR-40). Under a savepoint, so a
+  // failed read throws without aborting the caller's transaction; not memoized,
+  // since it can see that transaction's uncommitted rows. `zveltio_rls` reads
+  // `"user"` by design (the boot grant in tenant-manager.ts).
   //
-  // `_db` is the pool handle, not the request's transaction, so `SAVEPOINT`
-  // answers `25P01 SAVEPOINT can only be used in transaction blocks`. A version
-  // of this change wrapped it anyway: CI then showed thirteen consecutive 25P01s
-  // followed by a `25P02` on an unrelated request — the guard had become the
-  // thing it was added to prevent. See lib/savepoint.ts.
-  const result = await sql<{ role: string }>`
-    SELECT role FROM "user" WHERE id = ${userId} LIMIT 1
-  `.execute(_db);
+  // On the pool, deliberately NOT savepoint-guarded: `SAVEPOINT` there answers
+  // `25P01`, and a version that wrapped it anyway showed thirteen consecutive
+  // 25P01s followed by a `25P02` on an unrelated request. See lib/savepoint.ts.
+  const trx = getCurrentTenantTrx();
+  const read = (db: Database) =>
+    sql<{ role: string }>`SELECT role FROM "user" WHERE id = ${userId} LIMIT 1`.execute(db);
+  const result = trx
+    ? await withSavepoint(
+        trx,
+        'zv_god_lookup',
+        () => read(trx),
+        (err) => {
+          throw err;
+        },
+      )
+    : await read(_db);
 
   const isGod = result.rows[0]?.role === 'god';
+  if (trx) return isGod;
   _localGod.set(userId, { value: isGod, at: Date.now() });
 
   if (cache) {

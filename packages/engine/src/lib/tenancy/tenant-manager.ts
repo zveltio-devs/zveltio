@@ -20,6 +20,7 @@ import {
   runAfterCommitJob,
   runWithTenantTrx,
   setRequestActor,
+  setResolvedGod,
   setResolvedMembership,
   setSingleTenantScope,
   settleAfterCommit,
@@ -1424,6 +1425,15 @@ export async function withTenantIsolation<T>(
   // already taken.
   let afterCommit: ReturnType<typeof currentAfterCommitQueue>;
 
+  // Asked BEFORE the transaction takes its connection, and pinned for its life
+  // (`setResolvedGod` below). Asked after `BEGIN`, a cache miss read the pool
+  // while this transaction held a connection — and so did every later
+  // `isGodUser` of the request (the access check, the read scope, the god audit)
+  // once the five-second memo lapsed under load. At `c = DB_POOL_MAX` that
+  // second connection never comes: LV-20 measured lists at 500 clients stuck
+  // `idle in transaction` until the 35 s acquire timeout (DR-40).
+  const god = opts?.userId ? await isGodUser(opts.userId) : false;
+
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   const run = (_db as any).transaction().execute(async (trx: Database) => {
     // Drop to a role Postgres will actually apply RLS to.
@@ -1452,7 +1462,7 @@ export async function withTenantIsolation<T>(
     // exactly what it did before the hierarchy existed.
     let scopeQuery = noScopeQuery();
     let membersOnly = false;
-    if (opts?.userId && (await isGodUser(opts.userId).catch(() => false))) {
+    if (opts?.userId && god) {
       // God's reach is EVERY firm, and it is published to the database rather
       // than taken by escaping it.
       //
@@ -1604,6 +1614,7 @@ export async function withTenantIsolation<T>(
       // that produced it, rather than re-derived later from a GUC string.
       setSingleTenantScope(isSingleUnitReach(scope, tenantId));
       setRequestActor({ userId: opts?.userId ?? null, identity: opts?.identity });
+      if (opts?.userId) setResolvedGod(opts.userId, god);
       // The reach is also the membership answer: no row is NULL, rows none in
       // force are NO_UNITS (`zveltio_tenant_reach`). The membership gate reads it
       // instead of asking `zv_tenant_users` again.

@@ -60,6 +60,15 @@ interface TenantStore {
    */
   membership?: { userId: string; tenantId: string; standing: MembershipStanding };
   /**
+   * Whether `userId` — the user the transaction was opened for — is god, as
+   * `withTenantIsolation` resolved it BEFORE taking its connection and published
+   * it to the database (`zveltio.visible_tenants`). Every later `isGodUser` for
+   * them in this transaction answers from here: a lookup on the pool while the
+   * transaction holds its connection is a second connection, and at
+   * `c = DB_POOL_MAX` none comes (DR-40).
+   */
+  god?: { userId: string; value: boolean };
+  /**
    * Work that must not start until the transaction has COMMITTED.
    *
    * Four places used `setTimeout(…, 0)` for this — the request log, the god
@@ -469,6 +478,18 @@ export function setResolvedMembership(
 ): void {
   const current = store.getStore();
   if (current) current.membership = { userId, tenantId, standing };
+}
+
+/** Record the god flag the transaction was opened with. See `TenantStore.god`. */
+export function setResolvedGod(userId: string, value: boolean): void {
+  const current = store.getStore();
+  if (current) current.god = { userId, value };
+}
+
+/** `userId`'s god flag as this transaction resolved it, or `undefined`. */
+export function getResolvedGod(userId: string): boolean | undefined {
+  const g = store.getStore()?.god;
+  return g && g.userId === userId ? g.value : undefined;
 }
 
 /** Record who the current tenant transaction runs as. See `RequestActor`. */
