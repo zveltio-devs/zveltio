@@ -125,7 +125,7 @@ function isNumberFamily(t: string): boolean {
 /**
  * Types that store the same thing in the same column, by group: a change
  * within a group keeps every value as it is (no `ALTER COLUMN … TYPE`), and an
- * extension may make it (`retype`). Nothing else shares a column safely:
+ * extension may make it (`retype`, ADR 0047 decision 4). Nothing else shares a column safely:
  * `password` holds a hash, `secret` ciphertext, `computed` and relations no
  * column at all.
  */
