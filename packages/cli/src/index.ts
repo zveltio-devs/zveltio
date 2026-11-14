@@ -242,11 +242,11 @@ const ext = program
 
 ext
   .command('create <name>')
-  .description('Scaffold a new extension (admin page as an SDUI schema)')
+  .description('Scaffold a new extension: a declared collection, an action and a view/2 page')
   .option('--category <category>', 'Extension category', 'custom')
   .option(
     '--code-page',
-    'Scaffold a Svelte page instead of a schema — for UI a schema cannot express (canvas, chat, map, inbox)',
+    '[withdrawn] Extension UI is data only (ADR 0042); refuses with an explanation',
   )
   .action((name, opts) => extensionCommand('create', name, opts));
 

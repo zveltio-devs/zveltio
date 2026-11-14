@@ -1,14 +1,14 @@
 /**
  * What `extension create` puts on disk.
  *
- * The scaffold used to open with `studio/pages/+page.svelte` and mention
- * schemas in a parenthesis, which taught every new author the rare path first:
- * across the 55 shipped extensions there are 60 schemas and seven code pages,
- * and each of those seven sits beside a schema rather than instead of it.
- * These assertions pin the default, and pin the pieces that have to agree with
- * each other for `extension validate` to pass — the schema's dataSource against
- * a route the engine stub actually serves, and its labels against either the
- * catalogue the extension ships or the host's shared vocabulary.
+ * The scaffold is the first extension most authors read, so it is the declared
+ * model a shipped extension (`crm`) follows: a collection the engine creates
+ * and owns, business logic as an action, the page as a `zveltio.view/2`
+ * document (ADR 0002, ADR 0042). It used to write SQL migrations, a Hono
+ * route over `ctx.db` and a view/1 schema, and every new author copied that.
+ * These assertions pin the pieces that have to agree for `extension validate`
+ * to pass: the view's collection, fields and action against the manifest and
+ * the collection file, its labels against the catalogue or the shared one.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
@@ -35,40 +35,56 @@ afterEach(() => {
 const root = () => join(dir, 'extensions', 'operations', 'inventory');
 const readJson = (p: string) => JSON.parse(readFileSync(p, 'utf8'));
 
-describe('extension create — the default is a schema', () => {
+describe('extension create — the declared model', () => {
   beforeEach(async () => {
     await extensionCommand('create', 'Inventory', { category: 'operations' });
   });
 
-  it('writes the page as a schema, not a Svelte file', () => {
-    expect(existsSync(join(root(), 'studio', 'schemas', 'inventory.json'))).toBe(true);
+  it('declares a collection and ships its file; no SQL, no Svelte', () => {
+    const manifest = readJson(join(root(), 'manifest.json'));
+    expect(manifest.collections).toEqual(['inventory_items']);
+    const file = readJson(join(root(), 'schema', 'collections', 'inventory_items.json'));
+    expect(file.name).toBe('inventory_items');
+    expect(existsSync(join(root(), 'engine', 'migrations'))).toBe(false);
     expect(existsSync(join(root(), 'studio', 'pages'))).toBe(false);
   });
 
-  it('points the manifest page at that schema', () => {
-    const page = readJson(join(root(), 'manifest.json')).studio.pages[0];
-    expect(page.schema).toBe('schemas/inventory.json');
+  it('declares the action the engine code exports, on its own collection', () => {
+    const manifest = readJson(join(root(), 'manifest.json'));
+    expect(manifest.actions.map((a: { name: string }) => a.name)).toEqual(['markDone']);
+    expect(manifest.actions[0].permission.resource).toBe('inventory_items');
+    const engine = readFileSync(join(root(), 'engine', 'index.ts'), 'utf8');
+    expect(engine).toContain('async markDone(input, host)');
+    expect(engine).toContain('host.collections.update(');
+    expect(engine).not.toContain('ctx.db');
+    expect(engine).not.toContain('app.get(');
   });
 
-  it('names a dataSource the engine stub actually serves', () => {
-    const schema = readJson(join(root(), 'studio', 'schemas', 'inventory.json'));
-    const src = schema.resources[0].dataSource as string;
-    // Inside the extension's own namespace, and matching a registered route.
-    expect(src.startsWith('/ext/operations/inventory/')).toBe(true);
-    const route = src.replace('/ext/operations/inventory', '');
-    const engine = readFileSync(join(root(), 'engine', 'index.ts'), 'utf8');
-    expect(engine).toContain(`app.get('${route}'`);
+  it('writes the page as a view/2 over that collection and action', () => {
+    const page = readJson(join(root(), 'manifest.json')).studio.pages[0];
+    expect(page.schema).toBe('schemas/inventory.json');
+    const view = readJson(join(root(), 'studio', 'schemas', 'inventory.json'));
+    expect(view.spec).toBe('zveltio.view/2');
+    expect(view.collection).toBe('inventory_items');
+    expect(view.rowActions[0].action).toBe('markDone');
+    const fields = new Set(
+      readJson(join(root(), 'schema', 'collections', 'inventory_items.json')).fields.map(
+        (f: { name: string }) => f.name,
+      ),
+    );
+    for (const f of view.fields as { field: string }[]) {
+      expect(fields.has(f.field) || f.field === 'created_at').toBe(true);
+    }
   });
 
   it('resolves every label, from its own catalogue or the shared one', () => {
-    const schema = readJson(join(root(), 'studio', 'schemas', 'inventory.json'));
+    const view = readJson(join(root(), 'studio', 'schemas', 'inventory.json'));
     const own = new Set(Object.keys(readJson(join(root(), 'studio', 'messages', 'en.json'))));
     const shared = new Set(SHARED_MESSAGE_KEYS);
     const keys = [
-      schema.title,
-      schema.subtitle,
-      schema.resources[0].search.placeholder,
-      ...schema.resources[0].columns.map((c: { label: string }) => c.label),
+      view.title,
+      ...view.fields.map((c: { label: string }) => c.label),
+      ...view.rowActions.map((b: { label: string }) => b.label),
     ];
     for (const k of keys) {
       expect(own.has(k) || shared.has(k)).toBe(true);
@@ -79,33 +95,25 @@ describe('extension create — the default is a schema', () => {
     const own = Object.keys(readJson(join(root(), 'studio', 'messages', 'en.json')));
     expect(own.every((k) => !k.startsWith('common.'))).toBe(true);
   });
-
-  it('isolates its table by tenant, with the host predicates and FORCE', () => {
-    const sql = readFileSync(join(root(), 'engine', 'migrations', '001_init.sql'), 'utf8');
-    expect(sql).toContain('FORCE ROW LEVEL SECURITY');
-    // Reading and writing are different questions since migration 003: a
-    // consolidating parent may READ a subtree, and may never WRITE outside its
-    // own node. A scaffold that put the read predicate in WITH CHECK would hand
-    // every new extension table the bug the migration exists to remove.
-    expect(sql).toContain('USING (tenant_id = ANY (zveltio_visible_tenants()))');
-    expect(sql).toContain('WITH CHECK (zveltio_tenant_write_ok(tenant_id))');
-    // The policy name is what the engine's boot reconciler looks for.
-    expect(sql).toMatch(/CREATE POLICY tenant_isolation_\w+/);
-  });
 });
 
-describe('extension create --code-page — the escape hatch', () => {
-  beforeEach(async () => {
-    await extensionCommand('create', 'Inventory', { category: 'operations', codePage: true });
-  });
-
-  it('writes a Svelte page and no schema', () => {
-    expect(existsSync(join(root(), 'studio', 'pages', '+page.svelte'))).toBe(true);
-    expect(existsSync(join(root(), 'studio', 'schemas'))).toBe(false);
-  });
-
-  it('leaves `schema` off the manifest page, so the host renders the code', () => {
-    const page = readJson(join(root(), 'manifest.json')).studio.pages[0];
-    expect(page.schema).toBeUndefined();
+describe('extension create --code-page — withdrawn (ADR 0042)', () => {
+  it('refuses and writes nothing', async () => {
+    const exit = process.exit;
+    let code: number | undefined;
+    process.exit = ((c?: number) => {
+      code = c;
+      throw new Error('exit');
+    }) as typeof process.exit;
+    try {
+      await extensionCommand('create', 'Inventory', {
+        category: 'operations',
+        codePage: true,
+      }).catch(() => {});
+    } finally {
+      process.exit = exit;
+    }
+    expect(code).toBe(1);
+    expect(existsSync(root())).toBe(false);
   });
 });
