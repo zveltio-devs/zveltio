@@ -4,7 +4,7 @@
  * `attachments` json → `file`). The extension plan had no op for any type
  * change but into `secret`, so the update refused to load. Now the column and
  * every value stay, the table is not rewritten, and the next load owes nothing;
- * a change of column is still refused.
+ * a change of column is still refused. ADR 0047 decision 4 settles the rule.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';

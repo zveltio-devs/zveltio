@@ -172,8 +172,9 @@ List them in `manifest.json` and ship one file per name, in the
 - A name that already belongs to a collection the extension does not own
   refuses the whole set; nothing is created.
 - A later version's additions (a field, a rule, a relation) are applied when it
-  is enabled. A type change into the same column type (`textarea` → `richtext`,
-  `json` → `file`, a text field → `secret`) keeps every value. A drop, a rename
+  is enabled. A type change into the same column type keeps every value: among
+  `text`, `textarea`, `richtext`, `email` and `url`, or between `json` and
+  `file` (ADR 0047), and a text field → `secret` (ADR 0024). A drop, a rename
   or any other type change is refused for now.
 - The instance's own schema export leaves the extension's collections out: they
   belong to its package.
