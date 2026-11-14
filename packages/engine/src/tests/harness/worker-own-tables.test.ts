@@ -23,7 +23,12 @@ import { extensionDbRoleNames, revokeExtensionDbRoles } from '../../lib/extensio
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
 import { reconcileTenantRLS } from '../../lib/tenancy/index.js';
 import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extension-host.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  forgetInstalled,
+  getTestApp,
+  harnessAvailable,
+  markInstalled,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const EXT = 'wkrown';
@@ -91,6 +96,7 @@ d('a worker extension reaches its own tables through the bridge', () => {
     getWorkerHost(app);
     // ctx is what the boot path hands the loader; only db + fieldTypeRegistry are read here.
     const ctx = extensionLoader.ctx ?? ({ db, fieldTypeRegistry: { register() {} } } as never);
+    await markInstalled(db, EXT);
     await extensionLoader.loadExtension(EXT, app, ctx, base);
     expect(extensionLoader.getLastLoadError(EXT)).toBeUndefined();
   }, 60_000);
@@ -102,6 +108,7 @@ d('a worker extension reaches its own tables through the bridge', () => {
     await sql`DROP TABLE IF EXISTS ${sql.table(OWN_ZVD)}`.execute(db);
     await sql`DELETE FROM zv_migrations WHERE name LIKE ${`ext:${EXT}:%`}`.execute(db);
     await revokeExtensionDbRoles(db, EXT, true);
+    await forgetInstalled(db, EXT);
     rmSync(base, { recursive: true, force: true });
   });
 

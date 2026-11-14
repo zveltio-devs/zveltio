@@ -30,8 +30,10 @@ import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extens
 import {
   ALL_COLLECTIONS_ACTOR,
   asTenant,
+  forgetInstalled,
   getTestApp,
   harnessAvailable,
+  markInstalled,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -184,8 +186,10 @@ d('a worker query runs as the tenant of its request', () => {
     );
     getWorkerHost(workerApp);
     const ctx = extensionLoader.ctx ?? ({ db, fieldTypeRegistry: { register() {} } } as never);
+    await markInstalled(db, WORKER);
     await extensionLoader.loadExtension(WORKER, workerApp, ctx, base);
     expect(extensionLoader.getLastLoadError(WORKER)).toBeUndefined();
+    await markInstalled(db, CALLER);
     await extensionLoader.loadExtension(CALLER, workerApp, ctx, base);
     expect(extensionLoader.getLastLoadError(CALLER)).toBeUndefined();
   }, 60_000);
@@ -200,6 +204,7 @@ d('a worker query runs as the tenant of its request', () => {
     await sql`DELETE FROM zv_tenants WHERE id = ${B}::uuid`.execute(db).catch(() => undefined);
     await revokeExtensionDbRoles(db, WORKER, true).catch(() => undefined);
     await revokeExtensionDbRoles(db, CALLER, true).catch(() => undefined);
+    await forgetInstalled(db, WORKER, CALLER);
   });
 
   it("reads its request's tenant rows, not the default tenant's", async () => {

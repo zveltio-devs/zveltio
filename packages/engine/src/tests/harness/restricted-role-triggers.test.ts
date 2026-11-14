@@ -39,8 +39,10 @@ import {
   ALL_COLLECTIONS_ACTOR,
   connectedAsSuperuser,
   createGodSession,
+  forgetInstalled,
   getTestApp,
   harnessAvailable,
+  markInstalled,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -154,6 +156,7 @@ d('collection triggers under every restricted writer role', () => {
     });
     getWorkerHost(workerApp);
     const ctx = extensionLoader.ctx ?? ({ db, fieldTypeRegistry: { register() {} } } as never);
+    await markInstalled(db, WORKER);
     await extensionLoader.loadExtension(WORKER, workerApp, ctx, base);
     expect(extensionLoader.getLastLoadError(WORKER)).toBeUndefined();
     const viaWorker = async (method: string, path: string, body?: unknown) => {
@@ -204,6 +207,7 @@ d('collection triggers under every restricted writer role', () => {
     await db.deleteFrom('zvd_collections').where('name', '=', COLLECTION).execute();
     // Roles are cluster-wide and outlive the test database.
     for (const ext of [INLINE, WORKER]) await revokeExtensionDbRoles(db, ext, true);
+    await forgetInstalled(db, WORKER);
   });
 
   const row = async (id: string) =>
