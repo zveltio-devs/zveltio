@@ -13,8 +13,8 @@
  * Kinds drawn: list, detail, form, stat, split, tabs. Any other kind is drawn
  * through `fallbackFor` (its own `fallback`, else its collection's list), as
  * ADR 0042 decision 6 asks of a front end that does not know it. Not drawn yet,
- * as in Studio: a collection form's `lines`, `recalc` and `autosave`, a stat
- * other than `count`.
+ * as in Studio: a collection form's `lines`, `recalc` and `autosave`. A stat
+ * other than `count` reads `GET /api/data/:collection/aggregate` (ADR 0050).
  */
 import { type ReactNode, useEffect, useState } from 'react';
 import type { ZveltioClient } from '@zveltio/sdk';
@@ -230,11 +230,15 @@ export async function loadView(
           const input = resolveInput(src.input, s);
           return { kind: 'stat', view: v, value: input ? await run(src.action, input) : null };
         }
-        if (src.aggregate !== 'count') {
-          return { kind: 'notice', view: v, text: `"${src.aggregate}" has no data API route` };
-        }
         const filter = toFilter(src.filter, s);
         if (!filter) return { kind: 'stat', view: v, value: null };
+        if (src.aggregate !== 'count' || src.field) {
+          if (!src.field)
+            return { kind: 'notice', view: v, text: `"${src.aggregate}" needs a field` };
+          const fn = `${src.aggregate}:${src.field}`;
+          const r = await client.collection(src.collection).aggregate({ fn: [fn], filter });
+          return { kind: 'stat', view: v, value: r.data[0]?.values[fn] ?? null };
+        }
         const r = await client.collection(src.collection).list({ limit: 1, filter });
         return { kind: 'stat', view: v, value: r.pagination?.total ?? null };
       }

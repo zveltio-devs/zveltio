@@ -63,6 +63,12 @@ const { records: products } = await client.collection('products').list();
 const order = await client.collection('orders').getOne('ord-123');
 //    ^-- typed as Orders
 
+// Aggregates obey the same read rules as list(): only the caller's own rows and columns
+const { data } = await client
+  .collection('orders')
+  .aggregate({ fn: ['count', 'sum:total'], groupBy: ['status'] });
+// data: [{ group: { status: 'open' }, values: { count: 3, 'sum:total': 120.5 } }, …]
+
 await client.collection('products').create({ name: 'Widget', price: 9.99 });
 //   TypeScript will error if you pass unknown fields or the wrong types
 ```

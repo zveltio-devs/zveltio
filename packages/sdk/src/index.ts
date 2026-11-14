@@ -5,6 +5,8 @@ export type {
   MemberApiKeyInput,
   RunnableAction,
   ZveltioClientConfig,
+  AggregateParams,
+  AggregateResult,
   ListParams,
   ListResult,
 } from './client.js';

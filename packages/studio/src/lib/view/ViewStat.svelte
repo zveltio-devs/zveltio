@@ -1,11 +1,13 @@
 <script lang="ts">
 /**
- * `stat`: a number. `count` is the data API's total for the filter; an action
- * source the caller may run is run once per input and its number shown. `sum`, `avg`, `min` and `max` have no
- * data API route yet: the stat says so rather than adding up one page of rows.
+ * `stat`: a number. `count` is the data API's total for the filter; `sum`,
+ * `avg`, `min`, `max` (and `count` of a field) read the aggregate route
+ * (ADR 0050); an action source the caller may run is run once per input and its
+ * number shown.
  */
 import { resolveInput, type StatView, type Tone, type ViewScope } from '@zveltio/sdk/view';
 import { m } from '#lib/i18n.svelte.js';
+import { dataApi } from '#lib/api.js';
 import {
   findAction,
   listParams,
@@ -34,8 +36,11 @@ const TONE: Record<Tone, string> = {
   muted: 'text-base-content/60',
 };
 
+// A field-less aggregate other than `count` names nothing to add up.
 const unsupported = $derived(
-  'collection' in view.source && view.source.aggregate !== 'count' ? view.source.aggregate : null,
+  'collection' in view.source && view.source.aggregate !== 'count' && !view.source.field
+    ? view.source.aggregate
+    : null,
 );
 
 let seq = 0;
@@ -43,7 +48,7 @@ function settle(p: Promise<unknown>) {
   const mine = ++seq;
   p.then((v) => {
     if (mine !== seq) return;
-    value = typeof v === 'number' ? v : Number(v);
+    value = v === null || v === undefined ? null : typeof v === 'number' ? v : Number(v);
     error = null;
   }).catch((e: Error) => {
     if (mine === seq) error = e.message || m['ext.loadFailed']();
@@ -56,7 +61,13 @@ $effect(() => {
   if (unsupported || !('collection' in src)) return;
   void host.version;
   const q = listParams({ filter: src.filter }, scope, { page: 1, limit: 1 });
-  if (q)
+  if (!q) return;
+  if (src.field) {
+    const fn = `${src.aggregate}:${src.field}`;
+    const params: Record<string, string | number> = { fn };
+    if (q.filter) params.filter = q.filter;
+    settle(dataApi.aggregate(src.collection, params).then((r) => r.data[0]?.values[fn] ?? null));
+  } else
     settle(listRecords(src.collection, q).then((r) => r.pagination?.total ?? r.records.length));
 });
 

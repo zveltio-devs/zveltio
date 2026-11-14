@@ -31,6 +31,27 @@ describe('ZveltioClient URL building', () => {
     ]);
   });
 
+  it('aggregate() names the route and the query the engine parses (ADR 0050)', async () => {
+    const urls = captureUrls();
+    const client = createZveltioClient({ baseUrl: 'https://engine.test' });
+    await client.collection('orders').aggregate({
+      fn: ['count', 'sum:total'],
+      groupBy: ['status', 'placed_at'],
+      bucket: 'placed_at:month',
+      filter: { status: { eq: 'open' } },
+      limit: 10,
+    });
+    const url = new URL(urls[0] as string);
+    expect(url.pathname).toBe('/api/data/orders/aggregate');
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      fn: 'count,sum:total',
+      group_by: 'status,placed_at',
+      bucket: 'placed_at:month',
+      filter: '{"status":{"eq":"open"}}',
+      limit: '10',
+    });
+  });
+
   it('asks the engine who its key is at the route that answers it', async () => {
     const urls = captureUrls();
     const client = createZveltioClient({ baseUrl: 'https://engine.test', apiKey: 'zvk_x' });
