@@ -13,7 +13,6 @@ export * from './branch-protections.js';
 export * from './import-logs-contract.js';
 export * from './unique-key-reconcile.js';
 export * from './ddl-queue.js';
-export * from './ghost-ddl.js';
 export * from './field-crypto.js';
 export * from './field-type-conversions.js';
 export * from './field-type-registry.js';

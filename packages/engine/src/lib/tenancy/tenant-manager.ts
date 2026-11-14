@@ -1740,8 +1740,8 @@ export async function withEveryTenant<T>(
 /**
  * `withEveryTenant`'s read reach, on a transaction the caller already holds and
  * without leaving the caller's role — for work that must stay the table owner,
- * such as a Ghost DDL copy. Rows whose `tenant_id` names no `zv_tenants` row
- * stay invisible, exactly as they are to `withEveryTenant`.
+ * such as a test's own checks (`asEveryTenant`). Rows whose `tenant_id` names
+ * no `zv_tenants` row stay invisible, exactly as they are to `withEveryTenant`.
  */
 export async function publishEveryTenant(trx: Database): Promise<void> {
   const all = await sql<{ id: string }>`SELECT id::text AS id FROM zv_tenants`.execute(trx);

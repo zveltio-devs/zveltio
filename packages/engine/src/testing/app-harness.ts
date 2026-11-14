@@ -538,7 +538,7 @@ export async function insertPastRowRules(
  * make the next measurement lie.
  *
  * `CASCADE` because a collection under test may have grown indexes, triggers or
- * a changelog; `IF EXISTS` because a test that already dropped the table should
+ * views; `IF EXISTS` because a test that already dropped the table should
  * still be able to drop the row.
  */
 export async function dropTestCollection(db: Database, name: string): Promise<void> {
@@ -549,16 +549,7 @@ export async function dropTestCollection(db: Database, name: string): Promise<vo
   // engine; a test handing this anything else gets an error, not broken SQL.
   const SAFE_NAME = /^[a-z][a-z0-9_]*$/;
   if (!SAFE_NAME.test(bare)) throw new Error(`Invalid test collection name: "${name}"`);
-  // The ghost artefacts go with it. `atomicSwap` renames the original to
-  // `_zv_old_<table>` and schedules dropping that and `_zv_changelog_<table>`
-  // sixty seconds later, which is long after a test process is gone — so any
-  // suite that ran a Ghost DDL migration leaves two tables behind, and
-  // `check:test-leftovers` fails the whole run on them. Several ghost tests
-  // already hand-roll this list in their own `afterAll`; doing it here is what
-  // makes the next test that forgets to copy it harmless.
-  for (const t of [`_zv_changelog_${table}`, `_zv_old_${table}`, table]) {
-    await sql.raw(`DROP TABLE IF EXISTS "${t}" CASCADE`).execute(db);
-  }
+  await sql.raw(`DROP TABLE IF EXISTS "${table}" CASCADE`).execute(db);
   await sql`DELETE FROM zvd_collections WHERE name = ${bare}`.execute(db);
   // Its grants too (the boot reconcile writes defaults): left behind, a rerun's
   // create of the same name is refused for adopting them (A13).
@@ -809,4 +800,83 @@ export async function drainFlowJobs(db: Database, runOn?: Database): Promise<voi
                WHERE name = ${FLOW_QUEUE} AND state = 'retry'`.execute(db);
     if ((await _runFlowJobs(runOn)) === 0) return;
   }
+}
+
+/**
+ * Everything the catalog holds about `table`, as sorted `section|line` strings
+ * (LV-12's check, ADR 0041): flags, owner, table and column grants, columns,
+ * constraints both ways, indexes, triggers, policies, the views over it, every
+ * dependency both ways, publications, statistics objects, rules, inheritance,
+ * security labels, and whether the planner has statistics. Oids and attnums are
+ * left out. Diff two snapshots to see what a schema change did to the table.
+ */
+export async function catalogState(db: Database, table: string): Promise<string[]> {
+  const r = await sql<{ s: string; l: string }>`
+    WITH c AS (SELECT * FROM pg_class WHERE oid = to_regclass(${table}::text))
+    SELECT '01 class' AS s, format('owner=%s rls=%s force=%s replident=%s persistence=%s tablespace=%s options=%s comment=%s rowtype=%s',
+             pg_get_userbyid(relowner), relrowsecurity, relforcerowsecurity, relreplident, relpersistence,
+             reltablespace, reloptions, obj_description(oid, 'pg_class'), reltype::regtype) AS l FROM c
+    UNION ALL
+    SELECT '02 table acl', format('%s %s grantable=%s', CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END, a.privilege_type, a.is_grantable)
+      FROM c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+    UNION ALL
+    SELECT '03 column', format('%s %s notnull=%s default=%s identity=%s generated=%s storage=%s compression=%s stattarget=%s options=%s collation=%s comment=%s',
+             a.attname, format_type(a.atttypid, a.atttypmod), a.attnotnull, pg_get_expr(d.adbin, d.adrelid),
+             a.attidentity, a.attgenerated, a.attstorage, a.attcompression, a.attstattarget, a.attoptions,
+             a.attcollation::regcollation, col_description(a.attrelid, a.attnum))
+      FROM c JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+      LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+    UNION ALL
+    SELECT '04 column acl', format('%s: %s %s grantable=%s', a.attname, CASE WHEN x.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(x.grantee) END, x.privilege_type, x.is_grantable)
+      FROM c JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped, aclexplode(a.attacl) x
+    UNION ALL
+    SELECT '05 constraint', format('%s on %s: %s type=%s validated=%s enforced=%s comment=%s', k.conname, k.conrelid::regclass, pg_get_constraintdef(k.oid),
+             k.contype, k.convalidated, k.conenforced, obj_description(k.oid, 'pg_constraint'))
+      FROM c JOIN pg_constraint k ON k.conrelid = c.oid OR k.confrelid = c.oid
+    UNION ALL
+    SELECT '06 index', format('%s valid=%s ready=%s clustered=%s replident=%s options=%s tablespace=%s comment=%s', pg_get_indexdef(i.indexrelid), i.indisvalid, i.indisready,
+             i.indisclustered, i.indisreplident, ic.reloptions, ic.reltablespace, obj_description(ic.oid, 'pg_class'))
+      FROM c JOIN pg_index i ON i.indrelid = c.oid JOIN pg_class ic ON ic.oid = i.indexrelid
+    UNION ALL
+    SELECT '07 trigger', format('%s enabled=%s', pg_get_triggerdef(t.oid), t.tgenabled)
+      FROM c JOIN pg_trigger t ON t.tgrelid = c.oid WHERE NOT t.tgisinternal
+    UNION ALL
+    SELECT '08 policy', format('%s %s for=%s to=%s using=%s check=%s', p.polname, CASE WHEN p.polpermissive THEN 'PERMISSIVE' ELSE 'RESTRICTIVE' END,
+             p.polcmd, (SELECT array_agg(CASE WHEN r = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(r) END ORDER BY 1) FROM unnest(p.polroles) r),
+             pg_get_expr(p.polqual, p.polrelid), pg_get_expr(p.polwithcheck, p.polrelid))
+      FROM c JOIN pg_policy p ON p.polrelid = c.oid
+    UNION ALL
+    SELECT DISTINCT '09 view', format('%s owner=%s options=%s acl=%s def=%s', v.relname, pg_get_userbyid(v.relowner), v.reloptions,
+             (SELECT array_agg((CASE WHEN x.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(x.grantee) END) || ':' || x.privilege_type ORDER BY 1)
+                FROM aclexplode(coalesce(v.relacl, acldefault('r', v.relowner))) x),
+             regexp_replace(pg_get_viewdef(v.oid), '[[:space:]]+', ' ', 'g'))
+      FROM c JOIN pg_depend d ON d.refobjid = c.oid AND d.refclassid = 'pg_class'::regclass AND d.classid = 'pg_rewrite'::regclass
+      JOIN pg_rewrite w ON w.oid = d.objid JOIN pg_class v ON v.oid = w.ev_class AND v.oid <> c.oid
+    UNION ALL
+    SELECT DISTINCT '10 dependent', format('%s deptype=%s', pg_describe_object(d.classid, d.objid, 0), d.deptype)
+      FROM c JOIN pg_depend d ON d.refobjid = c.oid AND d.refclassid = 'pg_class'::regclass
+      WHERE d.classid <> 'pg_rewrite'::regclass AND pg_describe_object(d.classid, d.objid, 0) !~ '^(toast table|type) '
+    UNION ALL
+    SELECT DISTINCT '11 depends on', format('%s deptype=%s', pg_describe_object(d.refclassid, d.refobjid, 0), d.deptype)
+      FROM c JOIN pg_depend d ON d.objid = c.oid AND d.classid = 'pg_class'::regclass
+    UNION ALL
+    SELECT '12 publication', p.pubname::text FROM c JOIN pg_publication_rel r ON r.prrelid = c.oid JOIN pg_publication p ON p.oid = r.prpubid
+    UNION ALL
+    SELECT '13 ext statistics', format('%s %s', s.stxname, pg_get_statisticsobjdef(s.oid)) FROM c JOIN pg_statistic_ext s ON s.stxrelid = c.oid
+    UNION ALL
+    SELECT '14 rule', pg_get_ruledef(w.oid) FROM c JOIN pg_rewrite w ON w.ev_class = c.oid
+    UNION ALL
+    SELECT '15 inherits', format('%s -> %s', i.inhrelid::regclass, i.inhparent::regclass) FROM c JOIN pg_inherits i ON c.oid IN (i.inhrelid, i.inhparent)
+    UNION ALL
+    SELECT '16 security label', format('%s %s', l.provider, l.label) FROM c JOIN pg_seclabel l ON l.objoid = c.oid
+    UNION ALL
+    SELECT '17 planner stats', format('analyzed=%s columns_with_stats=%s reltuples_known=%s',
+             (SELECT last_analyze IS NOT NULL OR last_autoanalyze IS NOT NULL FROM pg_stat_user_tables u WHERE u.relid = c.oid),
+             -- pg_stats, not pg_statistic: only a superuser reads the latter.
+             (SELECT count(*) FROM pg_stats st JOIN pg_namespace n ON n.nspname = st.schemaname
+               WHERE n.oid = c.relnamespace AND st.tablename = c.relname), c.reltuples >= 0) FROM c
+    ORDER BY 1, 2
+  `.execute(db);
+  if (r.rows.length === 0) throw new Error(`catalogState: no table ${table}`);
+  return r.rows.map((x) => `${x.s}|${x.l}`);
 }

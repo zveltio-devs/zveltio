@@ -4,6 +4,10 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Adding a field alters the table in place; the ghost copy is gone (ADR 0041).** A schema-branch merge or `zveltio schema apply` that added a column to a table over 100,000 rows copied the whole table and swapped it in (the gh-ost algorithm); measured at a million rows that took 44 s and blocked readers and writers for up to 1.9 s, against 0.13–0.54 s and at most 452 ms in place. Every road now adds a column the way Studio always did. A field with a volatile default (`gen_random_uuid()`, `uuid_generate_v4()`) rewrites the table, as it always did in Studio: about 14 s per million rows during which the collection does not answer. Migration 122 drops anything an interrupted ghost run left behind (`_zv_ghost_*`, `_zv_old_*`, `_zv_changelog_*` tables and the changelog trigger), and keeps, with a warning, what the engine role may not drop. A harness test now asserts that adding a field changes a table's catalog by the new column alone (grants, policies, column guard, masking view, keys). Closes DR-30 and DR-35.
+
+`analytics/quality` 3.0.0 in the bundled catalogue (#1699).
+
 ## [3.0.0-beta.121] - 2026-11-14
 
 **SECURITY: a worker-isolated extension ignored per-firm activation.** The worker proxy registered its routes before the activation check, so a signed-in caller reached a worker extension turned off for their firm (or installed nowhere) and got 200, where an inline extension answers 404. Activation now runs first (#1690).

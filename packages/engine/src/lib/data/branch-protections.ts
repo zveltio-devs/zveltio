@@ -34,7 +34,7 @@ import { COLUMN_GUARD_TRIGGER } from './column-guard.js';
  * the schema's USAGE last, so no reader ever meets a table that is reachable and
  * not yet policed. Re-runnable: the branch's own policies and grants are
  * replaced, not added to. Statements are built by Postgres (`format('%I')`,
- * `pg_get_expr`), as in Ghost DDL's `carriedOverDdl`.
+ * `pg_get_expr`).
  *
  * `table` limits it to that one table: how a rule changed in `public` reaches
  * branches already previewing (`refreshBranchProtections`).

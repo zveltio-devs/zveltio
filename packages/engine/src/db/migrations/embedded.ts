@@ -131,6 +131,7 @@ import m112 from './sql/118_webhook_event_id.sql' with { type: 'text' };
 import m113 from './sql/119_flow_run_event_id.sql' with { type: 'text' };
 import m114 from './sql/120_identity_links.sql' with { type: 'text' };
 import m115 from './sql/121_role_grants_marker.sql' with { type: 'text' };
+import m116 from './sql/122_drop_ghost_ddl_leftovers.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -250,4 +251,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '119_flow_run_event_id.sql': m113,
   '120_identity_links.sql': m114,
   '121_role_grants_marker.sql': m115,
+  '122_drop_ghost_ddl_leftovers.sql': m116,
 };

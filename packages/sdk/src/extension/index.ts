@@ -919,7 +919,7 @@ export interface ExtensionInternals<DB = unknown> {
   extensionRegistry: any;
   /** Queue an HTML→PDF render via the worker pool. */
   generatePDFAsync: (html: string, options?: Record<string, unknown>) => Promise<unknown>;
-  /** Enqueue an asynchronous DDL job (Ghost Tables, large alters). */
+  /** Enqueue an asynchronous DDL job: a collection or field added or removed, an index built. */
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   enqueueDDLJob: (...args: any[]) => Promise<unknown>;
   /**

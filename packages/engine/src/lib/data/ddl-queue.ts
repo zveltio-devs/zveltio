@@ -33,8 +33,6 @@ import { PgBoss } from 'pg-boss';
 import { type Database, recycleActivePool } from '../../db/index.js';
 import { refreshBranchProtections } from './branch-protections.js';
 import { DDLManager } from './ddl-manager.js';
-import { type FieldConfig, fieldTypeRegistry } from './field-type-registry.js';
-import { GhostDDL } from './ghost-ddl.js';
 import { broadcastSchemaChange, type SchemaChangeAction } from '../../routes/ws.js';
 import { realtimeBus, SCHEMA_CHANGED_EVENT } from '../runtime/index.js';
 import { getTenantDb, onAfterCommit, runOutsideTenantContext } from '../tenancy/index.js';
@@ -426,33 +424,9 @@ export async function runCreateCollection(
 }
 
 /**
- * The row count of `tableName`, or `Infinity` when it cannot be read.
- *
- * A swallowed count error once took the locking path on a table whose size
- * was unknown; on a large table that is a production outage. `Infinity` is the
- * safe answer: an unknown size is treated as large, so the online path is
- * taken. Being wrong that way costs a slower migration; the other way, downtime.
- */
-export async function rowCountOrAssumeLarge(db: Database, tableName: string): Promise<number> {
-  try {
-    const result = await sql<{ cnt: string }>`
-      SELECT count(*) AS cnt FROM ${sql.id(tableName)}
-    `.execute(db);
-    return Number(result.rows[0]?.cnt ?? 0);
-  } catch (err) {
-    console.warn(
-      `[ddl-queue] could not count rows in ${tableName}; assuming it is large and ` +
-        `using the online (Ghost DDL) path. Cause: ${err instanceof Error ? err.message : err}`,
-    );
-    return Number.POSITIVE_INFINITY;
-  }
-}
-
-/**
- * Add a field on the pool, now. Over 100k rows the column and its per-tenant
- * key are built on a Ghost DDL copy; `addField` then finds both in place and
- * does what is left — indexes and the field in `zvd_collections.fields`. The
- * schema-branch merge and `POST /api/admin/schema/apply` run this.
+ * Add a field on the pool, now. The schema-branch merge and
+ * `POST /api/admin/schema/apply` run this; the `add_field` job calls `addField`
+ * the same way. The column is altered in place at any size (ADR 0041).
  */
 export async function runAddField(
   db: Database,
@@ -462,23 +436,10 @@ export async function runAddField(
   by?: string,
 ): Promise<void> {
   // Both callers (schema-branch merge, schema apply) reach a BYOD table only
-  // through here, and nothing upstream asked: Ghost DDL refused it and
-  // `addField` then altered it anyway.
+  // through here, and nothing upstream asked.
   const { schemaChangeRefusal } = await import('./field-changes.js');
   const refusal = await schemaChangeRefusal(db, collection, 'add', by, field);
   if (refusal) throw refusal;
-  const tableName = DDLManager.getTableName(collection);
-  if (
-    fieldTypeRegistry.getColumnDDL(field as FieldConfig) &&
-    (await rowCountOrAssumeLarge(db, tableName)) > 100_000
-  ) {
-    await GhostDDL.execute(
-      db,
-      tableName,
-      [{ kind: 'add_column', field: field as FieldConfig }],
-      (phase, detail) => console.log(`[ghost-ddl] ${phase}: ${detail}`),
-    );
-  }
   await DDLManager.addField(db, collection, field);
   announceSchemaChange(collection, 'alter');
 }

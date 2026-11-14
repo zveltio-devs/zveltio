@@ -5,9 +5,6 @@
  * clause cannot be parameterised. It is reachable by a tenant admin, who is
  * deliberately not given the SQL editor, and the pool speaks Postgres'
  * simple-query protocol, which happily runs several statements in one command.
- *
- * Ghost migrations no longer take SQL fragments at all: see
- * ghost-ddl-operations.test.ts.
  */
 
 import { describe, expect, it } from 'bun:test';

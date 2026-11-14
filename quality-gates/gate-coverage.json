@@ -44,7 +44,7 @@
     "scripts/check-studio-api-prefix.ts": "second shape not yet planted: only one Studio fetch with the wrong prefix is planted.",
     "scripts/check-studio-embed-freshness.ts": "single shape: freshness — the build's version marker does not match the engine.",
     "scripts/check-tenant-boundary.ts": "second shape not yet planted: only a new table with no tenant_id is planted.",
-    "scripts/check-test-leftovers.ts": "second shape not yet planted: only a leftover zvd_collections row is planted; a ghost table with no collection row is not.",
+    "scripts/check-test-leftovers.ts": "second shape not yet planted: only a leftover zvd_collections row is planted; a leftover grant, revocation or role link is not.",
     "scripts/check-worker-source-fresh.ts": "single shape: freshness — the worker source no longer matches the embedded copy's hash.",
     "scripts/coverage-gate.ts": "single shape: compares an lcov against a floor; the only defect is a number below it.",
     "scripts/import-boundaries.ts": "second shape not yet planted: only a deep import past the lib/tenancy barrel is planted.",

@@ -43,7 +43,7 @@ describe('introspectSchema — filtering', () => {
     withSchema(db, {
       zv_settings: [COL()],
       zvd_orders: [COL()],
-      _zv_ghost_x: [COL()],
+      _zv_work_x: [COL()],
       pg_stat: [COL()],
       temp_import: [COL()],
       customers: [COL()],
