@@ -819,9 +819,11 @@ named in `calls` and the extension in `dependencies` or
 
 `schedules()` is legacy, and no shipped 2.x extension uses it. The declared
 contract has no schedule (ADR 0048, owner 2026-11-14): periodic work is a job
-an action or a declared route enqueues. To run it on a clock today, an
-operator adds a flow with a `cron` trigger and a `webhook` step to a declared
-public route that enqueues the job (ADR 0018). When an extension first needs a
+an action or a declared route enqueues. To run it on a clock today, a
+scheduler outside the engine (system cron, the platform's cron) calls a
+declared public route that enqueues the job (ADR 0018); a flow with a `cron`
+trigger and a `webhook` step does the same where the engine's URL is a public
+address (the webhook step refuses private ones). When an extension first needs a
 schedule of its own, it comes as `jobs[].schedule` (cron) in the manifest,
 additive in v1: the engine enqueues the job in each tenant that has the
 extension installed. A job, not an action, because a clock has no caller.
