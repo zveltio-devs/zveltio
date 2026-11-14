@@ -4,10 +4,8 @@ import type { Database } from '../db/index.js';
 import {
   DDLManager,
   CollectionSchema,
-  dropMaskView,
   FieldSchema,
   hasWrittenBy,
-  sealColumns,
   SYSTEM_COLUMNS,
   writtenByNeedsOwner,
 } from '../lib/data/index.js';
@@ -31,7 +29,6 @@ import {
 } from '../lib/data/index.js';
 import { fieldTypeRegistry } from '../lib/data/index.js';
 import {
-  dynamicAddColumn,
   dynamicDropColumn,
   dynamicRenameColumn,
   dynamicChangeColumnType,
@@ -489,9 +486,9 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
 
     try {
       const tableName = DDLManager.getTableName(name);
-      // A plain column is added in the metadata transaction below. The relation
-      // branches cannot join it (CREATE INDEX CONCURRENTLY); their DDL is idempotent.
-      let colDDL: string | null = null;
+      // A relation's DDL runs here and its metadata in the transaction below; any
+      // other field is added by `DDLManager.addField`, as on every other road.
+      let added = false;
 
       if (RELATION_FK_TYPES.has(field.type) && relatedCollection) {
         // m2o / reference: FK column lives in the SOURCE table. Both
@@ -557,59 +554,52 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
           junction_table: junctionTable,
         });
       } else {
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-        colDDL = fieldTypeRegistry.getColumnDDL(field as any);
+        // Its unique key is built CONCURRENTLY, outside the table's lock (DR-37);
+        // here it was built inside it, and the table stalled for the whole scan.
+        await DDLManager.addField(db, name, field);
+        added = true;
       }
 
       // Row-lock the collection (FOR UPDATE) inside a transaction so
       // two concurrent add-field calls can't both observe the same
       // pre-mutation fields[] and overwrite each other's writes.
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      await db.transaction().execute(async (trx: any) => {
-        // Table before metadata row — the order PATCH /:name/fields/:field locks in.
-        // dynamicAddColumn applies lock_timeout (2s) to prevent blocking all reads.
-        if (colDDL) {
-          // The masking view first, built again with the field below (L37 layer 3).
-          await dropMaskView(trx, tableName);
-          await dynamicAddColumn(trx, tableName, colDDL);
-          await DDLManager.addUniqueKey(trx, tableName, field);
-        }
+      if (!added) {
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-        const locked = await (trx as any)
-          .selectFrom('zvd_collections')
-          .select(['fields'])
-          .where('name', '=', name)
-          .forUpdate()
-          .executeTakeFirst();
-        if (!locked) throw new Error('Collection not found');
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-        let currentFields: any[];
-        try {
-          currentFields =
-            typeof locked.fields === 'string' ? JSON.parse(locked.fields) : (locked.fields ?? []);
-        } catch {
-          currentFields = [];
-        }
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-        if (currentFields.some((f: any) => f.name === field.name)) {
-          const err = new Error(
-            `Field "${field.name}" already exists in collection "${name}"`,
-            // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-          ) as any;
-          err.code = 'DUPLICATE';
-          throw err;
-        }
-        const updatedFields = [...currentFields, field];
-        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-        await (trx as any)
-          .updateTable('zvd_collections')
-          .set({ fields: toJsonb(updatedFields), updated_at: new Date() })
-          .where('name', '=', name)
-          .execute();
-        // Sealed and masked with the field recorded (L37 layers 2-3), in this
-        // transaction: the new column may be unserved, and the view lacks it.
-        if (colDDL) await sealColumns(trx, name, updatedFields);
-      });
+        await db.transaction().execute(async (trx: any) => {
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+          const locked = await (trx as any)
+            .selectFrom('zvd_collections')
+            .select(['fields'])
+            .where('name', '=', name)
+            .forUpdate()
+            .executeTakeFirst();
+          if (!locked) throw new Error('Collection not found');
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+          let currentFields: any[];
+          try {
+            currentFields =
+              typeof locked.fields === 'string' ? JSON.parse(locked.fields) : (locked.fields ?? []);
+          } catch {
+            currentFields = [];
+          }
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+          if (currentFields.some((f: any) => f.name === field.name)) {
+            const err = new Error(
+              `Field "${field.name}" already exists in collection "${name}"`,
+              // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+            ) as any;
+            err.code = 'DUPLICATE';
+            throw err;
+          }
+          const updatedFields = [...currentFields, field];
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+          await (trx as any)
+            .updateTable('zvd_collections')
+            .set({ fields: toJsonb(updatedFields), updated_at: new Date() })
+            .where('name', '=', name)
+            .execute();
+        });
+      }
       DDLManager.invalidateCache(name);
       announceSchemaChange(name, 'alter');
 

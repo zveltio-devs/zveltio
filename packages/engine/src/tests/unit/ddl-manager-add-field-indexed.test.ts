@@ -31,6 +31,8 @@ describe('DDLManager.addField — indexes', () => {
         ]),
       },
     ]);
+    // The key's usual name is free.
+    db.when(/SELECT to_regclass\(quote_ident\(\$1\)\) AS r/, [{ r: null }]);
     await DDLManager.addField(asDb(db), 'products', {
       name: 'sku',
       type: 'text',
@@ -48,8 +50,15 @@ describe('DDLManager.addField — indexes', () => {
     expect(
       db.executed(/CREATE INDEX CONCURRENTLY.*tenant_id, "sku", created_at DESC/),
     ).toHaveLength(1);
-    expect(db.executed(/UNIQUE/)).toHaveLength(1);
-    expect(db.executed(/ADD UNIQUE \(tenant_id, "sku"\)/)).toHaveLength(1);
+    // The key: its index built CONCURRENTLY, then attached — never `ADD UNIQUE`,
+    // which builds the index under the table's exclusive lock (DR-37).
+    expect(db.executed(/CREATE UNIQUE INDEX CONCURRENTLY[\s\S]*\(tenant_id, "sku"\)/)).toHaveLength(
+      1,
+    );
+    expect(
+      db.executed(/ADD CONSTRAINT "zvd_products_tenant_id_sku_key" UNIQUE USING INDEX/),
+    ).toHaveLength(1);
+    expect(db.executed(/ADD UNIQUE/)).toHaveLength(0);
   });
 
   it("installs the extension a field's type requires before adding the column", async () => {
