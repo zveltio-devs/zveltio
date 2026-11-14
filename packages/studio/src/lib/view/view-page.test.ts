@@ -116,6 +116,41 @@ describe('view/2 renderer', () => {
     );
   }, 60_000);
 
+  it('a toolbar button whose input names an unselected pane is disabled, never sent', async () => {
+    const { default: ViewPage } = await import('./ViewPage.svelte');
+    const { container, getByText } = render(ViewPage, {
+      props: {
+        ext: 'notes',
+        view: {
+          type: 'split',
+          panes: [
+            { type: 'list', id: 'notes', collection: 'notes', fields: ['title'] },
+            {
+              type: 'list',
+              collection: 'notes',
+              fields: ['status'],
+              actions: [
+                { action: 'archive', label: 'Dismiss all', input: { note_id: { $selected: 'notes' } } },
+              ],
+            },
+          ],
+        },
+      },
+    });
+    await waitFor(() => expect(container.textContent).toContain('First'));
+    const button = () => getByText('Dismiss all').closest('button') as HTMLButtonElement;
+    await waitFor(() => expect(button()).toBeTruthy());
+    expect(button().disabled).toBe(true);
+    await fireEvent.click(button());
+    expect(post).not.toHaveBeenCalled();
+    await fireEvent.click(getByText('First'));
+    await waitFor(() => expect(button().disabled).toBe(false));
+    await fireEvent.click(button());
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith('/ext/notes/actions/archive', { note_id: 'n1' }),
+    );
+  }, 60_000);
+
   it('runs a row action as the user, with its input filled from the row', async () => {
     const { default: ViewPage } = await import('./ViewPage.svelte');
     const { container, getAllByText } = render(ViewPage, {

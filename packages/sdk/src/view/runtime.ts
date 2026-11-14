@@ -11,6 +11,7 @@
  */
 
 import type {
+  Button,
   Condition,
   Conditions,
   Field,
@@ -123,6 +124,17 @@ export function resolveFiles(
     };
   }
   return out.read || out.write ? out : undefined;
+}
+
+/**
+ * Every reference a button carries (`input`, `params`, `files`) has a value in
+ * `s`. A button that is not bound is drawn disabled and never sent (no row
+ * selected in the pane it names). What it `prompt`s for is no reference.
+ */
+export function isBound(b: Button, s: ViewScope): boolean {
+  if ('navigate' in b) return resolveInput(b.params, s) !== null;
+  if ('action' in b) return resolveInput(b.input, s) !== null && resolveFiles(b.files, s) !== null;
+  return true;
 }
 
 /**
