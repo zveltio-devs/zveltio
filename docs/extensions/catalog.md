@@ -81,7 +81,7 @@ accurate counts.
 | `content/media` | Media Library | 2.1.0 | Tags, favorites, curated collections and AI metadata for the engine’s media files |
 | `content/documents` | Document Generator | 2.0.1 | Numbered documents generated from templates as the caller, with signatures by logged-in users |
 | `content/document-templates` | Document Templates | 2.1.0 | HTML templates with {{variable}} interpolation, rendered to PDF as the caller |
-| `content/drafts` | Content Drafts | 2.1.1 | Draft, review and publish workflow for content collections, through the data API as the publishing user |
+| `content/drafts` | Content Drafts | 3.0.0 | Draft, review and publish workflow for content collections, through the data API as the publishing user |
 | `content/pdf-viewer` | PDF Viewer | 1.0.1 | Inline PDF viewer components for client apps and integrator-built pages. Exports PdfViewer and PdfBlock; no page-builder block type is registered. |
 
 ## data
@@ -148,7 +148,7 @@ accurate counts.
 | Extension | Name | Ver | What it does |
 |---|---|---|---|
 | `integrations/api-connector` | API Connector | 2.2.0 | No-code HTTP integrations: call external REST APIs on hosts the operator allows, with retries, OAuth2 and a call log; receive signed incoming webhooks |
-| `integrations/migrators` | Data Migrators | 2.0.1 | Import your data from HubSpot, Notion and Airtable into Zveltio collections, through the data API as the importing user |
+| `integrations/migrators` | Data Migrators | 3.0.0 | Import your data from HubSpot, Notion and Airtable into Zveltio collections, through the data API as the importing user |
 
 ## operations
 
