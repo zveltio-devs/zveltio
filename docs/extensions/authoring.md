@@ -74,7 +74,7 @@ extension, see [ui-model.md](ui-model.md#a-screen-that-needs-code)).
 }
 ```
 
-- **`name`** must equal the path slug exactly (e.g. `finance/accounting`). Mismatches fail registry sync.
+- **`name`** must equal the path slug exactly (e.g. `finance/accounting`): its segments are the last folders of the extension's path, whatever the repository folder is called. Mismatches fail `extension validate` and registry sync.
 - **`zveltioMinVersion`** uses naive semver (`major.minor.patch`); pre-release suffixes like `-beta.X` are tolerated. Name the first engine that has every member you use; this document gives the version for each.
 - **`permissions`** lists the capabilities the extension uses (`data:write`, `data:system`, `files`, `auth:session`, …); an administrator approves them at install. `defineExtension([...], …)` takes the same list and types `ctx` by it.
 - **`peerDependencies`** are **bundled into `engine/index.js`** at pack time, not installed on the target, and must be on the platform allow-list (`PEERDEP_NOT_ALLOWED` otherwise). A dependency that reads its own files at runtime cannot work: `node_modules` does not ship.

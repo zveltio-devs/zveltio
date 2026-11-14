@@ -90,8 +90,15 @@ engine code (`contributes.engine: false`).
 ```bash
 cd zveltio-extensions/
 zveltio extension create my-feature --category content
-# scaffolds at zveltio-extensions/content/my-feature/
+# scaffolds at ./extensions/content/my-feature/
 ```
+
+Outside a project (no `package.json` above the folder) the scaffold also writes
+a `package.json` depending on `@zveltio/sdk` at the CLI's version: run
+`bun install` there before `extension pack`. Inside one, that project's root
+installs it. `validate` checks the manifest `name` against as many trailing
+folders as it has segments (`content/my-feature`), whatever the repository
+folder is called.
 
 What gets generated (the shape of `crm`):
 ```
@@ -104,6 +111,7 @@ content/my-feature/
 ├── studio/
 │   ├── schemas/my-feature.json       # the page, a zveltio.view/2 document
 │   └── messages/en.json              # the keys the page owns
+├── package.json                      # only outside a project
 └── .github/workflows/ci.yml
 ```
 

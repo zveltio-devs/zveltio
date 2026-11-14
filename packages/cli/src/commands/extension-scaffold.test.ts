@@ -17,7 +17,6 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { SHARED_MESSAGE_KEYS } from '@zveltio/sdk/validate';
 import cliPkg from '../../package.json' with { type: 'json' };
-import enginePkg from '../../../engine/package.json' with { type: 'json' };
 import { extensionCommand } from './extension.js';
 
 let dir: string;
@@ -100,17 +99,14 @@ describe('extension create — the declared model', () => {
 });
 
 describe('extension create — package.json (DR-20)', () => {
-  it('outside a project, pins what a pack needs at the engine versions', async () => {
+  it('outside a project, depends on the SDK this CLI ships with', async () => {
     await extensionCommand('create', 'Inventory', { category: 'operations' });
     const p = readJson(join(root(), 'package.json'));
-    expect(p.dependencies).toEqual({
-      '@zveltio/sdk': cliPkg.version,
-      kysely: enginePkg.dependencies.kysely,
-    });
+    expect(p.dependencies).toEqual({ '@zveltio/sdk': cliPkg.version });
   });
 
-  it('inside a project that already installs kysely, writes none', async () => {
-    writeFileSync(join(dir, 'package.json'), JSON.stringify({ dependencies: { kysely: '1' } }));
+  it('inside a project, leaves dependencies to its root', async () => {
+    writeFileSync(join(dir, 'package.json'), '{}');
     await extensionCommand('create', 'Inventory', { category: 'operations' });
     expect(existsSync(join(root(), 'manifest.json'))).toBe(true);
     expect(existsSync(join(root(), 'package.json'))).toBe(false);

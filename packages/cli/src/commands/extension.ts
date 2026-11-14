@@ -1,28 +1,17 @@
-import { existsSync, readFileSync } from 'fs';
+import { existsSync } from 'fs';
 import { mkdir, writeFile } from 'fs/promises';
 import { dirname, join } from 'path';
 // Inlined by `bun build`, as in index.ts: the engine version this CLI ships with.
 import pkg from '../../package.json' with { type: 'json' };
-// Same: the kysely the engine pins, so a scaffold builds against the engine's own.
-import enginePkg from '../../../engine/package.json' with { type: 'json' };
 
 /**
- * Does a project above `dir` already provide the dependencies a pack needs?
- * `@zveltio/sdk/extension` imports kysely at runtime, so the nearest
- * package.json that declares kysely (the extensions repository, the engine
- * monorepo, the author's own project) is where the bundler finds it.
+ * Is `dir` inside a project (a package.json above it)? Then that project's
+ * root installs the dependencies (the extensions repository, the engine
+ * monorepo, an author's workspace) and the scaffold adds no second one.
  */
-function projectProvidesDeps(dir: string): boolean {
+function insideProject(dir: string): boolean {
   for (let at = dir; ; at = dirname(at)) {
-    const file = join(at, 'package.json');
-    if (existsSync(file)) {
-      try {
-        const p = JSON.parse(readFileSync(file, 'utf8'));
-        if (p?.dependencies?.kysely || p?.devDependencies?.kysely) return true;
-      } catch {
-        /* unreadable: keep walking */
-      }
-    }
+    if (existsSync(join(at, 'package.json'))) return true;
     if (dirname(at) === at) return false;
   }
 }
@@ -215,9 +204,9 @@ export default defineExtension(['data:write'], {
     }),
   );
 
-  // A scaffold outside a project that installs them cannot pack: the bundle
-  // inlines @zveltio/sdk/extension and the kysely it imports (DR-20).
-  if (!projectProvidesDeps(process.cwd())) {
+  // Outside a project nothing installs @zveltio/sdk, which the bundle inlines,
+  // and `pack` failed (DR-20). Same version as this CLI: the two ship together.
+  if (!insideProject(process.cwd())) {
     await writeFile(
       join(targetDir, 'package.json'),
       json({
@@ -227,7 +216,6 @@ export default defineExtension(['data:write'], {
         type: 'module',
         dependencies: {
           '@zveltio/sdk': pkg.version,
-          kysely: enginePkg.dependencies.kysely,
         },
       }),
     );
@@ -291,7 +279,7 @@ jobs:
       ${safeName}.json  <- THE PAGE, a zveltio.view/2 document
     messages/
       en.json         <- keys this view owns; other locales filled from en
-  package.json        <- only outside a project that already installs kysely
+  package.json        <- @zveltio/sdk; only when no package.json is above
   .gitattributes
   .github/workflows/ci.yml
 
