@@ -58,7 +58,9 @@ d('the engine roles in a built-in backup', () => {
 
   it('creates a missing role and leaves a present one alone', async () => {
     await rolledBack(db, async (trx) => {
-      await sql`CREATE ROLE zveltio_wrk_probe_gone NOLOGIN BYPASSRLS`.execute(trx);
+      // NOBYPASSRLS: only a role that has BYPASSRLS may grant it, and the CI lane
+      // runs the engine as a non-superuser owner.
+      await sql`CREATE ROLE zveltio_wrk_probe_gone NOLOGIN`.execute(trx);
       await sql`GRANT SELECT ON zv_settings TO zveltio_wrk_probe_gone`.execute(trx);
       const text = await engineRolesSql(trx);
       await sql`DROP OWNED BY zveltio_wrk_probe_gone`.execute(trx);
@@ -71,7 +73,7 @@ d('the engine roles in a built-in backup', () => {
       const r = await sql<{ rolcanlogin: boolean; rolbypassrls: boolean; rolsuper: boolean }>`
         SELECT rolcanlogin, rolbypassrls, rolsuper FROM pg_roles
          WHERE rolname = 'zveltio_wrk_probe_gone'`.execute(trx);
-      expect(r.rows).toEqual([{ rolcanlogin: false, rolbypassrls: true, rolsuper: false }]);
+      expect(r.rows).toEqual([{ rolcanlogin: false, rolbypassrls: false, rolsuper: false }]);
     });
   });
 });

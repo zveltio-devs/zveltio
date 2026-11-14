@@ -4,7 +4,7 @@ import { zValidator } from '@hono/zod-validator';
 import { sql } from 'kysely';
 import { z } from 'zod';
 import { createHash } from 'crypto';
-import { chmod, unlink } from 'node:fs/promises';
+import { chmod, mkdir, unlink } from 'node:fs/promises';
 import { isGodUser, getCurrentDomain, requireInstanceAdmin } from '../lib/tenancy/index.js';
 import { DEFAULT_TENANT_ID } from '../lib/tenancy/index.js';
 import { auditLog } from '../lib/audit.js';
@@ -208,9 +208,7 @@ export function backupRoutes(db: Database, auth: any): Hono {
     // Run backup in background — do NOT await
     const backupBg = async () => {
       try {
-        // Ensure backup directory exists
-        const mkdirProc = Bun.spawn(['mkdir', '-p', BACKUP_DIR]);
-        await mkdirProc.exited;
+        await mkdir(BACKUP_DIR, { recursive: true });
 
         // The engine's roles, then pg_dump's own gzip archive (`-Z 6`: plain SQL)
         // appended to the same file — lib/backup/dump.ts. It was `pg_dump | gzip`,

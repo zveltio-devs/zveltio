@@ -9,7 +9,7 @@
  * was — see `resolveDumpTarget` in `routes/backup.ts` for what that cost.
  */
 
-import { chmod } from 'node:fs/promises';
+import { chmod, mkdir } from 'node:fs/promises';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { writeBackupArchive } from './dump.js';
@@ -122,7 +122,7 @@ export async function runScheduledBackup(
   const backupId = inserted.rows[0]!.id;
 
   try {
-    await Bun.spawn(['mkdir', '-p', BACKUP_DIR]).exited;
+    await mkdir(BACKUP_DIR, { recursive: true });
 
     // The engine's roles, then pg_dump's own gzip output (dump.ts): no gzip
     // process, and no pipe copied through this process.
