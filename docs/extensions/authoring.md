@@ -1,154 +1,84 @@
 # Authoring Zveltio extensions
 
-Extensions extend the Zveltio engine with new HTTP routes, Studio pages, client
-components, custom field types, and migrations. This document is the contract
-every extension follows — read it before building one.
+An extension declares **collections**, **actions** and **jobs**, the
+**routes** a non-Zveltio caller needs, and **views** for its pages. The engine
+creates and owns the collections, runs the actions and jobs, answers the
+routes, and its rules decide who may do what (ADR 0002). This document is the
+contract; read it before building one. Task recipes are in
+[cookbook.md](cookbook.md), the page format in [ui-model.md](ui-model.md).
 
 ## TL;DR
 
-- One npm-style folder per extension at `zveltio-extensions/<category>/<name>/`.
-- `manifest.json` declares metadata and dependencies.
-- `engine/index.ts` exports a default `ZveltioExtension` with a `register(app, ctx)` function. This is where the truth lives.
-- **Your admin page is a JSON schema** — `studio/schemas/<name>.json`, named by `manifest.studio.pages[].schema`. The host renders it; nothing builds.
-- The engine injects a `ctx` object — extensions never `import` engine internals directly.
-- Real npm packages (`hono`, `zod`, `kysely`, `@hono/zod-validator`) are **bundled into your artifact** by `extension pack`. Nothing is installed for you on the target, and `node_modules` does not ship — so a dependency that reads its own files at runtime cannot work.
-
-### Where UI goes
-
-> **Direction (ADR 0042, 2026-11-12):** an extension's UI is data only, and each front end draws it its own way. Code pages and Svelte slot widgets are being retired. Read [ui-model.md](ui-model.md) first; this section describes today's state.
-
-Three destinations, and they are not three equal choices. Of the 55 extensions
-shipped today, 60 pages are schemas and seven are code — and each of those seven
-sits BESIDE a schema, for the one part a schema could not express (a chat, an
-inbox, a block builder, a playground, an IDE, a kanban, a map).
-
-| You want | You write | Shipped today |
-|---|---|---|
-| a page | `studio/schemas/*.json` | 60 schemas |
-| a widget on a core surface (dashboard, topbar) | `studio/src/contribute.ts` | 3 extensions |
-| UI a schema cannot express — canvas, chat, map, inbox | `studio/pages/+page.svelte` | 7 pages, in 7 extensions |
-
-Counts rather than adjectives, because they are checkable and they age
-honestly. The one that matters is the last row's shape: seven code pages across
-seven extensions, and **every one of them sits beside a schema** — the schema
-still serves the list, the settings, the CRUD, and the code page serves only the
-part that could not be a schema. None of the seven replaced a schema.
-
-`bunx @zveltio/cli extension create <name>` scaffolds the first. Pass
-`--code-page` for the third, and read what it prints before you keep it.
+- One folder per extension at `zveltio-extensions/<category>/<name>/`;
+  `bunx @zveltio/cli extension create <name>` scaffolds one.
+- `manifest.json` declares everything: collections, actions, jobs, routes,
+  pages, capabilities (`permissions`) and dependencies.
+- Data lives in collections the extension declares in `schema/collections/`.
+  No SQL, no migrations, no table of your own: the engine creates them, with
+  tenant isolation, grants and the data API (`/api/data/<collection>`).
+- Business logic is an **action** (synchronous, as the caller, in the caller's
+  transaction) or a **job** (after commit, retried). Both reach data only
+  through `host.collections`, the data API with every rule applied.
+- An extension carries no authorization logic: no permission checks, no
+  invented verbs, no `resources`. The engine's grants, row and column rules
+  decide.
+- A page is a `zveltio.view/2` document in `studio/schemas/`, drawn by every
+  front end. No extension code runs in a browser (ADR 0042).
+- `extension pack` bundles `engine/index.js` and records integrity hashes;
+  re-pack after every change under `engine/` or `schema/`.
 
 ## Folder layout
 
 ```
 my-extension/
 ├── manifest.json
+├── schema/
+│   └── collections/
+│       └── tasks.json             # one file per declared collection
 ├── engine/
-│   ├── index.ts                   # default-exports ZveltioExtension
-│   ├── routes.ts                  # Hono routes
-│   ├── lib/                       # local helpers
-│   └── migrations/
-│       └── 001_init.sql
-├── studio/                        # Admin UI
-│   ├── schemas/
-│   │   └── my-extension.json      # THE page — rendered by the host, no build
-│   ├── messages/
-│   │   └── en.json                # keys this extension owns; locales filled from en
-│   ├── pages/                     # ONLY for UI a schema cannot express
-│   │   └── +page.svelte           # /admin/<slug>/ — baked in at release
-│   └── src/
-│       ├── contribute.ts          # optional: widgets on core surfaces
-│       └── components/            # shared components → $lib/ext/<name>/components/
-└── client/                        # UI for the public site / portals — copied into
-                                   # the hosts by their sync scripts, same as studio/src
+│   ├── index.ts                   # default-exports the extension
+│   ├── actions.ts                 # actions and jobs
+│   └── routes.ts                  # declared route handlers, if any
+└── studio/
+    ├── schemas/
+    │   └── my-extension.json      # a page: a zveltio.view/2 document
+    └── messages/
+        └── en.json                # keys this extension owns; locales filled from en
 ```
 
-### Studio pages — no per-extension build
-
-Extensions never ship a pre-built bundle: **no** `studio/dist/`, **no**
-per-extension `vite.config.ts`, **no** per-extension `package.json`. There are
-two ways a page reaches the Studio, neither of which builds at enable time
-(see "How Studio pages are served" below):
-
-- **Declarative (SDUI, preferred):** ship a JSON schema referenced by
-  `manifest.studio.pages[].schema`. The engine inlines it into
-  `GET /api/extensions` and a generic host route renders it — zero build.
-- **Code (Tier-3):** ship `studio/pages/**/*.svelte`; it is baked into the
-  Studio's route tree at **release** (via `sync-extensions`) at
-  `(admin)/<slug>/`, `<slug>` derived from `manifest.studio.pages[0].path`
-  (e.g. `/admin/crm` → `crm`). Shared components in `studio/src/**` are copied
-  to `src/lib/ext/<extension-name>/`.
-
-**Console or App.** Each page may set `surface`: `console` (the default) for
-configuration, mounted under `/admin/`; `app` for work screens, mounted under
-`/app/<extension-name>/` in the App. The engine refuses a marked page whose
-path is outside its surface, and the Console drops `app` pages from its nav and
-routes. The App does not render extension pages yet; they arrive with the
-`@zveltio/ui` kit, so mark a page `app` only together with that move. Tier-3
-code pages are baked under `(admin)/`, so `pages[0]` stays a Console page.
-
-Use the same imports the Studio core uses — `$lib/api.js`,
-`$lib/stores/toast.svelte.js`, Svelte 5 runes, DaisyUI classes.
-Anything else has to be vendored under `studio/src/`.
-
-### When to use Tier-3 (code pages) vs SDUI
-
-> **Being retired (ADR 0042).** Do not add new code pages. A screen SDUI cannot express is a request for a view kind or a field type ([ui-model.md](ui-model.md)); a screen that truly needs code becomes a front-end package outside the extension.
-
-Prefer **SDUI** (`manifest.studio.pages[].schema` → JSON under `studio/schemas/`)
-for anything that is CRUD, settings, tabs of tables, or KPI+list. See
-[SDUI-SCHEMA-REFERENCE.md](../ui/sdui.md).
-
-Use **Tier-3** (`studio/pages/+page.svelte`, synced into Studio at release) only
-when the UI cannot be expressed with the current SDUI vocabulary. Formal criteria
-— ship code if **any** of these hold:
-
-| Criterion | Examples that stay Tier-3 |
-| --- | --- |
-| Real-time or long-lived client session | AI chat, live collaboration cursors |
-| Free-form canvas / graph editor | Page builder, flows node graph |
-| Spatial / media-heavy interaction | Geospatial map, media gallery lightbox |
-| Code or query IDE | GraphQL playground, edge-functions editor |
-| Domain calendar / kanban with drag | `developer/views` calendar & board |
-| Complex email client (not just account settings) | `communications/mail` inbox |
-
-Even Tier-3 extensions should push **settings, filters, and simple CRUD
-sub-pages** to SDUI (or Model 2.5 slot widgets) so only the irreducible surface
-stays as Svelte.
-
-**Do not** use Tier-3 to dodge learning SDUI for a normal list+form page — that
-reintroduces per-extension Studio churn and blocks the “data, not code” admin
-security model.
-
-**Untrusted marketplace UI:** withdrawn (ADR 0042). No extension code runs in a browser, framed or not. The `MarketplaceSandbox.svelte` scaffold is not part of the model and is not wired anywhere; see [ui-model.md](ui-model.md).
+No `studio/dist/`, no per-extension `vite.config.ts` or `package.json`, no
+`studio/pages/*.svelte` (code pages and slot widgets are being retired,
+ADR 0042; a screen that needs code is a front-end package outside the
+extension, see [ui-model.md](ui-model.md#a-screen-that-needs-code)).
 
 ## `manifest.json`
 
 ```json
 {
-  "name": "category/name",
-  "displayName": "Human Friendly Name",
-  "category": "content",
+  "name": "business/tasks",
+  "displayName": "Tasks",
+  "category": "business",
   "description": "What this extension does, in one sentence.",
   "version": "1.0.0",
-  "zveltioMinVersion": "1.0.0",
-  "package": "@zveltio/ext-mine",
-  "permissions": ["database", "settings"],
-  "peerDependencies": {
-    "imapflow": "^1.0.0"
-  },
-  "contributes": {
-    "engine": true,
-    "studio": true,
-    "client": false,
-    "fieldTypes": []
-  }
+  "zveltioMinVersion": "3.0.0-beta.121",
+  "package": "@zveltio/ext-tasks",
+  "permissions": ["data:write"],
+  "collections": ["tasks"],
+  "actions": [{ "name": "close", "permission": { "resource": "tasks" },
+                "input": { "type": "object", "required": ["id"],
+                           "properties": { "id": { "type": "string" } } },
+                "reads": ["tasks"], "writes": ["tasks"] }],
+  "studio": { "pages": [{ "path": "/admin/tasks", "label": "Tasks", "icon": "Check",
+                          "schema": "schemas/tasks.json" }] },
+  "contributes": { "engine": true, "studio": true }
 }
 ```
 
 - **`name`** must equal the path slug exactly (e.g. `finance/accounting`). Mismatches fail registry sync.
-- **`zveltioMinVersion`** uses naive semver (`major.minor.patch`); pre-release suffixes like `-alpha.X` are tolerated.
-- **`peerDependencies`** are **bundled into `engine/index.js`** at pack time, not installed on the target. Declare anything beyond the four core packages here — and expect the platform allow-list to be enforced: a package it does not carry fails validation with `PEERDEP_NOT_ALLOWED`. (The `bun add`-at-activation path still exists for unbundled extensions; see "How the engine resolves extensions at runtime".)
-- **`contributes.engine: false`** marks UI-only extensions — `register()` may be a no-op.
+- **`zveltioMinVersion`** uses naive semver (`major.minor.patch`); pre-release suffixes like `-beta.X` are tolerated. Name the first engine that has every member you use; this document gives the version for each.
+- **`permissions`** lists the capabilities the extension uses (`data:write`, `data:system`, `files`, `auth:session`, …); an administrator approves them at install. `defineExtension([...], …)` takes the same list and types `ctx` by it.
+- **`peerDependencies`** are **bundled into `engine/index.js`** at pack time, not installed on the target, and must be on the platform allow-list (`PEERDEP_NOT_ALLOWED` otherwise). A dependency that reads its own files at runtime cannot work: `node_modules` does not ship.
+- **`contributes.engine: false`** marks an extension with no code: collections and views only.
 
 ## Collections — declared, created by the engine
 
@@ -365,7 +295,7 @@ route verifies the signature, stores the raw event, and enqueues a job; the job
 writes through `host.collections` (ADR 0018).
 
 ```json
-"publicRoutes": ["/webhooks/stripe"],
+"routes": [{ "method": "POST", "path": "/webhooks/stripe", "access": "public", "handler": "stripeWebhook" }],
 "jobs": [{
   "name": "applyEvent", "input": { "type": "object" },
   "writes": ["payments"], "fromPublicRoutes": ["/webhooks/stripe"]
@@ -373,19 +303,22 @@ writes through `host.collections` (ADR 0018).
 ```
 
 ```ts
-app.post('/webhooks/stripe', async (c) => {
-  const raw = await c.req.text();
-  if (!verifySignature(raw, c.req.header('stripe-signature'))) return c.json({}, 401);
-  await ctx.internals.enqueue!(c, 'applyEvent', JSON.parse(raw));
-  return c.json({ received: true });
-});
+export const stripeWebhook: RouteHandler = async (request, { host }) => {
+  const raw = await request.text();
+  if (!verifySignature(raw, request.headers.get('stripe-signature'))) {
+    return Response.json({}, { status: 401 });
+  }
+  await host.enqueue!('applyEvent', JSON.parse(raw));
+  return Response.json({ received: true });
+};
 ```
 
-- `c` is the handler's own request context, and the route must be one the
-  job names in `fromPublicRoutes`: each entry is a `publicRoutes` entry naming
-  one route, without `*`, so another public handler cannot queue the job. A
-  session route, a context kept from another request, or a call left running
-  after the answer throws.
+- The route must be one the job names in `fromPublicRoutes`: each entry names
+  one declared public route (or a legacy `publicRoutes` entry), without `*`,
+  so another public handler cannot queue the job. A `caller` route, a request
+  kept from another call, or a call left running after the answer throws.
+  [`billing`](https://github.com/zveltio-devs/zveltio-extensions/blob/master/billing/engine/routes.ts)
+  is the shipped example (it also claims each event id once).
 - The enqueue joins the request transaction: a handler that throws afterwards
   leaves no job. The job runs in the request's tenant.
 - Needs `data:system`, as every job does; `input` must match the job's schema.
@@ -409,22 +342,22 @@ limit; refused, the read throws the 429, which is the route's answer unless
 the handler catches it.
 
 ```ts
-app.get('/sitemap.xml', async (c) => {
-  const { status, body } = await ctx.internals.listRecords(c, 'page_publications', {
-    limit: 500,
-  });
-  if (status !== 200) return c.text('', 404);
-  return c.body(toSitemap(body.records as Row[]), 200, { 'content-type': 'application/xml' });
-});
+export const sitemap: RouteHandler = async (request, { host }) => {
+  const { records } = await host.collections.list('page_publications', { limit: 500 });
+  return new Response(toSitemap(records as Row[]), { headers: { 'content-type': 'application/xml' } });
+};
 ```
+
+A refused read throws with the data API's status, which is the route's answer
+unless the handler catches it.
 
 - `public` holds nothing until an operator grants it `read` on the collection:
   until then the read answers 403, never rows. The extension cannot grant it.
 - It is the visitor's read whoever the visitor is: a signed-in one reads as
   `public` too, never as themselves, and a stale cookie does not refuse it.
-- Reads only: `createRecord`, `updateRecord` and `deleteRecord` still throw in
-  a public route. Another extension's public route, a context kept from another
-  request, or a read left running after the answer throws.
+- Reads only: a write through `host.collections` throws in a public route. A
+  request kept from another call, or a read left running after the answer,
+  throws.
 - Before 3.0.0-beta.99 both members threw in a public route.
 
 ### The v1 contract is frozen
@@ -446,324 +379,114 @@ The frozen copy is `packages/sdk/extension-api/v1.d.ts`. CI runs
 `bun run check:extension-api`, which fails when the live types stop accepting
 what that copy promises. Never edit `v1.d.ts` to make the check pass.
 
+## Declared routes
+
+A route exists only for a caller that is not a Zveltio client: an identity
+provider, a payment provider's webhook, a crawler (ADR 0039). Whatever a
+front end calls is the data API, an action or the file API. Declare each
+route and export its handler, a plain function over the web-standard
+`Request` and `Response`:
+
+```json
+"routes": [{ "method": "POST", "path": "/webhook/stripe", "access": "public", "handler": "stripeWebhook" }]
+```
+
+```ts
+import type { RouteHandler } from '@zveltio/sdk/extension';
+
+export const stripeWebhook: RouteHandler = async (request, { params, host }) => {
+  // host.collections, host.enqueue, host.files as for any route (see above)
+  return Response.json({ received: true });
+};
+```
+
+- `access` is `public` (anyone) or `caller` (the engine authenticates the
+  request as usual). The engine owns mounting, path parameters, body limit,
+  rate limit and tenant resolution; a path that is not declared does not
+  exist, and an anonymous request to one answers 401 (ADR 0047).
+- The handler is exported in the extension's `routes` object under the name
+  the manifest gives (`routes: { stripeWebhook }`); the two lists must match.
+- It works the same inline and worker-isolated. `publicRoutes` is still read
+  and deprecated. Engines from 3.0.0-beta.110.
+
+## Pages: views
+
+A page is `manifest.studio.pages[].schema` naming a `zveltio.view/2` document
+under `studio/schemas/`. It names collections, fields and actions, never
+URLs; Studio, `@zveltio/react` and any other front end draw it, and nothing
+is built when the extension is enabled. The format, the kinds and what
+`extension validate` checks are in [ui-model.md](ui-model.md). A view's
+labels are keys in `studio/messages/en.json`; `common.*` keys come from the
+host and are not repeated.
+
 ## `engine/index.ts` — the entry point
 
 ```ts
-import type { ZveltioExtension } from '@zveltio/sdk/extension';
-import { join } from 'path';
-import { myRoutes } from './routes.js';
+import { defineExtension } from '@zveltio/sdk/extension';
+import { actions, jobs } from './actions.js';
+import { stripeWebhook } from './routes.js';
 
-const extension: ZveltioExtension = {
-  name: 'category/name',          // must match manifest.json
-  category: 'content',
-
-  // Optional: SQL migrations run on first activation. Use absolute paths.
-  getMigrations() {
-    return [join(import.meta.dir, 'migrations/001_init.sql')];
-  },
-
-  // Required: register routes/listeners. Called once per activation.
-  async register(app, ctx) {
-    app.route('/api/my-feature', myRoutes(ctx));
-  },
-
-  // Optional: cleanup on disable/shutdown. Routes cannot be de-registered.
-  async cleanup() {
-    // close connections, clear timers, etc.
-  },
-};
-
-export default extension;
+export default defineExtension(['data:write', 'data:system'], {
+  name: 'business/tasks',          // must match manifest.json
+  category: 'business',
+  actions,
+  jobs,
+  routes: { stripeWebhook },
+  async register() {},             // nothing to mount
+});
 ```
 
-**Key rules:**
-
-1. The `ZveltioExtension` import is **type-only** (`import type`). It's erased at compile time so the package path resolution never runs at runtime.
+1. Import from `@zveltio/sdk/extension` only (types and `ActionRefusal`,
+   `todayIn`, `defineExtension`). Never import engine source or another
+   extension: run its action (`host.actions.run`) instead.
 2. `name` must equal `manifest.json` `name` exactly.
-3. Don't import from `'@zveltio/engine'`, `'@zveltio/engine-permissions'`, `'@zveltio/engine-db'`, or relative paths into the engine source. **Use `ctx.*` only.**
-4. Pass `ctx` (not `ctx.db, ctx.auth`) into the route factory — it carries everything the routes need.
+3. The capability list must equal the manifest's `permissions`
+   (`extension validate` compares them).
 
-## The `ctx` object — engine-injected context
+## Legacy surface (extension-api v1, until v2)
 
-Every `register()` call receives a populated `ExtensionContext`:
+v1 still carries the model this document replaced, so extensions built on it
+keep loading. Do not use it in a new extension or a new version: every
+first-party extension has been ported off it, and v2 removes it
+([v2-candidates.md](v2-candidates.md)).
 
-### Stable public API
+| Legacy | Use instead |
+|---|---|
+| `getMigrations()` and SQL with hand-written tenant RLS | declared collections (`schema/collections/`) |
+| `register(app, ctx)` mounting Hono routes; `publicRoutes`; `ctx.registerPublicRoute` | the data API, an action, or a declared route |
+| `ctx.db`, `ctx.reqDb(c)`, `ctx.DDLManager` | `host.collections` |
+| `ctx.checkPermission`, `requireAdmin` helpers, `resources`, invented verbs | the action's `permission`; the engine's grants and rules |
+| `ctx.events.on('record.*')` listeners | an action that enqueues a job |
+| `ctx.services` | `host.actions.run` with `calls` and a dependency |
+| `ctx.internals.*` (first-party only) | the members above; what remains is listed in the developer guide |
+| `studio/pages/+page.svelte`, `studio/src/contribute.ts` slot widgets, view/1 (`sduiSchema: 1`) | a `zveltio.view/2` view; code as a front-end package |
 
-```ts
-ctx.db                                      // GLOBAL Kysely Database (restricted; NOT tenant-scoped)
-ctx.reqDb(c)                                // Per-request, TENANT-scoped DB — use this in data handlers
-ctx.auth                                    // Better-Auth instance — auth.api.getSession({ headers })
-ctx.fieldTypeRegistry                       // Register custom field types
-ctx.events                                  // Typed event bus — subscribe to record lifecycle events
-ctx.checkPermission(userId, resource, action) // → Promise<boolean>
-ctx.getUserRoles(userId)                    // → Promise<string[]>
-ctx.DDLManager                              // DDL helpers (Ghost Tables, zero-downtime DDL)
-ctx.services                                // Inter-extension service registry (see below)
-```
-
-### `ctx.db` vs `ctx.reqDb(c)` — tenant isolation
-
-`ctx.db` is the **global** pool: it is table-restricted but **not** tenant-scoped.
-In a multi-tenant deployment, querying tenant data through `ctx.db` either returns
-zero rows (Postgres FORCE row-level security with no tenant context) or, on tables
-without RLS, leaks across tenants.
-
-In any route handler that reads/writes tenant data, use **`ctx.reqDb(c)`** — it
-returns the request's tenant transaction (the `zveltio.current_tenant` GUC is set,
-so RLS isolates correctly) wrapped in the same table guard:
-
-```ts
-app.get('/contacts', async (c) => {
-  const db = ctx.reqDb(c); // tenant-scoped
-  return c.json(await db.selectFrom('zvd_contacts').selectAll().execute());
-});
-```
-
-Reserve `ctx.db` for setup/migrations (no request context). See
-the platform's multi-tenancy guide.
-
-### Inter-extension services — `ctx.services.*`
-
-Extensions communicate with each other through a Drupal-style services container.
-**Direct imports between extensions are forbidden.** Always go through `ctx.services`.
-
-```ts
-// Publishing a service (in YOUR extension's register()):
-ctx.services.register('crm.contacts.lookup', async (email: string) => {
-  return await ctx.db.selectFrom('zvd_contacts').where('email', '=', email).executeTakeFirst();
-});
-
-// Consuming a service (from another extension):
-const lookup = ctx.services.get<(email: string) => Promise<unknown>>('crm.contacts.lookup');
-if (!lookup) {
-  // CRM extension is not active — handle gracefully
-  return c.json({ error: 'CRM extension is required for this feature.' }, 503);
-}
-const contact = await lookup('alice@example.com');
-
-// Waiting for a service to appear (rarely needed if dependencies are declared):
-const pdf = await ctx.services.waitFor<PdfGenerator>('pdf.generate', 5000);
-```
-
-**Naming convention** (recommended): `<extension>.<feature>` or `<extension>.<resource>.<verb>`.
-Examples: `crm.contacts.lookup`, `pdf.generate`.
-
-**Declare dependencies** in `manifest.json` so the engine loads providers before consumers:
-
-```json
-{
-  "dependencies": [
-    { "name": "crm", "minVersion": "1.0.0" }
-  ]
-}
-```
-
-The engine topologically sorts extensions before loading, guaranteeing the CRM extension is
-fully loaded (and `crm.contacts.lookup` is registered) before any consumer's `register()` runs.
-At boot, the extensions listed in `ZVELTIO_EXTENSIONS` and the ones enabled in the
-registry (marketplace) are one set, sorted once — a dependency enabled only in the
-registry still loads before an extension listed in the environment. Extensions found
-under `ZVELTIO_EXTENSIONS_PATH` are sorted separately, after that set.
-
-### Engine internals — `ctx.internals.*`
-
-For first-party extensions only. Stable across patch versions, may break at minor versions.
-
-```ts
-ctx.internals.aiProviderManager       // AI providers (OpenAI, Anthropic, Ollama, …)
-ctx.internals.dynamicInsert           // Insert into a user-defined collection table
-ctx.internals.introspectSchema        // Postgres schema introspection
-ctx.internals.runQualityScan          // Data-quality scan
-ctx.internals.invalidateRulesCache    // Clear cached validation rules
-ctx.internals.writeValidationRule     // Write a validation rule (instance admin; ctx.db only reads them)
-ctx.internals.writeValidationRuleGroup // Write a validation rule group (same rule)
-ctx.internals.runEdgeFunction         // Sandbox-execute edge function code
-ctx.internals.extensionRegistry       // Cross-extension hook registry
-ctx.internals.generatePDFAsync        // Queue HTML→PDF render
-ctx.internals.enqueue                 // Queue a job from a public route (data:system, ADR 0018)
-ctx.internals.renderTemplate          // Synchronous {{var}} interpolation
-ctx.internals.generatePDF             // Inline HTML→PDF render
-ctx.internals.DataLoaderRegistry      // GraphQL N+1 batching
-ctx.internals.checkQueryDepth         // GraphQL query-depth validator
-```
-
-The members that act for the request being handled (`createRecord`,
-`updateRecord`, `deleteRecord`, `readRecord`, `listRecords`, `enqueue`,
-`writeValidationRule*`) take its context `c`. A declared route's handler is
-handed no `c` (ADR 0039): it passes the `Request` it was handed instead, and
-`ctx.internals.caller(request)` names who the engine authenticated for it (a
-copy of the user, `session` or `api_key`, and the tenant), or `null`. A request
-kept from an earlier call names no one. Engines from 3.0.0-beta.116;
-`developer/graphql` keeps its context from `register` and works this way.
-
-No internal deletes an account. Erasing one's own is the engine's
-`DELETE /api/me`, re-authenticated by the subject (ADR 0046); `deleteUser` is no
-longer offered (engines from 3.0.0-beta.115), as the directory internals before
-it (ADR 0039 decision 9).
-
-## `engine/routes.ts` — Hono routes
-
-```ts
-import { Hono } from 'hono';
-import { zValidator } from '@hono/zod-validator';
-import { z } from 'zod';
-import type { ExtensionContext } from '@zveltio/sdk/extension';
-
-export function myRoutes(ctx: ExtensionContext): Hono<{ Variables: { user: any } }> {
-  const { db, auth, checkPermission } = ctx;
-
-  // Helpers go INSIDE the route function so they close over destructured names.
-  async function requireAdmin(c: any): Promise<any | null> {
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
-    if (!session) return null;
-    if (!(await checkPermission(session.user.id, 'admin', '*'))) return null;
-    return session.user;
-  }
-
-  const app = new Hono<{ Variables: { user: any } }>();
-
-  app.use('*', async (c, next) => {
-    const user = await requireAdmin(c);
-    if (!user) return c.json({ error: 'Unauthorized' }, 401);
-    c.set('user', user);
-    await next();
-  });
-
-  app.get('/', async (c) => {
-    const rows = await db.selectFrom('zvd_my_table').selectAll().execute();
-    return c.json({ rows });
-  });
-
-  return app;
-}
-```
-
-**Rules:**
-
-- Route factory **takes `ctx` as a single arg**, never `(db, auth)`.
-- Generic `Hono<{ Variables: { user: any } }>` is needed when you use `c.set('user', …)` / `c.get('user')`.
-- Define helpers (e.g. `requireAdmin`) **inside** the route factory so they capture the destructured engine internals. Top-level helpers cannot reach them.
-- Imports allowed: `hono`, `zod`, `kysely`, `@hono/zod-validator`, plus anything in your `manifest.peerDependencies`. Engine internals come from `ctx`.
-- A request commits when the handler **returns**, whatever the status, and rolls back when it **throws**. To refuse after a write, throw: `throw new HTTPException(409, { res: c.json(body, 409) })` (from `hono/http-exception`) rolls back and answers with that response as it is; without `res` the caller gets the problem envelope with the exception's status and message.
-
-## What to avoid
-
-- **Never** `import` from `'../../../packages/engine/src/...'` or `'@zveltio/engine-...'` virtual packages. Those used to be intercepted by `Bun.plugin` shims, but the shim is removed in `1.0.0-alpha.60`. Today these imports fail at runtime.
-- **Never** put helper functions that use `auth` / `checkPermission` / `db` / engine internals at module top level — they have no access to the destructured ctx values.
-- **Never** type your route factory as `(db: any, auth: any)`. Always `(ctx: ExtensionContext)`.
-- **Never** ship a `studio/dist/`, `studio/vite.config.ts`, or
-  `studio/package.json`. The v1 per-extension build pipeline was
-  removed in `1.0.0-alpha.94`. Anything you ship there is dead
-  weight — the Studio serves pre-built/declarative pages and ignores it.
-- **Do not** use `@zveltio/sdk/studio` `registerRoute()` from a runtime
-  bundle — that was the v1 IIFE path (removed in beta.15). For **pages**,
-  ship `studio/pages/` or an SDUI schema. For **slot widgets**, ship
-  `studio/src/contribute.ts` (see below) and import Studio helpers from
-  `$lib/…` after sync — same compile-time model as tier-3 pages.
-- **`@zveltio/sdk/studio` still exists** for pure helpers (`sortSlotContributions`,
-  `makeFormProxy`, types). Synced `contribute.ts` modules import
-  `$lib/extension-api.svelte.js` instead of the SDK register proxies.
-
-### Studio slot contributions (compile-time, Model 2.5)
-
-> **Being retired (ADR 0042):** a slot takes data only. See [ui-model.md](ui-model.md).
-
-To inject a widget into a core slot (e.g. `dashboard.widgets` on the admin
-home page), add **`studio/src/contribute.ts`** (alongside `studio/src/components/`):
-
-```typescript
-import { registerContributionSlot } from '$lib/extension-api.svelte.js';
-import MyWidget from './components/MyWidget.svelte';
-
-export function activate(): void {
-  registerContributionSlot('my-extension', 'dashboard.widgets', {
-    component: MyWidget,
-    priority: 10,
-  });
-}
-```
-
-`scripts/sync-extensions.ts` copies this to `$lib/ext/<name>/contribute.ts` and
-regenerates `$lib/ext/.contributions.generated.ts`. The admin layout loads
-`activate()` for each **enabled** extension — no per-extension build, no runtime
-bundle, same Svelte instance as core Studio.
-
-Declare targeted slots in `manifest.contributes.slots` (metadata for the
-extensions admin UI). Slot names are stable strings declared by core Studio;
-see the developer guide for the full list.
-
-**Community / third-party extensions:** slot widgets ship as compile-time Svelte
-(`studio/src/contribute.ts`) synced into the Studio bundle at build time — same
-as tier-3 pages. Enabling an extension at runtime loads its engine routes and
-SDUI schemas immediately, but **slot contributions require a Studio rebuild**
-(`sync-extensions` → `vite build`). Marketplace untrusted UI will use iframe
-sandbox later; do not expect runtime slot injection from unsigned bundles today.
-
-## Migration from earlier extension styles
-
-If you have an extension authored against an earlier API:
-
-| Before                                                              | After                                |
-|---------------------------------------------------------------------|--------------------------------------|
-| `import { checkPermission } from '@zveltio/engine-permissions'`     | `const { checkPermission } = ctx;`   |
-| `import { auth } from '../../../packages/engine/src/lib/auth.js'`   | `const { auth } = ctx;`              |
-| `import { aiProviderManager } from '...src/lib/ai-provider.js'`     | `const { aiProviderManager } = ctx.internals;` |
-| `myRoutes(ctx.db, ctx.auth)`                                        | `myRoutes(ctx)`                      |
-| `function myRoutes(db, auth) { … }`                                 | `function myRoutes(ctx: ExtensionContext) { const { db, auth } = ctx; … }` |
+The developer guide documents the legacy members for whoever maintains such
+an extension.
 
 ## How the engine resolves extensions at runtime
 
-Extensions are downloaded as ZIPs from `registry.zveltio.com` and extracted to `<EXTENSIONS_DIR>/<name>/`.
+Extensions are downloaded as ZIPs from `registry.zveltio.com` and extracted
+to `<EXTENSIONS_DIR>/<name>/`. `extension pack` bundles everything the engine
+code imports into `engine/index.js` (`engine.bundlePeers: true` is the only
+valid configuration), and the loader imports that artifact directly;
+`node_modules` is excluded from the published archive. Each load checks
+`integrity.engineSha256` and `integrity.schemaSha256` and refuses an
+extension whose files changed after pack.
 
-**A v2 extension needs nothing on disk beside it.** `extension pack` bundles
-`hono`, `zod`, `kysely` and `@hono/zod-validator` into `engine/index.js`, and the
-loader imports that artifact directly — `engine.bundlePeers: true` is the only
-valid configuration today, and `node_modules` is excluded from the published
-archive. That is why a dependency which reads its own files at runtime cannot
-work in an extension; see the developer guide, §5.
+An unbundled extension (a `.ts` entry loaded from disk, the legacy path) still
+gets the four core packages provisioned in `<EXTENSIONS_DIR>/node_modules/`
+and its `peerDependencies` installed with `bun add` at activation; both need
+Bun on `PATH`, which `install/install.sh` handles.
 
-The rest of this section is the **legacy path**, still live for unbundled
-extensions and still run at every startup:
+## How pages are served
 
-- `ensureExtensionCoreDeps()` provisions `<EXTENSIONS_DIR>/node_modules/` with
-  the four core packages on first start, so Bun's filesystem resolution finds
-  them for a dynamically imported `.ts` extension. It returns immediately when
-  `hono` is already there, and its failure is non-fatal.
-- For per-extension peer dependencies declared in `manifest.peerDependencies`,
-  the engine runs `bun add` in `<EXTENSIONS_DIR>/` at activation time.
+A view page is inlined into `GET /api/extensions` and drawn by the host at
+request time: enabling the extension is enough, nothing is built or copied.
+Engine routes and actions are hot-swapped on enable; the browser needs a
+refresh to show newly activated pages. `POST /api/marketplace/:name/enable`
+never builds; its response keeps `studio_rebuild: "skipped"` and
+`studio_pages_prebuilt: true` for compatibility.
 
-Both paths require Bun to be on `PATH` for the user running the engine. The official installer handles this — see `install/install.sh`.
-
-## How Studio pages are served (no runtime rebuild)
-
-> **Changed in `3.0.0-beta.15`.** The old "rebuild Studio on enable" path
-> (`STUDIO_REBUILD_ON_ENABLE` / `STUDIO_BUILDER_URL` / `studio-builder`
-> sidecar) was **removed**. There is no runtime Studio build. Pages are
-> served two ways, both already present before enable:
-
-- **Declarative (SDUI) pages** — `manifest.studio.pages[].schema` points at a
-  JSON schema (`studio/schemas/<slug>.json`). The engine inlines it into
-  `GET /api/extensions` meta, and a generic host route renders it at request
-  time. **No build, no copy, no rebuild** — enabling the extension is enough.
-  This is the preferred model; prefer it for new pages.
-- **Code (Tier-3) pages** — a `+page.svelte` baked into the Studio's route
-  tree at **release** time (via `sync-extensions`). Enabling activates the
-  extension's engine routes; the page is already in the shipped Studio dist,
-  so a refresh shows it.
-
-`POST /api/marketplace/:name/enable` (and `.../disable`) therefore never runs a
-build. The response keeps `studio_rebuild` for API compatibility, but it is
-always `"skipped"` with `studio_pages_prebuilt: true`:
-
-```json
-{
-  "success": true,
-  "hot_loaded": true,
-  "studio_rebuild": "skipped",
-  "studio_pages_prebuilt": true,
-  "message": "Extension crm is now active. Refresh to see its pages."
-}
-```
-
-Engine routes are hot-swapped on enable (zero-downtime `buildHonoApp`); only the
-browser needs a refresh to pick up newly-activated pages.
+Code pages synced into Studio at release are being retired (ADR 0042, slice 8
+deletes the bake).
