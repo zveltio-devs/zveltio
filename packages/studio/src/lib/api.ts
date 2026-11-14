@@ -291,6 +291,15 @@ export const dataApi = {
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
     return api.get<{ records: any[]; pagination: any }>(`/api/data/${seg(collection)}${qs}`);
   },
+  /** ADR 0050: the numbers the caller's own rows give. */
+  aggregate: (collection: string, params: QueryParams) =>
+    api.get<{
+      data: Array<{
+        group: Record<string, unknown>;
+        values: Record<string, number | string | null>;
+      }>;
+      truncated: boolean;
+    }>(`/api/data/${seg(collection)}/aggregate?${toQueryString(params)}`),
   // Note: GET/POST/PATCH return the record directly (no { record: ... } wrapper)
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   get: (collection: string, id: string) => api.get<any>(`/api/data/${seg(collection)}/${seg(id)}`),

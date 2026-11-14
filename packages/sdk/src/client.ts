@@ -91,6 +91,27 @@ export interface ListResult<T> {
   next_cursor?: string;
 }
 
+/** `GET /api/data/:collection/aggregate` (ADR 0050). */
+export interface AggregateParams {
+  /** `count`, or `count|sum|avg|min|max:<field>`; at most 8. */
+  fn: string[];
+  /** At most 3 fields. */
+  groupBy?: string[];
+  /** `<field>:day|week|month|year`, on a date field named in `groupBy`. */
+  bucket?: string;
+  /** Same filter shape as `ListParams.filter`. */
+  filter?: Record<string, unknown>;
+  search?: string;
+  /** Groups returned: default 100, at most 500. */
+  limit?: number;
+}
+
+export interface AggregateResult {
+  data: Array<{ group: Record<string, unknown>; values: Record<string, number | string | null> }>;
+  /** More groups exist past `limit`. */
+  truncated: boolean;
+}
+
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 class CollectionRef<T extends Record<string, any>> {
   /** URL-encoded once, here: a record id is caller data (a slug, an email, a
@@ -117,6 +138,17 @@ class CollectionRef<T extends Record<string, any>> {
     if (params?.cursor) qs.set('cursor', params.cursor);
     const q = qs.toString();
     return this.client['request']('GET', `${this.path}${q ? `?${q}` : ''}`);
+  }
+
+  /** Aggregates under the list's read rules: the numbers the caller's own rows give. */
+  aggregate(params: AggregateParams): Promise<AggregateResult> {
+    const qs = new URLSearchParams({ fn: params.fn.join(',') });
+    if (params.groupBy?.length) qs.set('group_by', params.groupBy.join(','));
+    if (params.bucket) qs.set('bucket', params.bucket);
+    if (params.filter) qs.set('filter', JSON.stringify(params.filter));
+    if (params.search) qs.set('search', params.search);
+    if (params.limit) qs.set('limit', String(params.limit));
+    return this.client['request']('GET', `${this.path}/aggregate?${qs}`);
   }
 
   getMany(params?: ListParams): Promise<ListResult<T>> {

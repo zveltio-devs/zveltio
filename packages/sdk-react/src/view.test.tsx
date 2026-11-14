@@ -43,6 +43,10 @@ function fakeClient(extra: Record<string, unknown> = {}) {
         calls.push(`LIST ${c} ${JSON.stringify(p.filter ?? {})} ${p.limit}`);
         return { records: rows, pagination: { total: rows.length, page: 1, limit: p.limit } };
       },
+      aggregate: async (p: { fn: string[]; filter?: unknown }) => {
+        calls.push(`AGG ${c} ${p.fn.join(',')} ${JSON.stringify(p.filter ?? {})}`);
+        return { data: [{ group: {}, values: { [p.fn[0] as string]: 12.5 } }], truncated: false };
+      },
       get: async (id: string) => {
         calls.push(`GET ${c}/${id}`);
         return rows.find((r) => r.id === id);
@@ -177,13 +181,30 @@ describe('loadView + ViewRenderer', () => {
     expect(draw(stat)).toContain('>7</output>');
   });
 
-  it('a sum is not drawn: the data API has no aggregate route', async () => {
-    const { client } = fakeClient();
+  it('a sum reads the aggregate route with its filter (ADR 0050)', async () => {
+    const { client, calls } = fakeClient();
     const n = await loadView(client, 'crm', {
       type: 'stat',
-      source: { collection: 'deals', aggregate: 'sum', field: 'amount' },
+      source: {
+        collection: 'deals',
+        aggregate: 'sum',
+        field: 'amount',
+        filter: [{ field: 'stage', op: 'eq', value: 'won' }],
+      },
+    });
+    expect(n.kind).toBe('stat');
+    expect(draw(n)).toContain('>12.5</output>');
+    expect(calls).toContain('AGG deals sum:amount {"stage":{"eq":"won"}}');
+  });
+
+  it('a sum without a field is a notice, not a request', async () => {
+    const { client, calls } = fakeClient();
+    const n = await loadView(client, 'crm', {
+      type: 'stat',
+      source: { collection: 'deals', aggregate: 'sum' },
     });
     expect(n.kind).toBe('notice');
+    expect(calls.some((c) => c.startsWith('AGG'))).toBe(false);
   });
 
   it('extensionPages lists the active extensions’ view/2 pages and reports an invalid one', async () => {

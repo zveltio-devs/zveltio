@@ -224,7 +224,7 @@ result names.
 
 It draws `list`, `detail`, `form`, `stat`, `split` and `tabs`; any other kind
 through `fallbackFor`. It shows what Studio shows as not drawn yet (a collection
-form's `lines`, a `stat` other than `count`) and does not yet hold a button's
+form's `lines`) and does not yet hold a button's
 `busyWhen`; a button's `prompt` and `confirm`
 use the browser's own dialogs. It carries no class names but `zv-*` hooks and a
 `data-kind` on each view, so styling is the front end's. CI draws every
@@ -242,7 +242,7 @@ and drawn as before.
 | `list` | table, `cards` or `feed`; search, paging, selection and bulk actions, row actions, `emphasisWhen`, `create` (the generated form in a dialog), `edit` (the row in that form), `delete` (after a confirm), `open` |
 | `form` | the collection's fields (or the action's input) through `SchemaForm`; `record` (a reference or `singleton`), `sections`, `submit` (an action saves first), read-only fields shown as text; a `richtext` field in an editor whose content (stored or pasted) is sanitised first, with remote images blocked while editing; a `file` field as its files, an upload button and a remove per file; on an action form, an input property that is a list of objects is a table of lines (one column per scalar property of a line, an `integer` column takes whole numbers, a line left empty is not sent, at least `minItems` filled lines and every required cell before it runs); a required object or list of scalars has no input and shows a notice, and a button's `prompt` naming one is refused |
 | `detail` | its toolbar, the record's fields (a `richtext` one inert in a sandboxed frame, a `file` one as files that open), then its `panels`, all with `$record` set to it; `onOpen` |
-| `stat` | `count` (the data API's total for the filter, read again after an action ran) or an action's number: run once per input, only when `GET /api/actions` lists it for the caller, never because another action ran |
+| `stat` | `count` (the data API's total for the filter, read again after an action ran); `sum`, `avg`, `min`, `max` or `count` of a `field` from `GET /api/data/:collection/aggregate` (ADR 0050: the numbers the caller's own rows give; no rows is `—`); or an action's number: run once per input, only when `GET /api/actions` lists it for the caller, never because another action ran |
 | `split`, `tabs` | their views; a pane with an `id` sets `$selected` when a row is clicked |
 | `board` | a column per `groupBy` value (its declared choices first, in order, then any other value, then none); `card` fields, else the first default ones; `move` by dragging a card or by its "Move to" menu (ADR 0042 slice 4) |
 | `timeline` | one period at a time, with previous, today and next: `day` and `week` as an agenda, `month` (the default) as a calendar, `gantt` as a bar per record over the month; the period is part of the data API filter: with an `end`, what overlaps the period and, asked apart (the data API has no OR) and merged by id, what starts in it with an empty `end`, drawn on its start day; `move` by dropping a record on a day, or by the date in its menu (the keyboard's way), moves it, and its `end`, by whole days |
@@ -258,9 +258,8 @@ nothing reads further on its own. A re-read after a write keeps the pages
 already read.
 
 Not drawn yet, each with a notice where it appears: a collection form's `lines`
-(records of another collection), `recalc` and `autosave`, a list's `realtime`, a `stat` that sums, averages or takes a
-minimum or maximum (the data API has no aggregate route; make it a server field
-or an action).
+(records of another collection), `recalc` and `autosave`, a list's `realtime`, a `stat` other than `count`
+without a `field`.
 
 **Untrusted rich text in Studio** (`untrusted-html.ts`). A `richtext` value is
 sanitised by a DOMPurify instance of its own, with a closed list of tags and
