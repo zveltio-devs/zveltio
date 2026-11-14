@@ -235,8 +235,9 @@ Delete a collection and its data.
 
 ## Data CRUD
 
-Every route takes a session or an API key. The three read routes
-(`GET /api/data`, `GET /api/data/:collection`, `GET /api/data/:collection/:id`)
+Every route takes a session or an API key. The read routes
+(`GET /api/data`, `GET /api/data/:collection`, `GET /api/data/:collection/aggregate`,
+`GET /api/data/:collection/:id`)
 also answer a request with neither, as the tenant's `public` role: its grants,
 row rules and column permissions decide, as for any role, and it holds none
 until an operator grants it `read` on a collection (403 until then). Writes
@@ -342,6 +343,61 @@ GET /api/data/shops?filter={"loc":{"near":{"lat":44.4268,"lng":26.1025,"radius":
 Distance is haversine on a sphere (up to ~0.5 % off the ellipsoid). A `within`
 box crossing the antimeridian (`minLng > maxLng`) is a `400`. Results keep the
 requested sort; there is no ordering by distance.
+
+### GET /api/data/:collection/aggregate
+
+Count, sum, average, minimum and maximum over the rows the caller may list,
+optionally grouped (ADR 0050). The read gate is the list's: the same `read`
+permission (anonymous callers read as the `public` role), the same row rules,
+query alters, tenant and column permissions, applied before the aggregation, so
+`count` equals the list's `total` for the same `filter` and `search`.
+
+**Query parameters:**
+
+| Parameter  | Type   | Description |
+| ---------- | ------ | ----------- |
+| `fn`       | string | Required. Up to 8, comma-separated: `count`, `count:<field>` (non-null values), `sum:<field>`, `avg:<field>`, `min:<field>`, `max:<field>` |
+| `group_by` | string | Up to 3 fields, comma-separated |
+| `bucket`   | string | `<field>:day\|week\|month\|year`, on a `date`/`datetime` field named in `group_by`; a `datetime` is cut in the tenant's time zone (UTC when none) |
+| `filter`, `search` | string | As on the list, same syntax and parser |
+| `limit`    | number | Groups returned, max 500 (default: `100`), ordered by the group keys |
+
+```
+GET /api/data/orders/aggregate?fn=count,sum:total&group_by=status
+GET /api/data/orders/aggregate?fn=count&group_by=placed_at&bucket=placed_at:month
+```
+
+**Response:**
+
+```json
+{
+  "data": [
+    { "group": { "status": "open" }, "values": { "count": 3, "sum:total": 120.5 } }
+  ],
+  "truncated": false
+}
+```
+
+Without `group_by` there is one entry, with `group: {}`. `truncated` is true when
+groups exist past `limit`. Values are served as the list serves the field (a
+`decimal` sum is a number, a date a date).
+
+**Types.** `sum`/`avg` take a numeric field; `min`/`max` a numeric, `date` or
+`datetime` one; `group_by` a scalar field (not `json`, a file, a location, a
+vector or tags).
+
+**Answers:**
+
+- `400` — an unknown function, bucket unit or field, a type mismatch, more than
+  8 functions or 3 group fields, `as_of`, or a virtual collection. A field the
+  caller may not read, and a sealed, `encrypted`, `secret` or unserved field for
+  every caller, answers exactly as a field that does not exist.
+- `403` `aggregate_unavailable` — an extension judges this collection's rows one
+  by one (entity access), which has no SQL form; use its own action.
+- `422` `aggregate_too_costly` — the statement ran past its fixed 5 s ceiling;
+  narrow the filter.
+
+Not cached, not in GraphQL, MCP or realtime.
 
 ### POST /api/data/:collection
 

@@ -81,6 +81,7 @@ const DOORS: Record<string, Coverage> = {
     'collection names and field metadata (zvd_collections), which are instance-level and shared by every tenant; no record is read',
   ),
   'GET /api/data/:collection': here,
+  'GET /api/data/:collection/aggregate': at('data-aggregate.test.ts'),
   'GET /api/data/:collection/:id': here,
   'POST /api/data/:collection': here,
   'PATCH /api/data/:collection/:id': here,

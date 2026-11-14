@@ -441,6 +441,18 @@ command: `zv_row_rules` (`SELECT`, the only one that reads the exemption),
 policy stands down only for the engine's own work with no actor (tenant purge);
 no caller can reach that state.
 
+### Aggregates obey the same read layers
+
+`GET /api/data/:collection/aggregate` (ADR 0050) counts and sums only what the
+caller's own list returns: the `read` permission, the row rules and extension
+query alters run as SQL before the aggregation, on the tenant transaction, over
+the masking view. Every field it names — aggregated, grouped, bucketed or
+filtered — must be one the caller may read; a hidden, sealed, `encrypted`,
+`secret` or unserved field answers the 400 a field that does not exist gets, so
+an aggregate is no oracle on a column. A collection with an extension
+entity-access check is refused (`403 aggregate_unavailable`): a per-row callback
+cannot run under `SUM`, and the engine does not read the rows to approximate it.
+
 ### Policy structure
 
 | Field | Description |
