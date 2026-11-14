@@ -17,7 +17,13 @@ import { extensionLoader } from '../../lib/extensions/extension-loader.js';
 import { withTenantIsolation } from '../../lib/tenancy/index.js';
 import { runWithDomain } from '../../lib/tenancy/tenant-context.js';
 import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extension-host.js';
-import { ALL_COLLECTIONS_ACTOR, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  ALL_COLLECTIONS_ACTOR,
+  forgetInstalled,
+  getTestApp,
+  harnessAvailable,
+  markInstalled,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const SFX = String(Date.now()).slice(-7);
@@ -113,6 +119,7 @@ d('sibling db.transaction() scopes in a worker take turns', () => {
     extensionLoader.ctx =
       extensionLoader.ctx ?? ({ db, fieldTypeRegistry: { register() {} } } as never);
     try {
+      await markInstalled(db, NAME);
       await extensionLoader.loadExtension(NAME, app, extensionLoader.ctx, base);
       expect(extensionLoader.getLastLoadError(NAME)).toBeUndefined();
       const res = await app.request(`/ext/${NAME}/siblings`, { method: 'POST' });
@@ -124,6 +131,7 @@ d('sibling db.transaction() scopes in a worker take turns', () => {
     } finally {
       await getWorkerHost(app).stopAll();
       await revokeExtensionDbRoles(db, NAME, true).catch(() => undefined);
+      await forgetInstalled(db, NAME);
     }
   }, 60_000);
 

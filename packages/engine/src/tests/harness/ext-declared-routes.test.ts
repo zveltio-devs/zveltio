@@ -35,6 +35,7 @@ import { sessionPrefetch } from '../../middleware/session-prefetch.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import { toJsonb } from '../../lib/jsonb.js';
+import { DEFAULT_TENANT_ID } from '../../lib/tenancy/index.js';
 import {
   asEveryTenant,
   createGodSession,
@@ -344,5 +345,28 @@ d('a declared route answered by a plain function (ADR 0039)', () => {
         join(base, BAD),
       ),
     ).rejects.toThrow('names handler "ghost"');
+  }, 30_000);
+
+  it('a firm that turned the extension off gets 404 from a worker as from an inline one', async () => {
+    // The worker proxy registered its routes before its activation middleware,
+    // and a route answers without calling `next`: a signed-in caller of a firm
+    // that switched a worker-isolated extension off was answered 200.
+    expect((await call(WEXT, '/me', 'GET', member)).status).toBe(200);
+    await sql`
+      INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled)
+      VALUES (${EXT}, ${EXT}, ${DEFAULT_TENANT_ID}, true, false),
+             (${WEXT}, ${WEXT}, ${DEFAULT_TENANT_ID}, true, false)
+    `.execute(db);
+    invalidateActivationCache();
+    try {
+      for (const ext of [EXT, WEXT]) {
+        const res = await call(ext, '/me', 'GET', member);
+        expect([ext, res.status, await res.json()]).toEqual([ext, 404, { error: 'Not found' }]);
+      }
+    } finally {
+      await sql`DELETE FROM zv_extension_registry
+                 WHERE name IN (${EXT}, ${WEXT}) AND tenant_id IS NOT NULL`.execute(db);
+      invalidateActivationCache();
+    }
   }, 30_000);
 });

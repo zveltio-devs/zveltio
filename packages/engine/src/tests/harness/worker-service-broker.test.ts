@@ -12,7 +12,12 @@ import type { Database } from '../../db/index.js';
 import { revokeExtensionDbRoles } from '../../lib/extensions/ext-db-role.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
 import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extension-host.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  forgetInstalled,
+  getTestApp,
+  harnessAvailable,
+  markInstalled,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const SFX = String(Date.now()).slice(-7);
@@ -99,6 +104,7 @@ d('worker service broker: namespace, dependency allowlist, fail-fast', () => {
     getWorkerHost(app);
     const ctx = extensionLoader.ctx ?? ({ db, fieldTypeRegistry: { register() {} } } as never);
     for (const name of [SQUATTER, OWNER, STRANGER, DEPENDENT, OPTIONAL, STALE_OPT]) {
+      await markInstalled(db, name);
       await extensionLoader.loadExtension(name, app, ctx, base);
       expect(extensionLoader.getLastLoadError(name)).toBeUndefined();
     }
@@ -110,6 +116,7 @@ d('worker service broker: namespace, dependency allowlist, fail-fast', () => {
     for (const name of [OWNER, SQUATTER, STRANGER, DEPENDENT, OPTIONAL, STALE_OPT]) {
       extensionLoader.loaded.delete(name);
       await revokeExtensionDbRoles(db, name, true).catch(() => undefined);
+      await forgetInstalled(db, name);
     }
     if (base) rmSync(base, { recursive: true, force: true });
   });

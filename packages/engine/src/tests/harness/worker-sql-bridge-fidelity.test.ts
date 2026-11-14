@@ -16,7 +16,12 @@ import type { Database } from '../../db/index.js';
 import { revokeExtensionDbRoles } from '../../lib/extensions/ext-db-role.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
 import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extension-host.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  forgetInstalled,
+  getTestApp,
+  harnessAvailable,
+  markInstalled,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const SFX = String(Date.now()).slice(-7);
@@ -114,6 +119,7 @@ d('worker SQL bridge answers as the inline driver does', () => {
       const ctx = extensionLoader.ctx ?? ({ db, fieldTypeRegistry: { register() {} } } as never);
       // `loadAll` sets it at boot; `reRegisterExtension` does nothing without it.
       extensionLoader.ctx = ctx;
+      await markInstalled(db, name);
       await extensionLoader.loadExtension(name, tempApp, ctx, base);
       expect(extensionLoader.getLastLoadError(name)).toBeUndefined();
       const errors = spyOn(console, 'error');
@@ -136,6 +142,7 @@ d('worker SQL bridge answers as the inline driver does', () => {
         errors.mockRestore();
         await getWorkerHost(app).stopAll();
         await revokeExtensionDbRoles(db, name, true).catch(() => undefined);
+        await forgetInstalled(db, name);
       }
     }
   }, 90_000);

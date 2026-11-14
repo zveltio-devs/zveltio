@@ -32,6 +32,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
+import { invalidateActivationCache } from '../lib/extensions/index.js';
 import {
   DEFAULT_RUN_AS_ROLE,
   DEFAULT_TENANT_ID,
@@ -598,6 +599,32 @@ export async function forgetRuleObjects(db: Database, ...names: string[]): Promi
     db,
   );
   await sql`DELETE FROM zvd_collections WHERE name IN (${sql.join(tableless)})`.execute(db);
+}
+
+/**
+ * The instance-wide registry row of an extension a test loads by hand
+ * (`extensionLoader.loadExtension`), installed and enabled, as an enable leaves
+ * it (an existing row is turned on). Without one the
+ * extension is active for no firm and every route of it answers 404, worker or
+ * inline, as in production. `forgetInstalled` removes it: a row with no
+ * manifest left behind makes later default grants refuse.
+ */
+export async function markInstalled(db: Database, ...names: string[]): Promise<void> {
+  for (const name of names) {
+    await sql`INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled)
+              VALUES (${name}, ${name}, NULL, true, true)
+              ON CONFLICT (tenant_id, name) DO UPDATE SET is_installed = true, is_enabled = true`.execute(
+      db,
+    );
+  }
+  invalidateActivationCache();
+}
+
+/** Undoes `markInstalled`. */
+export async function forgetInstalled(db: Database, ...names: string[]): Promise<void> {
+  if (names.length === 0) return;
+  await sql`DELETE FROM zv_extension_registry WHERE name IN (${sql.join(names)})`.execute(db);
+  invalidateActivationCache();
 }
 
 /**

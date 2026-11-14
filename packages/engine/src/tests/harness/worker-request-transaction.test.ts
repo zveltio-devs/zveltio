@@ -30,7 +30,13 @@ import {
   _resetWorkerHostForTests,
   getWorkerHost,
 } from '../../lib/worker-extension-host.js';
-import { ALL_COLLECTIONS_ACTOR, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  ALL_COLLECTIONS_ACTOR,
+  forgetInstalled,
+  getTestApp,
+  harnessAvailable,
+  markInstalled,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const SFX = String(Date.now()).slice(-7);
@@ -226,6 +232,7 @@ d('one transaction per request across the worker bridge', () => {
       getWorkerHost(app);
       const ctx = extensionLoader.ctx ?? ({ db, fieldTypeRegistry: { register() {} } } as never);
       extensionLoader.ctx = ctx;
+      await markInstalled(db, name);
       await extensionLoader.loadExtension(name, app, ctx, base);
       expect(extensionLoader.getLastLoadError(name)).toBeUndefined();
       const post = (p: string) => app.request(`/ext/${name}${p}`, { method: 'POST' });
@@ -315,6 +322,7 @@ d('one transaction per request across the worker bridge', () => {
         _internalForTests.setRequestTxnTimeoutMs();
         await getWorkerHost(app).stopAll();
         await revokeExtensionDbRoles(db, name, true).catch(() => undefined);
+        await forgetInstalled(db, name);
       }
     }
   }, 150_000);

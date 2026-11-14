@@ -19,7 +19,12 @@ import type { Database } from '../../db/index.js';
 import { revokeExtensionDbRoles } from '../../lib/extensions/ext-db-role.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
 import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extension-host.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  forgetInstalled,
+  getTestApp,
+  harnessAvailable,
+  markInstalled,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const SFX = String(Date.now()).slice(-7);
@@ -108,6 +113,7 @@ d('worker transport contract: the process transport carries the protocol', () =>
       const app = new Hono();
       getWorkerHost(app);
       const ctx = extensionLoader.ctx ?? ({ db, fieldTypeRegistry: { register() {} } } as never);
+      await markInstalled(db, name);
       await extensionLoader.loadExtension(name, app, ctx, base);
       expect(extensionLoader.getLastLoadError(name)).toBeUndefined();
       try {
@@ -123,6 +129,7 @@ d('worker transport contract: the process transport carries the protocol', () =>
       } finally {
         await getWorkerHost(app).stopAll();
         await revokeExtensionDbRoles(db, name, true).catch(() => undefined);
+        await forgetInstalled(db, name);
       }
     }
   }, 60_000);

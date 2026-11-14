@@ -28,7 +28,6 @@ import { getAuth } from '../../lib/auth.js';
 import { refreshForwardApproval } from '../../lib/extensions/consent.js';
 import { _resetCatalogForTests } from '../../lib/extensions/extension-catalog.js';
 import { _resetCatalogCacheForTests } from '../../lib/extensions/extension-download.js';
-import { invalidateActivationCache } from '../../lib/extensions/activation.js';
 import { revokeExtensionDbRoles } from '../../lib/extensions/ext-db-role.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
@@ -42,7 +41,12 @@ import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extens
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import { sessionPrefetch } from '../../middleware/session-prefetch.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
-import { createSteppedUpGod, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createSteppedUpGod,
+  getTestApp,
+  harnessAvailable,
+  markInstalled,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const NAME = `fwdappr${String(Date.now()).slice(-7)}`;
@@ -92,12 +96,9 @@ d('credential forwarding needs an operator approval of the exact set', () => {
     );
 
   /** Restart the worker from the manifest on disk, as an enable or a boot does. */
-  const reload = async () => {
-    // Enabled, as a loaded extension is: the gate serves a public route only
-    // where its extension is on (ADR 0047 d3).
-    await sql`UPDATE zv_extension_registry SET is_enabled = true WHERE name = ${NAME}`.execute(db);
-    invalidateActivationCache();
+  const reload = async (enabled = true) => {
     await extensionLoader.unload(NAME).catch(() => undefined);
+    if (enabled) await markInstalled(db, NAME);
     await extensionLoader.loadExtension(NAME, app, ctx, base);
     expect(extensionLoader.getLastLoadError(NAME)).toBeUndefined();
   };
@@ -392,15 +393,11 @@ d('credential forwarding needs an operator approval of the exact set', () => {
 
   it('an extension the registry has no row for can be approved', async () => {
     await sql`DELETE FROM zv_extension_registry WHERE name = ${NAME}`.execute(db);
-    await reload();
+    await reload(false);
     expect((await approve({ '/fwd': ['authorization'] })).status).toBe(200);
     expect(await stored()).toEqual({ '/fwd': ['authorization'] });
-    // Approved with no row; the route serves where the extension is on.
-    await sql`
-      INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled)
-      VALUES (${NAME}, ${NAME}, NULL, true, true)
-    `.execute(db);
-    invalidateActivationCache();
+    // Installed nowhere, it serves no firm: on, to see what its worker is handed.
+    await markInstalled(db, NAME);
     expect(await seen('/fwd')).toEqual({ status: 200, body: AUTH_ONLY });
   });
 });
