@@ -109,7 +109,7 @@ accurate counts.
 
 | Extension | Name | Ver | What it does |
 |---|---|---|---|
-| `finance/invoicing` | Invoicing | 2.5.0 | Recurring invoices, payment tracking and overdue management |
+| `finance/invoicing` | Invoicing | 2.6.0 | Recurring invoices, payment tracking and overdue management |
 | `finance/accounting` | Accounting | 2.2.0 | Double-entry bookkeeping: chart of accounts, journal entries, fiscal years, budgets, trial balance, P&L and balance sheet |
 | `finance/banking` | Banking Sync | 2.2.0 | Import bank statements, auto-reconcile transactions with invoices and track cash flow |
 | `finance/subscriptions` | Subscriptions | 2.3.0 | Recurring billing plans, subscribers, metered usage, invoices and dunning |

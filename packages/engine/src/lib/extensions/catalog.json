@@ -367,7 +367,7 @@
       "displayName": "Invoicing",
       "description": "Recurring invoices, payment tracking and overdue management",
       "category": "finance",
-      "version": "2.5.0",
+      "version": "2.6.0",
       "author": "Zveltio",
       "tags": ["invoicing", "payments", "billing"],
       "permissions": ["data:write"]
