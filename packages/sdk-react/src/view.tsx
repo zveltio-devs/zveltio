@@ -31,6 +31,7 @@ import {
   matches,
   readActionResult,
   resolveFiles,
+  isBound,
   resolveInput,
   resolveValue,
   type SchemaField,
@@ -281,7 +282,8 @@ function Buttons({
     <span className="zv-actions">
       {live.map((b, i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: a view's own list, fixed for the view's lifetime
-        <button key={i} type="button" onClick={() => host.press(b, scope)}>
+        // A reference with no value yet (no row selected in the pane): disabled, never sent.
+        <button key={i} type="button" disabled={!isBound(b, scope)} onClick={() => host.press(b, scope)}>
           {host.t(b.label) || ('action' in b ? b.action : 'navigate' in b ? b.navigate : 'Save')}
         </button>
       ))}
