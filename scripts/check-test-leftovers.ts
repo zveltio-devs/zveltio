@@ -40,16 +40,6 @@ try {
     SELECT name FROM zvd_collections WHERE name ~ ${FIXTURE} ORDER BY name
   `;
 
-  // `_zv_old_` is Ghost DDL's post-swap copy; the boot sweep reclaims it, but a
-  // test that leaves one behind is leaving a full copy of a table behind too.
-  const orphans = await sql<{ tablename: string }[]>`
-    SELECT tablename FROM pg_tables
-    WHERE schemaname = current_schema()
-      AND (tablename LIKE '!_zv!_old!_%' ESCAPE '!'
-        OR tablename LIKE '!_zv!_changelog!_%' ESCAPE '!')
-    ORDER BY tablename
-  `;
-
   // A default grant revoked on a fixture: a rerun's collection of that name is
   // created without its defaults, and schema-default-revocations reads them.
   const revocations = await sql<{ resource: string }[]>`
@@ -79,20 +69,18 @@ try {
 
   if (
     collections.length === 0 &&
-    orphans.length === 0 &&
     revocations.length === 0 &&
     grants.length === 0 &&
     links.length === 0
   ) {
     console.log(
-      '[test-leftovers] OK — the suite left no collections, ghost tables, revocations, grants or role links.',
+      '[test-leftovers] OK — the suite left no collections, revocations, grants or role links.',
     );
     process.exit(0);
   }
 
   console.error('[test-leftovers] FAIL — the suite left state behind:\n');
   for (const c of collections) console.error(`  collection  ${c.name}`);
-  for (const o of orphans) console.error(`  ghost table ${o.tablename}`);
   for (const r of revocations) console.error(`  revocation  ${r.resource}`);
   for (const g of grants) console.error(`  grant       ${g.resource}`);
   for (const l of links) console.error(`  role link   ${l.subject} (no such user)`);

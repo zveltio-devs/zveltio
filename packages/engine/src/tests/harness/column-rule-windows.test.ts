@@ -6,9 +6,7 @@
  * copy of `zvd_column_permissions`. They used to be rebuilt after the COMMIT that
  * changed the rules: a rule committed while the table was busy past the 2 s lock
  * bound stayed out of the database until the next boot, and a renamed field was
- * written under its new name past a guard that still named the old one. A Ghost
- * DDL copy was readable by the request role, every tenant and every password
- * hash on it, for as long as the copy ran.
+ * written under its new name past a guard that still named the old one.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -17,12 +15,7 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { alterField } from '../../lib/data/field-changes.js';
-import {
-  cancelPendingCleanups,
-  DDLManager,
-  GhostDDL,
-  sweepGhostOrphans,
-} from '../../lib/data/index.js';
+import { DDLManager } from '../../lib/data/index.js';
 import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
 import { runOutsideTenantContext, withTenantIsolation } from '../../lib/tenancy/index.js';
 import {
@@ -39,7 +32,6 @@ const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
 const RULED = `hcolwin_${STAMP}`;
 const RENAMED = `hcolwinr_${STAMP}`;
-const GHOSTED = `hcolwing_${STAMP}`;
 
 const text = (name: string) => ({
   name,
@@ -86,10 +78,10 @@ d('column rules reach the database with their commit (L37)', () => {
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
-    await ruleObjects(db, RULED, RENAMED, GHOSTED);
+    await ruleObjects(db, RULED, RENAMED);
     god = await createGodSession(app, db);
     ({ userId: memberId } = await createMemberSession(app, db, {
-      grants: [RULED, RENAMED, GHOSTED].map((collection) => ({
+      grants: [RULED, RENAMED].map((collection) => ({
         collection,
         actions: ['read', 'create', 'update', 'delete'],
       })),
@@ -97,7 +89,6 @@ d('column rules reach the database with their commit (L37)', () => {
     for (const [name, fields] of [
       [RULED, [text('title'), text('secret')]],
       [RENAMED, [text('title'), text('secret')]],
-      [GHOSTED, [text('title'), { ...text('pw'), type: 'password' }]],
     ] as const) {
       await DDLManager.createCollection(db, { name, fields } as never);
     }
@@ -105,19 +96,13 @@ d('column rules reach the database with their commit (L37)', () => {
 
   afterAll(async () => {
     if (!db) return;
-    await forgetRuleObjects(db, RULED, RENAMED, GHOSTED);
-    cancelPendingCleanups();
+    await forgetRuleObjects(db, RULED, RENAMED);
     await db
       .deleteFrom('zvd_column_permissions')
       .where('collection_name', 'in', [RULED, RENAMED])
       .execute()
       .catch(() => {});
-    const ghosted = `zvd_${GHOSTED}`;
-    for (const t of [`_zv_ghost_${ghosted}`, `_zv_changelog_${ghosted}`]) {
-      await sql`DROP TABLE IF EXISTS ${sql.id(t)} CASCADE`.execute(db).catch(() => {});
-    }
-    await sweepGhostOrphans(db).catch(() => {});
-    for (const c of [RULED, RENAMED, GHOSTED]) await dropTestCollection(db, c).catch(() => {});
+    for (const c of [RULED, RENAMED]) await dropTestCollection(db, c).catch(() => {});
   });
 
   it('a rule written while the table is busy is enforced by the database, or not written', async () => {
@@ -213,41 +198,5 @@ d('column rules reach the database with their commit (L37)', () => {
       );
     });
     expect(forged).toBe(false);
-  });
-
-  it('a Ghost DDL copy is readable by no request role while it is built', async () => {
-    const table = `zvd_${GHOSTED}`;
-    await sql`
-      INSERT INTO ${sql.table(table)} (tenant_id, title, pw)
-      VALUES (${DEFAULT_TENANT_ID}::uuid, 't', 'hash-of-a-password')`.execute(db);
-    const migration = await GhostDDL.createGhost(db, table, [
-      { kind: 'add_column', field: { name: 'pin', type: 'password' } as never },
-    ]);
-    expect(await GhostDDL.batchCopy(db, migration)).toBe(1);
-    const read = await asMember((trx) =>
-      sql<{ pw: string }>`SELECT pw FROM ${sql.table(migration.ghostTable)}`.execute(trx),
-    ).then(
-      (r) => r.rows.map((x) => x.pw),
-      (err: { errno?: string }) => err.errno,
-    );
-    expect(read).toBe('42501');
-    const grants = await sql<{ role: string; ok: boolean }>`
-      SELECT rolname AS role, has_any_column_privilege(oid, ${migration.ghostTable}::regclass, 'SELECT') AS ok
-        FROM pg_roles
-       WHERE rolname IN ('zveltio_rls', 'zveltio_worker', 'zveltio_flow_reader', 'zveltio_ext')`.execute(
-      db,
-    );
-    expect(grants.rows.filter((r) => r.ok)).toEqual([]);
-
-    // Swapped in, before `addField` records the field: the new column is sealed
-    // as a password would be, and the rest of the table is served as before.
-    await GhostDDL.applyChangelog(db, migration);
-    await GhostDDL.atomicSwap(db, migration);
-    const after = await sql<{ pin: boolean; title: boolean }>`
-      SELECT has_column_privilege('zveltio_rls', ${table}::regclass, 'pin', 'SELECT') AS pin,
-             has_column_privilege('zveltio_rls', ${table}::regclass, 'title', 'SELECT') AS title`.execute(
-      db,
-    );
-    expect(after.rows[0]).toEqual({ pin: false, title: true });
   });
 });

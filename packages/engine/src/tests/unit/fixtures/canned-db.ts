@@ -131,7 +131,7 @@ export class CannedDb {
    * Materialised as N RETURNING rows, because that is the only way the real
    * dialect can convey a count. This used to set `numAffectedRows` instead —
    * a number production never produces — so tests confirmed behaviour that
-   * could not happen, and the ghost-DDL backfill shipped copying two batches.
+   * could not happen, and an online-migration backfill shipped copying two batches.
    */
   whenAffected(match: RegExp, affected: number | ((q: ExecutedQuery) => number)): this {
     this.handlers.push({ match, affected });

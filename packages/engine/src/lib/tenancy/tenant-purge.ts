@@ -3,7 +3,7 @@
  *
  * Collection tables carry `tenant_id` with no foreign key to `zv_tenants`, so a
  * bare `DELETE FROM zv_tenants` leaves their rows behind, invisible to every
- * tenant and in the way of the next Ghost DDL swap (#750). The tables are found
+ * tenant (#750). The tables are found
  * by the column rather than listed, because extensions and collections add them
  * at run time.
  *
@@ -12,8 +12,7 @@
  * BYOD (`is_managed = false`) tables in `public` that chose a `tenant_id`
  * column, since the engine writes that column the same way there. Not covered:
  * tables outside `public` (a BYOD table in another schema is somebody else's
- * data model) and `_zv_*` Ghost DDL work tables, whose rows follow the original
- * table through the migration's own changelog. Junction and child tables with
+ * data model) and `_zv_*` engine work tables. Junction and child tables with
  * no `tenant_id` go with their parents through their ON DELETE CASCADE keys.
  */
 

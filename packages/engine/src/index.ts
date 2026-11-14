@@ -54,7 +54,6 @@ import { websocketHandler } from './routes/ws.js';
 import { realtimeBus } from './lib/runtime/index.js';
 import { startWebhookWorker, WEBHOOK_QUEUE, WebhookManager } from './lib/webhooks.js';
 import { getWorkerHostIfInitialized } from './lib/worker-extension-host.js';
-import { cancelPendingCleanups, sweepGhostOrphans } from './lib/data/index.js';
 import { contractImportLogs } from './lib/data/index.js';
 import { DDLManager } from './lib/data/index.js';
 import { flowScheduler, startFlowTriggerWorker } from './lib/flows/index.js';
@@ -1579,29 +1578,6 @@ async function bootstrap() {
     console.warn('⚠️ Extension RLS reconcile failed (non-fatal):', (err as Error).message);
   }
 
-  // A Ghost DDL swap schedules its own DROP sixty seconds out, in memory. Any
-  // exit before then — including the graceful one, which cancels the timer —
-  // leaves a full, policy-less copy of the table behind for good. Boot is the
-  // one moment we know those timers are gone, so it is where they get reclaimed.
-  try {
-    const swept = await sweepGhostOrphans(db);
-    if (swept.dropped.length > 0) {
-      console.log(`🧹 Reclaimed ${swept.dropped.length} orphaned Ghost DDL table(s)`);
-    }
-    for (const { table, reason } of swept.failed) {
-      console.warn(`⚠️  [ghost-ddl] could not drop orphan ${table}: ${reason}`);
-    }
-    if (swept.abandonedGhosts.length > 0) {
-      console.warn(
-        `⚠️  [ghost-ddl] ${swept.abandonedGhosts.length} ghost table(s) present — ` +
-          'left alone in case a run on another instance is still copying into them: ' +
-          swept.abandonedGhosts.join(', '),
-      );
-    }
-  } catch (err) {
-    console.warn('⚠️ Ghost DDL orphan sweep failed (non-fatal):', (err as Error).message);
-  }
-
   // ═══ Background workers (fire-and-forget) ═══
   startWebhookWorker();
   console.log('✅ Webhook worker started');
@@ -1721,7 +1697,6 @@ async function shutdown() {
   _heartbeat?.stop();
   cronRunner.stop();
   flowScheduler.stop();
-  cancelPendingCleanups();
   stopPolicyReconcile();
   // Stop isolated extension workers before the DB pool drains.
   try {

@@ -3,7 +3,7 @@
  * drops one of a small table: through `DDLManager.removeField`, so the field's
  * rules go first and a `*` row rule naming it refuses with the 409 of #1059.
  *
- * Over 100k rows the merge used to run a Ghost DDL `drop_column` before
+ * Over 100k rows the merge used to run an online table copy before
  * `removeField`, i.e. before `dropFieldRules`: the swap re-created the row-rule
  * policy on a table without the column and failed with "column … does not
  * exist" — for a `*` rule and for the collection's own rule alike, after
@@ -23,7 +23,7 @@ const d = harnessAvailable() ? describe : describe.skip;
 const ts = Date.now();
 const COL = `sbm_large_${ts}`;
 const TABLE = `zvd_${COL}`;
-// Over the merge's 100k-row threshold.
+// Over the 100k rows at which the merge once copied the table.
 const ROWS = 100_001;
 // Unique names: a `*` rule reaches every collection with a column so named.
 const STAR = `g_${ts}`;

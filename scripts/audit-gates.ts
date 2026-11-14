@@ -276,7 +276,7 @@ const CASES: Case[] = [
     body: AUDIT_REGRESSION_PLANT,
   },
   {
-    // A test run must not leave collections or ghost tables behind. The
+    // A test run must not leave collections or grants behind. The
     // violation lives in the DATABASE, not in a file, so the plant is a script
     // that seeds one and then runs the real gate, passing its exit code back.
     // The gate under test is the real one; only the leftover is manufactured.

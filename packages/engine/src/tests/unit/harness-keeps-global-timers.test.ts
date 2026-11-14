@@ -2,8 +2,8 @@
  * No harness file replaces a process-wide timer.
  *
  * `bun test` runs every harness file in one process, beside the pg-boss DDL
- * queue the app boots. ghost-ddl-index-names replaced `globalThis.setTimeout`
- * for one GhostDDL run to catch its cleanup; every timer set meanwhile was
+ * queue the app boots. One test replaced `globalThis.setTimeout` for one
+ * online-migration run to catch its cleanup; every timer set meanwhile was
  * swallowed with it, among them each pg-boss worker's poll delay, so those
  * workers never polled again and every later DDL job sat queued until its test
  * timed out — Handler Coverage, red on most runs since 2026-09-30. A test that

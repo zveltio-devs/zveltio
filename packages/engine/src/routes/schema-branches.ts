@@ -3,7 +3,7 @@ import { guardAdmin } from '../lib/admin-guard.js';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { User } from 'better-auth';
-// requireInstanceAdmin, not checkPermission(uid,'admin','*'): schema branching runs Ghost DDL on the shared structure.
+// requireInstanceAdmin, not checkPermission(uid,'admin','*'): schema branching alters the shared structure.
 // The tenant_admin policy is ('*','*','*'), so the weak gate matched obj='admin'
 // and admitted any delegated tenant admin.
 import { requireInstanceAdmin } from '../lib/tenancy/index.js';
@@ -392,9 +392,8 @@ export function schemaBranchesRoutes(db: Database, auth: any): Hono {
                 isOperatorField(field) ? [] : [collection],
               );
               if (owned) throw owned;
-              // No Ghost DDL at any size: DROP COLUMN rewrites nothing, and a ghost
-              // drop ran before removeField's rules — the swap then failed on the
-              // row-rule policy naming the column, `*` rules unreported (#1059).
+              // In place at any size: removeField drops the field's rules first,
+              // so a `*` row rule naming the column refuses with 409 (#1059).
               await DDLManager.removeField(db, collection, field);
               announceSchemaChange(collection, 'alter');
               applied.push(`Remove field: ${field} from ${collection}`);

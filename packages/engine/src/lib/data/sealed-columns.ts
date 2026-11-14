@@ -60,19 +60,17 @@ function textArray(values: readonly string[]) {
  * exists unsealed with data. Returns whether the grants or the view changed.
  *
  * `fields` must be the fields the table has NOW: a password column missing from
- * them is unsealed and put in the view. `withheld` are columns treated as
- * unserved besides (a Ghost DDL copy's new column, before its field is recorded).
+ * them is unsealed and put in the view.
  */
 export async function sealColumns(
   db: Database,
   collection: string,
   fields?: ReadonlyArray<FieldLike>,
-  withheld: readonly string[] = [],
 ): Promise<boolean> {
   const table = `zvd_${collection}`;
   if (!/^zvd_[a-z][a-z0-9_]*$/.test(table)) return false;
   const list = fields ?? (await storedFields(db, collection));
-  const unserved = [...unservedFields(list), ...withheld];
+  const unserved = unservedFields(list);
   const search = list
     .filter((f) => SEARCH_FIELD_TYPES.has(String(f?.type)))
     .map((f) => String(f.name));

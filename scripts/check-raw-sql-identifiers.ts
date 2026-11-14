@@ -67,20 +67,6 @@ const LOOKBACK = 20;
  */
 const REVIEWED_OK = /^\s*\/\/\s*raw-ident-ok:\s*\S/;
 
-/**
- * A whole-file review, for a module that is one pipeline from one validated
- * input. `ghost-ddl.ts` derives four identifiers from a single table name and
- * threads them through nineteen statements; annotating each is noise, and an
- * attempt to do it mechanically put `//` comments inside SQL template literals,
- * which is a syntax error rather than a comment.
- *
- * Coarse on purpose and therefore rationed: it must carry a reason, and a file
- * claiming it should be one whose entry points validate. If this starts
- * appearing on files that simply have a lot of findings, it has become an
- * excuse and should be taken away again.
- */
-const FILE_REVIEWED_OK = /\/\/\s*raw-ident-ok-file:\s*\S/;
-
 function tsFiles(dir: string): string[] {
   if (!existsSync(dir)) return [];
   const out: string[] = [];
@@ -104,16 +90,12 @@ for (const dir of DIRS) {
     // then `.raw(` was skipped by the substring test before the regex below
     // ever ran, so widening only the regex changed nothing.
     if (!/sql\s*\.\s*raw/.test(src)) continue;
-    // Searched over the whole file, not a prefix: this module's header comment
-    // runs past four thousand characters.
-    if (FILE_REVIEWED_OK.test(src)) continue;
     // Only inside a `sql.raw` template — a quoted interpolation in a plain
     // string is prose (an error message naming a table), not SQL.
     const lines = src.split('\n');
     // `sql\s*\.\s*raw` — the pattern used to demand `sql.raw(` with nothing
     // between, so a call written across two lines as `sql` then `.raw(` was
-    // invisible to it. ghost-ddl.ts has exactly that shape, with TWO quoted
-    // interpolations, and the gate had never seen either.
+    // invisible to it.
     for (const m of src.matchAll(/sql\s*\.\s*raw\(\s*`([^`]*)`/g)) {
       for (const hit of m[1]!.matchAll(/"\$\{[^}]+\}"/g)) {
         const line = src.slice(0, m.index! + hit.index!).split('\n').length;

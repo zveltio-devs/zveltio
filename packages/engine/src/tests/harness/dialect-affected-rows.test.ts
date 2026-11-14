@@ -11,10 +11,11 @@
  *     SUCCESSFUL delete. The file was trashed and the caller was told it
  *     failed — the worst shape, because a UI shows an error and the user
  *     retries something already done.
- *   - the ghost-DDL backfill copied exactly TWO batches and reported success.
- *     Its first branch fell back to `?? BATCH_SIZE` (kept looping) and its
- *     second to `?? 0` (broke immediately), so a table over 20,000 rows had its
- *     ghost swapped in incomplete. Data loss with a green log line.
+ *   - the online-migration backfill (since removed, ADR 0041) copied exactly
+ *     TWO batches and reported success. Its first branch fell back to
+ *     `?? BATCH_SIZE` (kept looping) and its second to `?? 0` (broke
+ *     immediately), so a table over 20,000 rows had its copy swapped in
+ *     incomplete. Data loss with a green log line.
  *   - the garbage collector logged and totalled zero however much it purged.
  *   - the ERD layout delete always answered `deleted: 0`.
  *

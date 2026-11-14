@@ -472,7 +472,7 @@ export async function alterField(
  *   and its webhook delivery payloads.
  *
  * The table's rows are every tenant's, not the ones RLS lets the owner read:
- * FORCE is lifted for its statements, as Ghost DDL's swap count does, under the
+ * FORCE is lifted for its statements, under the
  * ACCESS EXCLUSIVE the ALTER COLUMN above already holds. The shared tables are
  * scrubbed tenant by tenant instead, without a table lock; a row whose tenant no
  * longer exists stays, as in migration 084 — no request role reads it either.

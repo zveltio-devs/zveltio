@@ -7,10 +7,9 @@
  * tenant transaction), `zveltio_worker` (the worker SQL bridge) and
  * `zveltio_rls` (REST), and each holds only the collection — so a trigger that
  * writes anywhere else fails that writer's ordinary INSERT/UPDATE/DELETE with
- * `permission denied`. Measured: the ghost-DDL changelog trigger did exactly
- * that for `zveltio_ext` and `zveltio_worker`, so every extension write to a
- * collection failed for as long as a ghost migration (a large add/alter, a
- * schema-branch merge) was copying it.
+ * `permission denied`. Measured: an online-migration changelog trigger (since
+ * removed, ADR 0041) did exactly that for `zveltio_ext` and `zveltio_worker`, so
+ * every extension write to a collection failed while the migration ran.
  *
  * Driven through the real paths: `ctx.db` from `createRestrictedDb` inside a
  * tenant transaction and on the pool, a real worker extension through the IPC
@@ -23,7 +22,7 @@ import { join } from 'node:path';
 import { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { DDLManager, GhostDDL } from '../../lib/data/index.js';
+import { DDLManager } from '../../lib/data/index.js';
 import {
   _resetExtensionDbRoleForTests,
   grantExtensionDbRole,
@@ -199,10 +198,7 @@ d('collection triggers under every restricted writer role', () => {
     await getWorkerHost(workerApp).stopAll();
     _resetWorkerHostForTests();
     if (base) rmSync(base, { recursive: true, force: true });
-    for (const t of [`_zv_ghost_${TABLE}`, `_zv_changelog_${TABLE}`, TABLE]) {
-      await sql`DROP TABLE IF EXISTS ${sql.table(t)} CASCADE`.execute(db);
-    }
-    await sql`DROP FUNCTION IF EXISTS ${sql.id(`_zv_trg_ghost_${TABLE}_fn`)}()`.execute(db);
+    await sql`DROP TABLE IF EXISTS ${sql.table(TABLE)} CASCADE`.execute(db);
     await sql`DELETE FROM zv_sync_tombstones WHERE collection = ${TABLE}`.execute(db);
     await db.deleteFrom('zvd_collections').where('name', '=', COLLECTION).execute();
     // Roles are cluster-wide and outlive the test database.
@@ -243,59 +239,18 @@ d('collection triggers under every restricted writer role', () => {
     );
   }
 
-  describe('while a ghost migration copies the table', () => {
-    beforeAll(async () => {
-      await GhostDDL.createGhost(db, TABLE, [
-        { kind: 'add_column', field: { name: 'extra', type: 'text', required: false } },
-      ] as never);
-    }, 60_000);
-
-    for (const name of [
-      'ctx.db in a tenant transaction',
-      'ctx.db on the pool',
-      'worker bridge',
-      'REST',
-    ]) {
-      it.skipIf(poolUnwritable(name))(
-        `${name}: every write reaches the changelog`,
-        async () => {
-          const w = writers[name]!;
-          const id = await w.insert('during copy');
-          await w.update(id, 'still copying');
-          await w.remove(id);
-          const ops = await sql<{ operation: string }>`
-          SELECT operation FROM ${sql.table(`_zv_changelog_${TABLE}`)} WHERE row_id = ${id} ORDER BY id
-        `.execute(db);
-          expect(ops.rows.map((r) => r.operation)).toEqual(['INSERT', 'UPDATE', 'DELETE']);
-        },
-        60_000,
-      );
-    }
-
-    it('pins every SECURITY DEFINER function to a search_path ending in pg_temp', async () => {
-      // A path that does not name pg_temp searches it FIRST for relations, so a
-      // definer function's unqualified table could resolve to a caller's
-      // temporary object and run as the owner (migration 047).
-      const r = await sql<{ fn: string; path: string }>`
-        SELECT p.proname AS fn,
-               coalesce((SELECT substr(c, 13) FROM unnest(p.proconfig) c
-                          WHERE c LIKE 'search_path=%'), '') AS path
-          FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-         WHERE p.prosecdef AND n.nspname = 'public'
-      `.execute(db);
-      // Run while the ghost exists, so its changelog trigger is one of them.
-      expect(r.rows.map((x) => x.fn)).toEqual(
-        expect.arrayContaining(['zveltio_sync_tombstone', `_zv_trg_ghost_${TABLE}_fn`]),
-      );
-      expect(r.rows.filter((x) => !/(^|,\s*)pg_temp$/.test(x.path))).toEqual([]);
-    }, 30_000);
-
-    it('grants no restricted role the changelog itself', async () => {
-      const r = await sql<{ role: string; ok: boolean }>`
-        SELECT role, has_table_privilege(role, ${`_zv_changelog_${TABLE}`}, 'INSERT') AS ok
-          FROM unnest(${['zveltio_ext', 'zveltio_worker']}::text[]) role
-      `.execute(db);
-      expect(r.rows.filter((x) => x.ok)).toEqual([]);
-    }, 30_000);
-  });
+  it('pins every SECURITY DEFINER function to a search_path ending in pg_temp', async () => {
+    // A path that does not name pg_temp searches it FIRST for relations, so a
+    // definer function's unqualified table could resolve to a caller's
+    // temporary object and run as the owner (migration 047).
+    const r = await sql<{ fn: string; path: string }>`
+      SELECT p.proname AS fn,
+             coalesce((SELECT substr(c, 13) FROM unnest(p.proconfig) c
+                        WHERE c LIKE 'search_path=%'), '') AS path
+        FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+       WHERE p.prosecdef AND n.nspname = 'public'
+    `.execute(db);
+    expect(r.rows.map((x) => x.fn)).toContain('zveltio_sync_tombstone');
+    expect(r.rows.filter((x) => !/(^|,\s*)pg_temp$/.test(x.path))).toEqual([]);
+  }, 30_000);
 });

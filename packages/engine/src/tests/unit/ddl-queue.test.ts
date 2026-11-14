@@ -208,8 +208,7 @@ describe('reindexInvalid', () => {
 describe('runAddField', () => {
   /**
    * The schema-branch merge and schema apply add fields through here, and
-   * nothing upstream checked `is_managed`: Ghost DDL refused a BYOD table and
-   * `addField` then altered it anyway.
+   * nothing upstream checked `is_managed`: `addField` altered a BYOD table.
    */
   it('refuses an unmanaged (BYOD) collection before any DDL', async () => {
     const db = new CannedDb();

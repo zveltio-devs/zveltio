@@ -363,13 +363,12 @@ const SECTIONS: Section[] = [
   {
     id: 'A13',
     track: 'A — engine core',
-    title: 'DDL manager, queue, ghost DDL',
+    title: 'DDL manager, queue',
     focus: 'Identifier quoting, two creators for one table, orphans left behind by a failed run.',
     match: [
       `${E}lib/data/ddl-manager.ts`,
       `${E}lib/pg-identifier.ts`,
       `${E}lib/data/ddl-queue.ts`,
-      `${E}lib/data/ghost-ddl.ts`,
       `${E}lib/schema-artifact/`,
       `${E}lib/data/unique-key-reconcile.ts`,
       `${E}lib/data/field-changes.ts`,
