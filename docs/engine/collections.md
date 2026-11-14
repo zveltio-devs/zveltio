@@ -6,7 +6,7 @@ Create database tables without writing SQL using Zveltio's dynamic collection sy
 
 A **collection** is a database table managed through the API. You define the schema (fields), and Zveltio creates the table, generates CRUD endpoints, and keeps everything in sync — no migrations to write.
 
-> **Schema changes on live tables.** Adding a field alters the table in place (ADR 0041): PostgreSQL adds a column, with or without a constant default, as a catalog change, so even a large table blocks for milliseconds. A `unique` field builds its index under the table's lock (about 0.5 s per million rows). A field whose default is volatile (`gen_random_uuid()`, `uuid_generate_v4()`) makes PostgreSQL rewrite the table: about 14 s per million rows, during which the collection does not answer — add such a field outside busy hours, or add it without a default and fill it in batches.
+> **Schema changes on live tables.** Adding a field alters the table in place (ADR 0041): PostgreSQL adds a column, with or without a constant default, as a catalog change, so even a large table blocks for milliseconds. A `unique` field's key is built with `CREATE UNIQUE INDEX CONCURRENTLY` and then attached, so the table keeps taking writes while it is built (longest write stall measured at a million rows: about 60 ms, against 400 ms when the index was built under the lock); rows that already repeat a value refuse the field, and the add leaves nothing behind. A field whose default is volatile (`gen_random_uuid()`, `uuid_generate_v4()`) makes PostgreSQL rewrite the table: about 14 s per million rows, during which the collection does not answer — add such a field outside busy hours, or add it without a default and fill it in batches.
 
 ## Creating a Collection
 
