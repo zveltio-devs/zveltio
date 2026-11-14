@@ -63,7 +63,8 @@ d('the engine roles in a built-in backup', () => {
       await sql`CREATE ROLE zveltio_wrk_probe_gone NOLOGIN`.execute(trx);
       await sql`GRANT SELECT ON zv_settings TO zveltio_wrk_probe_gone`.execute(trx);
       const text = await engineRolesSql(trx);
-      await sql`DROP OWNED BY zveltio_wrk_probe_gone`.execute(trx);
+      // REVOKE, not DROP OWNED: a non-superuser owner lacks the privileges of the role.
+      await sql`REVOKE SELECT ON zv_settings FROM zveltio_wrk_probe_gone`.execute(trx);
       await sql`DROP ROLE zveltio_wrk_probe_gone`.execute(trx);
 
       // Twice: the second run finds every role present, which is a restore onto
