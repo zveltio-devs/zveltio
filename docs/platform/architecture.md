@@ -134,6 +134,30 @@ that replaced them — `registerCoreRoutes` mounts `goneRoutes(...)` for
 A 410 with a forwarding address is deliberate: it
 tells an old client what happened instead of a bare 404.
 
+### What stays in the engine
+
+A capability stays in the engine only if at least one of these holds (ADR 0049,
+2026-11-14):
+
+1. it is an authorization layer, or a data path under the read and write gates
+   (the data API, realtime, sync, files);
+2. it must run as the engine's own role (schema changes, backup and restore,
+   migrations);
+3. it is a runtime that confines code the engine did not write (edge functions,
+   the extension runner).
+
+Everything else belongs in an official extension on the declared model, or out
+of the product. A feature leaves only once the public primitive it needs
+exists; when one is missing, the primitive is engine work and the feature waits
+for it. Planned on this rule, in order: `/api/templates` becomes
+collections-only official extensions; the data API gains aggregates;
+`/api/insights` goes (its panels move to `analytics/dashboard`) and
+`/api/saved-queries` moves to an extension; `/api/admin/sql` and
+`/api/schema/branches` are removed (run SQL as an operator with a database
+client and credentials of your own; change the schema with
+`zveltio schema apply`). Flows stay until after 1.0-rc.1. Each removal is a
+`BREAKING` CHANGELOG entry when it lands.
+
 ---
 
 ## 4. Data model
