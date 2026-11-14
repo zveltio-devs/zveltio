@@ -185,8 +185,11 @@ Ordered from most to least trusted:
    mode was removed because a thread cannot be given that ceiling.
 6. **Authenticated users** — separated from each other by RBAC, row rules and
    column permissions; separated across tenants by Postgres RLS.
-7. **Anonymous requests** — reach nothing under `/api/*`. There is no public
-   data API.
+7. **Anonymous requests** — write nothing under `/api/*`. They may read
+   `GET /api/data` as the tenant's `public` role, held to its grants, row
+   rules and column permissions, which are empty until an operator grants
+   them (ADR 0017), and to the anonymous read rate limit. A request that
+   presents any credential is never anonymous: a refused one answers 401.
 
 See [security.md](security.md) for the threat model this ordering serves.
 
