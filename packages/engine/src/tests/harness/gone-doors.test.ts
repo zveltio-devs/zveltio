@@ -12,7 +12,7 @@ import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
-d('gone dual doors (media + approvals + briefing + export/import)', () => {
+d('gone dual doors (media + approvals + briefing + export/import + templates)', () => {
   let app: Hono;
 
   beforeAll(async () => {
@@ -49,6 +49,18 @@ d('gone dual doors (media + approvals + briefing + export/import)', () => {
     const body = (await res.json()) as { errors?: { replacement?: string }; detail?: string };
     expect(body.errors?.replacement ?? '').toBe('/ext/data/export');
     expect(body.detail ?? '').toMatch(/data\/export/);
+  });
+
+  it('/api/templates returns 410: the templates are templates/* extensions (ADR 0049)', async () => {
+    for (const [method, path] of [
+      ['GET', '/api/templates'],
+      ['POST', '/api/templates/helpdesk/install'],
+    ]) {
+      const res = await app.request(path, { method });
+      expect(res.status).toBe(410);
+      const body = (await res.json()) as { errors?: { replacement?: string } };
+      expect(body.errors?.replacement ?? '').toBe('/api/marketplace');
+    }
   });
 
   it('GET /api/import/jobs returns 410 with data/import replacement', async () => {
