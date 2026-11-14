@@ -41,7 +41,7 @@ workflow.
 - A fresh database plus `apply` reproduces the instance's schema exactly. The
   existing installed-schema snapshot gate checks this (acceptance, §9).
 - Every change goes through the code path Studio uses today: the DDL queue,
-  Ghost DDL, `applyTenantRLS` and the policy reconcile. There is no second DDL
+  `applyTenantRLS` and the policy reconcile. There is no second DDL
   path.
 
 **Non-goals.**
@@ -311,8 +311,8 @@ The plan reads like `terraform plan`:
 - **Execution.** `apply` calls a new god-only route, `POST /api/admin/schema/apply`,
   with the files' content. The engine validates the content, computes the plan
   itself, and runs it through the same `DDLManager` and DDL-queue calls the
-  collection routes use. A large table goes through Ghost DDL, as it does
-  today. It computes the plan with the same function as `/schema/plan`.
+  collection routes use. A column is added in place on a table of any size
+  (ADR 0041 removed the ghost copy). It computes the plan with the same function as `/schema/plan`.
 - **Locking.** `apply` holds one advisory lock (`db/advisory-lock.ts`), so two
   CI jobs cannot interleave.
 

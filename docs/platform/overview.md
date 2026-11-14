@@ -51,7 +51,7 @@ See [multi-tenancy.md](multi-tenancy.md).
 
 | Capability | What it means |
 |---|---|
-| **Zero-downtime DDL** | Alter multi-million-row tables while users are active — writes block only for milliseconds at the final swap, no maintenance window. See [Ghost DDL](../engine/ghost-ddl.md). |
+| **Schema changes on live tables** | Add a column to a multi-million-row table while users are active — a catalog change that blocks for milliseconds; only a volatile default (`gen_random_uuid()`) rewrites the table. See [collections.md](../engine/collections.md). |
 | **Schema branching** | Record schema changes on a branch, diff, review and preview them, then merge. |
 | **Bring Your Own Data** | Import tables from an existing database into Zveltio's PostgreSQL; they become collections with admin UI, REST API and permissions. `integrations/migrators` imports from HubSpot, Notion and Airtable. |
 | **Per-field encryption** | Mark any field `encrypted: true`; AES-256-GCM, transparent at the engine level. |

@@ -9,7 +9,6 @@ The Bun + Hono server. Everything else in the product is a client of it.
 |---|---|
 | [api-reference.md](api-reference.md) | REST endpoints, request and response shapes |
 | [collections.md](collections.md) | Dynamic collections, field types, relations |
-| [ghost-ddl.md](ghost-ddl.md) | Zero-downtime schema changes on large tables |
 | [rfc-schema-as-code.md](rfc-schema-as-code.md) | RFC (proposed): schema as versioned JSON files — `schema pull / diff / apply` |
 | [authentication.md](authentication.md) | Better-Auth: sessions, OAuth, passkeys, 2FA |
 | [authorization.md](authorization.md) | Casbin RBAC, row rules, column permissions, the god role |
@@ -52,7 +51,7 @@ packages/engine/src/
 
 | Module | Responsibility |
 |---|---|
-| `data/` | Collections and everything that writes to them: `ddl-manager`, `ddl-queue`, `ghost-ddl`, `query-parse`, `query-alter`, `write-pipeline`, `field-crypto`, `field-type-registry`, per-verb `handlers/` |
+| `data/` | Collections and everything that writes to them: `ddl-manager`, `ddl-queue`, `query-parse`, `query-alter`, `write-pipeline`, `field-crypto`, `field-type-registry`, per-verb `handlers/` |
 | `tenancy/` | The isolation boundary: `tenant-manager`, `tenant-context`, `tenant-scope`, `rls`, `permissions`, `entity-access`, `column-permissions`, `row-rule-policy`, `rule-operators`, `resource-grants` |
 | `extensions/` | Loading and running plugins: `discovery`, `load`, `register`, `lifecycle`, `capabilities`, `manifest-schema`, `migration-runner`, `worker-sql-policy`, `consent`, `revocations` |
 | `flows/` | Automation: `flow-executor`, `flow-scheduler`, `flow-step-schemas`, `cron` |

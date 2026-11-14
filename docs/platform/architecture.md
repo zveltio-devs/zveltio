@@ -173,8 +173,8 @@ Two kinds of table, distinguished by prefix:
 **Collections are dynamic.** Creating a collection issues real DDL through the
 DDL manager (`lib/data/ddl-manager.ts`) — a collection is a genuine Postgres
 table with real columns, indexes and constraints, not rows in an EAV table.
-Large alterations go through [Ghost DDL](../engine/ghost-ddl.md) to avoid
-locking tables under load.
+A column is added in place, as a catalog change; only a volatile default
+rewrites the table (ADR 0041, [collections.md](../engine/collections.md)).
 
 Schema migrations for the engine itself are numbered SQL files in
 `packages/engine/src/db/migrations/sql/`, embedded into the binary by
@@ -255,7 +255,7 @@ packages/engine/src/
 ├── routes/             HTTP layer, one file per domain; admin/ for admin endpoints
 │   └── index.ts        registerCoreRoutes() — every core route is mounted here
 ├── lib/
-│   ├── data/           collections, DDL, ghost DDL, query parsing, write pipeline
+│   ├── data/           collections, DDL, query parsing, write pipeline
 │   ├── tenancy/        RLS, tenant manager, permissions, row rules, column perms
 │   ├── extensions/     loader, registry, sandbox, capabilities, migration runner
 │   ├── flows/          automation engine, scheduler, cron

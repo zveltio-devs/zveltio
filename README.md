@@ -159,7 +159,7 @@ Country-specific compliance currently ships **Romanian** packs (e-Factura, SAF-T
 - **Yours to run.** MIT-licensed and self-hosted: it runs on your hardware and the data never leaves it. No per-seat fees, no cloud account required.
 - **Isolation in the database.** Tenant isolation is FORCE row-level security in PostgreSQL, keyed on a per-transaction setting — not an application filter. Hierarchical tenants: a parent can read its subtree and write only its own node.
 - **Backend and business stack on the same data.** The headless engine and the business extensions (CRM, invoicing, accounting, payroll, POS, e-commerce) share one database, one permission model and one audit trail.
-- **Schema changes on live tables.** Ghost DDL copies and swaps, so writes block only for milliseconds at the swap; schema branches get a diff, review, preview and merge first.
+- **Schema changes on live tables.** A column is added in place, as a catalog change, so writes block for milliseconds (a volatile default rewrites the table); schema branches get a diff, review, preview and merge first.
 - **Extensions are signed and fenced.** Ed25519 signatures verified at install; community code runs in a worker whose SQL is limited to user tables and its own, under a database role with no access to auth tables — a guard-rail in the engine process, opt-in in production, not a sandbox. Admin pages are declarative JSON, so no third-party JavaScript reaches the admin.
 - **Compliance built in.** Audit trail on every write, GDPR export and erasure, per-field encryption, and Romanian fiscal packs (e-Factura, SAF-T, e-Transport).
 

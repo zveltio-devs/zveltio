@@ -399,7 +399,7 @@ role.
 | Chapter | Read it when |
 |---|---|
 | `docs/platform/` | Product overview, architecture, install, configuration, multi-tenancy, security, operations, development workflow |
-| `docs/engine/` | The server: API reference, collections, ghost DDL, auth, webhooks, SDK, CLI |
+| `docs/engine/` | The server: API reference, collections, auth, webhooks, SDK, CLI |
 | `docs/studio/` | The admin SPA: routing, data access, extension pages, i18n |
 | `docs/ui/` | Design system, component library, interaction patterns, SDUI |
 | `docs/extensions/` | The extension system, the developer guide, and the 55 official extensions |
