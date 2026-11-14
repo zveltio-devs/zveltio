@@ -636,6 +636,11 @@ reason in `last_load_error`; before boot finishes it answers `202` with
 extension handler using `ctx.reqDb(c)` would fall through to the global pool with
 no GUC.
 
+A declared extension (2.x, ADR 0002) runs no SQL: its collections are created
+by the engine and reached through the data API under the caller's grants, row
+rules and the tenant, like any other collection. The rest of this section is
+how the engine confines the legacy `ctx.db` path that v1 extensions still use.
+
 Extension code running in a worker uses the `zveltio_worker` role: `NOLOGIN`,
 `NOSUPERUSER`, `NOBYPASSRLS`, with DML on the collection tables and, granted
 when a worker extension loads, on that extension's own tables — its

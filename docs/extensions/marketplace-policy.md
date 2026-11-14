@@ -44,9 +44,13 @@ Every submitted extension MUST:
    key must be enrolled in the registry's allowed-publishers table.
    Unsigned submissions are rejected at upload.
 
-3. **Declare migrations explicitly.** `engine.getMigrations()` must
-   return an array of file paths that exist on disk. CI's
-   `validate-migration-paths` script catches drift.
+3. **Declare its data; create none.** Collections are declared in
+   `schema/collections/` and listed in the manifest's `collections`;
+   the engine creates them and owns their structure (ADR 0002). An
+   extension ships no migration, no table name and no SQL
+   ([authoring.md](authoring.md#collections--declared-created-by-the-engine)).
+   A legacy v1 extension that still ships `engine.getMigrations()` must
+   return paths that exist on disk.
 
 4. **Pass `zveltio extension validate`** with zero errors. The
    command checks manifest schema, peer-dep allow-list, bundle
@@ -127,19 +131,14 @@ What worker isolation does NOT give:
   which worker isolation exists to avoid — the entry module is not
   imported there at all. First-party extensions run inline and keep
   them.
-- **OS-level confinement.** The worker is a Bun thread, not a
-  subprocess: no per-extension RSS accounting or OOM kill, and no
-  kernel-level restriction on `node:fs` or the network beyond the SSRF
-  filter. Publisher tier and signature decide *whether* code runs; the
-  worker constrains it once it does.
+- **An adversarially-tested sandbox.** The extension runner is an OS
+  boundary (uid, cgroup, network), not a sandbox anyone has attacked.
+  Publisher tier and signature decide *whether* code runs; the runner
+  constrains it once it does.
 - **Tenant-scoped SQL.** The host runs a worker's query on the engine
   pool, not inside the caller's tenant transaction, so it is not
   RLS-scoped. The table policy above is what limits it today.
 
-- Per-extension RSS metrics or OOM kill (Bun.Worker is a thread,
-  not a subprocess — RSS is per-process).
-- OS-level sandboxing of filesystem / network. Use platform
-  permissions to constrain capabilities, not the worker boundary.
 - Transaction-control SQL. A worker cannot send `BEGIN`/`COMMIT`/`SAVEPOINT`;
   a route request is one transaction, and `ctx.db.transaction()` is a
   savepoint in it or, outside a request, a transaction the engine holds for
@@ -153,19 +152,19 @@ implemented today.
 
 ## 3. Permissions
 
-Every extension declares `manifest.permissions[]`. The currently
-recognized values:
+Every extension declares `manifest.permissions[]`, the capabilities the
+engine mediates. The list and what each grants is in
+[developer-guide.md §4 Capabilities](developer-guide.md#capabilities); an
+unknown value fails the manifest. `database`, `settings` and `network` are
+accepted for backwards compatibility and grant nothing.
 
-| Permission | What it grants |
-| --- | --- |
-| `database` | Read/write to declared tables only (CREATE TABLE in migrations, queries via `ctx.db`) |
-| `settings` | Read/write to `zv_settings` keys prefixed with the extension's slug |
-| `network` | Outbound HTTP from extension code. Worker-isolated extensions get it only in a job that declares `egress`; routes and actions have none (ADR 0022) |
-| `filesystem` | Read from the extension's own folder; write to `EXTENSIONS_DIR/<name>/data/` |
+An extension carries no authorization logic: its collections and actions are
+reached under the tenant's grants, row rules and column permissions, which
+the engine applies. Outbound network is what a job's `egress` declares and
+the operator consents to (ADR 0022); routes and actions have none.
 
-Submissions requesting `network` or `filesystem` get extra review.
-Extensions in `isolation: 'worker'` cannot bypass these — the host
-gates DB queries and the worker has no env access.
+Submissions requesting `net:<host>`, `secrets`, `data:system` or `ddl` get
+extra review.
 
 ## 4. Review checklist (reviewer side)
 
@@ -175,15 +174,18 @@ A reviewer assesses a submission against:
 - [ ] Signature valid; publisher key enrolled
 - [ ] Manifest declares `engine.bundled: true` + `engine.isolation`
       matches publisher tier
-- [ ] Migrations are idempotent (re-running them does nothing)
-- [ ] No `CREATE TABLE IF NOT EXISTS` with a name that collides with
-      core engine tables (cf. `content/media` regression in alpha.117)
+- [ ] Data is declared collections only: no migrations, no SQL, no
+      table names (a legacy v1 submission: migrations idempotent and no
+      name colliding with core engine tables, cf. `content/media` in
+      alpha.117)
 - [ ] Bundle size within budget (default 50 MB, smaller is better)
 - [ ] No obvious credential leaks in `engine/index.ts` (regex scan
       for `BEGIN PRIVATE KEY`, `sk_live_`, …)
-- [ ] Permissions requested match what the routes actually use
-- [ ] Studio routes (if any) use `mountStrategy: 'subapp'` unless
-      there's a documented reason for `'global'`
+- [ ] Capabilities requested match what the code actually uses
+- [ ] No authorization logic in the extension (no `resources`,
+      `checkPermission`, invented verbs)
+- [ ] Studio UI is declared views only (ADR 0042,
+      [ui-model.md](ui-model.md)): no code pages, no framed documents
 - [ ] Worker-mode extensions don't depend on transactions or
       streaming (call out in submission if they do)
 - [ ] README / EXTENSION.md present with: what it does, supported
@@ -199,12 +201,16 @@ A reviewer assesses a submission against:
   (alpha.123), unpacks into `EXTENSIONS_DIR/<name>/`, and verifies
   the engine bundle SHA-256 against `manifest.integrity.engineSha256`
   before any code runs.
-- **Enable:** Engine runs migrations, then either imports the bundle
-  inline (default) or spawns a `Bun.Worker` (worker isolation).
+- **Enable:** Engine creates the declared collections, or applies a
+  later version's additions (a legacy v1 extension: runs its
+  migrations), then either imports the bundle
+  inline (default) or starts it on the extension runner, a process of
+  its own (worker isolation).
   Routes mount under `/ext/<name>/*` (subapp) or at the engine root
   (global, rare).
 - **Disable:** Engine unloads the extension; its routes start
-  returning 503. Migrations are NOT rolled back automatically.
+  returning 503. Its collections and their rows stay; only a purge
+  (`uninstall?purgeData=true`) drops them.
 - **Uninstall:** Manual — operator removes the `EXTENSIONS_DIR/<name>/`
   folder. Marketplace removes the catalog entry.
 - **Republish:** New version uploaded with same name + higher
