@@ -201,9 +201,9 @@ d('a unique field is added without building its key under the lock', () => {
     ).rejects.toMatchObject({ errno: '23505' });
     expect(await hasColumn('legacy')).toBe(true);
     const kept = await asTenant(db, TENANT, (trx) =>
-      sql<{ n: number }>`SELECT count(*)::int AS n FROM ${sql.id(TABLE)} WHERE legacy = 'same'`.execute(
-        trx,
-      ),
+      sql<{
+        n: number;
+      }>`SELECT count(*)::int AS n FROM ${sql.id(TABLE)} WHERE legacy = 'same'`.execute(trx),
     );
     expect(kept.rows[0]!.n).toBe(2);
     expect(await indexes()).toEqual(before);
