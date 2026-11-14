@@ -29,7 +29,7 @@ accurate counts.
 | Extension | Name | Ver | What it does |
 |---|---|---|---|
 | `analytics/dashboard` | Dashboards | 2.0.1 | Role-aware, per-user home dashboards — IT sets a default layout per role, each user personalizes within their permissions |
-| `analytics/quality` | Data Quality | 2.0.1 | Data quality scans over the data API, as the scanning user: duplicates, missing values, outliers and optional AI normalization hints |
+| `analytics/quality` | Data Quality | 3.0.0 | Data quality scans over the data API, as the scanning user: duplicates, missing values, outliers and optional AI normalization hints |
 
 ## auth
 
