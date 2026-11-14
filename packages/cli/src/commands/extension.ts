@@ -1,8 +1,20 @@
 import { existsSync } from 'fs';
 import { mkdir, writeFile } from 'fs/promises';
-import { join } from 'path';
+import { dirname, join } from 'path';
 // Inlined by `bun build`, as in index.ts: the engine version this CLI ships with.
 import pkg from '../../package.json' with { type: 'json' };
+
+/**
+ * Is `dir` inside a project (a package.json above it)? Then that project's
+ * root installs the dependencies (the extensions repository, the engine
+ * monorepo, an author's workspace) and the scaffold adds no second one.
+ */
+function insideProject(dir: string): boolean {
+  for (let at = dir; ; at = dirname(at)) {
+    if (existsSync(join(at, 'package.json'))) return true;
+    if (dirname(at) === at) return false;
+  }
+}
 
 export async function extensionCommand(
   action: 'create' | 'build',
@@ -192,6 +204,23 @@ export default defineExtension(['data:write'], {
     }),
   );
 
+  // Outside a project nothing installs @zveltio/sdk, which the bundle inlines,
+  // and `pack` failed (DR-20). Same version as this CLI: the two ship together.
+  if (!insideProject(process.cwd())) {
+    await writeFile(
+      join(targetDir, 'package.json'),
+      json({
+        name: `@zveltio/ext-${safeName}`,
+        version: '1.0.0',
+        private: true,
+        type: 'module',
+        dependencies: {
+          '@zveltio/sdk': pkg.version,
+        },
+      }),
+    );
+  }
+
   // .gitattributes — keep the packed engine/index.js byte-identical
   await writeFile(
     join(targetDir, '.gitattributes'),
@@ -250,6 +279,7 @@ jobs:
       ${safeName}.json  <- THE PAGE, a zveltio.view/2 document
     messages/
       en.json         <- keys this view owns; other locales filled from en
+  package.json        <- @zveltio/sdk; only when no package.json is above
   .gitattributes
   .github/workflows/ci.yml
 
