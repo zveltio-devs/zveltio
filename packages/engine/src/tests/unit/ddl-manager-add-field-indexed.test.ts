@@ -52,9 +52,9 @@ describe('DDLManager.addField — indexes', () => {
     ).toHaveLength(1);
     // The key: its index built CONCURRENTLY, then attached — never `ADD UNIQUE`,
     // which builds the index under the table's exclusive lock (DR-37).
-    expect(
-      db.executed(/CREATE UNIQUE INDEX CONCURRENTLY[\s\S]*\(tenant_id, "sku"\)/),
-    ).toHaveLength(1);
+    expect(db.executed(/CREATE UNIQUE INDEX CONCURRENTLY[\s\S]*\(tenant_id, "sku"\)/)).toHaveLength(
+      1,
+    );
     expect(
       db.executed(/ADD CONSTRAINT "zvd_products_tenant_id_sku_key" UNIQUE USING INDEX/),
     ).toHaveLength(1);

@@ -563,8 +563,8 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
       // Row-lock the collection (FOR UPDATE) inside a transaction so
       // two concurrent add-field calls can't both observe the same
       // pre-mutation fields[] and overwrite each other's writes.
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      if (!added)
+      if (!added) {
+        // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
         await db.transaction().execute(async (trx: any) => {
           // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
           const locked = await (trx as any)
@@ -599,6 +599,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
             .where('name', '=', name)
             .execute();
         });
+      }
       DDLManager.invalidateCache(name);
       announceSchemaChange(name, 'alter');
 

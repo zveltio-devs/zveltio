@@ -1564,12 +1564,12 @@ export class DDLManager {
     }
     const colDDL = fieldTypeRegistry.getColumnDDL(validated as FieldConfig);
     const { dropMaskView, sealColumns, storedFields } = await import('./sealed-columns.js');
+    // The column is a catalog change; its unique key is built after the
+    // commit, CONCURRENTLY, unless it cannot be (`keyBuildsInLock`).
+    const keyInLock = keyBuildsInLock(db);
+    let created = false;
     if (colDDL) {
       await ensurePgExtensions(db, [validated as FieldConfig]);
-      // The column is a catalog change; its unique key is built after the
-      // commit, CONCURRENTLY, unless it cannot be (`keyBuildsInLock`).
-      const keyInLock = keyBuildsInLock(db);
-      let created = false;
       await withLockTimeout(db, async (trx) => {
         await dropMaskView(trx, tableName);
         // The lock the ADD takes, taken before the check so the check holds.
@@ -1592,64 +1592,67 @@ export class DDLManager {
         ]);
         if (keyInLock) await this.addUniqueKey(trx, tableName, validated as FieldConfig);
       });
-      if (!keyInLock) {
-        try {
-          await this.addUniqueKey(db, tableName, validated as FieldConfig);
-        } catch (err) {
-          // Refused as a whole, as when the key was built with the ADD: the
-          // column this call created goes. One that was already there (a
-          // retried job, a column outside the metadata) holds rows, and stays.
-          if (created) {
-            await withLockTimeout(db, async (trx) => {
-              await dropMaskView(trx, tableName);
-              await sql`ALTER TABLE ${sql.id(tableName)} DROP COLUMN IF EXISTS ${sql.id(validated.name)}`.execute(
-                trx,
-              );
-              forgetJsonbColumns(tableName);
-              await sealColumns(trx, collectionName, await storedFields(trx, collectionName));
-            }).catch((e) =>
-              console.warn(
-                `[ddl] ${tableName}.${validated.name}: the column of a refused unique field ` +
-                  `could not be dropped: ${(e as Error).message}`,
-              ),
-            );
-          }
-          throw err;
-        }
-      }
     }
-    const indexDDL = fieldTypeRegistry.getIndexDDL(tableName, validated as FieldConfig);
-    if (indexDDL) await buildIndex(db, indexDDL);
-    // A field added to an existing collection gets the same pair as one created
-    // with it. Both sites, because the repository has been bitten by a fix that
-    // landed on only one of two paths before.
-    const tenantIndexDDL = fieldTypeRegistry.getTenantIndexDDL(tableName, validated as FieldConfig);
-    if (tenantIndexDDL) await buildIndex(db, tenantIndexDDL);
-    // Read and written under the row's lock: two adds on one collection each
-    // wrote back the list they had read, and the later one lost the other's field.
-    const append = async (trx: Database) => {
-      const row = await trx
-        .selectFrom('zvd_collections')
-        .selectAll()
-        .where('name', '=', collectionName)
-        .forUpdate()
-        .executeTakeFirst();
-      if (!row) return null;
-      const raw: unknown = row.fields;
-      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      const fields: FieldConfig[] = Array.isArray(parsed) ? parsed : [];
-      if (fields.some((f) => f.name === validated.name)) return null;
-      fields.push(validated as FieldConfig);
-      await trx
-        .updateTable('zvd_collections')
-        .set({ fields: toJsonb(fields), updated_at: new Date() })
-        .where('name', '=', collectionName)
-        .execute();
-      return fields;
-    };
-    const fields = (db as unknown as { isTransaction?: boolean }).isTransaction
-      ? await append(db)
-      : await db.transaction().execute(append);
+    let fields: FieldConfig[] | null;
+    try {
+      if (colDDL && !keyInLock) await this.addUniqueKey(db, tableName, validated as FieldConfig);
+      const indexDDL = fieldTypeRegistry.getIndexDDL(tableName, validated as FieldConfig);
+      if (indexDDL) await buildIndex(db, indexDDL);
+      // A field added to an existing collection gets the same pair as one created
+      // with it. Both sites, because the repository has been bitten by a fix that
+      // landed on only one of two paths before.
+      const tenantIndexDDL = fieldTypeRegistry.getTenantIndexDDL(
+        tableName,
+        validated as FieldConfig,
+      );
+      if (tenantIndexDDL) await buildIndex(db, tenantIndexDDL);
+      // Read and written under the row's lock: two adds on one collection each
+      // wrote back the list they had read, and the later one lost the other's field.
+      const append = async (trx: Database) => {
+        const row = await trx
+          .selectFrom('zvd_collections')
+          .selectAll()
+          .where('name', '=', collectionName)
+          .forUpdate()
+          .executeTakeFirst();
+        if (!row) return null;
+        const raw: unknown = row.fields;
+        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        const list: FieldConfig[] = Array.isArray(parsed) ? parsed : [];
+        if (list.some((f) => f.name === validated.name)) return null;
+        list.push(validated as FieldConfig);
+        await trx
+          .updateTable('zvd_collections')
+          .set({ fields: toJsonb(list), updated_at: new Date() })
+          .where('name', '=', collectionName)
+          .execute();
+        return list;
+      };
+      fields = (db as unknown as { isTransaction?: boolean }).isTransaction
+        ? await append(db)
+        : await db.transaction().execute(append);
+    } catch (err) {
+      // Refused as a whole, as when the key was built with the ADD and the
+      // metadata written with it: the column this call created goes, with any
+      // index on it. One that was already there (a retried job, a column outside
+      // the metadata) may hold rows, and stays.
+      if (created) {
+        await withLockTimeout(db, async (trx) => {
+          await dropMaskView(trx, tableName);
+          await sql`ALTER TABLE ${sql.id(tableName)} DROP COLUMN IF EXISTS ${sql.id(validated.name)}`.execute(
+            trx,
+          );
+          forgetJsonbColumns(tableName);
+          await sealColumns(trx, collectionName, await storedFields(trx, collectionName));
+        }).catch((e) =>
+          console.warn(
+            `[ddl] ${tableName}.${validated.name}: the column of a refused field could not be ` +
+              `dropped: ${(e as Error).message}`,
+          ),
+        );
+      }
+      throw err;
+    }
     // What `updateCollectionMetadata` does after its write, on the pool: the
     // search trigger may add `search_text` and build its index CONCURRENTLY.
     if (fields) {

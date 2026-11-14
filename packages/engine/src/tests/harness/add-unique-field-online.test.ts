@@ -79,7 +79,9 @@ d('a unique field is added without building its key under the lock', () => {
     ).rows[0]!.n === 1;
 
   const fieldNames = async () =>
-    ((await DDLManager.getCollection(db, C))?.fields as { name: string }[]).map((f) => f.name);
+    ((await DDLManager.getCollection(db, C))?.fields as { name: string }[] | undefined)?.map(
+      (f) => f.name,
+    );
 
   /**
    * Run `add` while an older transaction holds a snapshot. A CONCURRENTLY build
