@@ -134,6 +134,11 @@ d('a field added in place keeps every protection of its table', () => {
         type: 'add_field',
         payload: { collection: MAIN, field: text('note') },
       });
+      // A unique one too: its key is built CONCURRENTLY and attached (DR-37).
+      await post(`/api/schema/branches/${branch.id}/changes`, {
+        type: 'add_field',
+        payload: { collection: MAIN, field: text('sku', { unique: true }) },
+      });
       const merged = await post(`/api/schema/branches/${branch.id}/merge`, {});
       expect(merged.errors).toEqual([]);
     } finally {
@@ -146,9 +151,10 @@ d('a field added in place keeps every protection of its table', () => {
     const removed = before.filter((l) => !after.includes(l));
     const view = (lines: string[]) => lines.filter((l) => l.startsWith('09 view|'));
 
-    // The column, as any plain text column is.
+    // The columns, as any plain text column is.
     expect(added.filter((l) => l.startsWith('03 column|'))).toEqual([
       expect.stringMatching(/^03 column\|note text notnull=f default= /),
+      expect.stringMatching(/^03 column\|sku text notnull=f default= /),
     ]);
     // Its grants: exactly those of another plain text column.
     const grantsOf = (lines: string[], col: string) =>
@@ -157,13 +163,28 @@ d('a field added in place keeps every protection of its table', () => {
         .map((l) => l.replace(`|${col}: `, '|<col>: '));
     expect(grantsOf(added, 'note').length).toBeGreaterThan(0);
     expect(grantsOf(added, 'note')).toEqual(grantsOf(before, 'title'));
+    expect(grantsOf(added, 'sku')).toEqual(grantsOf(before, 'title'));
+    // The key: the constraint and its valid index, exactly as the table's own
+    // unique field `code` got them at create.
+    const keyOf = (lines: string[], col: string) =>
+      lines
+        .filter(
+          (l) =>
+            /^(05|06|10) /.test(l) &&
+            (l.includes(`tenant_id, ${col})`) || l.includes(`_tenant_id_${col}_key `)),
+        )
+        .map((l) => l.replaceAll(col, '<col>'));
+    expect(keyOf(added, 'sku')).toHaveLength(3);
+    expect(keyOf(added, 'sku')).toEqual(keyOf(before, 'code'));
     // The view: the same definition, options and grants, with the column added.
     expect(removed).toEqual(view(before));
     expect(view(added)).toHaveLength(1);
-    expect(view(added)[0]!.replace(', note FROM ', ' FROM ')).toBe(view(before)[0]);
+    expect(view(added)[0]!.replace(', note, sku FROM ', ' FROM ')).toBe(view(before)[0]);
     // Nothing else.
     expect(
-      added.filter((l) => !/^(03 column|04 column acl|09 view)\|/.test(l)),
+      added.filter(
+        (l) => !/^(03 column|04 column acl|09 view)\|/.test(l) && keyOf([l], 'sku').length === 0,
+      ),
       'lines only the add produced',
     ).toEqual([]);
     // No table was swapped: nothing an old copy would have left behind.
