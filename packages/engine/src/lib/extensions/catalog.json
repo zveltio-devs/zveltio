@@ -207,7 +207,7 @@
       "displayName": "Content Drafts",
       "description": "Draft, review and publish workflow for content collections, through the data API as the publishing user",
       "category": "content",
-      "version": "2.1.1",
+      "version": "3.0.0",
       "author": "Zveltio",
       "tags": ["cms", "drafts", "publishing"],
       "permissions": ["data:write"]
@@ -467,7 +467,7 @@
       "displayName": "Data Migrators",
       "description": "Import your data from HubSpot, Notion and Airtable into Zveltio collections, through the data API as the importing user",
       "category": "integrations",
-      "version": "2.0.1",
+      "version": "3.0.0",
       "author": "Zveltio",
       "tags": ["integrations", "migration", "hubspot", "notion", "airtable"],
       "permissions": ["data:write", "data:system"]
