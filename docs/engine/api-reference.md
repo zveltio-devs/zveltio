@@ -919,7 +919,8 @@ Delivery is at least once and unordered; the envelope's `id` and `sequence` are 
 > Served by the `data/export` extension under `/ext/data/export`, not by the
 > engine. The engine used to serve a duplicate at `/api/export`; that copy was
 > removed and the path now answers 410 with the replacement. As with every
-> other extension, the paths answer 404 when the extension is not enabled.
+> other extension, the paths answer 404 when the extension is not enabled
+> (401 to an anonymous caller, installed or not).
 
 ### POST /ext/data/export/:collection
 

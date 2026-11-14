@@ -39,6 +39,7 @@ import type { Database } from '../db/index.js';
 import { guardSessionOrKey, presentsUsableKey, refuseWithoutSession } from '../lib/admin-guard.js';
 import { apiKeyHoldsScope, extScope, isApiKeyPrincipal, requestApiKey } from '../lib/data/index.js';
 import type { RequestUser } from '../lib/data/index.js';
+import { activeForRequest } from '../lib/extensions/index.js';
 import { requireConfigWindow } from '../lib/step-up.js';
 import { principalRole } from '../lib/tenancy/index.js';
 import { mutates } from './config-routes.js';
@@ -440,7 +441,15 @@ export function extensionAuthGate(auth: SessionResolver, db: Database): Middlewa
     const rest = path.slice('/ext/'.length);
 
     const owner = resolveOwner(rest);
-    if (owner && isDeclaredPublic(owner.name, c.req.method, owner.sub)) {
+    // A public route of an extension the firm turned off is not public here: it
+    // falls to the session check, so an anonymous caller gets the 401 an absent
+    // extension gets and a signed-in one the sub-app's 404 (ADR 0047 d3). A 404
+    // to the anonymous caller would tell it the extension is installed.
+    if (
+      owner &&
+      isDeclaredPublic(owner.name, c.req.method, owner.sub) &&
+      (await activeForRequest(c, owner.name, db))
+    ) {
       // Explicitly declared public — anonymous access allowed.
       const req: PublicRouteRequest = {
         extName: owner.name,

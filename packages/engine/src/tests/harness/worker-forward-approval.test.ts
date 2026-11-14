@@ -28,6 +28,7 @@ import { getAuth } from '../../lib/auth.js';
 import { refreshForwardApproval } from '../../lib/extensions/consent.js';
 import { _resetCatalogForTests } from '../../lib/extensions/extension-catalog.js';
 import { _resetCatalogCacheForTests } from '../../lib/extensions/extension-download.js';
+import { invalidateActivationCache } from '../../lib/extensions/activation.js';
 import { revokeExtensionDbRoles } from '../../lib/extensions/ext-db-role.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
@@ -92,6 +93,10 @@ d('credential forwarding needs an operator approval of the exact set', () => {
 
   /** Restart the worker from the manifest on disk, as an enable or a boot does. */
   const reload = async () => {
+    // Enabled, as a loaded extension is: the gate serves a public route only
+    // where its extension is on (ADR 0047 d3).
+    await sql`UPDATE zv_extension_registry SET is_enabled = true WHERE name = ${NAME}`.execute(db);
+    invalidateActivationCache();
     await extensionLoader.unload(NAME).catch(() => undefined);
     await extensionLoader.loadExtension(NAME, app, ctx, base);
     expect(extensionLoader.getLastLoadError(NAME)).toBeUndefined();
@@ -390,6 +395,12 @@ d('credential forwarding needs an operator approval of the exact set', () => {
     await reload();
     expect((await approve({ '/fwd': ['authorization'] })).status).toBe(200);
     expect(await stored()).toEqual({ '/fwd': ['authorization'] });
+    // Approved with no row; the route serves where the extension is on.
+    await sql`
+      INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled)
+      VALUES (${NAME}, ${NAME}, NULL, true, true)
+    `.execute(db);
+    invalidateActivationCache();
     expect(await seen('/fwd')).toEqual({ status: 200, body: AUTH_ONLY });
   });
 });
