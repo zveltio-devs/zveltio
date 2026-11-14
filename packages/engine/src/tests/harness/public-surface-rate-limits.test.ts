@@ -25,6 +25,9 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
+import { sql } from 'kysely';
+import type { Database } from '../../db/index.js';
+import { invalidateActivationCache } from '../../lib/extensions/activation.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 import {
   _resetPublicRouteRegistryForTests,
@@ -40,6 +43,9 @@ const SCIM_IP = '203.0.113.13';
 
 d('pre-auth surface rate limits (in-process)', () => {
   let app: Hono;
+  let db: Database;
+  /** Registry rows this file added, so it removes only those. */
+  let added: string[] = [];
   let savedEnv: string | undefined;
   let savedProxy: string | undefined;
 
@@ -60,7 +66,7 @@ d('pre-auth surface rate limits (in-process)', () => {
   }
 
   beforeAll(async () => {
-    ({ app } = await getTestApp());
+    ({ app, db } = await getTestApp());
     savedEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = 'development';
     // The `/ext/*` auth gate is registered before these limiters (index.ts), so
@@ -72,6 +78,18 @@ d('pre-auth surface rate limits (in-process)', () => {
     registerExtensionPublicRoutes('forms', ['/public/*']);
     registerExtensionPublicRoutes('storage/cloud', ['/share/*']);
     registerExtensionPublicRoutes('auth/scim', ['/v2/*']);
+    // And enabled, as a loaded extension is: the gate serves a public route
+    // only where its extension is on (ADR 0047 d3).
+    for (const name of ['forms', 'storage/cloud', 'auth/scim']) {
+      const { rows } = await sql<{ name: string }>`
+        INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled)
+        VALUES (${name}, ${name}, NULL, true, true)
+        ON CONFLICT (tenant_id, name) DO NOTHING
+        RETURNING name
+      `.execute(db);
+      added.push(...rows.map((r) => r.name));
+    }
+    invalidateActivationCache();
     // Without TRUSTED_PROXY the limiter ignores X-Forwarded-For entirely — by
     // design, since an untrusted client can spoof it — and every request in
     // this file would land in one bucket per surface. The per-surface tests
@@ -81,7 +99,14 @@ d('pre-auth surface rate limits (in-process)', () => {
     process.env.TRUSTED_PROXY = 'true';
   });
 
-  afterAll(() => {
+  afterAll(async () => {
+    if (added.length) {
+      await sql`DELETE FROM zv_extension_registry WHERE tenant_id IS NULL AND name = ANY(${added})`.execute(
+        db,
+      );
+      added = [];
+      invalidateActivationCache();
+    }
     if (savedEnv === undefined) delete process.env.NODE_ENV;
     else process.env.NODE_ENV = savedEnv;
     _resetPublicRouteRegistryForTests();

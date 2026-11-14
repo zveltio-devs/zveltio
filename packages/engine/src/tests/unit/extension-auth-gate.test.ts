@@ -26,9 +26,14 @@ const authWithUser = {
 };
 const authAnon = { api: { getSession: async () => null } };
 
-/** `validateApiKey` stamps `last_used_at` through the pool; any chain resolves. */
+/**
+ * `validateApiKey` stamps `last_used_at` through the pool; any chain resolves.
+ * A query's `rows` answer one row, so the gate's activation lookup finds every
+ * extension on (`isExtensionActiveAnywhere`: no tenant here).
+ */
 const dbStub: unknown = new Proxy(() => {}, {
-  get: (_t, prop) => (prop === 'then' ? undefined : () => dbStub),
+  get: (_t, prop) =>
+    prop === 'then' ? undefined : prop === 'rows' ? [{ ok: true }] : () => dbStub,
   apply: () => dbStub,
 });
 (dbStub as { execute?: unknown }).execute = undefined;

@@ -608,6 +608,13 @@ reaches your handler. So a route you forget to guard is *safe by omission*, not
 *exposed by omission* — the inverse of the old model, where a missing check
 silently exposed the route (real holes shipped that way).
 
+An anonymous caller gets the same `401` whether the extension is installed or
+not, and whether the firm has it on or off: a public route of an extension the
+firm turned off answers `401` too, as an absent extension does. A different
+answer would list a firm's modules to anyone, which `GET /api/extensions` hides
+on purpose (ADR 0047). A signed-in caller gets `404` for an absent or turned-off
+extension and for a path no route serves.
+
 Inside a handler you can read `c.get('user')` (the gate sets it after a
 successful session check).
 
