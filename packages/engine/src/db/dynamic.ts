@@ -954,9 +954,7 @@ const FK_ACTIONS: Record<string, string> = {
 export async function foreignKeysOf(
   db: Database,
   keys: string[],
-): Promise<
-  Map<string, { name: string; onDelete: string; onUpdate: string; validated: boolean }>
-> {
+): Promise<Map<string, { name: string; onDelete: string; onUpdate: string; validated: boolean }>> {
   if (keys.length === 0) return new Map();
   const { rows } = await sql<{ k: string; name: string; d: string; u: string; v: boolean }>`
     SELECT c.relname || '.' || a.attname AS k, con.conname AS name,
