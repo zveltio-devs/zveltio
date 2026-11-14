@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { mapTiles } from '#lib/map-tiles.js';
   interface Props {
     lat?: number;
     lng?: number;
@@ -23,11 +22,9 @@
       if (mapInstance) mapInstance.remove();
 
       mapInstance = L.map(mapEl).setView([lat, lng], zoom);
-      // The operator chooses the tile server (ADR 0043); null = no tiles. Studio's
-      // helper is async, the client's sync: Promise.resolve takes either.
-      void Promise.resolve(mapTiles()).then((t) => {
-        if (t && mapInstance) L.tileLayer(t.url, { attribution: t.attribution }).addTo(mapInstance);
-      });
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap',
+      }).addTo(mapInstance);
 
       const marker = L.marker([lat, lng], { draggable: !!onSelect }).addTo(mapInstance);
 
