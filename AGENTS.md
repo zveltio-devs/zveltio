@@ -293,9 +293,13 @@ generated).
 
 ## Extension system
 
-- Engine extensions mount Hono routes at `/ext/<name>/`, declare migrations,
-  hooks (pre/post-write), cron; Studio extensions are Svelte 5 components
-  copied into the Studio route tree on enable.
+- Extensions declare collections, actions, jobs and routes under `/ext/<name>/`
+  in the manifest; the engine creates and owns the collections and decides
+  every call by its own rules (ADR 0002) — an extension ships no SQL, no
+  migration and no authorization logic. Their UI is `view/2` data only, drawn
+  by each front end (ADR 0042, `docs/extensions/ui-model.md`). Migrations,
+  hooks, cron and Svelte code pages are the legacy v1 surface
+  (`docs/extensions/developer-guide.md` Appendix B).
 - Community extensions run **worker-isolated**: a process of their own speaking
   the runner protocol (`ZVELTIO_EXT_TRANSPORT`) — in production the extension
   runner, under a uid of its own (`lib/ext-runner.ts`; the release compose,
