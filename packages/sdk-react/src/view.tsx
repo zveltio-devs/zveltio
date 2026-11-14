@@ -281,9 +281,9 @@ function Buttons({
   return (
     <span className="zv-actions">
       {live.map((b, i) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: a view's own list, fixed for the view's lifetime
         // A reference with no value yet (no row selected in the pane): disabled, never sent.
         <button
+          // biome-ignore lint/suspicious/noArrayIndexKey: a view's own list, fixed for the view's lifetime
           key={i}
           type="button"
           disabled={!isBound(b, scope)}
