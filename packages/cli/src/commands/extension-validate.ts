@@ -205,7 +205,8 @@ const stringsOf = (v: unknown): string[] =>
  * mismatch (`analytics/quality` in `analytics/qa`) still fails.
  */
 function inferExpectedName(dir: string, manifestName?: unknown): string {
-  const depth = typeof manifestName === 'string' && manifestName ? manifestName.split('/').length : 1;
+  const depth =
+    typeof manifestName === 'string' && manifestName ? manifestName.split('/').length : 1;
   return resolve(dir).replace(/\\/g, '/').split('/').filter(Boolean).slice(-depth).join('/');
 }
 
