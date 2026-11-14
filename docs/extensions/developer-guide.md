@@ -16,14 +16,13 @@
 > - the platform roadmap (some
 >   features described here land in v1.0).
 >
-> Sections marked **(v1.0)** describe APIs landing in the v1.0 sprint. Sections
-> marked **(today)** describe what works in the current 3.0 beta line. If you are
-> starting an extension now, you can mix both — APIs are additive.
->
-> **Recent (3.0 betas):** extensions are delivered **from the registry on demand**
-> (not bundled on disk); studio pages are **declarative SDUI** schemas (no per-host
-> rebuild); **`ctx.db` is now tenant-scoped by default** (H-12) — cross-tenant
-> access requires the `db:admin` permission + `ctx.adminDb`.
+> **The model (ADR 0002, ADR 0039, ADR 0042).** An extension declares
+> collections, actions, jobs, routes and views; the engine creates and owns the
+> collections, and its rules decide who may do what. [authoring.md](authoring.md)
+> is the contract. The members of the earlier model (`register(app, ctx)` routes,
+> `ctx.db`, SQL migrations, hooks, services, schedules, code pages, slots) are
+> kept, unchanged, in [Appendix B](#appendix-b-legacy-v1-surface) for whoever
+> maintains an extension built on them. Do not use them in new work.
 
 ---
 
@@ -34,43 +33,47 @@
 3. [Anatomy of an extension](#3-anatomy-of-an-extension)
 4. [The manifest](#4-the-manifest)
 5. [Writing engine code](#5-writing-engine-code)
-6. [Database access & migrations](#6-database-access--migrations)
-7. [Hooks: pre-write, post-write, query-alter, entity-access](#7-hooks-pre-write-post-write-query-alter-entity-access)
-8. [Services: publishing and consuming](#8-services-publishing-and-consuming)
-9. [Cron jobs](#9-cron-jobs)
-10. [Studio: pages, field types, form alters, slots](#10-studio-pages-field-types-form-alters-slots)
+6. [Data: declared collections](#6-data-declared-collections)
+7. [Reacting to writes](#7-reacting-to-writes)
+8. [Using another extension](#8-using-another-extension)
+9. [Scheduled work](#9-scheduled-work)
+10. [Studio: views, field types, translation](#10-studio-views-field-types-translation)
 11. [Testing](#11-testing)
 12. [Local development loop](#12-local-development-loop)
 13. [Publishing](#13-publishing)
 14. [Best practices & anti-patterns](#14-best-practices--anti-patterns)
 15. [Troubleshooting](#15-troubleshooting)
+- [Appendix B: legacy v1 surface](#appendix-b-legacy-v1-surface)
 
 ---
 
 ## 1. Mental model
 
-A Zveltio extension is a **plugin to a running engine process**. The engine
-loads your code dynamically at startup (or on enable), calls your `register()`
-function once, and hands you a context object (`ctx`) for accessing the
-database, events, services, and DDL.
+A Zveltio extension is a **package of declarations and business logic** for
+a running engine. It declares collections, and the engine creates them with
+tenant isolation, grants and the data API. It declares actions and jobs, and
+the engine runs them as the caller (an action) or after commit (a job), with
+`host.collections` as their only data path. It declares the few routes a
+non-Zveltio caller needs, and views that every front end draws.
 
-You are **not** writing a standalone server. You contribute routes, hooks,
-field types, Studio pages, and scheduled jobs. The engine owns the HTTP
-lifecycle, authentication, transactions, and observability.
+You are **not** writing a server, a schema migration or an authorization
+layer. The engine owns HTTP, authentication, transactions, tenancy,
+permissions, row and column rules, audit and observability; your extension
+carries no permission checks (ADR 0002).
 
-The closest analogy is a **Drupal module**, but with TypeScript, native Bun
-performance, and modern frontend (Svelte 5).
+The closest analogy is a **Drupal module**, but declarative first: the data
+model and the pages are data, and code is only the business rules.
 
 ### Three contract surfaces
 
-| Surface | What you contribute | API |
+| Surface | What you contribute | Where |
 |---|---|---|
-| **engine/** | Backend logic: routes, hooks, services, cron | `ZveltioExtension` from `@zveltio/sdk/extension` |
-| **studio/** | Admin UI: pages, fields, form alters, slots | `@zveltio/sdk/studio` |
-| **client/** | End-user UI components (published as separate npm) | published as `@yourorg/zveltio-ext-X` |
+| **schema/** | Collections the engine creates and owns | `schema/collections/*.json`, manifest `collections` |
+| **engine/** | Actions, jobs, declared routes | `ZveltioExtension` from `@zveltio/sdk/extension` |
+| **studio/** | Pages as `zveltio.view/2` documents, their messages | `studio/schemas/*.json`, `studio/messages/en.json` |
 
-Any subset is valid. A backup extension may have only `engine/`. A custom
-widget extension may have only `studio/`.
+Any subset is valid: an extension with only collections and views has no
+engine code (`contributes.engine: false`).
 
 ---
 
@@ -90,25 +93,19 @@ zveltio extension create my-feature --category content
 # scaffolds at zveltio-extensions/content/my-feature/
 ```
 
-What gets generated:
+What gets generated (the shape of `crm`):
 ```
 content/my-feature/
-├── manifest.json
+├── manifest.json                     # collections, actions, the page
+├── schema/collections/
+│   └── my_feature_items.json         # the engine creates and owns it
 ├── engine/
-│   ├── index.ts
-│   └── migrations/
-│       └── 001_init.sql
+│   └── index.ts                      # the markDone action
 ├── studio/
-│   ├── pages/
-│   │   └── +page.svelte          # tier-3 admin page (synced at release)
-│   └── src/
-│       ├── components/           # optional shared UI
-│       └── contribute.ts.example # rename → contribute.ts for slot widgets
+│   ├── schemas/my-feature.json       # the page, a zveltio.view/2 document
+│   └── messages/en.json              # the keys the page owns
 └── .github/workflows/ci.yml
 ```
-
-No `studio/vite.config.ts`, `studio/package.json`, or `studio/dist/` — the v1
-per-extension Studio bundle pipeline was removed in alpha.94 / beta.15.
 
 ### Run in development
 
@@ -130,13 +127,9 @@ zveltio extension dev
   cached module + scoped state (services, queryAlter, entityAccess, cron)
   and re-imports with a cache-buster — your next request hits the new
   code without an engine restart.
-- **Studio preview**: tier-3 pages and slot widgets are **compile-time copies**
-  into the monorepo Studio (`packages/studio/scripts/sync-extensions.ts`), not
-  a per-extension Vite dev server. From a sibling checkout:
-  `cd packages/studio && bun scripts/sync-extensions.ts && bun run dev`, then
-  open `/admin/my-feature`. Slot contributions need `studio/src/contribute.ts`
-  (see [authoring.md](authoring.md)). Legacy scaffolds
-  that still ship `studio/package.json` get vite HMR here; new scaffolds do not.
+- **Studio preview**: a view needs no build. *Developer → View preview*
+  (`/admin/developer/views`) draws a `view/2` document as you type, on your
+  own data and permissions.
 
 Open `http://localhost:3000/admin/my-feature` to see your Studio page.
 
@@ -153,9 +146,10 @@ Limits (intentional):
 - **The engine must already be running and have the extension active.**
   Reload re-imports the source; it doesn't enable a never-loaded
   extension. Toggle in Studio's `/admin/extensions` first.
-- **Migration changes (SQL files under `engine/migrations/`) still need a
-  reinstall.** The watcher only re-imports `engine/index.ts`. Add a new
-  numbered migration file, then disable/enable the extension to apply it.
+- **Collection changes need a re-pack and a disable/enable.** The watcher
+  only re-imports `engine/index.ts`; the engine applies a changed
+  `schema/collections/` file (checked against `schemaSha256`) when the
+  extension is enabled.
 - **Endpoint is dev-only.** `POST /__zveltio_dev_reload` is skipped when
   `NODE_ENV=production`. If you see HTTP 404 from the dev probe, check
   the engine's env.
@@ -166,36 +160,28 @@ Limits (intentional):
 
 ```
 <category>/<name>/
-├── manifest.json          # metadata, dependencies, contributions
+├── manifest.json          # metadata, capabilities, collections, actions, jobs, routes, pages
+├── schema/
+│   └── collections/       # one file per declared collection
 ├── engine/
-│   ├── index.ts           # default-exports ZveltioExtension
-│   ├── routes.ts          # Hono route handlers (or split as you like)
-│   ├── services.ts        # things you publish for other extensions
-│   ├── hooks.ts           # pre/post-write event handlers
-│   ├── lib/               # internal helpers
-│   ├── migrations/
-│   │   ├── 001_init.sql
-│   │   └── 002_add_indexes.sql
-│   └── tests/             # bun test, integration via withTestDb()
-├── studio/
-│   ├── pages/             # tier-3 SvelteKit routes (+page.svelte)
-│   ├── schemas/           # SDUI JSON (manifest.studio.pages[].schema)
-│   └── src/
-│       ├── components/    # shared Svelte → $lib/ext/<name>/ after sync
-│       └── contribute.ts  # optional slot widgets (Model 2.5)
-└── client/                # (optional) end-user UI npm package
-    └── ...
+│   ├── index.ts           # default-exports ZveltioExtension (defineExtension)
+│   ├── actions.ts         # actions and jobs
+│   ├── routes.ts          # declared route handlers, if any
+│   └── lib/               # internal helpers
+└── studio/
+    ├── schemas/           # pages: zveltio.view/2 documents
+    └── messages/en.json   # keys this extension owns
 ```
 
 ### Naming rules
 
 - Folder path under `zveltio-extensions/` becomes the canonical extension
   name. `content/my-feature/` ↔ `manifest.name = "content/my-feature"`.
-- The folder name (last segment) is what shows in URLs:
-  `/ext/my-feature/...` (v1.0) or `/api/my-feature/...` (today).
-- Tables your extension owns: `zv_<flat_name>_*` where `flat_name` is the
-  full name with `/` replaced by `_`. So `content/my-feature` owns tables like
-  `zv_content_my_feature_items`.
+- Actions answer at `/ext/<name>/actions/<action>`; declared routes under
+  `/ext/<name>/`.
+- Collection names are instance-wide: two extensions cannot declare the same
+  one (the second is refused). Prefix a generic name with the extension's
+  (`my_feature_items`). The engine names the table; you never do.
 
 ---
 
@@ -493,110 +479,26 @@ before. New extensions from `zveltio extension create` start with
 
 ### The entry point
 
-```typescript
-// engine/index.ts
-import type { ZveltioExtension } from '@zveltio/sdk/extension';
-import type { DB } from './.zveltio/db';  // (v1.0) generated by `zveltio extension types`
-import { join } from 'path';
-import { myFeatureRoutes } from './routes.js';
-import { registerHooks } from './hooks.js';
-import { registerServices } from './services.js';
+```ts
+import { defineExtension } from '@zveltio/sdk/extension';
+import { actions, jobs } from './actions.js';
 
-const extension: ZveltioExtension<DB> = {
+export default defineExtension(['data:write'], {
   name: 'content/my-feature',
   category: 'content',
-
-  getMigrations() {
-    return [
-      join(import.meta.dir, 'migrations/001_init.sql'),
-      join(import.meta.dir, 'migrations/002_add_indexes.sql'),
-    ];
-  },
-
-  async register(app, ctx) {
-    app.route('/items', myFeatureRoutes(ctx));
-    registerHooks(ctx);
-    registerServices(ctx);
-  },
-
-  schedules() {                     // (v1.0)
-    return [{
-      name: 'cleanup-stale',
-      cron: '0 3 * * *',
-      handler: async (ctx) => { /* ... */ },
-    }];
-  },
-
-  async cleanup() {
-    // Called on disable. Close connections, clear timers, etc.
-  },
-};
-
-export default extension;
-```
-
-Key facts:
-
-- `register()` is called **once per activation**. Do not register the same
-  handler twice.
-- `app` is a Hono router. (v1.0) it is a sub-app mounted under
-  `/ext/<your-name>`. Today it is the main app — use unique paths.
-- `ctx.db` is a `Kysely<DB>` (v1.0) or `any` (today). **It is TENANT-SCOPED
-  (since H-12):** every query runs against the current request/job tenant's
-  transaction, so the `zveltio.current_tenant` GUC is set and FORCE row-level
-  security isolates your rows automatically. You no longer need `ctx.reqDb(c)`
-  for isolation — `ctx.db` is safe by default in a request handler. Outside any
-  tenant context (boot, migrations) it falls back to the global pool. Where a
-  tenant other than the root one is in scope but no transaction is open, it
-  throws instead: wrap that work in `ctx.internals.withTenantIsolation`. `reqDb(c)`
-  remains as an explicit equivalent for handlers that already pass `c`.
-- **Cross-tenant access is opt-in via `ctx.adminDb`.** For legitimately global
-  work (platform-wide reporting, backup) declare the **`db:admin`** permission
-  in your manifest; the engine then hands you `ctx.adminDb` (the global pool).
-  Without that permission any use of `ctx.adminDb` throws — so cross-tenant
-  access is always visible at review + install time. See
-  `MULTI-TENANT-ENABLEMENT.md` §5.
-- `cleanup()` is optional but recommended for any extension that holds
-  resources (timers, sockets, file handles).
-
-### Routes with Hono
-
-```typescript
-// engine/routes.ts
-import { Hono } from 'hono';
-import { zValidator } from '@hono/zod-validator';
-import { z } from 'zod';
-import type { ExtensionContext } from '@zveltio/sdk/extension';
-
-const ItemSchema = z.object({
-  name: z.string().min(1),
-  metadata: z.record(z.unknown()).optional(),
+  actions,
+  jobs,
+  async register() {},
 });
-
-export function myFeatureRoutes(ctx: ExtensionContext) {
-  const router = new Hono();
-
-  router.get('/', async (c) => {
-    const items = await ctx.db
-      .selectFrom('zv_content_my_feature_items')
-      .selectAll()
-      .execute();
-    return c.json({ items });
-  });
-
-  router.post('/', zValidator('json', ItemSchema), async (c) => {
-    const data = c.req.valid('json');
-    const row = await ctx.db
-      .insertInto('zv_content_my_feature_items')
-      .values({ ...data, created_at: new Date() })
-      .returningAll()
-      .executeTakeFirstOrThrow();
-    return c.json({ item: row }, 201);
-  });
-
-  return router;
-}
 ```
+
+`defineExtension` takes the capabilities the manifest's `permissions` lists
+and types the extension by them. Actions, jobs and declared routes, with
+their manifest entries and every rule of `host`, are specified in
+[authoring.md](authoring.md#actions-and-jobs--extension-api-v1) and
+[authoring.md](authoring.md#declared-routes); [cookbook.md](cookbook.md)
+has worked recipes. The legacy entry point (`getMigrations`, Hono routes
+over `ctx.db`) is in [Appendix B](#appendix-b-legacy-v1-surface).
 
 ### Authentication — the fail-closed `/ext/*` gate
 
@@ -885,751 +787,50 @@ where this is decided.
 
 ---
 
-## 6. Database access & migrations
-
-### Writing migrations
-
-Migrations are plain SQL files numbered sequentially. Each file is one
-migration. The engine wraps each file in a transaction.
-
-```sql
--- migrations/001_init.sql
-
-CREATE TABLE zv_content_my_feature_items (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name TEXT NOT NULL,
-  metadata JSONB NOT NULL DEFAULT '{}',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX idx_my_feature_items_name ON zv_content_my_feature_items (name);
-
--- DOWN
-DROP TABLE IF EXISTS zv_content_my_feature_items;
-```
-
-The `-- DOWN` marker separates the UP and DOWN sections. The UP runs on
-install; the DOWN runs on full uninstall (with `purgeData=true`) (v1.0).
-
-### `-- NO TRANSACTION`
-
-Your pending migrations normally run as **one transaction**: the extension
-either installs or it does not, with nothing half-applied in between. Keep it
-that way unless you have the specific problem below.
-
-The problem is adding an index to a table that already has rows — a migration
-you ship in version 4 for a table created in version 1. `CREATE INDEX` locks
-that table against writes for the length of the build, which is nothing on a
-small table and an outage on a customer's `zvd_invoices`. The fix is
-`CONCURRENTLY`, and Postgres refuses that inside a transaction block.
-
-Mark such a migration and it runs on its own, outside the transaction:
-
-```sql
--- NO TRANSACTION
-DROP INDEX IF EXISTS idx_my_items_name;
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_my_items_name
-  ON zv_content_my_feature_items (name);
-```
-
-Migrations before and after it still batch into their own transactions — the
-chain is cut, not abandoned.
-
-Three things this costs you, all of them consequences of the same fact:
-
-- **Nothing rolls back.** If the third of five statements fails, the first two
-  stay. Write every statement so it survives running twice; the migration is
-  only recorded once all of it succeeds, so a failed run is retried whole.
-- **Earlier segments are already committed** when a later one fails. An
-  extension can end up on an intermediate version and must be able to reach the
-  next one from there.
-- **A failed `CONCURRENTLY` leaves an INVALID index behind**, and
-  `IF NOT EXISTS` will happily skip re-creating it. That is why the example
-  drops first.
-
-Index at creation time while the table is empty whenever you can. This marker
-is for the case where you no longer can.
-
-### Table naming rules
-
-| Prefix | Purpose | Who owns |
-|---|---|---|
-| `zv_<extname>_*` | Internal extension tables | Your extension only |
-| `zvd_*` | User-facing data tables (collections) | All extensions can read; writes via DDLManager |
-| `zv_*` (other prefixes) | System tables | Engine only — extensions **cannot** access |
-
-The extension context proxy enforces this at runtime: `ctx.db.selectFrom('zv_secrets')`
-throws.
-
-### Reading user collections (`zvd_*`)
-
-User data tables are accessible by any extension. Use `ctx.queryAlter` (v1.0)
-to attach filters globally rather than inline.
-
-### Modifying schema at runtime (DDL Manager)
-
-If your extension creates user-facing collections dynamically (like
-`forms`), use the DDL Manager:
-
-```typescript
-// (v1.0) import { DDLManager } from '@zveltio/sdk/ddl';
-// (today) const { DDLManager } = await import('@zveltio/engine-ddl');
-
-await ctx.DDLManager.createCollection({
-  name: 'zvd_my_thing',
-  fields: [
-    { name: 'id', type: 'uuid', primary: true },
-    { name: 'title', type: 'text', required: true },
-  ],
-});
-```
-
-This bypasses the static migration system — it creates tables on demand based
-on user input. Necessary for any extension where the schema is user-defined.
-
-### Generating types from migrations
-
-```bash
-zveltio extension types
-```
-
-Generates `.zveltio/db.d.ts` from your `engine/migrations/*.sql` files. The
-output is a Kysely-friendly `export interface ExtensionSchema { ... }` with
-one entry per `CREATE TABLE` you've declared, columns mapped to TypeScript:
-
-```typescript
-// .zveltio/db.d.ts  (auto-generated — do not edit)
-export interface ExtensionSchema {
-  zv_my_items: {
-    id: string;                       // UUID
-    name: string;                     // TEXT
-    metadata: Record<string, unknown>; // JSONB
-    created_at: Date;                 // TIMESTAMPTZ
-  };
-}
-```
-
-Add `.zveltio/` to your `.gitignore` (the monorepo's `.gitignore` already
-covers it). Re-run after every migration edit.
-
-#### Wiring the types into your extension
-
-Pass the schema as a generic to `ZveltioExtension<DB>`. The engine threads
-it through `ctx.db: Kysely<DB>` so `selectFrom(...)` autocompletes table +
-column names and `tsc` flags typos:
-
-```typescript
-import type { ZveltioExtension } from '@zveltio/sdk/extension';
-import type { ExtensionSchema as DB } from './.zveltio/db.js';
-import { join } from 'path';
-import { myFeatureRoutes } from './routes.js';
-
-const extension: ZveltioExtension<DB> = {
-  name: 'category/name',
-  category: 'category',
-  mountStrategy: 'subapp',
-
-  getMigrations() {
-    return [join(import.meta.dir, 'migrations/001_init.sql')];
-  },
-
-  async register(app, ctx) {
-    // ctx.db is Kysely<DB>. The table name is checked against your schema.
-    const rows = await ctx.db
-      .selectFrom('zv_my_items')
-      .select(['id', 'name'])
-      .execute();
-
-    app.route('/', myFeatureRoutes(ctx));
-  },
-};
-
-export default extension;
-```
-
-Migrating an existing extension to typed `ctx.db` is opt-in — the default
-`DB = any` means extensions that don't pass a generic keep compiling
-exactly as before.
-
----
-
-## 7. Hooks: pre-write, post-write, query-alter, entity-access
-
-Hooks let you intercept and modify engine behavior. They are the most
-powerful primitive in the extension contract.
-
-### Pre-write hooks
-
-Reject or transform writes **before** they hit the database. Use
-`ctx.events.onBefore(...)` (note: **`onBefore`**, not `on` — pre-hooks are a
-separate API because they are async and share a mutable payload).
-
-```typescript
-// engine/hooks.ts
-import type { ExtensionContext } from '@zveltio/sdk/extension';
-
-export function registerHooks(ctx: ExtensionContext) {
-  ctx.events.onBefore('record.beforeInsert', async (e) => {
-    if (e.collection !== 'contacts') return;
-
-    // Reject
-    if (typeof e.data.email !== 'string' || !e.data.email.includes('@')) {
-      e.abort('Invalid email');
-    }
-
-    // Transform — subsequent hooks AND the data layer see the patched values
-    e.mutate({
-      email: (e.data.email as string).toLowerCase().trim(),
-      created_via: 'api',
-    });
-  });
-
-  ctx.events.onBefore('record.beforeUpdate', async (e) => {
-    if (e.collection !== 'contacts') return;
-    e.mutate({ updated_at: new Date().toISOString() });
-  });
-
-  ctx.events.onBefore('record.beforeDelete', async (e) => {
-    if (e.collection !== 'contacts') return;
-    // beforeDelete payload exposes the existing row via `e.record` and only
-    // supports abort (no mutate — there's nothing to transform on a delete).
-    if (e.record.protected) {
-      e.abort('Cannot delete a protected contact');
-    }
-  });
-}
-```
-
-Key semantics:
-- Handlers run **sequentially in registration order** (extensions register
-  hooks during `register()`, which runs in topological dependency order).
-- `mutate(patch)` shallow-merges into the in-flight payload — for `beforeInsert`
-  it targets `data`; for `beforeUpdate` it targets `patch`. Subsequent handlers
-  see the merged result.
-- A hook runs **after** the field pipeline, and what it merges is written as
-  given. The payload already passed column-level write access, type
-  validation, the collection's validation rules (`transition` rules
-  included) and field encryption; values a hook adds or replaces go through
-  none of them. A hook is trusted engine-side code (only in-process
-  extensions can register one; the runner refuses `events.onBefore`), so it
-  owns what it writes: store the shape the column expects, and encrypt with
-  `ctx.internals.maybeEncrypt` before writing to an `encrypted: true` field.
-- `abort(reason)` throws `AbortHookError`. The data layer catches it and
-  returns HTTP 422 `{ code: 'EXT_HOOK_ABORTED', reason }`. No row is written.
-  In a bulk write the abort refuses the whole batch: 422 `bulk_refused`, the
-  row listed with `EXT_HOOK_ABORTED: <reason>`, and no row of the batch written.
-- A handler that throws anything other than `AbortHookError` becomes a 500.
-
-**Hook scope** — what triggers pre-hooks:
-
-| Source | beforeInsert | beforeUpdate | beforeDelete |
-|---|---|---|---|
-| `POST /:collection` (HTTP) | ✓ | — | — |
-| `PUT/PATCH/DELETE /:collection/:id` (HTTP) | — | ✓ / ✓ / ✓ | ✓ |
-| `POST /:collection/bulk` etc. (HTTP) | per-row ✓ | per-row ✓ | per-row ✓ |
-| `ctx.db.insertInto('zvd_*').values(...).execute()` | ✓ | — | — |
-| `ctx.db.updateTable('zvd_*').set(...).where('id', '=', X).execute()` | — | ✓ | — |
-| `ctx.db.deleteFrom('zvd_*').where('id', '=', X).execute()` | — | — | ✓ |
-| `ctx.db.updateTable/deleteFrom` with bulk WHERE | — | skip + warn | skip + warn |
-| Raw ``ctx.db.executeQuery(sql`...`)`` | — | — | — |
-
-For extension-internal writes, the hook payload's `userId` is set to
-`system:<your-extension-name>` so post-write hooks can tell user-driven
-changes from extension-driven ones.
-
-**Why bulk updates/deletes skip hooks**: a `WHERE tenant_id = X` may touch
-thousands of rows. Firing per-row hooks would be slow and surprising
-(rows that didn't exist when the hook author wrote the rule could match).
-Pre-fetch ids in a `selectFrom` and loop with single-row writes if you
-need per-row semantics.
-
-**Raw SQL bypasses hooks**: ``ctx.db.executeQuery(sql`INSERT INTO ...`)``
-goes around the Kysely builder and so around the hook layer. Use the
-Kysely builder for hooked writes.
-
-### Post-write hooks (today + v1.0)
-
-React after the write committed.
-
-```typescript
-ctx.events.on('record.created', async (e) => {
-  if (e.table === 'zvd_orders') {
-    await sendOrderConfirmation(e.data);
-  }
-});
-```
-
-Failure in a post-write handler **does not** roll back the write. Use this
-for side effects only (emails, webhooks, search indexing).
-
-### Query alter
-
-Attach `WHERE` clauses to queries against a table — globally, without
-modifying any route handler.
-
-```typescript
-ctx.queryAlter.register({
-  table: 'zvd_contacts',
-  alter(qb, user) {
-    if (user.isGod) return qb;
-    return qb.where('tenant_id', '=', user.tenantId);
-  },
-});
-```
-
-Use cases:
-- Tenant isolation.
-- Soft-delete filtering (hide rows where `deleted_at IS NOT NULL`).
-- GDPR / column-level redaction.
-
-Ownership + lifecycle:
-- Each `register({...})` call is automatically tagged with your extension's
-  name. When your extension is disabled or hot-reloaded, all your alters
-  are removed by the loader — you do not call `unregisterAll()` yourself
-  unless you explicitly want to retract an alter at runtime.
-- Multiple extensions can register alters for the same table; they chain
-  in registration order.
-
-**Scope**: every read goes through the engine's one read gate
-(`readScope`), which applies row policies, your alters, entity access and
-column permissions together.
-- Applied in SQL to: the list endpoint `GET /:collection` (offset and cursor
-  pages), single-record `GET /:collection/:id`, relations expanded with
-  `?expand=`, offline sync pull (`/api/sync/pull`), and saved-query execution
-  (`/api/saved-queries/execute` and `/:id/run`). The before-row reads in
-  PUT/PATCH/DELETE and the bulk handlers also apply it, so a row that your
-  alter hides cannot be updated or deleted by guessing its ID.
-- Rows without a query cannot take an alter. This covers time-travel
-  snapshots (`?as_of=`, list and single) and realtime events (WebSocket and
-  SSE). If your alter changes the query for the requesting user, or throws,
-  the engine refuses rather than serving rows that the live read would hide:
-  - `?as_of=` answers **403**.
-  - A WebSocket subscription is **denied**.
-  - An SSE stream drops that collection. It answers **403** when no other
-    collection is left.
-  A subscription that is already open ends at the next permission sweep.
-  To let users you exempt keep time travel and realtime, return `qb`
-  untouched for them.
-- UPDATE / DELETE Kysely calls (the actual mutation step) don't receive the
-  alter. They trust the `id` lookup, which IS alter-filtered, so the net
-  effect is the same in practice. The same holds for offline sync push.
-
-### Entity access
-
-Per-record authorization beyond role-based. Use this when the access
-decision depends on the row itself (owner, status, time of day) rather
-than just the user's role.
-
-```typescript
-ctx.entityAccess.register({
-  table: 'zvd_payroll',
-  async check(record, user, op) {
-    // op: 'view' | 'update' | 'delete'
-    if (user.roles.includes('hr')) return 'allow';
-    if (op === 'view' && record.user_id === user.id) return 'allow';
-    return 'deny';
-  },
-});
-```
-
-Semantics:
-- Any extension's `'deny'` blocks access (first deny wins, short-circuits).
-- Default is `'allow'` — if no extension registers a check for a table,
-  the standard role/RLS chain remains in charge.
-- Checks may be async; the data layer awaits them.
-- Cleanup on unload is automatic (scoped registration).
-
-HTTP behavior in single-record routes:
-- `GET /:collection/:id` returns **404** on deny (hides existence).
-- `PUT/PATCH/DELETE /:collection/:id` returns **403** on deny (the
-  client already knows the row exists from prior context).
-
-**Scope**: every read goes through the engine's read gate.
-- `view` is checked on every read path: single-record `GET`, the list
-  endpoint (live and `?as_of=`), `?expand=`, offline sync pull, saved-query
-  execution, and realtime events (WebSocket and SSE). Denied rows are
-  dropped.
-- The check runs after the query, so a list's `total` still counts denied
-  rows. For filtering large lists, prefer `queryAlter`: it is cheaper, runs
-  in SQL, and the count agrees with the rows.
-- On realtime, events wait for their check in write order, so a slow check
-  delays later events on that subscription. A check that throws drops the
-  event. On a request, a check that throws fails the request.
-- `update` / `delete` are checked on `PUT`, `PATCH`, `DELETE` and the bulk
-  handlers.
-
----
-
-## 8. Services: publishing and consuming
-
-Inter-extension function calls. Drupal's services container.
-
-### Publishing
-
-```typescript
-// engine/services.ts
-export function registerServices(ctx: ExtensionContext) {
-  ctx.services.register('crm/contacts.lookup', async (email: string) => {
-    return ctx.db
-      .selectFrom('zvd_contacts')
-      .selectAll()
-      .where('email', '=', email)
-      .executeTakeFirst();
-  });
-
-  ctx.services.register('crm/contacts.search', async (query: string, limit = 20) => {
-    return ctx.db
-      .selectFrom('zvd_contacts')
-      .selectAll()
-      .where('name', 'ilike', `%${query}%`)
-      .limit(limit)
-      .execute();
-  });
-}
-```
-
-### Consuming
-
-```typescript
-// In another extension
-const contact = await ctx.services.get('crm/contacts.lookup')?.('jane@example.com');
-if (!contact) return c.json({ error: 'Not found' }, 404);
-```
-
-### Best practices
-
-- **Names are `<your extension>.<name>`.** `ctx.services.register` refuses any
-  other name, so no extension can answer another's callers.
-- **Declare whose services you call.** If you call `crm/contacts.lookup`, add
-  `{ "name": "crm/contacts" }` to `dependencies` (you cannot work without it)
-  or `optionalDependencies` (you can). `ctx.services.get` throws for a service
-  whose owner is in neither — the same rule the broker applies to a
-  worker-isolated extension. The loader sorts both kinds topologically.
-- **Use `services.get(name)` defensively** — it returns `null` when the
-  provider is not installed or disabled. Handle gracefully or fail loudly.
-- **Versioning**: when you change a service signature, bump your extension's
-  `version` (major) and update consumers.
-
-### Caches across replicas: `ctx.broadcast`
-
-An engine can run as several replicas. A cache your extension keeps in memory
-and drops after a write is dropped on the replica that served the write and
-nowhere else. `ctx.broadcast` (engine 3.0.0-beta.90 and later, inline only)
-carries the drop to every replica:
-
-```ts
-ctx.broadcast.on('providers.changed', () => forgetProviders(ctx.db));
-ctx.broadcast.onMissed(() => providersCache.clear());
-
-// in the route, after the write:
-await ctx.broadcast.publish('providers.changed');
-```
-
-- **Your messages only.** The engine sends under your extension's name and
-  delivers only to your handlers; no name you pick reaches another extension
-  or the engine.
-- **Every replica, this one included, after the commit.** `publish` inside a
-  request waits for its transaction to commit and sends nothing on a rollback,
-  so drop the cache in the handler, not beside the `publish`.
-- **In the publisher's tenant.** Each handler runs in a transaction of the
-  tenant that published, so `ctx.db` there is that tenant's.
-- **Small.** `data` crosses as JSON and the whole message must fit the bus
-  (about 7.9 KB); a larger one is refused at `publish`. Send an id.
-- **At most once.** A replica whose bus connection drops misses what is sent
-  meanwhile; `onMissed` runs when it comes back, so drop everything there.
-
----
-
-## 9. Cron jobs
-
-Declare scheduled tasks directly on your extension. The engine's cron
-runner picks them up after `register()` returns and polls every 30 s.
-
-```typescript
-const ext: ZveltioExtension<DB> = {
-  name: 'communications/mail',
-  category: 'communications',
-  async register(app, ctx) { /* ... */ },
-  schedules() {
-    return [
-      {
-        name: 'send-daily-digest',
-        // Specify ONE timing field:
-        at: { hour: 8, minute: 0 },           // daily at 08:00 (server timezone)
-        // intervalMs: 6 * 60 * 60 * 1000,    // …or every 6 hours
-        retry: { maxAttempts: 3, backoffMs: 5000 },
-        async handler(ctx, runId) {
-          const recipients = await ctx.db.selectFrom('zvd_users')
-            .selectAll()
-            .where('digest_enabled', '=', true)
-            .execute();
-
-          for (const user of recipients) {
-            await ctx.services.get('mail.send')?.({
-              to: user.email,
-              template: 'daily-digest',
-              data: { /* ... */ },
-            });
-          }
-        },
-      },
-    ];
-  },
-};
-```
-
-Timing options (pick ONE per schedule):
-- **`intervalMs`** — re-runs every N milliseconds.
-- **`at: { hour, minute }`** — runs once a day at HH:MM (server's local
-  timezone).
-- **`cron: 'expr'`** — reserved for cron-expression support. **Not yet
-  supported** — schedules using it are logged as skipped at register
-  time. Use `intervalMs` or `at` instead.
-
-Tenancy — `perTenant: true`:
-- Without it the handler runs **once, with no tenant**: `ctx.db` falls back to
-  the pool with no tenant set, and a table under tenant RLS answers for the root
-  tenant only. Fine for work that touches no tenant data.
-- With it the handler runs once per **active** tenant where the extension is
-  active, each inside that tenant's transaction, so `ctx.db` (and permission
-  checks) answer for that tenant. A tenant that turned the extension off is
-  skipped. One tenant's failure does not stop the others; the run is then
-  recorded failed, naming the tenants, and a retry runs every tenant again — so
-  the handler must be safe to repeat.
-- There is no caller in a schedule, so the handler is an actor with no identity
-  (ADR 0040): collection permissions answer as for any extension work with no
-  caller (`data:system` and `asSystem` give collections), and a row rule on
-  `user_id`, `user_email` or `user_role` keeps no row. A schedule cannot read or
-  write rows such a rule protects; enqueue a job as the user who owns them, or
-  scope the rule to the roles it is meant for. The same holds for a listener
-  and for your own `ctx.internals.withTenantIsolation`.
-
-Retry policy:
-- `retry.maxAttempts` (default 1): how many total attempts per fired run.
-- `retry.backoffMs` (default 1000): delay between attempts.
-- Intermediate failures → row in `zv_extension_schedule_runs` with
-  `status='failed'`. Final failure → `status='dlq'` (admin can replay).
-
-Persistence:
-- Every fired run inserts a row in `zv_extension_schedule_runs`:
-  `started_at`, `finished_at`, `status`, `attempt`, `error_message`. Query
-  this table to audit / debug.
-
-**Scope today** (deliberately limited):
-- **Single-engine only.** Multiple engine replicas will each run the same
-  schedule — distributed coordination is a follow-up.
-- **`singleton: true`** on a schedule is accepted in the type but not yet
-  enforced cross-instance.
-- **OTel `trace_id`** is reserved in the table but the runner does not yet
-  emit it.
-
-Hot-reload:
-- On `extension dev`, edited schedules are re-registered automatically when
-  the extension reloads. The old entries are dropped first to avoid
-  duplicates.
-
----
-
-## 10. Studio: pages, field types, form alters, slots
-
-There are **two ways** to ship an extension's Studio UI. Pick by the shape of
-the page:
-
-| | Declarative (SDUI schema) — **preferred** | Code page (bespoke) |
-|---|---|---|
-| You ship | `studio/schemas/<slug>.json` | `studio/pages/**/+page.svelte` |
-| Rendered by | trusted generic host components | your compiled Svelte |
-| Install cost | **zero build toolchain** (data, not code) | Studio rebuild / release-time bake |
-| Use for | list+form, multi-tab, settings, cards, master-detail | editors, canvases, maps, kanban, chat, file browsers, live timers, composers |
-
-Most CRUD/settings pages are declarative. Reach for a code page only when the UI
-needs a genuinely bespoke widget the schema vocabulary can't express.
-
-### The page belongs to the extension
-
-Whichever form you pick, the page lives in the extension and is declared in its
-manifest. The engine must not carry a hand-written page for an extension
-feature, for a reason that is easy to state and was learned the hard way: an
-extension is optional, so anything the engine holds on its behalf ships to
-people who will never install it — and, worse, becomes a second implementation
-that drifts.
-
-`scripts/check-extension-page-ownership.ts` enforces this. It allows exactly one
-thing in `packages/studio/src/routes/(admin)` that talks to `/ext/*`: a
-**generated snapshot**, byte-identical to the extension page it came from.
-`scripts/sync-extensions.ts` produces it, and it is committed so a release build
-— which has no `zveltio-extensions` sibling — still ships a working admin.
-
-Anything else is one of three faults, and the gate names which:
-
-- **ORPHAN** — no extension declares this path. Somebody wrote an extension's UI
-  in the engine, or the extension declares a different path and this is a second
-  route for the same feature.
-- **STALE** — the snapshot has fallen behind its source. Until it is synced the
-  engine ships an older screen than the extension does. This is not theoretical:
-  the media library's committed copy drifted onto i18n keys belonging to
-  `storage/cloud` and `communications/mail`.
-- **SHADOWS** — the extension ships a declarative schema for this path and a code
-  page sits on top of it. The schema never renders, and nobody maintaining it can
-  tell.
-
-Two routes for one feature is the failure this prevents. BYOD had exactly that:
-a 223-line page in the engine at `/introspect`, a `/byod` route redirecting to
-it, and an extension page calling endpoints that did not exist. The engine's
-copy was the only working one, and the extension's had been broken since it
-shipped, because nothing looked.
-
-### Declarative pages (SDUI schema) — preferred
-
-An extension page is a JSON file referenced from the manifest. The engine inlines
-it into `/api/extensions` at load (`embedPageSchemas`), and the Studio catch-all
-route renders it with `SchemaPage`/`SettingsPage` — **no per-host build, no
-third-party JS in the admin**.
-
-**1. Author** `studio/schemas/<slug>.json`. Two archetypes:
-
-```jsonc
-// list + form (PageSchema). One resource → a single table; many → tabs.
-{
-  "sduiSchema": 1,
-  "title": "crm.title",                 // i18n key (resolved via m[key]()) or literal
-  "subtitle": "crm.subtitle",
-  "newLabel": "common.new",             // header "+ New" button → opens active resource's form
-  "resources": [
-    {
-      "id": "contacts",
-      "label": "crm.tab.contacts",
-      "icon": "Users",
-      "dataSource": "/ext/crm/contacts",  // GET; array read from dataPath
-      "dataPath": "data",
-      "search": { "fields": ["first_name", "email"] },   // client-side; or { "param": "q" } server-side
-      "columns": [
-        { "key": "first_name", "label": "crm.col.name", "join": { "keys": ["first_name", "last_name"], "sep": " " } },
-        { "key": "email", "label": "crm.col.email" },
-        { "key": "status", "label": "common.col.status", "type": "badge",
-          "badge": { "colors": { "active": "badge-success" }, "labels": { "active": "crm.status.active" } } },
-        { "key": "value", "label": "crm.col.value", "type": "currency", "currency": { "codeKey": "currency" } }
-      ],
-      "rowActions": [
-        { "id": "delete", "icon": "Trash2", "variant": "text-error", "label": "common.delete",
-          "method": "DELETE", "endpoint": "/ext/crm/contacts/{id}", "confirm": "ext.confirmDelete" }
-      ],
-      "form": {
-        "endpoint": "/ext/crm/contacts",
-        "fields": [
-          { "name": "first_name", "label": "crm.form.firstName", "required": true, "colSpan": 1 },
-          { "name": "email", "label": "crm.col.email", "type": "email", "colSpan": 1 }
-        ]
-      }
-    }
-  ]
-}
-```
-
-```jsonc
-// settings (SettingsSchema) — a singleton config page, not a list.
-{
-  "kind": "settings",
-  "sduiSchema": 1,
-  "title": "auth.saml.title",
-  "dataSource": "/ext/auth/saml/config",   // GET the config object
-  "dataPath": "config",
-  "saveEndpoint": "/ext/auth/saml/config",  // POST to save
-  "info": [                                  // read-only rows w/ copy button; {ENGINE_URL} token
-    { "label": "auth.saml.ui.sp_metadata_url", "value": "{ENGINE_URL}/ext/auth/saml/metadata" }
-  ],
-  "sections": [
-    { "title": "auth.saml.section.idp", "fields": [
-      { "name": "enabled", "label": "auth.saml.enable", "type": "boolean", "colSpan": 2 },
-      { "name": "cert", "label": "auth.saml.ui.cert", "type": "textarea", "rows": 5, "mono": true, "colSpan": 2 }
-    ] }
-  ],
-  "actions": [ { "id": "test", "label": "auth.ldap.testConnection", "endpoint": "/ext/auth/ldap/test" } ]
-}
-```
-
-**2. Reference it** from `manifest.json`:
-
-```jsonc
-"studio": {
-  "navGroup": "business",
-  "pages": [
-    { "path": "/admin/crm", "label": "CRM", "icon": "Users", "schema": "schemas/crm.json" }
-  ]
-}
-```
-
-**3. Don't ship a `+page.svelte`** for that slug — the catch-all route owns it.
-Schemas live in `studio/schemas/` (not `studio/pages/`), so the sync step ignores
-them automatically.
-
-**Vocabulary** (full reference: [SDUI-SCHEMA-REFERENCE.md](../ui/sdui.md);
-source of truth: [`packages/studio/src/lib/sdui/types.ts`](../../packages/studio/src/lib/sdui/types.ts)):
-- **Resources**: single or multi-tab; per-resource `dataSource`/`dataPath`/`search`/`filters`/`pagination`/`stats`.
-- **Columns** `type`: `text` · `mono` · `date` · `currency` (`code` or `codeKey`) · `badge` (`colors`+`labels`) · `relation` (id→label from another endpoint) · `boolean` (✓/—). Plus `secondary` (two-line cell), `join`, `template` (`{ENGINE_URL}`/`{field}` tokens), `classWhen` (conditional CSS), `editable` (inline select/text PATCH on change).
-- **Row/detail actions**: `kind` `call`|`edit`|`download` (opens cookie-authed endpoint in a new tab), `method`, `endpoint` (`{id}`/`{field}` tokens), `visibleWhen`, `confirm`, `body` (`{field}` tokens, `{a-b}` subtraction).
-- **Form fields** `type`: text/email/tel/number/date/select/relation/boolean/password/textarea/json/file. Plus `required`, `colSpan` (1|2), `default` (incl. `"today"`), `placeholder`, `options`, `relation`, `visibleWhen` (conditional fields), `accept` (file).
-- **Form `submit`**: default = JSON POST/PATCH; `{ "kind": "download" }` = GET endpoint → querystring → new tab; `{ "kind": "upload" }` = multipart POST. Escape hatches: `repeatable` (line items) + `computed` (sums).
-- **Layouts**: `layout: "cards"` (+`card:{title,badge,subtitle}`); `master` (+`detailActions`) = left selector list → detail table templated `{masterId}`.
-- **Stats**: KPI tiles above the table.
-
-i18n: every string is an `m[key]()` lookup with literal fallback — same Paraglide
-keys as code pages (see i18n note below). A malformed/future-version schema renders
-a friendly error panel (see `validateSchema`), never a white screen.
-
-### Code pages (bespoke / Tier-3) + i18n
-
-> **Being retired (ADR 0042).** Do not add new code pages; see [ui-model.md](ui-model.md).
-
-For UIs the schema can't express (editors, canvases, maps, kanban, AI chat, file
-browsers, live timers, message composers), ship `studio/pages/+page.svelte` under
-the extension repo. At install/sync time these are copied into Studio's route tree
-(`packages/studio/src/routes/(admin)/…`). In page code, import Studio libs
-via `$lib/…` (same as core pages).
-
-**All user-visible strings must use Paraglide** — see [§10.5 Translating your
-extension](#105-translating-your-extension) for the rules, the shared vocabulary
-and what `validate` enforces.
-
-**Layout:** use `ExtensionPageShell`, `ExtensionDataPanel`, and `ConfirmModal`
-instead of ad-hoc headers / `confirm()`. See
-`packages/studio/src/lib/components/extension/README.md`.
-
-**Sidebar grouping:** set `studio.navGroup` in `manifest.json` (`business`,
-`finance`, `hr`, …). Extension labels in the nav come from the manifest
-`displayName` / page `label` (not translated).
-
-### Pages
-
-Tier-3 pages live under **`studio/pages/`** and become real SvelteKit routes
-after `sync-extensions` copies them into `packages/studio/src/routes/(admin)/…`.
-Declare the URL in `manifest.studio.pages[].path` (e.g. `/admin/my-feature`).
-
-```svelte
-<!-- studio/pages/+page.svelte -->
-<script lang="ts">
-  import { api } from '$lib/api.js';
-
-  let items = $state<unknown[]>([]);
-  $effect(() => {
-    api.get('/ext/content/my-feature/items').then((r) => {
-      items = r.items ?? [];
-    });
-  });
-</script>
-
-{#each items as item}
-  <div>{item.name}</div>
-{/each}
-```
-
-Prefer **SDUI** (`manifest.studio.pages[].schema` → JSON under `studio/schemas/`)
-when the UI is CRUD-shaped — zero Studio build, same delivery model as first-party
-extensions. See [authoring.md](authoring.md).
-
-**Do not** use `registerRoute()` from a runtime bundle — that was the removed v1
-IIFE path (`studio/dist/bundle.js`, deleted beta.15).
+## 6. Data: declared collections
+
+An extension's data lives in collections it declares in
+`schema/collections/` and lists in the manifest's `collections`. The engine
+creates them when the extension is enabled, owns their structure, applies a
+later version's additions, and serves them through the data API with the
+tenant's grants, row rules and column permissions. There is no migration,
+no table name and no SQL in an extension. Field types, relations, unique
+indexes, `defaultGrants`, `writtenBy` and what a purge removes:
+[authoring.md](authoring.md#collections--declared-created-by-the-engine).
+
+## 7. Reacting to writes
+
+A rule that must hold on a write is an **action** that makes the write
+(`ActionRefusal` refuses it; `expect` re-checks a field on the locked row).
+Work that follows a write (an email, a PDF, a remote call) is a **job** the
+action enqueues: it runs after commit and is retried. Recipes 4 and 5 in
+[cookbook.md](cookbook.md). Validation and transition rules on a collection
+are the engine's (CEL). `ctx.events` listeners and hooks are legacy
+([Appendix B](#appendix-b-legacy-v1-surface)).
+
+## 8. Using another extension
+
+Run its action: `host.actions.run(extension, action, input)`, with the action
+named in `calls` and the extension in `dependencies` or
+`optionalDependencies` (ADR 0014). Read its collections by listing them in
+`reads`; the caller's grants decide. `ctx.services` is legacy.
+
+## 9. Scheduled work
+
+`schedules()` is legacy, and no shipped 2.x extension uses it. The declared
+contract has no schedule yet: periodic work today is a job an action or a
+declared route enqueues.
+
+## 10. Studio: views, field types, translation
+
+A page is a `zveltio.view/2` document under `studio/schemas/`, named by
+`manifest.studio.pages[].schema`. It names collections, fields and actions;
+Studio, `@zveltio/react` and any other front end draw it, and nothing is
+built (ADR 0042). The format, the kinds, navigation and what
+`extension validate` checks: [ui-model.md](ui-model.md). No extension code
+runs in a browser; a screen that needs code is a front-end package outside
+the extension. View/1 schemas, code pages, form alters and slots are legacy
+([Appendix B](#appendix-b-legacy-v1-surface)).
 
 ### Custom field types
 
@@ -1646,123 +847,6 @@ registerFieldType({
   defaultValue: '#000000',
 });
 ```
-
-### Form alters (S3-02)
-
-Mutate any registered Studio form before it renders. Same shape as
-Drupal's `hook_form_alter`.
-
-```typescript
-import { registerFormAlter } from '@zveltio/sdk/studio';
-
-registerFormAlter('core:user-edit', (form, ctx) => {
-  // Add a field after an existing one. Anchor by name.
-  form.addField({
-    after: 'email',
-    field: {
-      name: 'preferred_language',
-      type: 'select',
-      options: ['en', 'ro', 'fr'],
-      label: 'Preferred language',
-    },
-  });
-  // Hide without removing — server-side defaults still apply.
-  form.hideField('legacy_pin');
-  // Append a validator. Return null if valid, an error string otherwise.
-  form.addValidator('phone', (value) => {
-    return typeof value === 'string' && value.startsWith('+') ? null : 'Must start with +';
-  });
-  // Move fields to the front of the form.
-  form.reorder(['name', 'email']);
-});
-```
-
-Hooks receive `(form, ctx)`. `ctx` is whatever the form host passes —
-typically `{ user, mode }`. Throwing hooks are isolated: the rest still
-run. Multiple alters on the same form id run in registration order, so
-two extensions can layer changes.
-
-Well-known form IDs (live — extension hooks fire against these):
-- `core:user-invite` — admin "Invite User" modal
-
-More core forms wire through SchemaForm incrementally. Until your target
-form is migrated, the hook is harmless (registers fine, just never fires).
-
-> Form-alter only works on forms whose renderer is built on
-> `<SchemaForm formId="..." schema={...} bind:values />`. SchemaForm
-> calls `studioApi.applyFormAlters(formId, schema, ctx)` internally.
-> Custom hand-rolled forms can opt in by calling
-> `studioApi.applyFormAlters` themselves before rendering their field
-> list.
-
-### Slots (S3-03)
-
-Inject components into named composition points scattered through
-Studio. Slot hosts declare a slot once with `<Slot name="...">`;
-extensions fill it via **`studio/src/contribute.ts`** (compile-time sync —
-not a runtime bundle).
-
-```typescript
-// studio/src/contribute.ts — synced to $lib/ext/<name>/contribute.ts
-import { registerContributionSlot } from '$lib/extension-api.svelte.js';
-import RevenueWidget from './components/RevenueWidget.svelte';
-
-const OWNER = 'content/my-feature'; // manifest.name
-
-export function activate(): void {
-  registerContributionSlot(OWNER, 'dashboard.widgets', {
-    component: RevenueWidget,
-    priority: 10,
-    visible: (ctx) => Array.isArray((ctx.user as { roles?: string[] })?.roles)
-      && ctx.user.roles.includes('finance'),
-    props: { initialRange: '30d' },
-  });
-}
-```
-
-List targeted slots in `manifest.contributes.slots` (metadata). The admin
-layout loads `activate()` only when the extension is **enabled**.
-
-`@zveltio/sdk/studio` still exports **`sortSlotContributions`**, form-alter
-helpers, and **`SlotContribution`** types for unit tests — not the compile-time
-registration entry point above.
-
-The component receives `props` AND any keys the host passes as `ctx`.
-For `dashboard.widgets` the host passes `{ user }`, so the widget can
-declare `let { user, initialRange } = $props()`.
-
-If no extension targets the slot the markup collapses to nothing —
-hosts can declare slots liberally without empty-state worries.
-
-Well-known slots (live):
-- `dashboard.widgets` — top of the admin dashboard. `ctx: { user }`.
-- `dashboard.hero` — featured area above the stat cards (e.g. AI greeting,
-  what-changed feed). `ctx: { user, stats }`.
-- `dashboard.suggestions` — below the stat cards (recommendations, anomaly
-  alerts). `ctx: { user, stats, collections }`.
-- `sidebar.bottom` — admin sidebar, above the footer. `ctx: { user, collapsed }`.
-- `topbar.left` / `topbar.center` / `topbar.right` — slim top-bar above
-  `<main>`. Desktop top-bar **renders only** when one of these slots has
-  content (otherwise no chrome cost). Mobile header always renders and
-  embeds these slots inline. `ctx: { user, viewport: 'mobile' | 'desktop' }`.
-- `page.assist` — floating-position slot inside every `<main>` for FAB-style
-  contextual assistants. `ctx: { user, pathname }`.
-- `settings.tabs` — Settings page tab bar (extension tabs render after core).
-  `ctx: { user, activeTab }`.
-- `account.sections` — `/admin/account` page sections. `ctx: { user }`.
-- `collection-detail.header` — under the collection name on
-  `/admin/collections/<name>`. `ctx: { user, collection }`.
-- `collection-detail.actions` — next to the header primary action.
-  `ctx: { user, collection, activeTab }`.
-
-**For first-class integrations** (the `ai` extension, observability
-dashboards, etc.), prefer these slots over routing into a separate page
-— they bring extension UX into the user's existing flow rather than
-making them context-switch.
-
-> Slot hosts are added incrementally. Adding one is a one-line change in
-> the host page (`<Slot name="..." ctx={...} />`). The list above grows
-> as core pages adopt the pattern.
 
 ### 10.5. Translating your extension
 
@@ -1900,6 +984,14 @@ so `"Hello {{record.name}}"` breaks. Pass the token as a parameter instead:
 
 ## 11. Testing
 
+An action or a job is a function of `(input, host)`: test your logic by
+handing it a host whose `collections` you control (recipe 9 in
+[cookbook.md](cookbook.md)). The engine's part (the permission, the input
+schema, row rules, the `expect` lock) needs a real engine and Postgres; the
+first-party extensions run `testing/ext-harness.ts` in `zveltio-extensions`
+against the packed bundle.
+
+The rest of this section tests the legacy surface (Appendix B):
 `@zveltio/sdk/testing` provides four primitives — enough to write meaningful
 unit tests for your extension without a real Postgres or auth setup:
 
@@ -2520,15 +1612,16 @@ Ask, in this order:
 
 ### Do
 
-- **Declare manifest dependencies.** If you call another extension's service,
-  list it. Topological load order saves headaches.
-- **Use `ctx.db` (Kysely)** — types, parameter binding, refactoring safety.
-- **Wrap your routes in a sub-router** before mounting, so `app.route(...)` is
-  clean.
-- **Use `cleanup()`** for any resource you hold.
-- **Generate types** with `zveltio extension types` after every migration.
-- **Use `ctx.services.get()` defensively** — providers may be disabled.
-- **Write integration tests** for every route. Unit tests for hooks.
+- **Put every rule the engine can hold in the declaration**: required fields,
+  `unique` and `indexes`, relations with `onDelete`, validation and
+  transition rules, `writtenBy: "actions"` for a field only your actions may
+  write. Code is for the rule a declaration cannot state.
+- **Make each business rule an action**, and re-check what it depends on with
+  `expect` on the locked row.
+- **Enqueue a job for slow or remote work**; never do network I/O in an
+  action.
+- **Declare dependencies** for every extension whose action you run, and treat
+  an optional one as absent until it answers.
 - **Bump the manifest version on every repack**, not only on a feature change.
   The registry refuses the same version with different bytes, so a rebuilt
   bundle without a bump is rejected at sync — see §13.6.
@@ -2538,56 +1631,17 @@ Ask, in this order:
 
 ### Don't
 
-- **Don't use raw `sql\`...\``** unless you absolutely must. Kysely is type-safe;
-  raw SQL is not, and it bypasses query-alter hooks.
-- **Don't reach engine tables.** `ctx.db` checks every statement it runs as
-  compiled — a Kysely builder from any entry point (`with()` and
-  `selectNoFrom()` included) with any `sql` fragment inside it, raw SQL
-  (`sql\`…\`.execute(ctx.db)`, `ctx.db.executeQuery(…)`), and the handle
-  `ctx.db.transaction()` passes its callback. The refusal comes when the query
-  executes, not when it is built. A statement may name only
-  collections (`zvd_*`), your own `zv_<name>_*` namespace, and tables your
-  migrations create or `EXTENSION_TABLE_GRANTS` grants you. `user`, `session`,
-  `account`, the engine's `zv_*` / `zvd_*` metadata, `information_schema` and
-  `pg_catalog` are refused. So is every statement that is not a query or DML:
-  `ctx.db` runs one `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `MERGE`, `WITH`,
-  `VALUES`, `TABLE` or `SET TRANSACTION` per call, and refuses DDL, `TRUNCATE`,
-  `GRANT`/`REVOKE`, `COMMENT`, `SET`/`RESET`, `COPY`, `DO`, `CALL`, `LOCK`,
-  `LISTEN`/`NOTIFY`, `SELECT … INTO`, a second statement after `;`, transaction
-  control (`SAVEPOINT` included — group statements with `ctx.db.transaction()`),
-  and calls to `set_config`, `setval`, `pg_notify`, session advisory locks, the
-  server's file and connection functions, and functions that take a query as a
-  string (`query_to_xml`, `ts_stat`, `crosstab`). Schema belongs in your
-  migrations and `ctx.DDLManager`; engine data in `ctx.internals`.
+- **Don't check permissions in code**, invent verbs, or declare `resources`.
+  The engine's grants, row and column rules decide (ADR 0002).
+- **Don't write SQL or reach a table.** `host.collections` is the only data
+  path; the legacy `ctx.db` is in Appendix B for existing extensions.
+- **Don't add a route a Zveltio client calls.** A front end calls the data
+  API, an action or the file API; a route is for a caller that is not one.
+- **Don't ship UI code.** A page is a view; a screen that needs code is a
+  front-end package outside the extension (ADR 0042).
 - **Don't store secrets in `manifest.json`.** It is shipped to every installer.
-  Use `zv_settings` (encrypted at rest).
-- **Don't share state across `register()` calls.** It is called once but may
-  be called again on hot-reload. Use `ctx`, not module-level globals.
-- **Don't block the event loop.** Long sync work belongs in a cron job or
-  background task.
-- **Don't `setInterval`.** Use `schedules()` instead — observable, cancellable,
-  singleton-safe.
-- **Don't pin Hono/Zod/Kysely to a version of your own.** They *are* bundled
-  into your artifact — that is the delivery model, and `bundlePeers: true` is
-  the only valid configuration — but their types cross the boundary into the
-  engine, so the version must match its lockfile **exactly**.
-  `check-dep-lockstep` enforces it. A skew does not fail cleanly: TypeScript
-  stops deduplicating the two copies and floods unrelated extensions with
-  `TS2345`.
-- **Don't depend on `EXTENSIONS_DIR` paths**, and don't expect a dependency to
-  find its own data files at runtime. `import.meta.dir` is correct for files
-  your extension ships (migrations); a bundled dependency's `__dirname` is
-  frozen to the packing machine. See §5, *Reading files at runtime* — this shape
-  of defect passes every local test.
-- **Don't return something that only looks like the thing you promised.** A
-  batch label endpoint returned `Buffer.concat` over separate PDFs with a
-  comment saying a real merge was still to be done: right content type,
-  plausible size, opens — and shows only the first page. If you cannot do the
-  work, fail; a plausible artifact is worse than an error.
-- **Don't write Studio code that touches `window.__zveltio` directly.** Use
-  `@zveltio/sdk/studio` imports (v1.0).
-
----
+  Use a `secret` field in a collection (ADR 0024).
+- **Don't block the event loop or `setInterval`.** Long work is a job.
 
 ## 15. Troubleshooting
 
@@ -2660,6 +1714,1113 @@ provided by the table owner.
 
 ## Appendix: minimal reference card
 
+```jsonc
+// manifest.json (excerpt)
+{
+  "name": "<category>/<name>",
+  "permissions": ["data:write"],
+  "collections": ["things"],
+  "actions": [{ "name": "close", "permission": { "resource": "things" },
+                "input": { "type": "object", "required": ["id"] },
+                "reads": ["things"], "writes": ["things"], "enqueues": ["notify"] }],
+  "jobs": [{ "name": "notify", "input": { "type": "object" }, "reads": ["things"] }],
+  "routes": [{ "method": "POST", "path": "/hook", "access": "public", "handler": "hook" }],
+  "studio": { "pages": [{ "path": "/admin/<name>", "label": "Things", "schema": "schemas/things.json" }] }
+}
+```
+
+```typescript
+// engine/index.ts
+import { ActionRefusal, defineExtension, type RouteHandler } from '@zveltio/sdk/extension';
+
+const hook: RouteHandler = async (request, { host }) => Response.json({ ok: true });
+
+export default defineExtension(['data:write', 'data:system'], {
+  name: '<category>/<name>',
+  category: '<category>',
+  actions: {
+    async close(input, host) {
+      const { id } = input as { id: string };
+      if (!(await host.collections.read('things', id))) throw new ActionRefusal(404, 'not_found', 'No such thing.');
+      await host.collections.update('things', id, { open: false }, { expect: { open: [true] } });
+      await host.enqueue('notify', { id });
+    },
+  },
+  jobs: { async notify(input, host) { /* network I/O is fine here */ } },
+  routes: { hook },
+  async register() {},
+});
+```
+
+*End of guide. Last updated: 2026-11-14.*
+
+---
+
+## Appendix B: legacy v1 surface
+
+Kept unchanged for whoever maintains an extension built on the earlier model.
+extension-api v1 still loads these members; v2 removes them
+([v2-candidates.md](v2-candidates.md)), and every first-party extension has
+been ported off them. Do not use them in new work: each one's replacement is
+in [authoring.md](authoring.md#legacy-surface-extension-api-v1-until-v2).
+Section numbers inside refer to the guide as it was.
+
+### B.1 Entry point and Hono routes
+
+#### The entry point
+
+```typescript
+// engine/index.ts
+import type { ZveltioExtension } from '@zveltio/sdk/extension';
+import type { DB } from './.zveltio/db';  // (v1.0) generated by `zveltio extension types`
+import { join } from 'path';
+import { myFeatureRoutes } from './routes.js';
+import { registerHooks } from './hooks.js';
+import { registerServices } from './services.js';
+
+const extension: ZveltioExtension<DB> = {
+  name: 'content/my-feature',
+  category: 'content',
+
+  getMigrations() {
+    return [
+      join(import.meta.dir, 'migrations/001_init.sql'),
+      join(import.meta.dir, 'migrations/002_add_indexes.sql'),
+    ];
+  },
+
+  async register(app, ctx) {
+    app.route('/items', myFeatureRoutes(ctx));
+    registerHooks(ctx);
+    registerServices(ctx);
+  },
+
+  schedules() {                     // (v1.0)
+    return [{
+      name: 'cleanup-stale',
+      cron: '0 3 * * *',
+      handler: async (ctx) => { /* ... */ },
+    }];
+  },
+
+  async cleanup() {
+    // Called on disable. Close connections, clear timers, etc.
+  },
+};
+
+export default extension;
+```
+
+Key facts:
+
+- `register()` is called **once per activation**. Do not register the same
+  handler twice.
+- `app` is a Hono router. (v1.0) it is a sub-app mounted under
+  `/ext/<your-name>`. Today it is the main app — use unique paths.
+- `ctx.db` is a `Kysely<DB>` (v1.0) or `any` (today). **It is TENANT-SCOPED
+  (since H-12):** every query runs against the current request/job tenant's
+  transaction, so the `zveltio.current_tenant` GUC is set and FORCE row-level
+  security isolates your rows automatically. You no longer need `ctx.reqDb(c)`
+  for isolation — `ctx.db` is safe by default in a request handler. Outside any
+  tenant context (boot, migrations) it falls back to the global pool. Where a
+  tenant other than the root one is in scope but no transaction is open, it
+  throws instead: wrap that work in `ctx.internals.withTenantIsolation`. `reqDb(c)`
+  remains as an explicit equivalent for handlers that already pass `c`.
+- **Cross-tenant access is opt-in via `ctx.adminDb`.** For legitimately global
+  work (platform-wide reporting, backup) declare the **`db:admin`** permission
+  in your manifest; the engine then hands you `ctx.adminDb` (the global pool).
+  Without that permission any use of `ctx.adminDb` throws — so cross-tenant
+  access is always visible at review + install time. See
+  `MULTI-TENANT-ENABLEMENT.md` §5.
+- `cleanup()` is optional but recommended for any extension that holds
+  resources (timers, sockets, file handles).
+
+#### Routes with Hono
+
+```typescript
+// engine/routes.ts
+import { Hono } from 'hono';
+import { zValidator } from '@hono/zod-validator';
+import { z } from 'zod';
+import type { ExtensionContext } from '@zveltio/sdk/extension';
+
+const ItemSchema = z.object({
+  name: z.string().min(1),
+  metadata: z.record(z.unknown()).optional(),
+});
+
+export function myFeatureRoutes(ctx: ExtensionContext) {
+  const router = new Hono();
+
+  router.get('/', async (c) => {
+    const items = await ctx.db
+      .selectFrom('zv_content_my_feature_items')
+      .selectAll()
+      .execute();
+    return c.json({ items });
+  });
+
+  router.post('/', zValidator('json', ItemSchema), async (c) => {
+    const data = c.req.valid('json');
+    const row = await ctx.db
+      .insertInto('zv_content_my_feature_items')
+      .values({ ...data, created_at: new Date() })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+    return c.json({ item: row }, 201);
+  });
+
+  return router;
+}
+```
+
+
+### B.2 Database, hooks, services, cron
+
+### 6. Database access & migrations
+
+#### Writing migrations
+
+Migrations are plain SQL files numbered sequentially. Each file is one
+migration. The engine wraps each file in a transaction.
+
+```sql
+-- migrations/001_init.sql
+
+CREATE TABLE zv_content_my_feature_items (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  metadata JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_my_feature_items_name ON zv_content_my_feature_items (name);
+
+-- DOWN
+DROP TABLE IF EXISTS zv_content_my_feature_items;
+```
+
+The `-- DOWN` marker separates the UP and DOWN sections. The UP runs on
+install; the DOWN runs on full uninstall (with `purgeData=true`) (v1.0).
+
+#### `-- NO TRANSACTION`
+
+Your pending migrations normally run as **one transaction**: the extension
+either installs or it does not, with nothing half-applied in between. Keep it
+that way unless you have the specific problem below.
+
+The problem is adding an index to a table that already has rows — a migration
+you ship in version 4 for a table created in version 1. `CREATE INDEX` locks
+that table against writes for the length of the build, which is nothing on a
+small table and an outage on a customer's `zvd_invoices`. The fix is
+`CONCURRENTLY`, and Postgres refuses that inside a transaction block.
+
+Mark such a migration and it runs on its own, outside the transaction:
+
+```sql
+-- NO TRANSACTION
+DROP INDEX IF EXISTS idx_my_items_name;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_my_items_name
+  ON zv_content_my_feature_items (name);
+```
+
+Migrations before and after it still batch into their own transactions — the
+chain is cut, not abandoned.
+
+Three things this costs you, all of them consequences of the same fact:
+
+- **Nothing rolls back.** If the third of five statements fails, the first two
+  stay. Write every statement so it survives running twice; the migration is
+  only recorded once all of it succeeds, so a failed run is retried whole.
+- **Earlier segments are already committed** when a later one fails. An
+  extension can end up on an intermediate version and must be able to reach the
+  next one from there.
+- **A failed `CONCURRENTLY` leaves an INVALID index behind**, and
+  `IF NOT EXISTS` will happily skip re-creating it. That is why the example
+  drops first.
+
+Index at creation time while the table is empty whenever you can. This marker
+is for the case where you no longer can.
+
+#### Table naming rules
+
+| Prefix | Purpose | Who owns |
+|---|---|---|
+| `zv_<extname>_*` | Internal extension tables | Your extension only |
+| `zvd_*` | User-facing data tables (collections) | All extensions can read; writes via DDLManager |
+| `zv_*` (other prefixes) | System tables | Engine only — extensions **cannot** access |
+
+The extension context proxy enforces this at runtime: `ctx.db.selectFrom('zv_secrets')`
+throws.
+
+#### Reading user collections (`zvd_*`)
+
+User data tables are accessible by any extension. Use `ctx.queryAlter` (v1.0)
+to attach filters globally rather than inline.
+
+#### Modifying schema at runtime (DDL Manager)
+
+If your extension creates user-facing collections dynamically (like
+`forms`), use the DDL Manager:
+
+```typescript
+// (v1.0) import { DDLManager } from '@zveltio/sdk/ddl';
+// (today) const { DDLManager } = await import('@zveltio/engine-ddl');
+
+await ctx.DDLManager.createCollection({
+  name: 'zvd_my_thing',
+  fields: [
+    { name: 'id', type: 'uuid', primary: true },
+    { name: 'title', type: 'text', required: true },
+  ],
+});
+```
+
+This bypasses the static migration system — it creates tables on demand based
+on user input. Necessary for any extension where the schema is user-defined.
+
+#### Generating types from migrations
+
+```bash
+zveltio extension types
+```
+
+Generates `.zveltio/db.d.ts` from your `engine/migrations/*.sql` files. The
+output is a Kysely-friendly `export interface ExtensionSchema { ... }` with
+one entry per `CREATE TABLE` you've declared, columns mapped to TypeScript:
+
+```typescript
+// .zveltio/db.d.ts  (auto-generated — do not edit)
+export interface ExtensionSchema {
+  zv_my_items: {
+    id: string;                       // UUID
+    name: string;                     // TEXT
+    metadata: Record<string, unknown>; // JSONB
+    created_at: Date;                 // TIMESTAMPTZ
+  };
+}
+```
+
+Add `.zveltio/` to your `.gitignore` (the monorepo's `.gitignore` already
+covers it). Re-run after every migration edit.
+
+##### Wiring the types into your extension
+
+Pass the schema as a generic to `ZveltioExtension<DB>`. The engine threads
+it through `ctx.db: Kysely<DB>` so `selectFrom(...)` autocompletes table +
+column names and `tsc` flags typos:
+
+```typescript
+import type { ZveltioExtension } from '@zveltio/sdk/extension';
+import type { ExtensionSchema as DB } from './.zveltio/db.js';
+import { join } from 'path';
+import { myFeatureRoutes } from './routes.js';
+
+const extension: ZveltioExtension<DB> = {
+  name: 'category/name',
+  category: 'category',
+  mountStrategy: 'subapp',
+
+  getMigrations() {
+    return [join(import.meta.dir, 'migrations/001_init.sql')];
+  },
+
+  async register(app, ctx) {
+    // ctx.db is Kysely<DB>. The table name is checked against your schema.
+    const rows = await ctx.db
+      .selectFrom('zv_my_items')
+      .select(['id', 'name'])
+      .execute();
+
+    app.route('/', myFeatureRoutes(ctx));
+  },
+};
+
+export default extension;
+```
+
+Migrating an existing extension to typed `ctx.db` is opt-in — the default
+`DB = any` means extensions that don't pass a generic keep compiling
+exactly as before.
+
+---
+
+### 7. Hooks: pre-write, post-write, query-alter, entity-access
+
+Hooks let you intercept and modify engine behavior. They are the most
+powerful primitive in the extension contract.
+
+#### Pre-write hooks
+
+Reject or transform writes **before** they hit the database. Use
+`ctx.events.onBefore(...)` (note: **`onBefore`**, not `on` — pre-hooks are a
+separate API because they are async and share a mutable payload).
+
+```typescript
+// engine/hooks.ts
+import type { ExtensionContext } from '@zveltio/sdk/extension';
+
+export function registerHooks(ctx: ExtensionContext) {
+  ctx.events.onBefore('record.beforeInsert', async (e) => {
+    if (e.collection !== 'contacts') return;
+
+    // Reject
+    if (typeof e.data.email !== 'string' || !e.data.email.includes('@')) {
+      e.abort('Invalid email');
+    }
+
+    // Transform — subsequent hooks AND the data layer see the patched values
+    e.mutate({
+      email: (e.data.email as string).toLowerCase().trim(),
+      created_via: 'api',
+    });
+  });
+
+  ctx.events.onBefore('record.beforeUpdate', async (e) => {
+    if (e.collection !== 'contacts') return;
+    e.mutate({ updated_at: new Date().toISOString() });
+  });
+
+  ctx.events.onBefore('record.beforeDelete', async (e) => {
+    if (e.collection !== 'contacts') return;
+    // beforeDelete payload exposes the existing row via `e.record` and only
+    // supports abort (no mutate — there's nothing to transform on a delete).
+    if (e.record.protected) {
+      e.abort('Cannot delete a protected contact');
+    }
+  });
+}
+```
+
+Key semantics:
+- Handlers run **sequentially in registration order** (extensions register
+  hooks during `register()`, which runs in topological dependency order).
+- `mutate(patch)` shallow-merges into the in-flight payload — for `beforeInsert`
+  it targets `data`; for `beforeUpdate` it targets `patch`. Subsequent handlers
+  see the merged result.
+- A hook runs **after** the field pipeline, and what it merges is written as
+  given. The payload already passed column-level write access, type
+  validation, the collection's validation rules (`transition` rules
+  included) and field encryption; values a hook adds or replaces go through
+  none of them. A hook is trusted engine-side code (only in-process
+  extensions can register one; the runner refuses `events.onBefore`), so it
+  owns what it writes: store the shape the column expects, and encrypt with
+  `ctx.internals.maybeEncrypt` before writing to an `encrypted: true` field.
+- `abort(reason)` throws `AbortHookError`. The data layer catches it and
+  returns HTTP 422 `{ code: 'EXT_HOOK_ABORTED', reason }`. No row is written.
+  In a bulk write the abort refuses the whole batch: 422 `bulk_refused`, the
+  row listed with `EXT_HOOK_ABORTED: <reason>`, and no row of the batch written.
+- A handler that throws anything other than `AbortHookError` becomes a 500.
+
+**Hook scope** — what triggers pre-hooks:
+
+| Source | beforeInsert | beforeUpdate | beforeDelete |
+|---|---|---|---|
+| `POST /:collection` (HTTP) | ✓ | — | — |
+| `PUT/PATCH/DELETE /:collection/:id` (HTTP) | — | ✓ / ✓ / ✓ | ✓ |
+| `POST /:collection/bulk` etc. (HTTP) | per-row ✓ | per-row ✓ | per-row ✓ |
+| `ctx.db.insertInto('zvd_*').values(...).execute()` | ✓ | — | — |
+| `ctx.db.updateTable('zvd_*').set(...).where('id', '=', X).execute()` | — | ✓ | — |
+| `ctx.db.deleteFrom('zvd_*').where('id', '=', X).execute()` | — | — | ✓ |
+| `ctx.db.updateTable/deleteFrom` with bulk WHERE | — | skip + warn | skip + warn |
+| Raw ``ctx.db.executeQuery(sql`...`)`` | — | — | — |
+
+For extension-internal writes, the hook payload's `userId` is set to
+`system:<your-extension-name>` so post-write hooks can tell user-driven
+changes from extension-driven ones.
+
+**Why bulk updates/deletes skip hooks**: a `WHERE tenant_id = X` may touch
+thousands of rows. Firing per-row hooks would be slow and surprising
+(rows that didn't exist when the hook author wrote the rule could match).
+Pre-fetch ids in a `selectFrom` and loop with single-row writes if you
+need per-row semantics.
+
+**Raw SQL bypasses hooks**: ``ctx.db.executeQuery(sql`INSERT INTO ...`)``
+goes around the Kysely builder and so around the hook layer. Use the
+Kysely builder for hooked writes.
+
+#### Post-write hooks (today + v1.0)
+
+React after the write committed.
+
+```typescript
+ctx.events.on('record.created', async (e) => {
+  if (e.table === 'zvd_orders') {
+    await sendOrderConfirmation(e.data);
+  }
+});
+```
+
+Failure in a post-write handler **does not** roll back the write. Use this
+for side effects only (emails, webhooks, search indexing).
+
+#### Query alter
+
+Attach `WHERE` clauses to queries against a table — globally, without
+modifying any route handler.
+
+```typescript
+ctx.queryAlter.register({
+  table: 'zvd_contacts',
+  alter(qb, user) {
+    if (user.isGod) return qb;
+    return qb.where('tenant_id', '=', user.tenantId);
+  },
+});
+```
+
+Use cases:
+- Tenant isolation.
+- Soft-delete filtering (hide rows where `deleted_at IS NOT NULL`).
+- GDPR / column-level redaction.
+
+Ownership + lifecycle:
+- Each `register({...})` call is automatically tagged with your extension's
+  name. When your extension is disabled or hot-reloaded, all your alters
+  are removed by the loader — you do not call `unregisterAll()` yourself
+  unless you explicitly want to retract an alter at runtime.
+- Multiple extensions can register alters for the same table; they chain
+  in registration order.
+
+**Scope**: every read goes through the engine's one read gate
+(`readScope`), which applies row policies, your alters, entity access and
+column permissions together.
+- Applied in SQL to: the list endpoint `GET /:collection` (offset and cursor
+  pages), single-record `GET /:collection/:id`, relations expanded with
+  `?expand=`, offline sync pull (`/api/sync/pull`), and saved-query execution
+  (`/api/saved-queries/execute` and `/:id/run`). The before-row reads in
+  PUT/PATCH/DELETE and the bulk handlers also apply it, so a row that your
+  alter hides cannot be updated or deleted by guessing its ID.
+- Rows without a query cannot take an alter. This covers time-travel
+  snapshots (`?as_of=`, list and single) and realtime events (WebSocket and
+  SSE). If your alter changes the query for the requesting user, or throws,
+  the engine refuses rather than serving rows that the live read would hide:
+  - `?as_of=` answers **403**.
+  - A WebSocket subscription is **denied**.
+  - An SSE stream drops that collection. It answers **403** when no other
+    collection is left.
+  A subscription that is already open ends at the next permission sweep.
+  To let users you exempt keep time travel and realtime, return `qb`
+  untouched for them.
+- UPDATE / DELETE Kysely calls (the actual mutation step) don't receive the
+  alter. They trust the `id` lookup, which IS alter-filtered, so the net
+  effect is the same in practice. The same holds for offline sync push.
+
+#### Entity access
+
+Per-record authorization beyond role-based. Use this when the access
+decision depends on the row itself (owner, status, time of day) rather
+than just the user's role.
+
+```typescript
+ctx.entityAccess.register({
+  table: 'zvd_payroll',
+  async check(record, user, op) {
+    // op: 'view' | 'update' | 'delete'
+    if (user.roles.includes('hr')) return 'allow';
+    if (op === 'view' && record.user_id === user.id) return 'allow';
+    return 'deny';
+  },
+});
+```
+
+Semantics:
+- Any extension's `'deny'` blocks access (first deny wins, short-circuits).
+- Default is `'allow'` — if no extension registers a check for a table,
+  the standard role/RLS chain remains in charge.
+- Checks may be async; the data layer awaits them.
+- Cleanup on unload is automatic (scoped registration).
+
+HTTP behavior in single-record routes:
+- `GET /:collection/:id` returns **404** on deny (hides existence).
+- `PUT/PATCH/DELETE /:collection/:id` returns **403** on deny (the
+  client already knows the row exists from prior context).
+
+**Scope**: every read goes through the engine's read gate.
+- `view` is checked on every read path: single-record `GET`, the list
+  endpoint (live and `?as_of=`), `?expand=`, offline sync pull, saved-query
+  execution, and realtime events (WebSocket and SSE). Denied rows are
+  dropped.
+- The check runs after the query, so a list's `total` still counts denied
+  rows. For filtering large lists, prefer `queryAlter`: it is cheaper, runs
+  in SQL, and the count agrees with the rows.
+- On realtime, events wait for their check in write order, so a slow check
+  delays later events on that subscription. A check that throws drops the
+  event. On a request, a check that throws fails the request.
+- `update` / `delete` are checked on `PUT`, `PATCH`, `DELETE` and the bulk
+  handlers.
+
+---
+
+### 8. Services: publishing and consuming
+
+Inter-extension function calls. Drupal's services container.
+
+#### Publishing
+
+```typescript
+// engine/services.ts
+export function registerServices(ctx: ExtensionContext) {
+  ctx.services.register('crm/contacts.lookup', async (email: string) => {
+    return ctx.db
+      .selectFrom('zvd_contacts')
+      .selectAll()
+      .where('email', '=', email)
+      .executeTakeFirst();
+  });
+
+  ctx.services.register('crm/contacts.search', async (query: string, limit = 20) => {
+    return ctx.db
+      .selectFrom('zvd_contacts')
+      .selectAll()
+      .where('name', 'ilike', `%${query}%`)
+      .limit(limit)
+      .execute();
+  });
+}
+```
+
+#### Consuming
+
+```typescript
+// In another extension
+const contact = await ctx.services.get('crm/contacts.lookup')?.('jane@example.com');
+if (!contact) return c.json({ error: 'Not found' }, 404);
+```
+
+#### Best practices
+
+- **Names are `<your extension>.<name>`.** `ctx.services.register` refuses any
+  other name, so no extension can answer another's callers.
+- **Declare whose services you call.** If you call `crm/contacts.lookup`, add
+  `{ "name": "crm/contacts" }` to `dependencies` (you cannot work without it)
+  or `optionalDependencies` (you can). `ctx.services.get` throws for a service
+  whose owner is in neither — the same rule the broker applies to a
+  worker-isolated extension. The loader sorts both kinds topologically.
+- **Use `services.get(name)` defensively** — it returns `null` when the
+  provider is not installed or disabled. Handle gracefully or fail loudly.
+- **Versioning**: when you change a service signature, bump your extension's
+  `version` (major) and update consumers.
+
+#### Caches across replicas: `ctx.broadcast`
+
+An engine can run as several replicas. A cache your extension keeps in memory
+and drops after a write is dropped on the replica that served the write and
+nowhere else. `ctx.broadcast` (engine 3.0.0-beta.90 and later, inline only)
+carries the drop to every replica:
+
+```ts
+ctx.broadcast.on('providers.changed', () => forgetProviders(ctx.db));
+ctx.broadcast.onMissed(() => providersCache.clear());
+
+// in the route, after the write:
+await ctx.broadcast.publish('providers.changed');
+```
+
+- **Your messages only.** The engine sends under your extension's name and
+  delivers only to your handlers; no name you pick reaches another extension
+  or the engine.
+- **Every replica, this one included, after the commit.** `publish` inside a
+  request waits for its transaction to commit and sends nothing on a rollback,
+  so drop the cache in the handler, not beside the `publish`.
+- **In the publisher's tenant.** Each handler runs in a transaction of the
+  tenant that published, so `ctx.db` there is that tenant's.
+- **Small.** `data` crosses as JSON and the whole message must fit the bus
+  (about 7.9 KB); a larger one is refused at `publish`. Send an id.
+- **At most once.** A replica whose bus connection drops misses what is sent
+  meanwhile; `onMissed` runs when it comes back, so drop everything there.
+
+---
+
+### 9. Cron jobs
+
+Declare scheduled tasks directly on your extension. The engine's cron
+runner picks them up after `register()` returns and polls every 30 s.
+
+```typescript
+const ext: ZveltioExtension<DB> = {
+  name: 'communications/mail',
+  category: 'communications',
+  async register(app, ctx) { /* ... */ },
+  schedules() {
+    return [
+      {
+        name: 'send-daily-digest',
+        // Specify ONE timing field:
+        at: { hour: 8, minute: 0 },           // daily at 08:00 (server timezone)
+        // intervalMs: 6 * 60 * 60 * 1000,    // …or every 6 hours
+        retry: { maxAttempts: 3, backoffMs: 5000 },
+        async handler(ctx, runId) {
+          const recipients = await ctx.db.selectFrom('zvd_users')
+            .selectAll()
+            .where('digest_enabled', '=', true)
+            .execute();
+
+          for (const user of recipients) {
+            await ctx.services.get('mail.send')?.({
+              to: user.email,
+              template: 'daily-digest',
+              data: { /* ... */ },
+            });
+          }
+        },
+      },
+    ];
+  },
+};
+```
+
+Timing options (pick ONE per schedule):
+- **`intervalMs`** — re-runs every N milliseconds.
+- **`at: { hour, minute }`** — runs once a day at HH:MM (server's local
+  timezone).
+- **`cron: 'expr'`** — reserved for cron-expression support. **Not yet
+  supported** — schedules using it are logged as skipped at register
+  time. Use `intervalMs` or `at` instead.
+
+Tenancy — `perTenant: true`:
+- Without it the handler runs **once, with no tenant**: `ctx.db` falls back to
+  the pool with no tenant set, and a table under tenant RLS answers for the root
+  tenant only. Fine for work that touches no tenant data.
+- With it the handler runs once per **active** tenant where the extension is
+  active, each inside that tenant's transaction, so `ctx.db` (and permission
+  checks) answer for that tenant. A tenant that turned the extension off is
+  skipped. One tenant's failure does not stop the others; the run is then
+  recorded failed, naming the tenants, and a retry runs every tenant again — so
+  the handler must be safe to repeat.
+- There is no caller in a schedule, so the handler is an actor with no identity
+  (ADR 0040): collection permissions answer as for any extension work with no
+  caller (`data:system` and `asSystem` give collections), and a row rule on
+  `user_id`, `user_email` or `user_role` keeps no row. A schedule cannot read or
+  write rows such a rule protects; enqueue a job as the user who owns them, or
+  scope the rule to the roles it is meant for. The same holds for a listener
+  and for your own `ctx.internals.withTenantIsolation`.
+
+Retry policy:
+- `retry.maxAttempts` (default 1): how many total attempts per fired run.
+- `retry.backoffMs` (default 1000): delay between attempts.
+- Intermediate failures → row in `zv_extension_schedule_runs` with
+  `status='failed'`. Final failure → `status='dlq'` (admin can replay).
+
+Persistence:
+- Every fired run inserts a row in `zv_extension_schedule_runs`:
+  `started_at`, `finished_at`, `status`, `attempt`, `error_message`. Query
+  this table to audit / debug.
+
+**Scope today** (deliberately limited):
+- **Single-engine only.** Multiple engine replicas will each run the same
+  schedule — distributed coordination is a follow-up.
+- **`singleton: true`** on a schedule is accepted in the type but not yet
+  enforced cross-instance.
+- **OTel `trace_id`** is reserved in the table but the runner does not yet
+  emit it.
+
+Hot-reload:
+- On `extension dev`, edited schedules are re-registered automatically when
+  the extension reloads. The old entries are dropped first to avoid
+  duplicates.
+
+---
+
+
+### B.3 Studio pages, form alters, slots
+
+### 10. Studio: pages, field types, form alters, slots
+
+There are **two ways** to ship an extension's Studio UI. Pick by the shape of
+the page:
+
+| | Declarative (SDUI schema) — **preferred** | Code page (bespoke) |
+|---|---|---|
+| You ship | `studio/schemas/<slug>.json` | `studio/pages/**/+page.svelte` |
+| Rendered by | trusted generic host components | your compiled Svelte |
+| Install cost | **zero build toolchain** (data, not code) | Studio rebuild / release-time bake |
+| Use for | list+form, multi-tab, settings, cards, master-detail | editors, canvases, maps, kanban, chat, file browsers, live timers, composers |
+
+Most CRUD/settings pages are declarative. Reach for a code page only when the UI
+needs a genuinely bespoke widget the schema vocabulary can't express.
+
+#### The page belongs to the extension
+
+Whichever form you pick, the page lives in the extension and is declared in its
+manifest. The engine must not carry a hand-written page for an extension
+feature, for a reason that is easy to state and was learned the hard way: an
+extension is optional, so anything the engine holds on its behalf ships to
+people who will never install it — and, worse, becomes a second implementation
+that drifts.
+
+`scripts/check-extension-page-ownership.ts` enforces this. It allows exactly one
+thing in `packages/studio/src/routes/(admin)` that talks to `/ext/*`: a
+**generated snapshot**, byte-identical to the extension page it came from.
+`scripts/sync-extensions.ts` produces it, and it is committed so a release build
+— which has no `zveltio-extensions` sibling — still ships a working admin.
+
+Anything else is one of three faults, and the gate names which:
+
+- **ORPHAN** — no extension declares this path. Somebody wrote an extension's UI
+  in the engine, or the extension declares a different path and this is a second
+  route for the same feature.
+- **STALE** — the snapshot has fallen behind its source. Until it is synced the
+  engine ships an older screen than the extension does. This is not theoretical:
+  the media library's committed copy drifted onto i18n keys belonging to
+  `storage/cloud` and `communications/mail`.
+- **SHADOWS** — the extension ships a declarative schema for this path and a code
+  page sits on top of it. The schema never renders, and nobody maintaining it can
+  tell.
+
+Two routes for one feature is the failure this prevents. BYOD had exactly that:
+a 223-line page in the engine at `/introspect`, a `/byod` route redirecting to
+it, and an extension page calling endpoints that did not exist. The engine's
+copy was the only working one, and the extension's had been broken since it
+shipped, because nothing looked.
+
+#### Declarative pages (SDUI schema) — preferred
+
+An extension page is a JSON file referenced from the manifest. The engine inlines
+it into `/api/extensions` at load (`embedPageSchemas`), and the Studio catch-all
+route renders it with `SchemaPage`/`SettingsPage` — **no per-host build, no
+third-party JS in the admin**.
+
+**1. Author** `studio/schemas/<slug>.json`. Two archetypes:
+
+```jsonc
+// list + form (PageSchema). One resource → a single table; many → tabs.
+{
+  "sduiSchema": 1,
+  "title": "crm.title",                 // i18n key (resolved via m[key]()) or literal
+  "subtitle": "crm.subtitle",
+  "newLabel": "common.new",             // header "+ New" button → opens active resource's form
+  "resources": [
+    {
+      "id": "contacts",
+      "label": "crm.tab.contacts",
+      "icon": "Users",
+      "dataSource": "/ext/crm/contacts",  // GET; array read from dataPath
+      "dataPath": "data",
+      "search": { "fields": ["first_name", "email"] },   // client-side; or { "param": "q" } server-side
+      "columns": [
+        { "key": "first_name", "label": "crm.col.name", "join": { "keys": ["first_name", "last_name"], "sep": " " } },
+        { "key": "email", "label": "crm.col.email" },
+        { "key": "status", "label": "common.col.status", "type": "badge",
+          "badge": { "colors": { "active": "badge-success" }, "labels": { "active": "crm.status.active" } } },
+        { "key": "value", "label": "crm.col.value", "type": "currency", "currency": { "codeKey": "currency" } }
+      ],
+      "rowActions": [
+        { "id": "delete", "icon": "Trash2", "variant": "text-error", "label": "common.delete",
+          "method": "DELETE", "endpoint": "/ext/crm/contacts/{id}", "confirm": "ext.confirmDelete" }
+      ],
+      "form": {
+        "endpoint": "/ext/crm/contacts",
+        "fields": [
+          { "name": "first_name", "label": "crm.form.firstName", "required": true, "colSpan": 1 },
+          { "name": "email", "label": "crm.col.email", "type": "email", "colSpan": 1 }
+        ]
+      }
+    }
+  ]
+}
+```
+
+```jsonc
+// settings (SettingsSchema) — a singleton config page, not a list.
+{
+  "kind": "settings",
+  "sduiSchema": 1,
+  "title": "auth.saml.title",
+  "dataSource": "/ext/auth/saml/config",   // GET the config object
+  "dataPath": "config",
+  "saveEndpoint": "/ext/auth/saml/config",  // POST to save
+  "info": [                                  // read-only rows w/ copy button; {ENGINE_URL} token
+    { "label": "auth.saml.ui.sp_metadata_url", "value": "{ENGINE_URL}/ext/auth/saml/metadata" }
+  ],
+  "sections": [
+    { "title": "auth.saml.section.idp", "fields": [
+      { "name": "enabled", "label": "auth.saml.enable", "type": "boolean", "colSpan": 2 },
+      { "name": "cert", "label": "auth.saml.ui.cert", "type": "textarea", "rows": 5, "mono": true, "colSpan": 2 }
+    ] }
+  ],
+  "actions": [ { "id": "test", "label": "auth.ldap.testConnection", "endpoint": "/ext/auth/ldap/test" } ]
+}
+```
+
+**2. Reference it** from `manifest.json`:
+
+```jsonc
+"studio": {
+  "navGroup": "business",
+  "pages": [
+    { "path": "/admin/crm", "label": "CRM", "icon": "Users", "schema": "schemas/crm.json" }
+  ]
+}
+```
+
+**3. Don't ship a `+page.svelte`** for that slug — the catch-all route owns it.
+Schemas live in `studio/schemas/` (not `studio/pages/`), so the sync step ignores
+them automatically.
+
+**Vocabulary** (full reference: [SDUI-SCHEMA-REFERENCE.md](../ui/sdui.md);
+source of truth: [`packages/studio/src/lib/sdui/types.ts`](../../packages/studio/src/lib/sdui/types.ts)):
+- **Resources**: single or multi-tab; per-resource `dataSource`/`dataPath`/`search`/`filters`/`pagination`/`stats`.
+- **Columns** `type`: `text` · `mono` · `date` · `currency` (`code` or `codeKey`) · `badge` (`colors`+`labels`) · `relation` (id→label from another endpoint) · `boolean` (✓/—). Plus `secondary` (two-line cell), `join`, `template` (`{ENGINE_URL}`/`{field}` tokens), `classWhen` (conditional CSS), `editable` (inline select/text PATCH on change).
+- **Row/detail actions**: `kind` `call`|`edit`|`download` (opens cookie-authed endpoint in a new tab), `method`, `endpoint` (`{id}`/`{field}` tokens), `visibleWhen`, `confirm`, `body` (`{field}` tokens, `{a-b}` subtraction).
+- **Form fields** `type`: text/email/tel/number/date/select/relation/boolean/password/textarea/json/file. Plus `required`, `colSpan` (1|2), `default` (incl. `"today"`), `placeholder`, `options`, `relation`, `visibleWhen` (conditional fields), `accept` (file).
+- **Form `submit`**: default = JSON POST/PATCH; `{ "kind": "download" }` = GET endpoint → querystring → new tab; `{ "kind": "upload" }` = multipart POST. Escape hatches: `repeatable` (line items) + `computed` (sums).
+- **Layouts**: `layout: "cards"` (+`card:{title,badge,subtitle}`); `master` (+`detailActions`) = left selector list → detail table templated `{masterId}`.
+- **Stats**: KPI tiles above the table.
+
+i18n: every string is an `m[key]()` lookup with literal fallback — same Paraglide
+keys as code pages (see i18n note below). A malformed/future-version schema renders
+a friendly error panel (see `validateSchema`), never a white screen.
+
+#### Code pages (bespoke / Tier-3) + i18n
+
+> **Being retired (ADR 0042).** Do not add new code pages; see [ui-model.md](ui-model.md).
+
+For UIs the schema can't express (editors, canvases, maps, kanban, AI chat, file
+browsers, live timers, message composers), ship `studio/pages/+page.svelte` under
+the extension repo. At install/sync time these are copied into Studio's route tree
+(`packages/studio/src/routes/(admin)/…`). In page code, import Studio libs
+via `$lib/…` (same as core pages).
+
+**All user-visible strings must use Paraglide** — see [§10.5 Translating your
+extension](#105-translating-your-extension) for the rules, the shared vocabulary
+and what `validate` enforces.
+
+**Layout:** use `ExtensionPageShell`, `ExtensionDataPanel`, and `ConfirmModal`
+instead of ad-hoc headers / `confirm()`. See
+`packages/studio/src/lib/components/extension/README.md`.
+
+**Sidebar grouping:** set `studio.navGroup` in `manifest.json` (`business`,
+`finance`, `hr`, …). Extension labels in the nav come from the manifest
+`displayName` / page `label` (not translated).
+
+#### Pages
+
+Tier-3 pages live under **`studio/pages/`** and become real SvelteKit routes
+after `sync-extensions` copies them into `packages/studio/src/routes/(admin)/…`.
+Declare the URL in `manifest.studio.pages[].path` (e.g. `/admin/my-feature`).
+
+```svelte
+<!-- studio/pages/+page.svelte -->
+<script lang="ts">
+  import { api } from '$lib/api.js';
+
+  let items = $state<unknown[]>([]);
+  $effect(() => {
+    api.get('/ext/content/my-feature/items').then((r) => {
+      items = r.items ?? [];
+    });
+  });
+</script>
+
+{#each items as item}
+  <div>{item.name}</div>
+{/each}
+```
+
+Prefer **SDUI** (`manifest.studio.pages[].schema` → JSON under `studio/schemas/`)
+when the UI is CRUD-shaped — zero Studio build, same delivery model as first-party
+extensions. See [authoring.md](authoring.md).
+
+**Do not** use `registerRoute()` from a runtime bundle — that was the removed v1
+IIFE path (`studio/dist/bundle.js`, deleted beta.15).
+
+
+#### Form alters (S3-02)
+
+Mutate any registered Studio form before it renders. Same shape as
+Drupal's `hook_form_alter`.
+
+```typescript
+import { registerFormAlter } from '@zveltio/sdk/studio';
+
+registerFormAlter('core:user-edit', (form, ctx) => {
+  // Add a field after an existing one. Anchor by name.
+  form.addField({
+    after: 'email',
+    field: {
+      name: 'preferred_language',
+      type: 'select',
+      options: ['en', 'ro', 'fr'],
+      label: 'Preferred language',
+    },
+  });
+  // Hide without removing — server-side defaults still apply.
+  form.hideField('legacy_pin');
+  // Append a validator. Return null if valid, an error string otherwise.
+  form.addValidator('phone', (value) => {
+    return typeof value === 'string' && value.startsWith('+') ? null : 'Must start with +';
+  });
+  // Move fields to the front of the form.
+  form.reorder(['name', 'email']);
+});
+```
+
+Hooks receive `(form, ctx)`. `ctx` is whatever the form host passes —
+typically `{ user, mode }`. Throwing hooks are isolated: the rest still
+run. Multiple alters on the same form id run in registration order, so
+two extensions can layer changes.
+
+Well-known form IDs (live — extension hooks fire against these):
+- `core:user-invite` — admin "Invite User" modal
+
+More core forms wire through SchemaForm incrementally. Until your target
+form is migrated, the hook is harmless (registers fine, just never fires).
+
+> Form-alter only works on forms whose renderer is built on
+> `<SchemaForm formId="..." schema={...} bind:values />`. SchemaForm
+> calls `studioApi.applyFormAlters(formId, schema, ctx)` internally.
+> Custom hand-rolled forms can opt in by calling
+> `studioApi.applyFormAlters` themselves before rendering their field
+> list.
+
+#### Slots (S3-03)
+
+Inject components into named composition points scattered through
+Studio. Slot hosts declare a slot once with `<Slot name="...">`;
+extensions fill it via **`studio/src/contribute.ts`** (compile-time sync —
+not a runtime bundle).
+
+```typescript
+// studio/src/contribute.ts — synced to $lib/ext/<name>/contribute.ts
+import { registerContributionSlot } from '$lib/extension-api.svelte.js';
+import RevenueWidget from './components/RevenueWidget.svelte';
+
+const OWNER = 'content/my-feature'; // manifest.name
+
+export function activate(): void {
+  registerContributionSlot(OWNER, 'dashboard.widgets', {
+    component: RevenueWidget,
+    priority: 10,
+    visible: (ctx) => Array.isArray((ctx.user as { roles?: string[] })?.roles)
+      && ctx.user.roles.includes('finance'),
+    props: { initialRange: '30d' },
+  });
+}
+```
+
+List targeted slots in `manifest.contributes.slots` (metadata). The admin
+layout loads `activate()` only when the extension is **enabled**.
+
+`@zveltio/sdk/studio` still exports **`sortSlotContributions`**, form-alter
+helpers, and **`SlotContribution`** types for unit tests — not the compile-time
+registration entry point above.
+
+The component receives `props` AND any keys the host passes as `ctx`.
+For `dashboard.widgets` the host passes `{ user }`, so the widget can
+declare `let { user, initialRange } = $props()`.
+
+If no extension targets the slot the markup collapses to nothing —
+hosts can declare slots liberally without empty-state worries.
+
+Well-known slots (live):
+- `dashboard.widgets` — top of the admin dashboard. `ctx: { user }`.
+- `dashboard.hero` — featured area above the stat cards (e.g. AI greeting,
+  what-changed feed). `ctx: { user, stats }`.
+- `dashboard.suggestions` — below the stat cards (recommendations, anomaly
+  alerts). `ctx: { user, stats, collections }`.
+- `sidebar.bottom` — admin sidebar, above the footer. `ctx: { user, collapsed }`.
+- `topbar.left` / `topbar.center` / `topbar.right` — slim top-bar above
+  `<main>`. Desktop top-bar **renders only** when one of these slots has
+  content (otherwise no chrome cost). Mobile header always renders and
+  embeds these slots inline. `ctx: { user, viewport: 'mobile' | 'desktop' }`.
+- `page.assist` — floating-position slot inside every `<main>` for FAB-style
+  contextual assistants. `ctx: { user, pathname }`.
+- `settings.tabs` — Settings page tab bar (extension tabs render after core).
+  `ctx: { user, activeTab }`.
+- `account.sections` — `/admin/account` page sections. `ctx: { user }`.
+- `collection-detail.header` — under the collection name on
+  `/admin/collections/<name>`. `ctx: { user, collection }`.
+- `collection-detail.actions` — next to the header primary action.
+  `ctx: { user, collection, activeTab }`.
+
+**For first-class integrations** (the `ai` extension, observability
+dashboards, etc.), prefer these slots over routing into a separate page
+— they bring extension UX into the user's existing flow rather than
+making them context-switch.
+
+> Slot hosts are added incrementally. Adding one is a one-line change in
+> the host page (`<Slot name="..." ctx={...} />`). The list above grows
+> as core pages adopt the pattern.
+
+### B.4 Best practices of the legacy surface
+
+#### Do (legacy)
+
+- **Declare manifest dependencies.** If you call another extension's service,
+  list it. Topological load order saves headaches.
+- **Use `ctx.db` (Kysely)** — types, parameter binding, refactoring safety.
+- **Wrap your routes in a sub-router** before mounting, so `app.route(...)` is
+  clean.
+- **Use `cleanup()`** for any resource you hold.
+- **Generate types** with `zveltio extension types` after every migration.
+- **Use `ctx.services.get()` defensively** — providers may be disabled.
+- **Write integration tests** for every route. Unit tests for hooks.
+- **Bump the manifest version on every repack**, not only on a feature change.
+  The registry refuses the same version with different bytes, so a rebuilt
+  bundle without a bump is rejected at sync — see §13.6.
+- **Prove a test catches the defect.** Break the code it guards, confirm *that*
+  test fails and the others do not, then restore. A test written after a fix
+  and never seen red has not been shown to test anything.
+
+#### Do (legacy)n't
+
+- **Don't use raw `sql\`...\``** unless you absolutely must. Kysely is type-safe;
+  raw SQL is not, and it bypasses query-alter hooks.
+- **Don't reach engine tables.** `ctx.db` checks every statement it runs as
+  compiled — a Kysely builder from any entry point (`with()` and
+  `selectNoFrom()` included) with any `sql` fragment inside it, raw SQL
+  (`sql\`…\`.execute(ctx.db)`, `ctx.db.executeQuery(…)`), and the handle
+  `ctx.db.transaction()` passes its callback. The refusal comes when the query
+  executes, not when it is built. A statement may name only
+  collections (`zvd_*`), your own `zv_<name>_*` namespace, and tables your
+  migrations create or `EXTENSION_TABLE_GRANTS` grants you. `user`, `session`,
+  `account`, the engine's `zv_*` / `zvd_*` metadata, `information_schema` and
+  `pg_catalog` are refused. So is every statement that is not a query or DML:
+  `ctx.db` runs one `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `MERGE`, `WITH`,
+  `VALUES`, `TABLE` or `SET TRANSACTION` per call, and refuses DDL, `TRUNCATE`,
+  `GRANT`/`REVOKE`, `COMMENT`, `SET`/`RESET`, `COPY`, `DO`, `CALL`, `LOCK`,
+  `LISTEN`/`NOTIFY`, `SELECT … INTO`, a second statement after `;`, transaction
+  control (`SAVEPOINT` included — group statements with `ctx.db.transaction()`),
+  and calls to `set_config`, `setval`, `pg_notify`, session advisory locks, the
+  server's file and connection functions, and functions that take a query as a
+  string (`query_to_xml`, `ts_stat`, `crosstab`). Schema belongs in your
+  migrations and `ctx.DDLManager`; engine data in `ctx.internals`.
+- **Don't store secrets in `manifest.json`.** It is shipped to every installer.
+  Use `zv_settings` (encrypted at rest).
+- **Don't share state across `register()` calls.** It is called once but may
+  be called again on hot-reload. Use `ctx`, not module-level globals.
+- **Don't block the event loop.** Long sync work belongs in a cron job or
+  background task.
+- **Don't `setInterval`.** Use `schedules()` instead — observable, cancellable,
+  singleton-safe.
+- **Don't pin Hono/Zod/Kysely to a version of your own.** They *are* bundled
+  into your artifact — that is the delivery model, and `bundlePeers: true` is
+  the only valid configuration — but their types cross the boundary into the
+  engine, so the version must match its lockfile **exactly**.
+  `check-dep-lockstep` enforces it. A skew does not fail cleanly: TypeScript
+  stops deduplicating the two copies and floods unrelated extensions with
+  `TS2345`.
+- **Don't depend on `EXTENSIONS_DIR` paths**, and don't expect a dependency to
+  find its own data files at runtime. `import.meta.dir` is correct for files
+  your extension ships (migrations); a bundled dependency's `__dirname` is
+  frozen to the packing machine. See §5, *Reading files at runtime* — this shape
+  of defect passes every local test.
+- **Don't return something that only looks like the thing you promised.** A
+  batch label endpoint returned `Buffer.concat` over separate PDFs with a
+  comment saying a real merge was still to be done: right content type,
+  plausible size, opens — and shows only the first page. If you cannot do the
+  work, fail; a plausible artifact is worse than an error.
+- **Don't write Studio code that touches `window.__zveltio` directly.** Use
+  `@zveltio/sdk/studio` imports (v1.0).
+
+---
+
+
+### B.5 Legacy reference card
+
+
 ```typescript
 // engine/index.ts
 import type { ZveltioExtension } from '@zveltio/sdk/extension';
@@ -2706,5 +2867,3 @@ export function activate(): void {
 Field types and form alters that mutate core Studio surfaces at runtime still
 use `window.__zveltio` (installed by the admin layout) or shared components
 imported from synced `$lib/ext/<name>/` — see §Custom field types above.
-
-*End of guide. Last updated: 2026-08-22.*
