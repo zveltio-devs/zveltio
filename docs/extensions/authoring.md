@@ -128,7 +128,7 @@ List them in `manifest.json` and ship one file per name, in the
 - `"writtenBy": "actions"` on a field, or on the collection (every field, create
   and delete), makes the extension's own actions and jobs the only writers,
   through `host.collections`. Any other write — the data API (single, bulk,
-  `PUT`, delete), sync, template seeding, `ctx.internals.*Record` (GraphQL),
+  `PUT`, delete), sync, `ctx.internals.*Record` (GraphQL),
   another extension's action — answers 409 `written_by_actions`, for god and
   API keys too. `ctx.db` and the worker SQL bridge may not write such a
   collection at all, the owner's included. On create a flagged field takes its

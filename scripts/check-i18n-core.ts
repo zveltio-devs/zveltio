@@ -79,7 +79,6 @@ const TRANSLATED = [
   'src/routes/(admin)/settings/storage/+page.svelte',
   'src/routes/(admin)/sql/+page.svelte',
   'src/routes/(admin)/storage/+page.svelte',
-  'src/routes/(admin)/templates/+page.svelte',
   'src/routes/(admin)/webhooks/+page.svelte',
 ];
 

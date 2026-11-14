@@ -130,8 +130,12 @@ Read [multi-tenancy.md](multi-tenancy.md) before changing anything in this path.
 
 Several `/api/*` paths now return **410 Gone** with a pointer to the extension
 that replaced them — `registerCoreRoutes` mounts `goneRoutes(...)` for
-`/api/approvals`, `/api/export`, `/api/import`, `/api/media` and `/api/briefing`.
-A 410 with a forwarding address is deliberate: it
+`/api/approvals`, `/api/export`, `/api/import`, `/api/media`, `/api/briefing`
+and `/api/templates`. The built-in application templates are the `templates/*`
+official extensions (`templates/invoicing`, `templates/project`,
+`templates/helpdesk`, `templates/inventory`, `templates/ansvsa`), installed from
+the catalog like any other: each declares its collections and the engine creates
+them. A 410 with a forwarding address is deliberate: it
 tells an old client what happened instead of a bare 404.
 
 ### What stays in the engine
@@ -150,7 +154,7 @@ Everything else belongs in an official extension on the declared model, or out
 of the product. A feature leaves only once the public primitive it needs
 exists; when one is missing, the primitive is engine work and the feature waits
 for it. Planned on this rule, in order: `/api/templates` becomes
-collections-only official extensions; the data API gains aggregates;
+collections-only official extensions (done); the data API gains aggregates;
 `/api/insights` goes (its panels move to `analytics/dashboard`) and
 `/api/saved-queries` moves to an extension; `/api/admin/sql` and
 `/api/schema/branches` are removed (run SQL as an operator with a database

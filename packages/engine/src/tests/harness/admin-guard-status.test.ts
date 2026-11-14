@@ -43,7 +43,6 @@ const ROUTES: Array<[method: string, path: string]> = [
   ['GET', '/api/settings'],
   ['GET', '/api/backup'],
   ['GET', '/api/schema/branches'],
-  ['GET', '/api/templates'],
   ['POST', '/api/admin/sql'],
 ];
 

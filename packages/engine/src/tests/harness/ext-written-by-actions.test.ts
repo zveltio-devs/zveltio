@@ -59,9 +59,6 @@ const P = `wba_p_${STAMP}`;
 const PAR = `wba_par_${STAMP}`;
 const CC = `wba_cc_${STAMP}`;
 const CN = `wba_cn_${STAMP}`;
-/** Where the `helpdesk` template would seed `hd_categories` under this prefix. */
-const PREFIX = `wba${STAMP}`;
-const TPL = `${PREFIX}_hd_categories`;
 const RES = `wba_res_${STAMP}`;
 const RES2 = `wba_res2_${STAMP}`;
 /** Held by nobody: an action gated on it is refused to the member. */
@@ -199,11 +196,6 @@ d('writtenBy: "actions" — only the owning extension’s actions and jobs write
         name: CN,
         fields: [text('label'), m2o('parent', 'SET NULL', { writtenBy: 'actions' })],
       } as never,
-      other,
-    );
-    await DDLManager.createCollection(
-      db,
-      { name: TPL, writtenBy: 'actions', fields: [text('name')] } as never,
       other,
     );
 
@@ -441,7 +433,7 @@ d('writtenBy: "actions" — only the owning extension’s actions and jobs write
         trx,
       ),
     );
-    for (const c of [F, W, P, CC, CN, TPL, PAR]) await dropTestCollection(db, c);
+    for (const c of [F, W, P, CC, CN, PAR]) await dropTestCollection(db, c);
   });
 
   it('the data API refuses a flagged field on create, PATCH, PUT and bulk — member, god, API key', async () => {
@@ -742,7 +734,7 @@ d('writtenBy: "actions" — only the owning extension’s actions and jobs write
     expect(await DDLManager.columnNames(db, P)).toContain('extra');
   });
 
-  it('a revision revert and template seeding are refused too', async () => {
+  it('a revision revert is refused too', async () => {
     const id = await idOf(await act(EXT, 'addF', { label: 'rev', status: 'issued' }));
     expect((await act(EXT, 'setStatus', { id, status: 'sent' })).status).toBe(200);
     const created = await asEveryTenant(
@@ -757,10 +749,6 @@ d('writtenBy: "actions" — only the owning extension’s actions and jobs write
     const revert = await asGod('POST', `/api/revisions/${created}/revert`, {});
     expect(revert.status).toBe(409);
     expect((await row(F, id))?.status).toBe('sent');
-
-    const seed = await asGod('POST', '/api/templates/helpdesk/seed', { prefix: PREFIX });
-    expect(seed.status).toBe(409);
-    expect(await codeOf(seed)).toBe('written_by_actions');
   });
 
   it('reads the flags on the engine pool, never under the request transaction’s role', async () => {

@@ -15,7 +15,6 @@ const CONFIG_PREFIXES = [
   '/api/relations',
   '/api/schema',
   '/api/settings',
-  '/api/templates',
   '/api/tenants',
   '/api/users',
   '/api/validation', // rules refuse every tenant's writes

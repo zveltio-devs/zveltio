@@ -533,6 +533,56 @@
       "permissions": []
     },
     {
+      "name": "templates/invoicing",
+      "displayName": "Invoicing Starter",
+      "description": "Starter app: customers, invoices, line items and payments as four collections. Was the built-in Invoicing template.",
+      "category": "templates",
+      "version": "1.0.0",
+      "author": "Zveltio",
+      "tags": ["template", "invoicing", "starter"],
+      "permissions": []
+    },
+    {
+      "name": "templates/project",
+      "displayName": "Project Starter",
+      "description": "Starter app: projects, tasks, comments and time logs as four collections. Was the built-in Project Management template.",
+      "category": "templates",
+      "version": "1.0.0",
+      "author": "Zveltio",
+      "tags": ["template", "projects", "tasks", "starter"],
+      "permissions": []
+    },
+    {
+      "name": "templates/helpdesk",
+      "displayName": "Help Desk Starter",
+      "description": "Starter app: ticket categories, customers, tickets and replies as four collections. Was the built-in Help Desk template.",
+      "category": "templates",
+      "version": "1.0.0",
+      "author": "Zveltio",
+      "tags": ["template", "helpdesk", "tickets", "starter"],
+      "permissions": []
+    },
+    {
+      "name": "templates/inventory",
+      "displayName": "Asset Inventory Starter",
+      "description": "Starter app: suppliers, locations, products and stock movements as four collections. Was the built-in Asset Inventory template.",
+      "category": "templates",
+      "version": "1.0.0",
+      "author": "Zveltio",
+      "tags": ["template", "inventory", "assets", "starter"],
+      "permissions": []
+    },
+    {
+      "name": "templates/ansvsa",
+      "displayName": "ANSVSA Official Control",
+      "description": "Starter app for the Romanian veterinary and food safety authority (ANSVSA): operators, units, requests, risk-based inspections, findings, samples, sanctions and alerts as 64 collections. Was the built-in ANSVSA template.",
+      "category": "templates",
+      "version": "1.0.0",
+      "author": "Zveltio",
+      "tags": ["template", "ansvsa", "food-safety", "romania", "starter"],
+      "permissions": []
+    },
+    {
       "name": "storage/cloud",
       "displayName": "Cloud Storage",
       "description": "Version history, favorites and retention policies over the engine's stored files",

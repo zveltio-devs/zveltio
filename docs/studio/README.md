@@ -49,7 +49,7 @@ Sections under `(admin)`: account, ai, api-keys, audit, backup, collections
 (+ `erd`, `[name]`), column-permissions, developer (+ edge-functions, graphql),
 extensions, flows, geospatial, insights, mail, marketplace, notifications,
 onboarding, pages, permissions, projects, request-logs, rls, rpc, saved-queries,
-schema-branches, settings, sql, storage, templates, tenants, users,
+schema-branches, settings, sql, storage, tenants, users,
 virtual-collections, webhooks — plus the extension catch-all `[...extPath]`.
 
 **API keys** (`api-keys`) lists and mints the keys of the tenant the unit

@@ -43,7 +43,6 @@ import { savedQueriesRoutes } from './saved-queries.js';
 import { schemaBranchesRoutes } from './schema-branches.js';
 import { insightsRoutes } from './insights.js';
 import { sqlEditorRoutes } from './sql-editor.js';
-import { templatesRoutes } from './templates.js';
 import { erdLayoutRoutes } from './erd-layout.js';
 import { initDDLQueue } from '../lib/data/index.js';
 import {
@@ -501,8 +500,9 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // Ad-hoc SQL editor — admin-only, audited
   app.route('/api/admin/sql', sqlEditorRoutes(poolDb, auth));
 
-  // Pre-built business templates (Invoicing / Project / Help Desk / Inventory / ANSVSA — CRM is the crm extension)
-  app.route('/api/templates', templatesRoutes(db, auth));
+  // Application templates — the templates/* official extensions, installed from
+  // the catalog (ADR 0049); each declares its collections, the engine creates them.
+  app.route('/api/templates', goneRoutes('/api/marketplace', 'Application templates'));
 
   // Per-user ERD positions for the schema-diagram view
   app.route('/api/erd/layout', erdLayoutRoutes(db, auth));

@@ -1,6 +1,7 @@
 <script lang="ts">
 import { m } from '#lib/i18n.svelte.js';
 import { onMount } from 'svelte';
+import { page } from '$app/state';
 import {
   Package,
   CheckCircle,
@@ -23,6 +24,7 @@ import {
   Circle,
   ShieldAlert,
   ShieldCheck,
+  Sparkles,
 } from '@lucide/svelte';
 import { api as marketplaceApi } from '#lib/api.js';
 import ConfirmModal from '#lib/components/common/ConfirmModal.svelte';
@@ -41,6 +43,7 @@ const CATEGORY_ICONS: Record<string, any> = {
   geospatial: Map,
   compliance: Shield,
   developer: Code2,
+  templates: Sparkles,
   custom: Puzzle,
 };
 
@@ -52,6 +55,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   geospatial: 'text-teal-500',
   compliance: 'text-red-500',
   developer: 'text-cyan-500',
+  templates: 'text-amber-500',
   custom: 'text-gray-400',
 };
 
@@ -156,6 +160,11 @@ let configJson = $state('{}');
 let configError = $state('');
 
 let cat = $state('all');
+// `?category=` opens on one category: the sidebar's Templates entry links here,
+// also while this page is already open.
+$effect(() => {
+  cat = page.url.searchParams.get('category') ?? 'all';
+});
 
 /**
  * Every category the catalog actually uses.
