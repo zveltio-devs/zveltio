@@ -67,7 +67,7 @@
       "displayName": "Data Quality",
       "description": "Data quality scans over the data API, as the scanning user: duplicates, missing values, outliers and optional AI normalization hints",
       "category": "analytics",
-      "version": "2.0.1",
+      "version": "3.0.0",
       "author": "Zveltio",
       "tags": ["analytics", "quality", "anomalies"],
       "permissions": ["data:write"]
