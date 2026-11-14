@@ -4,6 +4,20 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.121] - 2026-11-14
+
+**SECURITY: a worker-isolated extension ignored per-firm activation.** The worker proxy registered its routes before the activation check, so a signed-in caller reached a worker extension turned off for their firm (or installed nowhere) and got 200, where an inline extension answers 404. Activation now runs first (#1690).
+
+**Anonymous `/ext/` paths answer 401, installed or not (ADR 0047 d3).** A declared public route of an extension the firm turned off answered an anonymous caller 404, telling it the extension is installed; it now answers 401 like an absent one. A signed-in caller still gets 404 (#1688).
+
+**The built-in backup carries the engine roles (ADR 0047 d2).** `POST /api/backup` and scheduled backups open the archive with a gzip member that creates each engine role it depends on (`NOLOGIN`, no password, only where absent), then append the `pg_dump`. `gunzip -c | psql` restores onto a cluster without the roles in one command; no superuser needed (#1687).
+
+**An action may reach any collection as its caller (ADR 0047 d1).** An action entry may list `"*"` in `reads`/`writes`: it reaches any collection only through the data API with the caller's grants, never as the extension. Routes and jobs are not widened (a job listing `"*"` is refused); consent records `collections:any:read`/`write` and a later version that starts listing `"*"` waits for approval. An extension using it needs this engine as its floor (#1686).
+
+**`BETTER_AUTH_SECRET` rotation documented (DR-17).** What a rotation destroys (API keys, TOTP enrolments), what expires harmlessly, and the procedure as run; nothing fails open (#1685). `docs/extensions/authoring.md` lists the retype groups of ADR 0047 d4 (#1689).
+
+`finance/invoicing` 2.6.0 in the bundled catalogue.
+
 ## [3.0.0-beta.120] - 2026-11-13
 
 **Boot refuses a database restored without the engine's roles (DR-19).** A `psql` restore onto a cluster that lacks `zveltio_rls`, `zveltio_worker` and `zveltio_flow_reader` lost every grant to them; the engine then booted with `zveltio_rls` re-granted only in part (revision reads and `?as_of=` failed with `permission denied for view zvv__revisions`), and flow `query_db` ran as the connection role, a superuser on a stock install. Migration 121 adds a marker function whose grants travel in the dump; boot now refuses to start, with the recovery steps, when the dump names an engine role that lost its grant. Boot also creates `zveltio_worker` and `zveltio_flow_reader` when missing (no grants, fail closed). The runbook restores `pg_dumpall --roles-only` first and runs the dump with `ON_ERROR_STOP=1`. Dumps taken before migration 121 carry no marker, so a role-less restore of one is not detected. The built-in `POST /api/backup` still takes only `pg_dump`.
