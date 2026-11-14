@@ -177,6 +177,8 @@ d('a relation action change re-creates its key without the table lock', () => {
         res = await patch({ on_delete: 'CASCADE' });
       },
       async () => {
+        // The ALTER checked no row: the new key is in force, not yet validated.
+        expect(await keys()).toEqual([expect.objectContaining({ valid: false, del: 'c' })]);
         await asTenant(db, TENANT, async (trx) => {
           await sql`SET LOCAL lock_timeout = '200ms'`.execute(trx);
           await sql`INSERT INTO ${sql.id(CT)} (title, project_id)
