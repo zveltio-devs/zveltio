@@ -1628,6 +1628,12 @@ async function bootstrap() {
     websocket: websocketHandler,
     port,
     hostname: host,
+    // A request that writes nothing for this long is closed. Bun's default of
+    // 10 s cut schema work that runs inside the request (a retype rewrites the
+    // table at about 10 s per million rows) while the work went on, and a retry
+    // queued it again (DR-36, ADR 0053 d6). 120 s is the documented bound
+    // (docs/platform/deployment.md); longer schema work becomes a job before rc.1.
+    idleTimeout: 120,
   });
 
   // After listen: a heartbeat written before this instance can answer would
