@@ -544,23 +544,25 @@ export function clearParamTypeCache(): void {
 /**
  * The types the server infers for `text`'s parameters. `simple` runs a
  * multi-statement text on the simple protocol on the statement's own connection
- * and answers the rows of the second statement.
+ * and answers each statement's rows.
  */
 export async function paramTypes(
   text: string,
-  simple: (sql: string) => Promise<readonly { t?: string[] }[] | undefined>,
+  simple: (sql: string) => Promise<readonly (readonly { t?: string[] }[] | undefined)[]>,
 ): Promise<readonly string[]> {
   const hit = paramTypeCache.get(text);
   if (hit) return hit;
   const name = `zv_param_types_${++describeSeq}`;
   // One round trip. A statement that cannot be prepared cannot be executed
-  // either, so its error is the statement's own and is thrown as such.
-  const rows = await simple(
-    `PREPARE ${name} AS ${text}; ` +
+  // either, so its error is the statement's own and is thrown as such. The
+  // newline ends a trailing `--` comment; the answer is found by its column,
+  // not its position, so a trailing `;` in `text` cannot shift it.
+  const results = await simple(
+    `PREPARE ${name} AS ${text}\n; ` +
       `SELECT parameter_types::text[] AS t FROM pg_prepared_statements WHERE name = '${name}'; ` +
       `DEALLOCATE ${name}`,
   );
-  const types = rows?.[0]?.t ?? [];
+  const types = results.find((rows) => rows?.[0]?.t)?.[0]?.t ?? [];
   if (paramTypeCache.size >= TYPE_CACHE_MAX) {
     const oldest = paramTypeCache.keys().next().value;
     if (oldest !== undefined) paramTypeCache.delete(oldest);
@@ -580,7 +582,7 @@ async function unsafeBound<R>(
   if (!params.some((v) => typeof v === 'string')) return conn.unsafe<R>(sql, params);
   const types = await paramTypes(
     sql,
-    async (q) => ((await conn.unsafe(q)) as unknown as { t?: string[] }[][])[1],
+    async (q) => (await conn.unsafe(q)) as unknown as { t?: string[] }[][],
   );
   return conn.unsafe<R>(sql, encodeJsonParams(params, types));
 }

@@ -94,9 +94,8 @@ async function bindLikeBun(
   // An array parameter as `BunSqlDialect` binds it: one encoder for both.
   const out = encodeArrayParams(params);
   if (!params.some(typeSensitive)) return out;
-  const types = await paramTypes(
-    text,
-    async (q) => ((await client.query(q)) as unknown as pg.QueryResult[])[1]?.rows,
+  const types = await paramTypes(text, async (q) =>
+    ((await client.query(q)) as unknown as pg.QueryResult[]).map((r) => r.rows),
   );
   return encodeJsonParams(out, types);
 }
