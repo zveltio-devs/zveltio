@@ -103,6 +103,9 @@ beforeAll(async () => {
       events: ['insert'],
       collections: [COLLECTION],
       active: true,
+      // The delivery row is written after the POST returns. The default 5 s
+      // timeout against a slow httpbin.org outlasted the test's wait window.
+      timeout: 1000,
     }),
   });
   expect(whRes.status).toBe(201);
@@ -153,7 +156,7 @@ describe.skipIf(skipAll)('Webhooks — Integration', () => {
     // POST returns 201 Created
     expect(res.status).toBe(201);
 
-    const delivered = await waitForDelivery(webhookId, 5000);
+    const delivered = await waitForDelivery(webhookId, 10_000);
     expect(delivered).toBe(true);
   }, 15_000);
 
