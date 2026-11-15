@@ -14,7 +14,9 @@ import {
   getCurrentDomain,
   getCurrentDomainOrNull,
   getCurrentTenantTrx,
+  getResolvedGod,
   onAfterCommit,
+  requestTransactionState,
   runWithoutTenantTrx,
 } from './tenant-context.js';
 import { DEFAULT_TENANT_ID, type RlsIdentity, withEveryTenant } from './tenant-manager.js';
@@ -1201,6 +1203,38 @@ export function principalRole(userId: string): Promise<string> {
     : resolveUserRole({ id: userId });
 }
 
+/**
+ * Read a `"user"` row on the request's transaction when one is open, else on the
+ * pool; and say which.
+ *
+ * On the pool while a request holds its transaction, the read is a second
+ * connection, and at `c = DB_POOL_MAX` none comes: the whole pool sits `idle in
+ * transaction` until the acquire timeout (DR-40, measured in LV-20). So inside
+ * one it is read ON it, under a savepoint so a failed read throws without
+ * aborting the caller's transaction. Only a REQUEST's: it runs as `zveltio_rls`,
+ * which reads `"user"` by design (the boot grant in tenant-manager.ts); a job's
+ * or a flow's may run as a role that may not, and is not holding a request.
+ *
+ * On the pool, deliberately NOT savepoint-guarded: `SAVEPOINT` there answers
+ * `25P01`, and a version that wrapped it anyway showed thirteen consecutive
+ * 25P01s followed by a `25P02` on an unrelated request. See lib/savepoint.ts.
+ */
+export async function readUserRow<T>(
+  read: (db: Database) => Promise<T>,
+): Promise<{ value: T; onTrx: boolean }> {
+  const trx = requestTransactionState() === 'open' ? getCurrentTenantTrx() : undefined;
+  if (!trx) return { value: await read(_db), onTrx: false };
+  const value = await withSavepoint(
+    trx,
+    'zv_user_row',
+    () => read(trx),
+    (err) => {
+      throw err;
+    },
+  );
+  return { value, onTrx: true };
+}
+
 export async function isGodUser(userId: string): Promise<boolean> {
   try {
     return await lookupGod(userId);
@@ -1216,6 +1250,10 @@ async function lookupGod(userId: string): Promise<boolean> {
   // the anonymous caller: a "user" row that happened to be called `public`
   // must not make every visitor god.
   if (isApiKeySubject(userId) || userId === ANONYMOUS_SUBJECT) return false;
+  // The user this tenant transaction was opened for: answered once, before it
+  // took its connection, and that answer stands for the transaction (DR-40).
+  const pinned = getResolvedGod(userId);
+  if (pinned !== undefined) return pinned;
   // Checked before the remote cache: the point is to touch neither the pool nor
   // the network while a request holds its tenant transaction.
   const local = _localGod.get(userId);
@@ -1241,18 +1279,13 @@ async function lookupGod(userId: string): Promise<boolean> {
     }
   }
 
-  // Deliberately NOT savepoint-guarded, and that is measured rather than assumed.
-  //
-  // `_db` is the pool handle, not the request's transaction, so `SAVEPOINT`
-  // answers `25P01 SAVEPOINT can only be used in transaction blocks`. A version
-  // of this change wrapped it anyway: CI then showed thirteen consecutive 25P01s
-  // followed by a `25P02` on an unrelated request — the guard had become the
-  // thing it was added to prevent. See lib/savepoint.ts.
-  const result = await sql<{ role: string }>`
-    SELECT role FROM "user" WHERE id = ${userId} LIMIT 1
-  `.execute(_db);
+  const { value: result, onTrx } = await readUserRow((db) =>
+    sql<{ role: string }>`SELECT role FROM "user" WHERE id = ${userId} LIMIT 1`.execute(db),
+  );
 
   const isGod = result.rows[0]?.role === 'god';
+  // Not memoized from the transaction: it can see its own uncommitted rows.
+  if (onTrx) return isGod;
   _localGod.set(userId, { value: isGod, at: Date.now() });
 
   if (cache) {

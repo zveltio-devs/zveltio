@@ -200,22 +200,22 @@ d('a request needs one connection (in-process)', () => {
   it('reports a second connection through the request header', async () => {
     // Every case above reads a header that is absent at zero, so a tenant
     // middleware that stopped opening or closing the traced window would turn
-    // them all green. Planted: the prefetch fails, so nothing primed the god
-    // flag, and `checkPermission` reads it from the pool inside the
-    // transaction — the exact second reservation fixed on 2026-08-30.
+    // them all green. Planted: the prefetch fails, so the route asks for the
+    // session inside its transaction, and that lookup reads the pool first.
+    // (This used to plant the god flag read from the pool inside the
+    // transaction; that read now happens on the transaction itself, DR-40.)
     const { getAuth } = await import('../../lib/auth.js');
-    const { invalidateGodCache } = await import('../../lib/tenancy/index.js');
-    const [{ id: godId }] = (
-      await sql<{ id: string }>`SELECT id FROM "user" WHERE role = 'god'`.execute(db)
-    ).rows;
-    await invalidateGodCache(godId);
+    const { getDb } = await import('../../db/index.js');
     const api = (getAuth() as unknown as { api: { getSession: (...a: unknown[]) => unknown } }).api;
     const original = api.getSession;
     let failed = false;
-    api.getSession = (...a: unknown[]) => {
-      if (failed) return original(...a);
-      failed = true;
-      return Promise.reject(new Error('prefetch outage'));
+    api.getSession = async (...a: unknown[]) => {
+      if (!failed) {
+        failed = true;
+        throw new Error('prefetch outage');
+      }
+      await sql`SELECT 1`.execute(getDb());
+      return original(...a);
     };
     try {
       const res = await app.request('/api/webhooks', { headers: { cookie } });

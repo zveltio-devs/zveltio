@@ -22,6 +22,7 @@ import {
   keyIssuerAllows,
   LOCAL_PERM_MAX,
   principalRole,
+  readUserRow,
   revalidateSocketsEverywhere,
 } from './permissions.js';
 import type { FilterCondition } from '../../db/dynamic.js';
@@ -461,10 +462,11 @@ export function issuerRowIdentity(
  *
  * Asked inside the request transaction on every key request, it read the pool:
  * a second connection while one is held. `sessionPrefetch` asks
- * `keyIssuerRowActor` before the transaction opens, so the request finds it
- * here. Not read on the transaction: a worker's (`zveltio_worker`) may not read
- * `"user"`, and the refusal would abort it. Five seconds bounds how long a
- * changed email resolves as the old one in this replica's key rules.
+ * `keyIssuerRowActor` before the transaction opens, so the request usually
+ * finds it here; once the memo lapses mid-request (a request queued past five
+ * seconds under load), it is read on the request's transaction (`readUserRow`),
+ * never on the pool beside it (DR-40). Five seconds bounds how long a changed
+ * email resolves as the old one in this replica's key rules.
  */
 const _issuerEmail = new Map<string, { email: string; at: number }>();
 const ISSUER_EMAIL_TTL_MS = 5_000;
@@ -472,9 +474,12 @@ const ISSUER_EMAIL_TTL_MS = 5_000;
 async function issuerEmail(issuer: string): Promise<string> {
   const hit = _issuerEmail.get(issuer);
   if (hit && Date.now() - hit.at < ISSUER_EMAIL_TTL_MS) return hit.email;
-  const r = await sql<{ email: string | null }>`
-    SELECT email FROM "user" WHERE id = ${issuer}`.execute(_db);
+  const { value: r, onTrx } = await readUserRow((db) =>
+    sql<{ email: string | null }>`SELECT email FROM "user" WHERE id = ${issuer}`.execute(db),
+  );
   const email = r.rows[0]?.email ?? '';
+  // Not memoized from the transaction: it can see its own uncommitted rows.
+  if (onTrx) return email;
   _issuerEmail.delete(issuer);
   if (_issuerEmail.size >= LOCAL_PERM_MAX) {
     const oldest = _issuerEmail.keys().next().value;
