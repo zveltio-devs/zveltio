@@ -14,7 +14,12 @@ import { beforeAll, afterAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asEveryTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -29,7 +34,7 @@ d('the audit export records itself (in-process)', () => {
   });
 
   afterAll(async () => {
-    await sql`DELETE FROM zv_audit_log WHERE event_type = 'export.executed'`.execute(db);
+    await asEveryTenant(db, sql`DELETE FROM zv_audit_log WHERE event_type = 'export.executed'`);
   });
 
   it('writes an export.executed entry carrying the filters that were used', async () => {

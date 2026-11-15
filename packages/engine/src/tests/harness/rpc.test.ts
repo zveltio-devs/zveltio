@@ -7,6 +7,7 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import {
+  asEveryTenant,
   createGodSession,
   createMemberSession,
   getTestApp,
@@ -29,9 +30,9 @@ d('rpc routes (in-process)', () => {
       CREATE OR REPLACE FUNCTION ${sql.raw(`"${FN}"`)}()
       RETURNS text LANGUAGE sql STABLE AS $$ SELECT 'pong'::text $$
     `.execute(db);
-    await sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${FN}`
-      .execute(db)
-      .catch(() => {});
+    await asEveryTenant(db, sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${FN}`).catch(
+      () => {},
+    );
     const row = await sql<{ id: string }>`
       INSERT INTO zvd_rpc_functions (function_name, description, required_role, is_enabled)
       VALUES (${FN}, 'harness ping', 'member', true)
@@ -43,11 +44,12 @@ d('rpc routes (in-process)', () => {
 
   afterAll(async () => {
     if (!db) return;
-    await sql`
+    await asEveryTenant(
+      db,
+      sql`
       DELETE FROM zvd_rpc_functions WHERE function_name IN (${FN}, 'harness_rpc_member_add')
-    `
-      .execute(db)
-      .catch(() => {});
+    `,
+    ).catch(() => {});
     await sql`DROP FUNCTION IF EXISTS ${sql.raw(`"${FN}"`)}()`.execute(db).catch(() => {});
   });
 

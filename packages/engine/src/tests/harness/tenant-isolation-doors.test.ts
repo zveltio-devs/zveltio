@@ -434,9 +434,10 @@ d('tenant isolation, door by door', () => {
       sql`DELETE FROM zv_media_files WHERE original_name = ${`doors-up-${TAG}.txt`}`.execute(trx),
     ).catch(() => {});
     await sql`DELETE FROM zv_api_keys WHERE name = ${`doors-${TAG}`}`.execute(db).catch(() => {});
-    await sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${`doors_fn_${TAG}`}`
-      .execute(db)
-      .catch(() => {});
+    await asEveryTenant(
+      db,
+      sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${`doors_fn_${TAG}`}`,
+    ).catch(() => {});
     await sql
       .raw(`DROP FUNCTION IF EXISTS doors_fn_${TAG}()`)
       .execute(db)

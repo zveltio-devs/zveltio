@@ -9,7 +9,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asEveryTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -40,16 +45,20 @@ d('insights panels/shares (in-process)', () => {
   afterAll(async () => {
     if (!db) return;
     if (dashboardId) {
-      await sql`DELETE FROM zvd_panel_cache WHERE panel_id IN (SELECT id FROM zv_panels WHERE dashboard_id = ${dashboardId})`
-        .execute(db)
-        .catch(() => {});
+      await asEveryTenant(
+        db,
+        sql`DELETE FROM zvd_panel_cache WHERE panel_id IN (SELECT id FROM zv_panels WHERE dashboard_id = ${dashboardId})`,
+      ).catch(() => {});
       await sql`DELETE FROM zv_panels WHERE dashboard_id = ${dashboardId}`
         .execute(db)
         .catch(() => {});
-      await sql`DELETE FROM zvd_dashboard_shares WHERE dashboard_id = ${dashboardId}`
-        .execute(db)
-        .catch(() => {});
-      await sql`DELETE FROM zv_dashboards WHERE id = ${dashboardId}`.execute(db).catch(() => {});
+      await asEveryTenant(
+        db,
+        sql`DELETE FROM zvd_dashboard_shares WHERE dashboard_id = ${dashboardId}`,
+      ).catch(() => {});
+      await asEveryTenant(db, sql`DELETE FROM zv_dashboards WHERE id = ${dashboardId}`).catch(
+        () => {},
+      );
     }
   });
 

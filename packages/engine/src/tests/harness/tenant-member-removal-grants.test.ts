@@ -142,9 +142,9 @@ d('removing a tenant member drops every grant they hold in that tenant', () => {
     await sql`DELETE FROM zvd_permissions WHERE v0 LIKE ${`%${TAG}%`} OR v1 LIKE ${`%${TAG}%`}`
       .execute(db)
       .catch(() => {});
-    await sql`DELETE FROM zvd_permissions_pruned_034 WHERE v0 = ${USER}`
-      .execute(db)
-      .catch(() => {});
+    await asEveryTenant(db, sql`DELETE FROM zvd_permissions_pruned_034 WHERE v0 = ${USER}`).catch(
+      () => {},
+    );
     await sql`DELETE FROM "user" WHERE id = ${USER}`.execute(db).catch(() => {});
     await sql`DELETE FROM zv_tenants WHERE id IN (${TENANT_A}::uuid, ${TENANT_B}::uuid)`
       .execute(db)

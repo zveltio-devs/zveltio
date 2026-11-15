@@ -12,6 +12,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import {
   asDefaultTenant,
+  asEveryTenant,
   createGodSession,
   createMemberSession,
   getTestApp,
@@ -82,7 +83,7 @@ d('edge function administration (in-process)', () => {
     expect(fn.is_active).toBe(false);
     expect(fn).not.toHaveProperty('egress_before');
 
-    const row = await asDefaultTenant(
+    const row = await asEveryTenant(
       db,
       sql<{ metadata: { before: unknown; after: unknown } }>`
       SELECT metadata FROM zv_audit_log
@@ -93,7 +94,7 @@ d('edge function administration (in-process)', () => {
 
   it('deletes, audits it, and answers 404 for a function that is gone', async () => {
     expect((await call(admin, 'DELETE', `/${id}`)).status).toBe(200);
-    const row = await asDefaultTenant(
+    const row = await asEveryTenant(
       db,
       sql<{ n: number }>`
       SELECT count(*)::int AS n FROM zv_audit_log

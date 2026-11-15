@@ -18,7 +18,7 @@ import { createHash } from 'node:crypto';
 import { sql } from 'kysely';
 import { parseMigrationFile } from '../../db/migrations/index.js';
 import {
-  asDefaultTenant,
+  asEveryTenant,
   createGodSession,
   getTestApp,
   harnessAvailable,
@@ -48,7 +48,7 @@ d('invitation token at rest', () => {
     `.execute(db);
     expect(row.rows[0]!.token).toBe(sha256(token));
 
-    const leaked = await asDefaultTenant(
+    const leaked = await asEveryTenant(
       db,
       sql<{ n: number }>`
       SELECT COUNT(*)::int AS n FROM zv_audit_log
@@ -56,7 +56,7 @@ d('invitation token at rest', () => {
     `,
     );
     expect(leaked.rows[0]!.n).toBe(0);
-    const audited = await asDefaultTenant(
+    const audited = await asEveryTenant(
       db,
       sql<{ n: number }>`
       SELECT COUNT(*)::int AS n FROM zv_audit_log

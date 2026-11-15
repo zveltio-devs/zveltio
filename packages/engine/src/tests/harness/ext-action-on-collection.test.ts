@@ -36,6 +36,7 @@ import { getEnforcer, invalidateAllPermissionCaches } from '../../lib/tenancy/pe
 import { listDeclaredResources, recordManifest } from '../../lib/tenancy/resource-grants.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/tenant-manager.js';
 import {
+  asEveryTenant,
   createGodSession,
   createMemberSession,
   dropTestCollection,
@@ -117,7 +118,7 @@ d('an extension action gated on a collection it declares', () => {
     if (!db) return;
     await sql`DELETE FROM zv_extension_registry WHERE name = ${EXT}`.execute(db);
     await sql`DELETE FROM zvd_permissions WHERE v2 IN (${G}, ${GHOST})`.execute(db);
-    await sql`DELETE FROM zv_audit_log WHERE resource_id LIKE ${`${EXT}:%`}`.execute(db);
+    await asEveryTenant(db, sql`DELETE FROM zv_audit_log WHERE resource_id LIKE ${`${EXT}:%`}`);
     await dropTestCollection(db, G).catch(() => {});
   });
 

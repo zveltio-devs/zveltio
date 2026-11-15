@@ -15,7 +15,12 @@ import { beforeAll, afterAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asEveryTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -49,7 +54,7 @@ d('RPC failures do not disclose the database (in-process)', () => {
   });
 
   afterAll(async () => {
-    await sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${FN}`.execute(db);
+    await asEveryTenant(db, sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${FN}`);
     await sql`DROP FUNCTION IF EXISTS ${sql.raw(`"${FN}"`)}()`.execute(db);
     await sql`DROP TABLE IF EXISTS ${sql.raw(`"${TABLE}"`)}`.execute(db);
   });
@@ -91,7 +96,7 @@ d('RPC failures do not disclose the database (in-process)', () => {
       expect(res.status).toBe(200);
       expect(await res.text()).toContain('42');
     } finally {
-      await sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${ok}`.execute(db);
+      await asEveryTenant(db, sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${ok}`);
       await sql`DROP FUNCTION IF EXISTS ${sql.raw(`"${ok}"`)}()`.execute(db);
     }
   });

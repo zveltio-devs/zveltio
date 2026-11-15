@@ -21,7 +21,7 @@ import { Kysely, sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { BunSqlDialect } from '../../db/bun-sql-dialect.js';
 import type { DbSchema } from '../../db/schema.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asEveryTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const ROOT = '00000000-0000-0000-0000-000000000001';
@@ -74,7 +74,7 @@ d('tenant_id default on a connection with no tenant context', () => {
   afterAll(async () => {
     await one?.destroy().catch(() => undefined);
     if (!db) return;
-    await sql`DELETE FROM zv_media_tags WHERE name LIKE ${`${STAMP}%`}`.execute(db);
+    await asEveryTenant(db, sql`DELETE FROM zv_media_tags WHERE name LIKE ${`${STAMP}%`}`);
     await sql`DELETE FROM zv_tenants WHERE id = ${OTHER}::uuid`.execute(db);
   });
 

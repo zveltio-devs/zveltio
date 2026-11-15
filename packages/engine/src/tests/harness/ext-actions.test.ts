@@ -28,6 +28,7 @@ import { tenantMiddleware } from '../../middleware/tenant.js';
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import {
   asDefaultTenant,
+  asEveryTenant,
   createMemberSession,
   dropTestCollection,
   forgetRuleObjects,
@@ -125,7 +126,7 @@ d('extension actions run as the caller, in the request transaction', () => {
   const auditRows = async (action: string) => {
     await _settleAuditWrites();
     return (
-      await asDefaultTenant(
+      await asEveryTenant(
         db,
         sql<{ user_id: string | null; metadata: Record<string, unknown> }>`
         SELECT user_id, metadata FROM zv_audit_log
@@ -305,7 +306,7 @@ d('extension actions run as the caller, in the request transaction', () => {
       db,
     );
     await sql`DELETE FROM zvd_permissions WHERE v2 IN (${RES}, ${SENS})`.execute(db);
-    await asDefaultTenant(
+    await asEveryTenant(
       db,
       sql`DELETE FROM zv_audit_log WHERE event_type = 'extension.action.executed'`,
     );

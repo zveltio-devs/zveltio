@@ -37,7 +37,6 @@ import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import { clearLocalRateLimitCache } from '../../middleware/rate-limit.js';
 import { toJsonb } from '../../lib/jsonb.js';
 import {
-  asDefaultTenant,
   asEveryTenant,
   createGodSession,
   createMemberSession,
@@ -407,7 +406,7 @@ d('a route reaches its collections through host.collections (ADR 0025)', () => {
   it('the asSystem call is audited when it settles', async () => {
     await get(EXT, `/pub/sys/${row}`);
     await _settleAuditWrites();
-    const rows = await asDefaultTenant(
+    const rows = await asEveryTenant(
       db,
       sql<{ outcome: string }>`
       SELECT metadata->>'outcome' AS outcome FROM zv_audit_log

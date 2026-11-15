@@ -35,6 +35,7 @@ import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import { toJsonb } from '../../lib/jsonb.js';
 import {
   asDefaultTenant,
+  asEveryTenant,
   createGodSession,
   createMemberSession,
   dropTestCollection,
@@ -233,7 +234,7 @@ d('an action reaches any collection as its caller (ADR 0047)', () => {
     if (!db) return;
     await sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${UNAPPROVED})`.execute(db);
     await sql`DELETE FROM zvd_rls_policies WHERE collection = ${C}`.execute(db).catch(() => {});
-    await asDefaultTenant(db, sql`DELETE FROM zv_audit_log WHERE resource_id LIKE ${'anyc-%'}`);
+    await asEveryTenant(db, sql`DELETE FROM zv_audit_log WHERE resource_id LIKE ${'anyc-%'}`);
     await dropTestCollection(db, C).catch(() => {});
     await forgetRuleObjects(db, RES);
   });

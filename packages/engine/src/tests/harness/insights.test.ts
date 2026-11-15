@@ -10,7 +10,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asEveryTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -35,15 +40,18 @@ d('insights routes (in-process)', () => {
   afterAll(async () => {
     if (!db) return;
     if (savedQueryId) {
-      await sql`DELETE FROM zvd_insight_saved_queries WHERE id = ${savedQueryId}`
-        .execute(db)
-        .catch(() => {});
+      await asEveryTenant(
+        db,
+        sql`DELETE FROM zvd_insight_saved_queries WHERE id = ${savedQueryId}`,
+      ).catch(() => {});
     }
     if (dashboardId) {
       await sql`DELETE FROM zv_panels WHERE dashboard_id = ${dashboardId}`
         .execute(db)
         .catch(() => {});
-      await sql`DELETE FROM zv_dashboards WHERE id = ${dashboardId}`.execute(db).catch(() => {});
+      await asEveryTenant(db, sql`DELETE FROM zv_dashboards WHERE id = ${dashboardId}`).catch(
+        () => {},
+      );
     }
   });
 
@@ -136,8 +144,9 @@ d('insights routes (in-process)', () => {
     });
     expect(run.status).toBe(400);
 
-    await sql`DELETE FROM zvd_insight_saved_queries WHERE id = ${query.id}`
-      .execute(db)
-      .catch(() => {});
+    await asEveryTenant(
+      db,
+      sql`DELETE FROM zvd_insight_saved_queries WHERE id = ${query.id}`,
+    ).catch(() => {});
   });
 });

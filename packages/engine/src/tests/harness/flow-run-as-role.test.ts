@@ -28,7 +28,6 @@ import {
   withTenantIsolation,
 } from '../../lib/tenancy/index.js';
 import {
-  asDefaultTenant,
   asEveryTenant,
   asTenant,
   createGodSession,

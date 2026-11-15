@@ -19,6 +19,7 @@ import { _internalForTests } from '../../lib/flows/flow-scheduler.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import { withTenantIsolation } from '../../lib/tenancy/index.js';
 import {
+  asEveryTenant,
   asTenant,
   createMemberSession,
   getTestApp,
@@ -108,18 +109,18 @@ d('media tables under tenant RLS', () => {
               UNION ALL SELECT 'file_tags', tenant_id FROM zv_media_file_tags WHERE file_id IN (${ids})
             $$`)
       .execute(db);
-    await sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${FN}`.execute(db);
+    await asEveryTenant(db, sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${FN}`);
     await sql`INSERT INTO zvd_rpc_functions (function_name, required_role, is_enabled)
               VALUES (${FN}, 'member', true)`.execute(db);
   }, 60_000);
 
   afterAll(async () => {
     if (!db) return;
-    await sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${FN}`.execute(db);
+    await asEveryTenant(db, sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${FN}`);
     await sql.raw(`DROP FUNCTION IF EXISTS "${FN}"()`).execute(db);
-    await sql`DELETE FROM zv_media_files WHERE original_name = ${STAMP}`.execute(db);
-    await sql`DELETE FROM zv_media_folders WHERE name = ${STAMP}`.execute(db);
-    await sql`DELETE FROM zv_media_tags WHERE name LIKE ${`${STAMP}%`}`.execute(db);
+    await asEveryTenant(db, sql`DELETE FROM zv_media_files WHERE original_name = ${STAMP}`);
+    await asEveryTenant(db, sql`DELETE FROM zv_media_folders WHERE name = ${STAMP}`);
+    await asEveryTenant(db, sql`DELETE FROM zv_media_tags WHERE name LIKE ${`${STAMP}%`}`);
     await sql`DELETE FROM zv_api_keys WHERE name LIKE ${`${STAMP}-%`}`.execute(db);
     await sql`DELETE FROM zv_tenant_users WHERE tenant_id = ${OTHER}::uuid`.execute(db);
     await sql`DELETE FROM zv_tenants WHERE id = ${OTHER}::uuid`.execute(db);

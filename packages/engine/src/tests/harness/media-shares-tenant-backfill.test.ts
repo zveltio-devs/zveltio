@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { rollbackMigration, runPending } from '../../db/migrations/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asEveryTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const ROOT = '00000000-0000-0000-0000-000000000001';
@@ -33,8 +33,8 @@ d('media shares carry the firm of what they share', () => {
   afterAll(async () => {
     if (!db) return;
     await sql`DELETE FROM zv_media_shares WHERE created_by = ${STAMP}`.execute(db);
-    await sql`DELETE FROM zv_media_files WHERE filename = ${STAMP}`.execute(db);
-    await sql`DELETE FROM zv_media_folders WHERE name = ${STAMP}`.execute(db);
+    await asEveryTenant(db, sql`DELETE FROM zv_media_files WHERE filename = ${STAMP}`);
+    await asEveryTenant(db, sql`DELETE FROM zv_media_folders WHERE name = ${STAMP}`);
     await sql`DELETE FROM zv_tenants WHERE id = ${OTHER}::uuid`.execute(db);
     await sql`DELETE FROM "user" WHERE id = ${STAMP}`.execute(db);
   });

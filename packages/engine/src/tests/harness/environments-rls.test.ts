@@ -23,6 +23,7 @@ import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import { initTenantManager, withTenantIsolation } from '../../lib/tenancy/index.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
 import {
+  asEveryTenant,
   asTenant,
   createGodSession,
   createMemberSession,
@@ -100,7 +101,7 @@ d('zv_environments under tenant RLS', () => {
               SELECT tenant_id FROM zv_environments WHERE slug = '${STAMP}'
             $$`)
       .execute(db);
-    await sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${FN}`.execute(db);
+    await asEveryTenant(db, sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${FN}`);
     await sql`INSERT INTO zvd_rpc_functions (function_name, required_role, is_enabled)
               VALUES (${FN}, 'member', true)`.execute(db);
   }, 60_000);
@@ -109,10 +110,10 @@ d('zv_environments under tenant RLS', () => {
     if (db) initTenantManager(db);
     await plain?.destroy().catch(() => undefined);
     if (!db) return;
-    await sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${FN}`.execute(db);
+    await asEveryTenant(db, sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${FN}`);
     await sql.raw(`DROP FUNCTION IF EXISTS "${FN}"()`).execute(db);
     await sql`DELETE FROM zv_api_keys WHERE name LIKE ${`${STAMP}-%`}`.execute(db);
-    await sql`DELETE FROM zv_environments WHERE slug = ${STAMP}`.execute(db);
+    await asEveryTenant(db, sql`DELETE FROM zv_environments WHERE slug = ${STAMP}`);
     await sql`DELETE FROM zv_tenant_users WHERE tenant_id = ${OTHER}::uuid`.execute(db);
     await sql`DELETE FROM zv_tenants WHERE id = ${OTHER}::uuid`.execute(db);
   });

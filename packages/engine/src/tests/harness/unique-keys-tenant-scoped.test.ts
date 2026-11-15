@@ -38,7 +38,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asEveryTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -159,7 +159,9 @@ d('unique keys are scoped to the tenant (in-process)', () => {
       await expect(issue(B, 'Client B again').execute(db)).rejects.toThrow(/duplicate key/i);
     } finally {
       await sql`ROLLBACK TO SAVEPOINT gate_unique_keys`.execute(db).catch(() => {});
-      await sql`DELETE FROM zvd_invoices WHERE number = ${number}`.execute(db).catch(() => {});
+      await asEveryTenant(db, sql`DELETE FROM zvd_invoices WHERE number = ${number}`).catch(
+        () => {},
+      );
     }
   });
 

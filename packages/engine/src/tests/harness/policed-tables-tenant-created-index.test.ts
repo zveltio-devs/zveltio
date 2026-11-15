@@ -13,7 +13,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { rollbackMigration, runPending } from '../../db/migrations/index.js';
 import { reconcileExtensionTenantRLS } from '../../lib/tenancy/tenant-manager.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asEveryTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const TABLES = [
@@ -52,7 +52,7 @@ d('policed engine tables: tenant/created_at index from the migration', () => {
 
   afterAll(async () => {
     if (!db) return;
-    await sql`DELETE FROM zv_media_tags WHERE name LIKE ${`${STAMP}%`}`.execute(db);
+    await asEveryTenant(db, sql`DELETE FROM zv_media_tags WHERE name LIKE ${`${STAMP}%`}`);
   });
 
   it('exists after migrating, and the reconciler adds none beside it', async () => {

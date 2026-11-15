@@ -30,6 +30,7 @@ import { exportSchema } from '../../lib/schema-artifact/export.js';
 import { invalidateRulesCache } from '../../lib/validation-engine.js';
 import {
   ALL_COLLECTIONS_ACTOR,
+  asEveryTenant,
   createGodSession,
   createMemberSession,
   getTestApp,
@@ -174,8 +175,9 @@ d('validation rules per tenant, tighten-only', () => {
     if (!db) return;
     await sql`DELETE FROM zv_validation_rules WHERE collection = ${COLL}`.execute(db);
     await sql`DELETE FROM zvd_validation_rule_groups WHERE collection = ${COLL}`.execute(db);
-    await sql`DELETE FROM zv_audit_log WHERE resource_type = 'validation_rule' AND metadata->>'collection' = ${COLL}`.execute(
+    await asEveryTenant(
       db,
+      sql`DELETE FROM zv_audit_log WHERE resource_type = 'validation_rule' AND metadata->>'collection' = ${COLL}`,
     );
     await sql`DELETE FROM zv_extension_registry WHERE name = ${PROBE}`.execute(db);
     await sql.raw(`DROP TABLE IF EXISTS "zvd_${COLL}" CASCADE`).execute(db);

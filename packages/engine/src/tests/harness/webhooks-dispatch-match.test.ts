@@ -16,6 +16,7 @@ import { enqueueChangeEvent, WEBHOOK_QUEUE } from '../../lib/webhooks.js';
 import { withTenantIsolation } from '../../lib/tenancy/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import {
+  asEveryTenant,
   asTenant,
   dropTestCollection,
   getTestApp,
@@ -78,8 +79,11 @@ d('webhook dispatch: which hooks match', () => {
     await sql`DELETE FROM pgboss.job WHERE name = ${WEBHOOK_QUEUE}
                AND data->>'webhookId' = ANY(${Object.values(ids)})`.execute(db);
     for (const id of Object.values(ids)) {
-      await sql`DELETE FROM zvd_webhook_deliveries WHERE webhook_id = ${id}::uuid`.execute(db);
-      await sql`DELETE FROM zvd_webhooks WHERE id = ${id}::uuid`.execute(db);
+      await asEveryTenant(
+        db,
+        sql`DELETE FROM zvd_webhook_deliveries WHERE webhook_id = ${id}::uuid`,
+      );
+      await asEveryTenant(db, sql`DELETE FROM zvd_webhooks WHERE id = ${id}::uuid`);
     }
     await sql`DELETE FROM zv_tenants WHERE id = ${OTHER_TENANT}::uuid`.execute(db);
   });

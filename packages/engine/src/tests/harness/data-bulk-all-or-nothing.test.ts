@@ -90,7 +90,7 @@ d('bulk write is all or nothing (ADR 0044, in-process)', () => {
   /** Rows, revisions, webhook jobs and record events the collection has so far. */
   async function footprint() {
     const n = async (q: ReturnType<typeof sql<{ n: string }>>) =>
-      Number((await q.execute(db)).rows[0]!.n);
+      Number((await asDefaultTenant(db, q)).rows[0]!.n);
     return {
       rows: await n(
         sql<{ n: string }>`SELECT count(*)::text AS n FROM ${sql.table(`zvd_${COLLECTION}`)}`,

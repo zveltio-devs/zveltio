@@ -23,7 +23,6 @@ import { DDLManager } from '../../lib/data/index.js';
 import { executeFlow } from '../../lib/flows/index.js';
 import { dispatchToWs, SCHEMA_CHANGED_EVENT } from '../../lib/runtime/index.js';
 import {
-  asDefaultTenant,
   asEveryTenant,
   asTenant,
   createGodSession,

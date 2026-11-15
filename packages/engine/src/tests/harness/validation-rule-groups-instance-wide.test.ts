@@ -38,6 +38,7 @@ import {
 } from '../../lib/tenancy/index.js';
 import {
   asDefaultTenant,
+  asEveryTenant,
   createGodSession,
   createMemberSession,
   getTestApp,
@@ -212,7 +213,7 @@ d('validation rule groups are instance-wide', () => {
     await runMigration('up', ADOPT);
     await ensureRlsEnforcementRole(db);
     await sql`DELETE FROM zv_migrations WHERE name LIKE ${`ext:${PROBE}:%`}`.execute(db);
-    await asDefaultTenant(
+    await asEveryTenant(
       db,
       sql`DELETE FROM zv_audit_log WHERE resource_type = 'validation_rule_group'
                 AND metadata->>'collection' IN (${C1}, ${C2})`,
@@ -314,7 +315,7 @@ d('validation rule groups are instance-wide', () => {
     expect((await groups(C2)).map((g) => g.name)).toEqual(['solo']);
 
     await _settleAuditWrites();
-    const trail = await asDefaultTenant(
+    const trail = await asEveryTenant(
       db,
       sql<{ event_type: string; tenant_id: string | null }>`
       SELECT event_type, tenant_id FROM zv_audit_log

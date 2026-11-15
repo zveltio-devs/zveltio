@@ -160,10 +160,13 @@ export function asDefaultTenant<R>(
  * a row whose `tenant_id` has no `zv_tenants` row: every firm is the firms that
  * exist.
  */
-export function asEveryTenant<T>(db: Database, fn: (trx: Database) => Promise<T>): Promise<T> {
+export function asEveryTenant<T>(
+  db: Database,
+  fn: ((trx: Database) => Promise<T>) | { execute(executor: Database): Promise<T> },
+): Promise<T> {
   return db.transaction().execute(async (trx) => {
     await publishEveryTenant(trx);
-    return fn(trx);
+    return typeof fn === 'function' ? fn(trx) : fn.execute(trx);
   });
 }
 

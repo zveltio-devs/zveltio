@@ -24,7 +24,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import {
-  asDefaultTenant,
+  asEveryTenant,
   createGodSession,
   getTestApp,
   harnessAvailable,
@@ -109,7 +109,7 @@ d('after-response writers survive a failed write (in-process)', () => {
       .where('path', '=', path())
       .execute()
       .catch(() => {});
-    await asDefaultTenant(db, (t) =>
+    await asEveryTenant(db, (t) =>
       t.deleteFrom('zv_audit_log').where('resource_id', '=', path()).execute(),
     ).catch(() => {});
   });
@@ -129,7 +129,7 @@ d('after-response writers survive a failed write (in-process)', () => {
 
   it('records the god action that failed in zv_audit_log', async () => {
     const row = await eventually(() =>
-      asDefaultTenant(db, (t) =>
+      asEveryTenant(db, (t) =>
         t
           .selectFrom('zv_audit_log')
           .select(['event_type'])

@@ -45,6 +45,7 @@ import {
 } from '../../lib/tenancy/index.js';
 import {
   ALL_COLLECTIONS_ACTOR,
+  asEveryTenant,
   createGodSession,
   createMemberSession,
   getTestApp,
@@ -162,8 +163,9 @@ d('validation rules are written by an instance admin only', () => {
     _resetExtensionDbRoleForTests();
     if (!db) return;
     await sql`DELETE FROM zv_validation_rules WHERE collection = ${COLL}`.execute(db);
-    await sql`DELETE FROM zv_audit_log WHERE resource_type = 'validation_rule' AND metadata->>'collection' = ${COLL}`.execute(
+    await asEveryTenant(
       db,
+      sql`DELETE FROM zv_audit_log WHERE resource_type = 'validation_rule' AND metadata->>'collection' = ${COLL}`,
     );
     await sql`DELETE FROM zv_extension_registry WHERE name = ${PROBE}`.execute(db);
     await sql`DELETE FROM zvd_permissions WHERE v0 = ${firmAdmin.userId}`.execute(db);
@@ -182,8 +184,9 @@ d('validation rules are written by an instance admin only', () => {
     expect(res.status).toBe(200);
     expect(((await res.json()) as { row: { tenant_id: string } }).row.tenant_id).toBe(FIRM.id);
     await sql`DELETE FROM zv_validation_rules WHERE collection = ${COLL}`.execute(db);
-    await sql`DELETE FROM zv_audit_log WHERE resource_type = 'validation_rule' AND metadata->>'collection' = ${COLL}`.execute(
+    await asEveryTenant(
       db,
+      sql`DELETE FROM zv_audit_log WHERE resource_type = 'validation_rule' AND metadata->>'collection' = ${COLL}`,
     );
   });
 

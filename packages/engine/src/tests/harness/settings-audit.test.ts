@@ -16,7 +16,12 @@ import { beforeAll, afterAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asEveryTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -31,7 +36,7 @@ d('settings writes are audited (in-process)', () => {
   });
 
   afterAll(async () => {
-    await sql`DELETE FROM zv_audit_log WHERE resource_type = 'setting'`.execute(db);
+    await asEveryTenant(db, sql`DELETE FROM zv_audit_log WHERE resource_type = 'setting'`);
   });
 
   async function entries(): Promise<Array<Record<string, unknown>>> {

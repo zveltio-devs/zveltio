@@ -26,7 +26,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { parseMigrationFile } from '../../db/migrations/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asEveryTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
@@ -105,9 +105,9 @@ d('migration 012 prunes only role grants no membership supports', () => {
     await sql`DELETE FROM zvd_permissions WHERE v2 = ${TENANT} OR v0 IN (${DEMOTED}, ${REMOVED}, ${MANAGER}, ${GODLIKE})`
       .execute(db)
       .catch(() => {});
-    await sql`DELETE FROM zvd_permissions_pruned_012 WHERE v2 = ${TENANT}`
-      .execute(db)
-      .catch(() => {});
+    await asEveryTenant(db, sql`DELETE FROM zvd_permissions_pruned_012 WHERE v2 = ${TENANT}`).catch(
+      () => {},
+    );
     await sql`DELETE FROM zv_tenant_users WHERE tenant_id = ${TENANT}::uuid`
       .execute(db)
       .catch(() => {});

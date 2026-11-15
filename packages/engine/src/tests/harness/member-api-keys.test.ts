@@ -15,7 +15,7 @@ import { _settleAuditWrites } from '../../lib/audit.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/index.js';
 import { invalidateRateLimitCache } from '../../middleware/rate-limit.js';
 import {
-  asDefaultTenant,
+  asEveryTenant,
   createGodSession,
   createMemberSession,
   getTestApp,
@@ -233,7 +233,7 @@ d('members issue their own API keys (ADR 0010)', () => {
     expect((await revoke(owner, id)).status).toBe(404);
 
     await _settleAuditWrites();
-    const audit = await asDefaultTenant(
+    const audit = await asEveryTenant(
       db,
       sql<{ event_type: string; user_id: string; tenant_id: string }>`
       SELECT event_type, user_id, tenant_id::text AS tenant_id FROM zv_audit_log

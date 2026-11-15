@@ -30,6 +30,7 @@ import { sessionPrefetch } from '../../middleware/session-prefetch.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import {
+  asEveryTenant,
   asTenant,
   createMemberSession,
   getTestApp,
@@ -153,7 +154,7 @@ d('ctx.internals.withTenantIsolation enters only the running tenant without tena
     await sql`DELETE FROM zv_extension_registry WHERE name IN (${NOCAP}, ${ADMIN}, ${ENTER})`.execute(
       db,
     );
-    await sql`DELETE FROM zv_dashboards WHERE name = ${STAMP}`.execute(db);
+    await asEveryTenant(db, sql`DELETE FROM zv_dashboards WHERE name = ${STAMP}`);
     await sql`DELETE FROM zv_tenants WHERE id = ${OTHER}::uuid`.execute(db);
   });
 

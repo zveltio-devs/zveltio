@@ -124,7 +124,7 @@ d('zv_flows under tenant RLS', () => {
               SELECT tenant_id FROM zv_flows WHERE name = '${STAMP}-seed'
             $$`)
       .execute(db);
-    await sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${FN}`.execute(db);
+    await asEveryTenant(db, sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${FN}`);
     await sql`INSERT INTO zvd_rpc_functions (function_name, required_role, is_enabled)
               VALUES (${FN}, 'member', true)`.execute(db);
   }, 60_000);
@@ -133,7 +133,7 @@ d('zv_flows under tenant RLS', () => {
     flowScheduler.stop();
     await plain?.destroy().catch(() => undefined);
     if (!db) return;
-    await sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${FN}`.execute(db);
+    await asEveryTenant(db, sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${FN}`);
     await sql.raw(`DROP FUNCTION IF EXISTS "${FN}"()`).execute(db);
     await asEveryTenant(db, (trx) =>
       sql`DELETE FROM zv_flows WHERE name LIKE ${`${STAMP}%`}`.execute(trx),

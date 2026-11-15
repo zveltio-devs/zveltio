@@ -100,7 +100,7 @@ d('migration 098: one instance validation rule per key', () => {
     await sql`DELETE FROM zv_validation_rules WHERE collection = ${C}`.execute(db);
     for (const t of created) await sql.raw(`DROP TABLE IF EXISTS ${t}`).execute(db);
     if (!created.includes(G))
-      await sql`DELETE FROM ${sql.table(G)} WHERE collection = ${C}`.execute(db);
+      await asEveryTenant(db, sql`DELETE FROM ${sql.table(G)} WHERE collection = ${C}`);
     if (!created.includes(T)) {
       await asEveryTenant(db, (trx) =>
         sql`DELETE FROM ${sql.table(T)} WHERE label = 'vrik'`.execute(trx),

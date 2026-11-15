@@ -30,7 +30,6 @@ import { withTenantIsolation } from '../../lib/tenancy/index.js';
 import { enqueueChangeEvent } from '../../lib/webhooks.js';
 import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
 import {
-  asDefaultTenant,
   asEveryTenant,
   asTenant,
   createGodSession,

@@ -19,7 +19,6 @@ import { executeFlow } from '../../lib/flows/index.js';
 import { withTenantIsolation } from '../../lib/tenancy/index.js';
 import { enqueueChangeEvent } from '../../lib/webhooks.js';
 import {
-  asDefaultTenant,
   asEveryTenant,
   asTenant,
   drainFlowJobs,

@@ -18,7 +18,12 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { applyFileVisibility, mayDeleteFile, mayReadFile } from '../../lib/media-visibility.js';
 import { withTenantIsolation } from '../../lib/tenancy/tenant-manager.js';
-import { asTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asEveryTenant,
+  asTenant,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -59,9 +64,9 @@ d('media visibility is tenant-bound', () => {
   });
 
   afterAll(async () => {
-    await sql`DELETE FROM zv_media_files WHERE filename = ${STAMP}`
-      .execute(db)
-      .catch(() => undefined);
+    await asEveryTenant(db, sql`DELETE FROM zv_media_files WHERE filename = ${STAMP}`).catch(
+      () => undefined,
+    );
     await sql`DELETE FROM zv_tenant_users WHERE user_id = ${USER}`
       .execute(db)
       .catch(() => undefined);

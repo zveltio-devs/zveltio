@@ -10,6 +10,7 @@ import { _settleAuditWrites } from '../../lib/audit.js';
 import { DDLManager } from '../../lib/data/index.js';
 import {
   asDefaultTenant,
+  asEveryTenant,
   createGodSession,
   createMemberSession,
   getTestApp,
@@ -206,7 +207,7 @@ d('admin RLS routes (in-process)', () => {
 
     // Who may read which rows is a permission; each change leaves a row.
     await _settleAuditWrites();
-    const rows = await asDefaultTenant(
+    const rows = await asEveryTenant(
       db,
       sql<{ event_type: string }>`
       SELECT event_type FROM zv_audit_log

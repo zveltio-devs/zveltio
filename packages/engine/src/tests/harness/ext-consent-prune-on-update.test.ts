@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { recordManifest } from '../../lib/tenancy/resource-grants.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asEveryTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const NAME = `cprune${Date.now() % 1_000_000}`;
@@ -58,7 +58,7 @@ d('consent on a new manifest', () => {
     if (dir) rmSync(dir, { recursive: true, force: true });
     if (!db) return;
     await sql`DELETE FROM zv_extension_registry WHERE name IN (${NAME}, ${NONE})`.execute(db);
-    await sql`DELETE FROM zv_audit_log WHERE resource_id IN (${NAME}, ${NONE})`.execute(db);
+    await asEveryTenant(db, sql`DELETE FROM zv_audit_log WHERE resource_id IN (${NAME}, ${NONE})`);
   });
 
   it('keeps the consent when the first manifest is recorded, and when it is recorded again', async () => {

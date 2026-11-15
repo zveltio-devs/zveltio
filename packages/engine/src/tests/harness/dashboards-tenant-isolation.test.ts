@@ -106,9 +106,10 @@ d('dashboards tenant isolation (in-process)', () => {
         trx,
       ),
     ).catch(() => {});
-    await sql`DELETE FROM zvd_dashboard_shares WHERE dashboard_id = ${FOREIGN_ID}`
-      .execute(db)
-      .catch(() => {});
+    await asEveryTenant(
+      db,
+      sql`DELETE FROM zvd_dashboard_shares WHERE dashboard_id = ${FOREIGN_ID}`,
+    ).catch(() => {});
     await sql`DELETE FROM zv_panels WHERE dashboard_id = ${FOREIGN_ID}`.execute(db).catch(() => {});
     await asEveryTenant(db, (trx) =>
       trx

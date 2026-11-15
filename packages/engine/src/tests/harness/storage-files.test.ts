@@ -8,7 +8,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asEveryTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -25,7 +30,9 @@ d('storage files/folders (in-process)', () => {
 
   afterAll(async () => {
     if (db && folderId)
-      await sql`DELETE FROM zv_media_folders WHERE id = ${folderId}`.execute(db).catch(() => {});
+      await asEveryTenant(db, sql`DELETE FROM zv_media_folders WHERE id = ${folderId}`).catch(
+        () => {},
+      );
   });
 
   it('lists files (GET /)', async () => {

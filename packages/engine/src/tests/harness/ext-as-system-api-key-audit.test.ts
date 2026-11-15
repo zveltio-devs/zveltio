@@ -26,7 +26,7 @@ import { sessionPrefetch } from '../../middleware/session-prefetch.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import {
-  asDefaultTenant,
+  asEveryTenant,
   createGodSession,
   dropTestCollection,
   getTestApp,
@@ -133,7 +133,7 @@ d('asSystem names the API key that asked for it', () => {
     });
     expect(res.status, await res.clone().text()).toBe(200);
     await _settleAuditWrites();
-    const rows = await asDefaultTenant(
+    const rows = await asEveryTenant(
       db,
       sql<{ user_id: string | null; api_key: string | null }>`
       SELECT user_id, metadata->>'api_key' AS api_key FROM zv_audit_log
