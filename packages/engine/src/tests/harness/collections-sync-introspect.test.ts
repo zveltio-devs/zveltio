@@ -7,7 +7,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 import { toJsonb } from '../../lib/jsonb.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -63,9 +68,12 @@ d('collections sync-schema introspect (in-process)', () => {
 
     // The fields just recorded reach what is derived from them now, not at the
     // next boot: the search trigger indexes the synced text column.
-    const fn = await sql<{ src: string }>`
+    const fn = await asDefaultTenant(
+      db,
+      sql<{ src: string }>`
       SELECT prosrc AS src FROM pg_proc WHERE proname = ${`zvd_${COLLECTION}_search_trigger`}
-    `.execute(db);
+    `,
+    );
     expect(fn.rows[0]?.src ?? '').toContain('legacy_col');
   });
 });

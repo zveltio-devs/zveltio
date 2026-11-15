@@ -14,6 +14,7 @@ import { readGranted } from '../../lib/extensions/consent.js';
 import { resolveExtensionsBase } from '../../lib/extensions/extension-paths.js';
 import { DEFAULT_TENANT_ID, getEnforcer } from '../../lib/tenancy/index.js';
 import {
+  asEveryTenant,
   createMemberSession,
   createSteppedUpGod,
   getTestApp,
@@ -91,10 +92,13 @@ d('bind-egress-slot', () => {
     expect(res.status).toBe(200);
     expect(await readGranted(db, EXT)).toEqual([]);
 
-    const audit = await sql<{ metadata: Record<string, unknown> }>`
+    const audit = await asEveryTenant(
+      db,
+      sql<{ metadata: Record<string, unknown> }>`
       SELECT metadata FROM zv_audit_log
       WHERE event_type = 'extension.egress.slot_bound' AND resource_id = ${EXT}
-      ORDER BY created_at`.execute(db);
+      ORDER BY created_at`,
+    );
     expect(audit.rows.map((r) => r.metadata.binding)).toEqual([
       'egress:provider=api.example.com',
       'egress:provider=localhost:11434;private',

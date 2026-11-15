@@ -30,6 +30,7 @@ import { withTenantIsolation } from '../../lib/tenancy/index.js';
 import { enqueueChangeEvent } from '../../lib/webhooks.js';
 import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
 import {
+  asDefaultTenant,
   asEveryTenant,
   asTenant,
   createGodSession,
@@ -71,10 +72,13 @@ d('bulk writes fire their automations (in-process)', () => {
     // passing in CI, which is the shape of a test that will fail for everyone
     // eventually and for nobody reproducibly.
     for (let i = 0; i < 100; i++) {
-      const seen = await sql<{ n: number }>`
+      const seen = await asDefaultTenant(
+        db,
+        sql<{ n: number }>`
         SELECT count(*)::int AS n FROM information_schema.tables
          WHERE table_schema = 'public' AND table_name = ${`zvd_${coll}`}
-      `.execute(db);
+      `,
+      );
       if (seen.rows[0]!.n > 0) break;
       await Bun.sleep(100);
     }

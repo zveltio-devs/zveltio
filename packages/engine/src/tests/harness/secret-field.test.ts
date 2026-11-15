@@ -308,11 +308,14 @@ d('a secret field: write-only, read back by its own extension alone (ADR 0024)',
   });
 
   it('is sealed in the database: no request role may SELECT it', async () => {
-    const roles = await sql<{ role: string; ok: boolean }>`
+    const roles = await asDefaultTenant(
+      db,
+      sql<{ role: string; ok: boolean }>`
       SELECT rolname AS role, has_column_privilege(oid, ${`zvd_${S}`}::regclass, 'tok', 'SELECT') AS ok
         FROM pg_roles
        WHERE rolname IN ('zveltio_rls', 'zveltio_worker', 'zveltio_flow_reader', 'zveltio_ext')
-       ORDER BY rolname`.execute(db);
+       ORDER BY rolname`,
+    );
     expect(roles.rows.length).toBe(4);
     for (const r of roles.rows) expect(`${r.role} ${r.ok}`).toBe(`${r.role} false`);
   });

@@ -32,6 +32,7 @@ import {
 } from '../../lib/worker-extension-host.js';
 import {
   ALL_COLLECTIONS_ACTOR,
+  asDefaultTenant,
   forgetInstalled,
   getTestApp,
   harnessAvailable,
@@ -169,10 +170,11 @@ d('one transaction per request across the worker bridge', () => {
   const count = async (t: string, s: string, where = 'true') =>
     Number(
       (
-        await sql<{
-          n: number;
-        }>`SELECT count(*)::int AS n FROM ${sql.table(tbl(t, s))} WHERE ${sql.raw(where)}`.execute(
+        await asDefaultTenant(
           db,
+          sql<{
+            n: number;
+          }>`SELECT count(*)::int AS n FROM ${sql.table(tbl(t, s))} WHERE ${sql.raw(where)}`,
         )
       ).rows[0]?.n,
     );
@@ -271,9 +273,12 @@ d('one transaction per request across the worker bridge', () => {
             status: invoice.status,
             next: Number(
               (
-                await sql<{
-                  n: number;
-                }>`SELECT next_number AS n FROM ${sql.table(tbl(transport, 'series'))}`.execute(db)
+                await asDefaultTenant(
+                  db,
+                  sql<{
+                    n: number;
+                  }>`SELECT next_number AS n FROM ${sql.table(tbl(transport, 'series'))}`,
+                )
               ).rows[0]?.n,
             ),
             invoices: await count(transport, 'invoices'),
@@ -285,10 +290,13 @@ d('one transaction per request across the worker bridge', () => {
           savepoint: {
             status: savepoint.status,
             names: (
-              await sql<{
-                first_name: string;
-              }>`SELECT first_name FROM ${sql.table(tbl(transport, 'contacts'))}
-                WHERE first_name LIKE 'sp-%' ORDER BY id`.execute(db)
+              await asDefaultTenant(
+                db,
+                sql<{
+                  first_name: string;
+                }>`SELECT first_name FROM ${sql.table(tbl(transport, 'contacts'))}
+                WHERE first_name LIKE 'sp-%' ORDER BY id`,
+              )
             ).rows.map((r) => r.first_name),
           },
           thrown: {

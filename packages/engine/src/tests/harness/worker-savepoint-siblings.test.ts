@@ -19,6 +19,7 @@ import { runWithDomain } from '../../lib/tenancy/tenant-context.js';
 import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extension-host.js';
 import {
   ALL_COLLECTIONS_ACTOR,
+  asDefaultTenant,
   forgetInstalled,
   getTestApp,
   harnessAvailable,
@@ -125,9 +126,9 @@ d('sibling db.transaction() scopes in a worker take turns', () => {
       const res = await app.request(`/ext/${NAME}/siblings`, { method: 'POST' });
       status = res.status;
       settled = await res.json();
-      rows = (await sql<{ who: string }>`SELECT who FROM ${sql.table(TABLE)}`.execute(db)).rows.map(
-        (r) => r.who,
-      );
+      rows = (
+        await asDefaultTenant(db, sql<{ who: string }>`SELECT who FROM ${sql.table(TABLE)}`)
+      ).rows.map((r) => r.who);
     } finally {
       await getWorkerHost(app).stopAll();
       await revokeExtensionDbRoles(db, NAME, true).catch(() => undefined);

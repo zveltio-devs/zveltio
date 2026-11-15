@@ -10,7 +10,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const PARENT = `hrpar_${Date.now()}`;
@@ -80,10 +85,13 @@ d('collections relation DDL (in-process)', () => {
       .executeTakeFirst();
     expect(rel?.target_collection).toBe(PARENT);
 
-    const fk = await sql<{ column_name: string }>`
+    const fk = await asDefaultTenant(
+      db,
+      sql<{ column_name: string }>`
       SELECT column_name FROM information_schema.columns
       WHERE table_name = ${`zvd_${CHILD}`} AND column_name = 'parent'
-    `.execute(db);
+    `,
+    );
     expect(fk.rows.length).toBe(1);
   });
 });

@@ -74,8 +74,11 @@ d('consent on a new manifest', () => {
     ).toBe(true);
     expect(await granted(NAME)).toEqual(['data:system']);
     const audit = (
-      await sql<{ metadata: unknown }>`SELECT metadata FROM zv_audit_log
-        WHERE event_type = 'extension.capabilities.pruned' AND resource_id = ${NAME}`.execute(db)
+      await asEveryTenant(
+        db,
+        sql<{ metadata: unknown }>`SELECT metadata FROM zv_audit_log
+        WHERE event_type = 'extension.capabilities.pruned' AND resource_id = ${NAME}`,
+      )
     ).rows;
     expect(audit).toHaveLength(1);
     expect(JSON.stringify(audit[0]?.metadata)).toContain('egress:api=api.example.com');

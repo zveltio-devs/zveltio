@@ -7,7 +7,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const PARENT = `ho2mdp_${Date.now()}`;
@@ -96,9 +101,12 @@ d('data o2m cascade on delete (in-process)', () => {
     });
     expect([200, 204]).toContain(del.status);
 
-    const row = await sql<{ id: string }>`
+    const row = await asDefaultTenant(
+      db,
+      sql<{ id: string }>`
       SELECT id FROM ${sql.id(`zvd_${CHILD}`)} WHERE id = ${childId}
-    `.execute(db);
+    `,
+    );
     expect(row.rows.length).toBe(0);
   });
 });

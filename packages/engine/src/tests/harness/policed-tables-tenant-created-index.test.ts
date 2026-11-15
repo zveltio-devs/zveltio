@@ -13,7 +13,12 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { rollbackMigration, runPending } from '../../db/migrations/index.js';
 import { reconcileExtensionTenantRLS } from '../../lib/tenancy/tenant-manager.js';
-import { asEveryTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  asEveryTenant,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const TABLES = [
@@ -80,9 +85,12 @@ d('policed engine tables: tenant/created_at index from the migration', () => {
           () => true,
         );
       expect(failed).toBe(true);
-      const leftover = await sql<{ valid: boolean }>`
+      const leftover = await asDefaultTenant(
+        db,
+        sql<{ valid: boolean }>`
         SELECT indisvalid AS valid FROM pg_index
-         WHERE indexrelid = 'idx_zv_media_tags_tenant_created'::regclass`.execute(db);
+         WHERE indexrelid = 'idx_zv_media_tags_tenant_created'::regclass`,
+      );
       expect(leftover.rows[0]?.valid).toBe(false);
     } finally {
       // A failure above must not leave the shared database at 029 for every later file.

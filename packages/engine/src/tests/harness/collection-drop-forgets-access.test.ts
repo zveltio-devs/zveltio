@@ -27,6 +27,7 @@ import {
 import { checkPermission, getEnforcer, reconcilePolicies } from '../../lib/tenancy/index.js';
 import { runWithDomain } from '../../lib/tenancy/tenant-context.js';
 import {
+  asDefaultTenant,
   createGodSession,
   dropTestCollection,
   getTestApp,
@@ -51,8 +52,11 @@ d('dropping a collection forgets its access rules', () => {
   const count = async (table: string, column: string, name: string) =>
     Number(
       (
-        await sql<{ n: string }>`SELECT count(*)::text AS n FROM ${sql.table(table)}
-                                 WHERE ${sql.ref(column)} = ${name}`.execute(db)
+        await asDefaultTenant(
+          db,
+          sql<{ n: string }>`SELECT count(*)::text AS n FROM ${sql.table(table)}
+                                 WHERE ${sql.ref(column)} = ${name}`,
+        )
       ).rows[0]?.n,
     );
   const subjectRows = async (name: string) =>

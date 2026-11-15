@@ -15,6 +15,7 @@ import { generateApiKey, hashApiKey } from '../../lib/security/api-key-hash.js';
 import { noteSessionOrigin } from '../../lib/step-up.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/index.js';
 import {
+  asEveryTenant,
   createGodSession,
   createMemberSession,
   getTestApp,
@@ -132,9 +133,12 @@ d('DELETE /api/me erases the caller’s own account (ADR 0046)', () => {
     expect((await me(other.cookie)).status).toBe(200);
 
     await _settleAuditWrites();
-    const audit = await sql<{ user_id: string | null; metadata: Record<string, unknown> }>`
+    const audit = await asEveryTenant(
+      db,
+      sql<{ user_id: string | null; metadata: Record<string, unknown> }>`
       SELECT user_id, metadata FROM zv_audit_log
-       WHERE event_type = 'user.deleted' AND resource_id = ${m.userId}`.execute(db);
+       WHERE event_type = 'user.deleted' AND resource_id = ${m.userId}`,
+    );
     expect(audit.rows).toHaveLength(1);
     expect(audit.rows[0]!.user_id).toBeNull();
     expect(audit.rows[0]!.metadata).toEqual({

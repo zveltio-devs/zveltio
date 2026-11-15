@@ -288,10 +288,13 @@ d('storage visibility and quotas', () => {
     const action = (id: string) => `storage.quota:${id}`;
     const audits = async (userId: string) =>
       (
-        await sql<{ user_id: string; metadata: Record<string, unknown> }>`
+        await asEveryTenant(
+          db,
+          sql<{ user_id: string; metadata: Record<string, unknown> }>`
           SELECT user_id, metadata FROM zv_audit_log
            WHERE event_type = 'storage.quota_changed' AND resource_id = ${userId}
-           ORDER BY created_at`.execute(db)
+           ORDER BY created_at`,
+        )
       ).rows;
 
     it('refuses an instance admin who is not god, step-up and all', async () => {

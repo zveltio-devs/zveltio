@@ -38,9 +38,12 @@ d('the audit export records itself (in-process)', () => {
   });
 
   it('writes an export.executed entry carrying the filters that were used', async () => {
-    const before = await sql<{ n: number }>`
+    const before = await asEveryTenant(
+      db,
+      sql<{ n: number }>`
       SELECT count(*)::int AS n FROM zv_audit_log WHERE event_type = 'export.executed'
-    `.execute(db);
+    `,
+    );
 
     // From this test on: `god_action` rows outlive a run, and past the export's
     // 50 000-row cap a long-lived test database answered `truncated: true`.
@@ -51,11 +54,14 @@ d('the audit export records itself (in-process)', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('text/csv');
 
-    const rows = await sql<{ metadata: unknown }>`
+    const rows = await asEveryTenant(
+      db,
+      sql<{ metadata: unknown }>`
       SELECT metadata FROM zv_audit_log
        WHERE event_type = 'export.executed'
        ORDER BY created_at DESC LIMIT 1
-    `.execute(db);
+    `,
+    );
     expect(rows.rows.length).toBe(1);
 
     // Queryable, not a JSON string wrapped in quotes — the shape migration 041
@@ -66,23 +72,32 @@ d('the audit export records itself (in-process)', () => {
     expect(typeof meta.rows).toBe('number');
     expect(meta.truncated).toBe(false);
 
-    const after = await sql<{ n: number }>`
+    const after = await asEveryTenant(
+      db,
+      sql<{ n: number }>`
       SELECT count(*)::int AS n FROM zv_audit_log WHERE event_type = 'export.executed'
-    `.execute(db);
+    `,
+    );
     expect(after.rows[0]!.n).toBe(before.rows[0]!.n + 1);
   });
 
   it('does not record a read that was refused', async () => {
     // Anonymous: the guard answers before the handler, so nothing is exported
     // and nothing should be written.
-    const before = await sql<{ n: number }>`
+    const before = await asEveryTenant(
+      db,
+      sql<{ n: number }>`
       SELECT count(*)::int AS n FROM zv_audit_log WHERE event_type = 'export.executed'
-    `.execute(db);
+    `,
+    );
     const res = await app.request('/api/admin/audit/export');
     expect([401, 403]).toContain(res.status);
-    const after = await sql<{ n: number }>`
+    const after = await asEveryTenant(
+      db,
+      sql<{ n: number }>`
       SELECT count(*)::int AS n FROM zv_audit_log WHERE event_type = 'export.executed'
-    `.execute(db);
+    `,
+    );
     expect(after.rows[0]!.n).toBe(before.rows[0]!.n);
   });
 });

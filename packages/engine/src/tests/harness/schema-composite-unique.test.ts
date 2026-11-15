@@ -15,6 +15,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { serialize } from '../../lib/schema-artifact/export.js';
 import {
+  asDefaultTenant,
   createGodSession,
   dropTestCollection,
   getTestApp,
@@ -78,9 +79,12 @@ d('a collection file declares a unique key over several fields', () => {
   };
   const keys = async (collection = CHILD) =>
     (
-      await sql<{ def: string }>`
+      await asDefaultTenant(
+        db,
+        sql<{ def: string }>`
         SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
-         WHERE conrelid = ${`zvd_${collection}`}::regclass AND contype = 'u'`.execute(db)
+         WHERE conrelid = ${`zvd_${collection}`}::regclass AND contype = 'u'`,
+      )
     ).rows.map((r) => r.def);
 
   beforeAll(async () => {
@@ -138,9 +142,12 @@ d('a collection file declares a unique key over several fields', () => {
     expect(await keys()).toEqual(['UNIQUE (tenant_id, project_id, member)']);
 
     const [{ conname }] = (
-      await sql<{ conname: string }>`
+      await asDefaultTenant(
+        db,
+        sql<{ conname: string }>`
         SELECT conname FROM pg_constraint
-         WHERE conrelid = ${`zvd_${CHILD}`}::regclass AND contype = 'u'`.execute(db)
+         WHERE conrelid = ${`zvd_${CHILD}`}::regclass AND contype = 'u'`,
+      )
     ).rows;
     await sql`ALTER TABLE ${sql.id(`zvd_${CHILD}`)} DROP CONSTRAINT ${sql.id(conname)}`.execute(db);
     expect(await plan(back)).toEqual([`+ ${CHILD} add unique index (project_id, member) true`]);
@@ -164,9 +171,12 @@ d('a collection file declares a unique key over several fields', () => {
     expect(((await res.json()) as { detail: string }).detail).toContain(
       'rows already repeat these values within a tenant',
     );
-    const left = await sql<{ n: number }>`
+    const left = await asDefaultTenant(
+      db,
+      sql<{ n: number }>`
       SELECT count(*)::int AS n FROM pg_index WHERE indrelid = ${`zvd_${CHILD}`}::regclass
-         AND indisunique AND indnatts = 3`.execute(db);
+         AND indisunique AND indnatts = 3`,
+    );
     expect(left.rows[0]?.n).toBe(0);
   }, 60_000);
 

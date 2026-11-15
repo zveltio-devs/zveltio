@@ -40,10 +40,13 @@ d('settings writes are audited (in-process)', () => {
   });
 
   async function entries(): Promise<Array<Record<string, unknown>>> {
-    const r = await sql<{ metadata: unknown; user_id: string | null }>`
+    const r = await asEveryTenant(
+      db,
+      sql<{ metadata: unknown; user_id: string | null }>`
       SELECT metadata, user_id FROM zv_audit_log
        WHERE resource_type = 'setting' ORDER BY created_at DESC LIMIT 5
-    `.execute(db);
+    `,
+    );
     return r.rows as unknown as Array<Record<string, unknown>>;
   }
 
@@ -71,10 +74,13 @@ d('settings writes are audited (in-process)', () => {
     });
     expect(res.status).toBe(200);
 
-    const rows = await sql<{ n: number }>`
+    const rows = await asEveryTenant(
+      db,
+      sql<{ n: number }>`
       SELECT count(*)::int AS n FROM zv_audit_log
        WHERE resource_type = 'setting' AND metadata::text LIKE ${`%${secretish}%`}
-    `.execute(db);
+    `,
+    );
     expect(rows.rows[0]!.n).toBe(0);
   });
 

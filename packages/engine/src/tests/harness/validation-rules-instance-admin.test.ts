@@ -225,10 +225,11 @@ d('validation rules are written by an instance admin only', () => {
 
     // Each write left an instance-level audit row, the firm's refused ones none.
     await _settleAuditWrites();
-    const trail = await sql<{ event_type: string; tenant_id: string | null }>`
-      SELECT event_type, tenant_id FROM zv_audit_log
-       WHERE resource_type = 'validation_rule' AND resource_id = ${id} ORDER BY created_at, id`.execute(
+    const trail = await asEveryTenant(
       db,
+      sql<{ event_type: string; tenant_id: string | null }>`
+      SELECT event_type, tenant_id FROM zv_audit_log
+       WHERE resource_type = 'validation_rule' AND resource_id = ${id} ORDER BY created_at, id`,
     );
     expect(trail.rows).toEqual([
       { event_type: 'validation_rule.created', tenant_id: null },

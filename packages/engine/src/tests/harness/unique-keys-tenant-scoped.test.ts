@@ -38,7 +38,12 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { asEveryTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  asEveryTenant,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -132,9 +137,12 @@ d('unique keys are scoped to the tenant (in-process)', () => {
     // engine-only database — which is what this lane runs. The catalogue check
     // above is the part that must hold everywhere; this one demonstrates the
     // behaviour wherever the extension is actually installed.
-    const present = await sql<{ ok: boolean }>`
+    const present = await asDefaultTenant(
+      db,
+      sql<{ ok: boolean }>`
       SELECT to_regclass('zvd_invoices') IS NOT NULL AS ok
-    `.execute(db);
+    `,
+    );
     if (!present.rows[0]?.ok) return;
 
     const rows = await sql<{ id: string }>`SELECT id FROM "user" LIMIT 1`.execute(db);

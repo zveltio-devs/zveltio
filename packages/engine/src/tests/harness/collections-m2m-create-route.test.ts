@@ -10,7 +10,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const TAGS = `hm2mt_${Date.now()}`;
@@ -86,12 +91,15 @@ d('collections m2m inline create (in-process)', () => {
     expect(rel?.target_collection).toBe(TAGS);
     expect(rel?.junction_table).toBe(`zvd_jnc_${ARTICLES}_${TAGS}`);
 
-    const junctionExists = await sql<{ exists: boolean }>`
+    const junctionExists = await asDefaultTenant(
+      db,
+      sql<{ exists: boolean }>`
       SELECT EXISTS (
         SELECT FROM pg_tables
         WHERE schemaname = 'public' AND tablename = ${`zvd_jnc_${ARTICLES}_${TAGS}`}
       ) AS exists
-    `.execute(db);
+    `,
+    );
     expect(junctionExists.rows[0]?.exists).toBe(true);
   });
 });

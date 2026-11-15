@@ -69,10 +69,13 @@ d('m2m junction tables under tenant RLS', () => {
     });
     expect([200, 201, 202]).toContain(res.status);
     for (let i = 0; i < 150; i++) {
-      const seen = await sql<{ n: number }>`
+      const seen = await asDefaultTenant(
+        db,
+        sql<{ n: number }>`
         SELECT count(*)::int AS n FROM pg_policies
          WHERE schemaname = 'public' AND tablename = ${`zvd_${name}`} AND policyname = 'tenant_isolation'
-      `.execute(db);
+      `,
+      );
       if (seen.rows[0]!.n > 0) break;
       await Bun.sleep(100);
     }

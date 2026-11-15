@@ -7,7 +7,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const PUBLISHERS = `hrefpub_${Date.now()}`;
@@ -78,10 +83,13 @@ d('collections reference create route (in-process)', () => {
     expect(rel?.target_collection).toBe(PUBLISHERS);
     expect(rel?.type).toBe('m2o');
 
-    const fk = await sql<{ column_name: string }>`
+    const fk = await asDefaultTenant(
+      db,
+      sql<{ column_name: string }>`
       SELECT column_name FROM information_schema.columns
       WHERE table_name = ${`zvd_${BOOKS}`} AND column_name = 'publisher'
-    `.execute(db);
+    `,
+    );
     expect(fk.rows.length).toBe(1);
   });
 });

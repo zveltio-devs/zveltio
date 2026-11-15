@@ -179,8 +179,11 @@ d('deferred index builds of ctx.DDLManager', () => {
     // A retry would meet its own lock again: no retry hint, and no 2 s lock_timeout first.
     expect(res.headers.get('retry-after')).toBeNull();
     expect(Date.now() - started).toBeLessThan(1500);
-    const cols = await sql<{ n: number }>`SELECT count(*)::int AS n FROM pg_attribute
-      WHERE attrelid = ${`public.zvd_${name}`}::regclass AND attname = 'late'`.execute(db);
+    const cols = await asDefaultTenant(
+      db,
+      sql<{ n: number }>`SELECT count(*)::int AS n FROM pg_attribute
+      WHERE attrelid = ${`public.zvd_${name}`}::regclass AND attname = 'late'`,
+    );
     expect(cols.rows[0]!.n).toBe(0);
   }, 60_000);
 });

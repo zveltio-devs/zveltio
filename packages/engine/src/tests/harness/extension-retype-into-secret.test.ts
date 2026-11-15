@@ -193,10 +193,13 @@ d("an extension's update turns its text field secret (ADR 0024 §6)", () => {
       expect(f.defaultValue).toBeUndefined();
     }
     // Nor does the table: no index or unique key names the columns any more.
-    const keyed = await sql<{ n: number }>`
+    const keyed = await asDefaultTenant(
+      db,
+      sql<{ n: number }>`
       SELECT count(*)::int AS n FROM pg_index i
         JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY (i.indkey)
-       WHERE i.indrelid = ${`zvd_${C}`}::regclass AND a.attname IN ('tok', 'pin')`.execute(db);
+       WHERE i.indrelid = ${`zvd_${C}`}::regclass AND a.attname IN ('tok', 'pin')`,
+    );
     expect(keyed.rows[0]!.n).toBe(0);
 
     // A boot or a firm's activation re-plans the same files: nothing is owed.

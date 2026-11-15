@@ -19,6 +19,7 @@ import { github } from 'better-auth/social-providers';
 import { getAuth, passkeyRelyingParty } from '../../lib/auth.js';
 import { firstFactorRule, noteSessionOrigin } from '../../lib/step-up.js';
 import {
+  asEveryTenant,
   createGodSession,
   createMemberSession,
   getTestApp,
@@ -168,10 +169,13 @@ d('god step-up for extension mutations', () => {
     // The god row is written after the request settles, behind the response.
     const rows = async () =>
       (
-        await sql<{ metadata: { step_up?: string; status: number } }>`
+        await asEveryTenant(
+          db,
+          sql<{ metadata: { step_up?: string; status: number } }>`
           SELECT metadata FROM zv_audit_log
            WHERE event_type = 'god_action' AND resource_id = ${`/api/marketplace/${PROBE}/config`}
-             AND (metadata->>'status')::int = 200`.execute(db)
+             AND (metadata->>'status')::int = 200`,
+        )
       ).rows;
     for (let i = 0; i < 50 && (await rows()).length === 0; i++) await Bun.sleep(100);
     expect((await rows()).map((r) => r.metadata.step_up)).toEqual(['passkey']);
@@ -267,10 +271,13 @@ d('god step-up for extension mutations', () => {
     expect((await del()).status).toBe(403);
     expect((await del(header(await token('factor.passkey.remove')))).status).toBe(200);
     await _settleAuditWrites();
-    const rows = await sql<{ metadata: { change: string; confirmed_by: string } }>`
+    const rows = await asEveryTenant(
+      db,
+      sql<{ metadata: { change: string; confirmed_by: string } }>`
       SELECT metadata FROM zv_audit_log
        WHERE event_type = 'auth.factor_changed' AND user_id = (SELECT id FROM "user" WHERE email = ${email})
-       ORDER BY created_at`.execute(db);
+       ORDER BY created_at`,
+    );
     expect(rows.rows.map((r) => `${r.metadata.change}/${r.metadata.confirmed_by}`)).toEqual([
       'passkey.add/password',
       'passkey.add/passkey',
@@ -460,10 +467,13 @@ d('first factor on an account with no password', () => {
     const res = await registerSoftPasskey(req, cookie, await newSoftPasskey(), origin);
     expect(res.status).toBe(200);
     await _settleAuditWrites();
-    const rows = await sql<{ metadata: { change: string; confirmed_by: string } }>`
+    const rows = await asEveryTenant(
+      db,
+      sql<{ metadata: { change: string; confirmed_by: string } }>`
       SELECT metadata FROM zv_audit_log
        WHERE event_type = 'auth.factor_changed'
-         AND user_id = (SELECT id FROM "user" WHERE email = ${email})`.execute(db);
+         AND user_id = (SELECT id FROM "user" WHERE email = ${email})`,
+    );
     expect(rows.rows.map((r) => `${r.metadata.change}/${r.metadata.confirmed_by}`)).toEqual([
       'passkey.add/oauth',
     ]);
@@ -669,10 +679,13 @@ d('removing another account’s passkey', () => {
     expect(del.status).toBe(401);
     expect((await aPasskeys()).rows.map((r) => r.id)).toEqual([target!.id]);
     await _settleAuditWrites();
-    const removed = await sql<{ n: number }>`
+    const removed = await asEveryTenant(
+      db,
+      sql<{ n: number }>`
       SELECT count(*)::int AS n FROM zv_audit_log
        WHERE event_type = 'auth.factor_changed' AND metadata->>'change' = 'passkey.remove'
-         AND user_id IN (${a.userId}, ${b.userId})`.execute(db);
+         AND user_id IN (${a.userId}, ${b.userId})`,
+    );
     expect(removed.rows[0]?.n).toBe(0);
   });
 });

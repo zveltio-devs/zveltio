@@ -12,6 +12,7 @@ import type { Database } from '../../db/index.js';
 import { parseMigrationFile, splitSqlStatements } from '../../db/migrations/index.js';
 import { toJsonb } from '../../lib/jsonb.js';
 import {
+  asDefaultTenant,
   asEveryTenant,
   asTenant,
   getTestApp,
@@ -140,9 +141,12 @@ d('migration 098: one instance validation rule per key', () => {
       db,
     );
     expect(left.rows.map((r) => r.id).sort()).toEqual([active, tenants].sort());
-    const g = await sql<{ ids: string }>`
+    const g = await asDefaultTenant(
+      db,
+      sql<{ ids: string }>`
       SELECT array_to_string(rule_ids, ',') AS ids FROM ${sql.table(G)}
-       WHERE collection = ${C}`.execute(db);
+       WHERE collection = ${C}`,
+    );
     expect(g.rows[0]!.ids).toBe(active);
     const cases = await asEveryTenant(db, (trx) =>
       sql<{ rule_id: string }>`

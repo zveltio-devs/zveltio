@@ -12,7 +12,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager, enqueueDDLJob, getDDLJob } from '../../lib/data/index.js';
-import { dropTestCollection, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  dropTestCollection,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hqaf_${Date.now()}`;
@@ -42,10 +47,13 @@ d('DDL queue add_field (in-process)', () => {
       status: 'completed',
       error: null,
     });
-    const idx = await sql<{ n: number }>`
+    const idx = await asDefaultTenant(
+      db,
+      sql<{ n: number }>`
       SELECT count(*)::int AS n FROM pg_indexes
       WHERE tablename = ${`zvd_${COLLECTION}`} AND indexdef LIKE '%(rank)%'
-    `.execute(db);
+    `,
+    );
     expect(idx.rows[0]?.n).toBeGreaterThanOrEqual(1);
     // pg-boss polls for work; the job settles within a few seconds.
   }, 30_000);

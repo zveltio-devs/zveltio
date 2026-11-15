@@ -7,6 +7,7 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import {
+  asDefaultTenant,
   asEveryTenant,
   createGodSession,
   createMemberSession,
@@ -103,10 +104,13 @@ d('rpc routes (in-process)', () => {
     ).toBe(403);
     expect((await send('DELETE', `/api/rpc/${whitelistId}`)).status).toBe(403);
 
-    const rows = await sql<{ n: number }>`
+    const rows = await asDefaultTenant(
+      db,
+      sql<{ n: number }>`
       SELECT count(*)::int AS n FROM zvd_rpc_functions
        WHERE function_name IN (${FN}, 'harness_rpc_member_add')
-    `.execute(db);
+    `,
+    );
     expect(rows.rows[0]!.n).toBe(1);
   });
 

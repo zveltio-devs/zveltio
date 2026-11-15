@@ -11,7 +11,12 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { invalidateRulesCache } from '../../lib/validation-engine.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hencval_${Date.now()}`;
@@ -84,7 +89,10 @@ d('validation rules on an encrypted field', () => {
   it('stores a value that passes, encrypted', async () => {
     expect((await post({ key: 'a'.repeat(40) })).status).toBe(201);
     const row = (
-      await sql<{ key: string }>`SELECT key FROM ${sql.table(`zvd_${COLLECTION}`)}`.execute(db)
+      await asDefaultTenant(
+        db,
+        sql<{ key: string }>`SELECT key FROM ${sql.table(`zvd_${COLLECTION}`)}`,
+      )
     ).rows[0];
     expect(row?.key).not.toBe('a'.repeat(40));
   });

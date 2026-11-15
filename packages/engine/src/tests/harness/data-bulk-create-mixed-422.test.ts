@@ -7,7 +7,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hbulkc422_${Date.now()}`;
@@ -53,8 +58,11 @@ d('data bulk create mixed refused (in-process)', () => {
     expect(res.status).toBe(422);
     const body = (await res.json()) as { errors: Array<{ index: number; errors: string[] }> };
     expect(body.errors.map((e) => e.index)).toEqual([1]);
-    const rows = await sql<{ n: number }>`
-      SELECT count(*)::int AS n FROM ${sql.id(`zvd_${COLLECTION}`)}`.execute(db);
+    const rows = await asDefaultTenant(
+      db,
+      sql<{ n: number }>`
+      SELECT count(*)::int AS n FROM ${sql.id(`zvd_${COLLECTION}`)}`,
+    );
     expect(rows.rows[0]!.n).toBe(0);
   });
 });

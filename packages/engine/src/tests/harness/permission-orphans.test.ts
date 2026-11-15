@@ -14,6 +14,7 @@ import type { Database } from '../../db/index.js';
 import { realtimeBus, type RealtimeBusMessage } from '../../lib/runtime/index.js';
 import { getEnforcer } from '../../lib/tenancy/index.js';
 import {
+  asEveryTenant,
   createGodSession,
   createMemberSession,
   forgetRuleObjects,
@@ -151,11 +152,14 @@ d('orphaned Casbin rows (in-process)', () => {
     expect(published).toContainEqual([...G_ROW.slice(1)]);
     expect(published).toContainEqual([...P_ROW.slice(1)]);
 
-    const audit = await sql<{ n: number }>`
+    const audit = await asEveryTenant(
+      db,
+      sql<{ n: number }>`
       SELECT count(*)::int AS n FROM zv_audit_log
        WHERE event_type = 'permission.revoked' AND resource_type = 'orphan_policy'
          AND resource_id = ${GONE}
-    `.execute(db);
+    `,
+    );
     expect(audit.rows[0]?.n).toBe(2);
   });
 });

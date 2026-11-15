@@ -20,7 +20,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { _internalForTests } from '../../lib/flows/flow-executor.js';
 import { DEFAULT_RUN_AS_ROLE, rolePrincipal, runWithDomain } from '../../lib/tenancy/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asDefaultTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const { executeStep } = _internalForTests;
 
@@ -74,11 +74,14 @@ d('query_db cannot reach the auth tables', () => {
     //
     // Joining `zvd_collections` picks a table that is a collection by
     // definition, which is what the assertion is about.
-    const t = await sql<{ tablename: string }>`
+    const t = await asDefaultTenant(
+      db,
+      sql<{ tablename: string }>`
       SELECT c.name AS tablename FROM zvd_collections c
       WHERE to_regclass('public.zvd_' || c.name) IS NOT NULL
       ORDER BY c.name LIMIT 1
-    `.execute(db);
+    `,
+    );
     collectionTable = t.rows[0]?.tablename ? `zvd_${t.rows[0].tablename}` : '';
   });
 

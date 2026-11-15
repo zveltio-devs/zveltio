@@ -18,7 +18,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { problemOnError } from '../../lib/problem.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asDefaultTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const TABLE = `harness_refusal_${Date.now()}`;
@@ -33,7 +33,10 @@ d('a thrown refusal rolls the request back and keeps its answer', () => {
     );
   const tags = async () =>
     (
-      await sql<{ tag: string }>`SELECT tag FROM ${sql.table(TABLE)} ORDER BY tag`.execute(db)
+      await asDefaultTenant(
+        db,
+        sql<{ tag: string }>`SELECT tag FROM ${sql.table(TABLE)} ORDER BY tag`,
+      )
     ).rows.map((r) => r.tag);
 
   beforeAll(async () => {

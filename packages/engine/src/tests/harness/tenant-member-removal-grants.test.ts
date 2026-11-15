@@ -27,12 +27,13 @@ import {
 } from '../../lib/tenancy/index.js';
 import { runWithDomain } from '../../lib/tenancy/tenant-context.js';
 import {
+  asDefaultTenant,
   asEveryTenant,
   asTenant,
   createGodSession,
+  forgetRuleObjects,
   getTestApp,
   harnessAvailable,
-  forgetRuleObjects,
   ruleObjects,
 } from '../../testing/app-harness.js';
 
@@ -243,9 +244,12 @@ d('removing a tenant member drops every grant they hold in that tenant', () => {
       SELECT 1 FROM zvd_permissions WHERE ptype = 'g' AND v0 = ${MGR} AND v1 = ${EMP} AND v2 = ${TENANT_A}
     `.execute(db);
     expect(edge.rows).toHaveLength(1);
-    const saved = await sql<{ v1: string }>`
+    const saved = await asDefaultTenant(
+      db,
+      sql<{ v1: string }>`
       SELECT v1 FROM zvd_permissions_pruned_034 WHERE v0 = ${USER} ORDER BY v1
-    `.execute(db);
+    `,
+    );
     expect(saved.rows.map((r) => r.v1)).toEqual([EMP, 'tenant_member'].sort());
   });
 });

@@ -10,6 +10,7 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import {
+  asDefaultTenant,
   asEveryTenant,
   createGodSession,
   getTestApp,
@@ -162,9 +163,12 @@ d('notifications API (in-process)', () => {
       );
       expect(reg.status).toBe(200);
 
-      const rows = await sql<{ user_id: string }>`
+      const rows = await asDefaultTenant(
+        db,
+        sql<{ user_id: string }>`
         SELECT user_id FROM zvd_push_tokens WHERE token = ${token}
-      `.execute(db);
+      `,
+      );
       expect(rows.rows).toHaveLength(1); // moved, not duplicated
       expect(rows.rows[0]?.user_id).toBe(userId);
     } finally {

@@ -41,9 +41,10 @@ d('schema apply migrations', () => {
 
   const columns = async () =>
     (
-      await sql<{ column_name: string }>`
-        SELECT column_name FROM information_schema.columns WHERE table_name = ${`zvd_${COL}`}`.execute(
+      await asDefaultTenant(
         db,
+        sql<{ column_name: string }>`
+        SELECT column_name FROM information_schema.columns WHERE table_name = ${`zvd_${COL}`}`,
       )
     ).rows.map((r) => r.column_name);
 

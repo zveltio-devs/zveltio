@@ -88,10 +88,13 @@ d('edge function egress column (061)', () => {
     expect(await row(FN_STR)).toEqual({ egress: ['c.test'], env_vars: { K: '2' } });
 
     await sql.raw(down).execute(db);
-    const cols = await sql`
+    const cols = await asDefaultTenant(
+      db,
+      sql`
       SELECT 1 FROM information_schema.columns
        WHERE table_name = 'zv_edge_functions' AND column_name = 'egress'
-    `.execute(db);
+    `,
+    );
     expect(cols.rows).toHaveLength(0);
     const back = await asDefaultTenant(
       db,

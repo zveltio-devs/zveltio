@@ -14,6 +14,7 @@
  */
 import { expect, it } from 'bun:test';
 import { _internalForTests, flowScheduler } from '../../lib/flows/flow-scheduler.js';
+import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
 import { asDefaultTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 it.skipIf(!harnessAvailable())(
@@ -44,11 +45,16 @@ it.skipIf(!harnessAvailable())(
     const claimable: number[] = [];
 
     _internalForTests.setExecuteFlowForTests((async () => {
-      const rows = await replicaB`
-        SELECT id FROM zv_flows
-        WHERE is_active = true AND trigger_type = 'cron'
-          AND (next_run_at IS NULL OR next_run_at <= now())
-        FOR UPDATE SKIP LOCKED`;
+      // As the flow's firm: with no tenant the replica would see no flow at all
+      // (DR-03), and the probe would pass with the defect in place.
+      const rows = await replicaB.begin(async (tx) => {
+        await tx`SELECT set_config('zveltio.current_tenant', ${DEFAULT_TENANT_ID}, true)`;
+        return tx`
+          SELECT id FROM zv_flows
+          WHERE is_active = true AND trigger_type = 'cron'
+            AND (next_run_at IS NULL OR next_run_at <= now())
+          FOR UPDATE SKIP LOCKED`;
+      });
       claimable.push(rows.length);
       return { status: 'success', runId: 'fencing-probe' };
     }) as never);

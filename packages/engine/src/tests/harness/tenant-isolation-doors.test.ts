@@ -33,6 +33,7 @@ import {
 } from '../../lib/tenancy/index.js';
 import { _wsPermCacheForTests, websocketHandler } from '../../routes/ws.js';
 import {
+  asDefaultTenant,
   asEveryTenant,
   asTenant,
   createGodSession,
@@ -278,10 +279,13 @@ d('tenant isolation, door by door', () => {
     });
     expect([200, 201, 202]).toContain(res.status);
     for (let i = 0; i < 200; i++) {
-      const seen = await sql<{ n: number }>`
+      const seen = await asDefaultTenant(
+        db,
+        sql<{ n: number }>`
         SELECT count(*)::int AS n FROM pg_policies
          WHERE schemaname = 'public' AND tablename = ${`zvd_${name}`} AND policyname = 'tenant_isolation'
-      `.execute(db);
+      `,
+      );
       if (seen.rows[0]!.n > 0) return;
       await Bun.sleep(50);
     }

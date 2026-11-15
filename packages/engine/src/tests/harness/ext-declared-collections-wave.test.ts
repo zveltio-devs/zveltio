@@ -32,6 +32,7 @@ import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import { engineEvents } from '../../lib/runtime/index.js';
 import { planExtensionSchema } from '../../lib/schema-artifact/apply.js';
 import {
+  asDefaultTenant,
   createSteppedUpGod,
   dropTestCollection,
   getTestApp,
@@ -263,9 +264,12 @@ d('ADR 0012 pilot gaps: seeded names, required keys, relation defaults, Studio-o
     await extensionLoader.unload(NAME);
     expect((await post('enable')).status).toBe(200);
     expect(await planExtensionSchema(db, NAME, await files([PARENT, CHILD]))).toEqual([]);
-    const nn = await sql<{ n: boolean }>`
+    const nn = await asDefaultTenant(
+      db,
+      sql<{ n: boolean }>`
       SELECT attnotnull AS n FROM pg_attribute
-       WHERE attrelid = ${`zvd_${CHILD}`}::regclass AND attname = 'parent_id'`.execute(db);
+       WHERE attrelid = ${`zvd_${CHILD}`}::regclass AND attname = 'parent_id'`,
+    );
     expect(nn.rows[0]?.n).toBe(true);
   }, 60_000);
 

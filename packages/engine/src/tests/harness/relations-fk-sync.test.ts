@@ -74,11 +74,12 @@ d('a relation change reaches its foreign key', () => {
   /** The key on `column`, as the database enforces it. */
   const fk = async (column: string) =>
     (
-      await sql<{ def: string }>`
+      await asDefaultTenant(
+        db,
+        sql<{ def: string }>`
         SELECT pg_get_constraintdef(c.oid) AS def FROM pg_constraint c
           JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
-         WHERE c.conrelid = ${`zvd_${CHILD}`}::regclass AND c.contype = 'f' AND a.attname = ${column}`.execute(
-        db,
+         WHERE c.conrelid = ${`zvd_${CHILD}`}::regclass AND c.contype = 'f' AND a.attname = ${column}`,
       )
     ).rows.map((r) => r.def);
   const row = async () =>
@@ -148,9 +149,12 @@ d('a relation change reaches its foreign key', () => {
     expect(await reason(req)).toContain(
       `${CHILD}.lead_id is required, so onDelete cannot be SET NULL`,
     );
-    const nn = await sql<{ n: boolean }>`
+    const nn = await asDefaultTenant(
+      db,
+      sql<{ n: boolean }>`
       SELECT attnotnull AS n FROM pg_attribute
-       WHERE attrelid = ${`zvd_${CHILD}`}::regclass AND attname = 'lead_id'`.execute(db);
+       WHERE attrelid = ${`zvd_${CHILD}`}::regclass AND attname = 'lead_id'`,
+    );
     expect(nn.rows[0].n).toBe(false);
   }, 60_000);
 
@@ -191,11 +195,12 @@ d('a relation change reaches its foreign key', () => {
 
   it('a key changed out of band is drift the plan shows, and the file repairs it', async () => {
     const [{ name }] = (
-      await sql<{ name: string }>`
+      await asDefaultTenant(
+        db,
+        sql<{ name: string }>`
         SELECT c.conname AS name FROM pg_constraint c
           JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
-         WHERE c.conrelid = ${`zvd_${CHILD}`}::regclass AND c.contype = 'f' AND a.attname = 'project_id'`.execute(
-        db,
+         WHERE c.conrelid = ${`zvd_${CHILD}`}::regclass AND c.contype = 'f' AND a.attname = 'project_id'`,
       )
     ).rows;
     await sql

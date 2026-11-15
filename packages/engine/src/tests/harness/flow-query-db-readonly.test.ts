@@ -28,7 +28,7 @@ import {
   rolePrincipal,
   runWithDomain,
 } from '../../lib/tenancy/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asDefaultTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const { executeStep } = _internalForTests;
 
@@ -70,7 +70,10 @@ d('query_db read-only enforcement', () => {
       runAsQueryDbStep(db, 'WITH x AS (DELETE FROM zvd_ro_probe RETURNING *) SELECT * FROM x'),
     ).rejects.toThrow(/read-only/i);
 
-    const after = await sql<{ n: string }>`SELECT count(*) AS n FROM zvd_ro_probe`.execute(db);
+    const after = await asDefaultTenant(
+      db,
+      sql<{ n: string }>`SELECT count(*) AS n FROM zvd_ro_probe`,
+    );
     expect(Number(after.rows[0]!.n)).toBe(3);
   });
 
@@ -81,7 +84,10 @@ d('query_db read-only enforcement', () => {
     ]) {
       await expect(runAsQueryDbStep(db, q)).rejects.toThrow(/read-only/i);
     }
-    const rows = await sql<{ id: number }>`SELECT id FROM zvd_ro_probe ORDER BY id`.execute(db);
+    const rows = await asDefaultTenant(
+      db,
+      sql<{ id: number }>`SELECT id FROM zvd_ro_probe ORDER BY id`,
+    );
     expect(rows.rows.map((r) => r.id)).toEqual([1, 2, 3]);
   });
 

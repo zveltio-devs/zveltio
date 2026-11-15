@@ -13,6 +13,7 @@ import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { serialize } from '../../lib/schema-artifact/export.js';
 import {
+  asDefaultTenant,
   createGodSession,
   dropTestCollection,
   getTestApp,
@@ -183,9 +184,12 @@ d('schema apply', () => {
     const edited = { ...files, [path]: serialize(probe) };
     expect((await call('apply', edited)).status).toBe(200);
     expect(await pull()).toEqual(edited);
-    const notNull = await sql<{ is_nullable: string }>`
+    const notNull = await asDefaultTenant(
+      db,
+      sql<{ is_nullable: string }>`
       SELECT is_nullable FROM information_schema.columns
-       WHERE table_name = ${`zvd_${EXISTING}`} AND column_name = 'title'`.execute(db);
+       WHERE table_name = ${`zvd_${EXISTING}`} AND column_name = 'title'`,
+    );
     expect(notNull.rows[0].is_nullable).toBe('NO');
 
     title.encrypted = true;

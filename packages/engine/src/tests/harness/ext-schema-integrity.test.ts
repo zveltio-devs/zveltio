@@ -28,6 +28,7 @@ import { extensionLoader } from '../../lib/extensions/extension-loader.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import { engineEvents } from '../../lib/runtime/index.js';
 import {
+  asDefaultTenant,
   createSteppedUpGod,
   dropTestCollection,
   getTestApp,
@@ -171,9 +172,12 @@ d('extension schema files are checked against the digest pack wrote', () => {
 
     await record();
     expect(await enable()).toBe('200 ');
-    const keys = await sql<{ def: string }>`
+    const keys = await asDefaultTenant(
+      db,
+      sql<{ def: string }>`
       SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
-       WHERE conrelid = ${`zvd_${ITEMS}`}::regclass AND contype = 'u'`.execute(db);
+       WHERE conrelid = ${`zvd_${ITEMS}`}::regclass AND contype = 'u'`,
+    );
     expect(keys.rows.map((r) => r.def)).toEqual(['UNIQUE (tenant_id, list, title)']);
 
     await tamper(ITEMS);

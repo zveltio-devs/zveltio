@@ -15,6 +15,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { getEnforcer, invalidateUserPermCache } from '../../lib/tenancy/index.js';
 import {
+  asDefaultTenant,
   createGodSession,
   createMemberSession,
   getTestApp,
@@ -48,9 +49,12 @@ d('per-request round trips', () => {
     });
     expect([200, 201, 202]).toContain(created.status);
     for (let i = 0; i < 200; i++) {
-      const r = await sql<{
-        t: string | null;
-      }>`SELECT to_regclass(${`zvd_${COLL}`})::text AS t`.execute(db);
+      const r = await asDefaultTenant(
+        db,
+        sql<{
+          t: string | null;
+        }>`SELECT to_regclass(${`zvd_${COLL}`})::text AS t`,
+      );
       if (r.rows[0]?.t) break;
       await Bun.sleep(50);
     }
