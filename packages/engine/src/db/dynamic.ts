@@ -1070,6 +1070,11 @@ export async function dynamicSetForeignKeyActions(
  * back as it was (none, NOT VALID, or validated again) and `undo` run in the
  * same transaction for what was written beside it. Then the error is thrown.
  * A key is never left NOT VALID in silence: a failed undo throws saying so.
+ *
+ * The check runs with every firm's rows in reach. PostgreSQL reads the rows for
+ * it as the calling role, and FORCE ROW LEVEL SECURITY binds the owner too: with
+ * no tenant set, the check saw no row and marked valid a key that rows break
+ * (DR-03; before it, it saw the default firm's rows only).
  */
 export async function validateForeignKeyChange(
   db: Database,
@@ -1078,7 +1083,8 @@ export async function validateForeignKeyChange(
 ): Promise<void> {
   const table = sql.id(change.table);
   const name = sql.id(change.name);
-  const validate = () => sql`ALTER TABLE ${table} VALIDATE CONSTRAINT ${name}`.execute(db);
+  const validate = () =>
+    inEveryTenant(db, (h) => sql`ALTER TABLE ${table} VALIDATE CONSTRAINT ${name}`.execute(h));
   try {
     await validate();
     return;
@@ -1105,6 +1111,25 @@ export async function validateForeignKeyChange(
     }
     throw err;
   }
+}
+
+/**
+ * Run `fn` reading every firm's rows (`publishEveryTenant`), as the role it is,
+ * in the caller's transaction — whose own reach is put back after — or a new one.
+ */
+async function inEveryTenant<T>(db: Database, fn: (h: Database) => Promise<T>): Promise<T> {
+  if (!(db as unknown as { isTransaction?: boolean }).isTransaction) {
+    return db.transaction().execute((trx) => inEveryTenant(trx, fn));
+  }
+  const { publishEveryTenant } = await import('../lib/tenancy/index.js');
+  const was = await sql<{ v: string | null }>`
+    SELECT current_setting('zveltio.visible_tenants', true) AS v`.execute(db);
+  await publishEveryTenant(db);
+  const out = await fn(db);
+  await sql`SELECT set_config('zveltio.visible_tenants', ${was.rows[0]?.v ?? ''}, true)`.execute(
+    db,
+  );
+  return out;
 }
 
 /**
