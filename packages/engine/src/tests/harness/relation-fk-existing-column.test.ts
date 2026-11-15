@@ -98,7 +98,7 @@ d('a relation over an existing column', () => {
     await dropTestCollection(db, PARENT);
   });
 
-  it("an o2m whose target_field already exists puts the key on it, validated", async () => {
+  it('an o2m whose target_field already exists puts the key on it, validated', async () => {
     const res = await post({
       name: `${PARENT}_children`,
       type: 'o2m',
@@ -108,9 +108,7 @@ d('a relation over an existing column', () => {
       target_field: 'parent_ref',
     });
     expect(res.status, res.body).toBe(201);
-    expect(await keys('parent_ref')).toEqual([
-      { valid: true, del: 'c', ref: `zvd_${PARENT}` },
-    ]);
+    expect(await keys('parent_ref')).toEqual([{ valid: true, del: 'c', ref: `zvd_${PARENT}` }]);
   }, 30_000);
 
   it('rows that break the key refuse the relation; no key, no relation row', async () => {

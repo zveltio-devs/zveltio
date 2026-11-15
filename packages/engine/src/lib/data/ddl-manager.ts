@@ -506,12 +506,10 @@ export class DDLManager {
              AND attname = ${fieldName} AND NOT attisdropped`.execute(trx)
       ).rows[0];
       if (!col) {
-        await sql
-          .raw(
-            `ALTER TABLE "${tableName}" ADD COLUMN IF NOT EXISTS "${fieldName}" UUID ` +
-              `REFERENCES "${targetTable}"(id) ON DELETE ${od} ON UPDATE ${ou}`,
-          )
-          .execute(trx);
+        await sql`ALTER TABLE ${sql.id(tableName)} ADD COLUMN IF NOT EXISTS ${sql.id(fieldName)} UUID
+          REFERENCES ${sql.id(targetTable)}(id) ON DELETE ${sql.raw(od)} ON UPDATE ${sql.raw(ou)}`.execute(
+          trx,
+        );
       } else {
         // The column exists (an o2m's `target_field`, a uuid field made a
         // relation, a retry): `ADD COLUMN IF NOT EXISTS … REFERENCES` skipped
