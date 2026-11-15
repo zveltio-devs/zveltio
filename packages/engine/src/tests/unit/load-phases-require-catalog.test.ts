@@ -66,6 +66,40 @@ describe('enforcePublisherTier — ZVELTIO_REQUIRE_CATALOG', () => {
   });
 });
 
+describe('enforcePublisherTier — "*" in an action (ADR 0053 d5)', () => {
+  const STAR = {
+    name: 'sideloaded-ext',
+    version: '1.0.0',
+    actions: [{ name: 'peek', reads: ['*'], writes: [] }],
+  } as never;
+
+  it('refuses "*" when no catalog proved the tier, though inline is let through', async () => {
+    delete process.env.ZVELTIO_REQUIRE_CATALOG;
+    const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockRejectedValue(
+      new Error('registry down'),
+    );
+    try {
+      expect((await enforcePublisherTier('sideloaded-ext', MANIFEST)).ok).toBe(true);
+      const r = await enforcePublisherTier('sideloaded-ext', STAR);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.lastLoadError).toContain('no verified publisher tier');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('lets a catalog first-party extension list "*"', async () => {
+    const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockResolvedValue([
+      { name: 'sideloaded-ext', publisher_tier: 'first-party' } as never,
+    ]);
+    try {
+      expect((await enforcePublisherTier('sideloaded-ext', STAR)).ok).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
 describe('fetchRegistryCatalog — requireRemote', () => {
   it('swallows a registry failure by default and returns the local catalog', async () => {
     extensionDownload._resetCatalogCacheForTests();

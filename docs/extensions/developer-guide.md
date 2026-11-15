@@ -361,7 +361,10 @@ implies: a job's `egress` authorities (each approved on its own, never at
 install) and an action listing `"*"` in `reads` / `writes`
 (`collections:any:read` / `collections:any:write`, "any collection the person
 running it can read/write", ADR 0047), recorded at install like `permissions`.
-Neither can be listed in `permissions`.
+Neither can be listed in `permissions`. `"*"` is **first-party only** (ADR 0053
+decision 5): any other extension listing it, a worker-isolated one included,
+is refused at load, and its `lastLoadError` says why; list each collection the
+action reads or writes instead.
 
 **Hosts the operator chooses** (ADR 0026). A job that talks to a host you
 cannot name in advance — an AI provider's base URL, a tenant's REST API —

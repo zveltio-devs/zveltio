@@ -314,6 +314,7 @@ export function enforceRunnerInProduction(
 }
 
 let inlineForTests = false;
+const ok: PhaseResult<void> = { ok: true, value: undefined };
 
 /**
  * Tests only: let any extension load inline, as the removed
@@ -330,7 +331,8 @@ export function _setInlineForTests(on: boolean): boolean {
  * Phase 2 — marketplace-policy.md §2 publisher-tier gate. When the manifest did
  * NOT opt into worker isolation (and no operator inline override is set), fetch
  * the registry catalog and refuse inline execution for community/unaudited
- * extensions.
+ * extensions. It also refuses `"*"` in an action's `reads` / `writes` from any
+ * extension it has not proven first-party (ADR 0053 d5).
  *
  * Returns ok when the extension is allowed to proceed inline (or the gate is
  * skipped). Failures mirror the inline `console.error(❌ …)` lines.
@@ -359,12 +361,15 @@ export async function enforcePublisherTier(
   //     fall through to local-only assumptions
   // Worker only when bundled too: `load.ts` takes the worker path for nothing
   // else, and imported an unbundled "worker" extension inline, past this gate.
-  if (
-    inlineForTests ||
-    (manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true)
-  ) {
-    return { ok: true, value: undefined };
+  //
+  // ADR 0053 d5: an action may list `"*"` (ADR 0047) only in a first-party
+  // extension. A worker-isolated one never has its tier looked up here, so it
+  // is never proven first-party — refused, whatever the catalog would say, and
+  // under the test override too.
+  if (manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true) {
+    return refuseAnyCollection(extName, manifest, 'runs in worker isolation') ?? ok;
   }
+  if (inlineForTests) return ok;
 
   // `requireRemote` makes fetchRegistryCatalog throw instead of silently
   // degrading to the local catalog — without it the fail-closed branch below is
@@ -417,8 +422,31 @@ export async function enforcePublisherTier(
         lastLoadError: msg,
       };
     }
+    return ok;
   }
-  return { ok: true, value: undefined };
+  // No catalog (fetch failed, fail-closed switch unset): inline is let through
+  // on local assumptions, but nothing here proved the tier first-party.
+  return refuseAnyCollection(extName, manifest, 'has no verified publisher tier') ?? ok;
+}
+
+/**
+ * ADR 0053 d5: the refusal for an extension not proven first-party whose
+ * actions list `"*"` in `reads` / `writes`; null when none does.
+ */
+function refuseAnyCollection(
+  extName: string,
+  manifest: ExtensionManifest | null,
+  why: string,
+): PhaseFail | null {
+  const star = (manifest?.actions ?? []).filter(
+    (a) => a.reads.includes('*') || a.writes.includes('*'),
+  );
+  if (star.length === 0) return null;
+  const msg =
+    `Extension "${extName}" ${why}, so it is not a verified first-party extension, and ` +
+    `action "${star[0]!.name}" lists "*" in reads/writes. Only a first-party extension may ` +
+    `reach any collection (ADR 0053 decision 5); list each collection the action reads or writes.`;
+  return { ok: false, logLevel: 'error', logArgs: [`❌ ${msg}`], lastLoadError: msg };
 }
 
 /**
