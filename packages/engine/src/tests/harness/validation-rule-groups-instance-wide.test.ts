@@ -389,8 +389,11 @@ d('validation rule groups are instance-wide', () => {
     await runMigration('down');
     expect(await hasColumn('tenant_id')).toBe(true);
     expect((await rls()).forced).toBe(true);
-    const tenants = await sql<{ t: string | null }>`
-      SELECT DISTINCT tenant_id::text AS t FROM zvd_validation_rule_groups`.execute(db);
+    // Policed again: read as the tenant the rows went back to.
+    const tenants = await asDefaultTenant(
+      db,
+      sql<{ t: string | null }>`SELECT DISTINCT tenant_id::text AS t FROM zvd_validation_rule_groups`,
+    );
     expect(tenants.rows).toEqual([{ t: DEFAULT_TENANT_ID }]);
     await runMigration('up');
     expect(await groups()).toHaveLength(3);

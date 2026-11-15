@@ -13,7 +13,7 @@
  * guard.
  */
 
-import { beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
@@ -57,6 +57,11 @@ d('PATCH /api/webhooks/:id — the masked secret', () => {
     });
     expect(res.status).toBe(201);
     id = ((await res.json()) as { webhook: { id: string } }).webhook.id;
+  });
+
+  // A webhook on every collection, left behind, fans every later write out to it.
+  afterAll(async () => {
+    if (id) await asDefaultTenant(db, sql`DELETE FROM zvd_webhooks WHERE id = ${id}`);
   });
 
   it('keeps the stored secret when the mask is sent back', async () => {

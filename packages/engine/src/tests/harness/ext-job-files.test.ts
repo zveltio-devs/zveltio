@@ -244,10 +244,13 @@ d('a job reaches only the stored files its user hands it (ADR 0032)', () => {
     asEveryTenant(db, (trx) =>
       trx.selectFrom('zv_media_files').selectAll().where('id', '=', id).executeTakeFirst(),
     );
+  // A write is checked against the own firm (DR-03): the file's, from every firm's reach.
   const setFile = (id: string, set: { visibility?: 'personal'; deleted_at?: Date }) =>
-    asEveryTenant(db, (trx) =>
-      trx.updateTable('zv_media_files').set(set).where('id', '=', id).execute(),
-    );
+    asEveryTenant(db, async (trx) => {
+      await sql`SELECT set_config('zveltio.current_tenant', tenant_id::text, true)
+                  FROM zv_media_files WHERE id = ${id}`.execute(trx);
+      return trx.updateTable('zv_media_files').set(set).where('id', '=', id).execute();
+    });
   const jobId = async (res: Response) => {
     expect(res.status).toBe(200);
     return ((await res.json()) as { result: string }).result;
