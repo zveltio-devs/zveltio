@@ -1,6 +1,8 @@
 import { afterRequestSettles } from './tenant.js';
 import type { MiddlewareHandler } from 'hono';
+import type { Insertable } from 'kysely';
 import type { Database } from '../db/index.js';
+import type { DbSchema } from '../db/schema.js';
 import { clientIpForAudit, loggablePath } from '../lib/security/index.js';
 
 // Log /api/* requests to zv_request_logs (fire-and-forget, non-fatal).
@@ -16,6 +18,56 @@ export const SAMPLE_RATE = (() => {
   if (!Number.isFinite(raw)) return 1;
   return Math.min(1, Math.max(0, raw));
 })();
+
+type RequestLogRow = Insertable<DbSchema['zv_request_logs']>;
+
+/**
+ * Rows wait here and go to the database together (DR-41). One INSERT per
+ * request took a pool connection per request, reads included: under saturation
+ * each competed with the requests themselves and failed by the hundred, and
+ * each was its own WAL record. Now one multi-row INSERT per FLUSH_MS (or per
+ * FLUSH_ROWS, whichever comes first) per replica. Best-effort as before: a
+ * failed flush drops its rows with one warning; past MAX_PENDING (the database
+ * is not keeping up) new rows are dropped and counted, never queued without
+ * bound; rows still waiting when the process exits are lost (at most FLUSH_MS).
+ */
+const FLUSH_MS = 250;
+const FLUSH_ROWS = 500;
+const MAX_PENDING = 10_000;
+let pending: RequestLogRow[] = [];
+let timer: ReturnType<typeof setTimeout> | null = null;
+let dropped = 0;
+
+function enqueue(poolDb: Database, row: RequestLogRow): void {
+  if (pending.length >= MAX_PENDING) {
+    dropped++;
+    return;
+  }
+  pending.push(row);
+  if (pending.length >= FLUSH_ROWS) flush(poolDb);
+  else timer ??= setTimeout(() => flush(poolDb), FLUSH_MS);
+}
+
+function flush(poolDb: Database): void {
+  if (timer) clearTimeout(timer);
+  timer = null;
+  const rows = pending;
+  pending = [];
+  if (dropped > 0) {
+    console.warn(`[request-log] ${dropped} rows dropped: more than ${MAX_PENDING} were waiting`);
+    dropped = 0;
+  }
+  if (rows.length === 0) return;
+  poolDb
+    .insertInto('zv_request_logs')
+    .values(rows)
+    .execute()
+    .catch((err: Error) => {
+      // Request log is best-effort — log loudly so a wedged audit
+      // pipeline doesn't go unnoticed (every request loses traceability).
+      console.warn(`[request-log] write of ${rows.length} rows failed:`, err.message);
+    });
+}
 
 /**
  * @param poolDb a PLAIN pool handle, never the request-scoped proxy.
@@ -73,27 +125,19 @@ export function requestLogMiddleware(poolDb: Database): MiddlewareHandler {
       if (!isError && SAMPLE_RATE < 1 && (SAMPLE_RATE === 0 || Math.random() >= SAMPLE_RATE)) {
         return;
       }
-      poolDb
-        .insertInto('zv_request_logs')
-        .values({
-          method: c.req.method,
-          // Never the raw path: some carry a credential (GET /api/invitations/:token).
-          path: loggablePath(c),
-          status: c.res.status,
-          duration_ms: duration,
-          // An anonymous read runs as the `public` role (ADR 0017): no user.
-          user_id: c.get('authType') === 'anonymous' ? null : (user?.id ?? null),
-          // Resolved rather than copied: the whole X-Forwarded-For chain used
-          // to be stored verbatim, unvalidated, from any caller.
-          ip: clientIpForAudit(c),
-          user_agent: c.req.header('user-agent') ?? null,
-        })
-        .execute()
-        .catch((err: Error) => {
-          // Request log is best-effort — log loudly so a wedged audit
-          // pipeline doesn't go unnoticed (every request loses traceability).
-          console.warn('[request-log] write failed:', err.message);
-        });
+      enqueue(poolDb, {
+        method: c.req.method,
+        // Never the raw path: some carry a credential (GET /api/invitations/:token).
+        path: loggablePath(c),
+        status: c.res.status,
+        duration_ms: duration,
+        // An anonymous read runs as the `public` role (ADR 0017): no user.
+        user_id: c.get('authType') === 'anonymous' ? null : (user?.id ?? null),
+        // Resolved rather than copied: the whole X-Forwarded-For chain used
+        // to be stored verbatim, unvalidated, from any caller.
+        ip: clientIpForAudit(c),
+        user_agent: c.req.header('user-agent') ?? null,
+      });
     });
   };
 }
