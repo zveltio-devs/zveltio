@@ -20,6 +20,7 @@ import {
   updateRelation,
 } from '../lib/data/index.js';
 import { dynamicDropColumn } from '../db/dynamic.js';
+import { sqlState } from '../db/bun-sql-quirks.js';
 import { toJsonb } from '../lib/jsonb.js';
 import { guardAdmin } from '../lib/admin-guard.js';
 
@@ -128,6 +129,17 @@ export function relationsRoutes(db: Database, auth: any): Hono {
       } catch (error) {
         if (error instanceof FieldChangeError)
           return c.json({ error: error.message }, error.status);
+        // Rows the new key refuses (it was NOT VALID before, or missing): the
+        // change was undone, and the request is what failed, not the engine.
+        if (sqlState(error) === '23503') {
+          return c.json(
+            {
+              error:
+                'Existing rows reference records that do not exist; fix or clear them, then change the actions again.',
+            },
+            422,
+          );
+        }
         throw error;
       }
     },
