@@ -29,7 +29,7 @@
 
 import { sql } from 'kysely';
 import { sqlState } from '../../db/bun-sql-quirks.js';
-import { PgBoss } from 'pg-boss';
+import { PgBoss, systemClock } from 'pg-boss';
 import { type Database, recycleActivePool } from '../../db/index.js';
 import { refreshBranchProtections } from './branch-protections.js';
 import { DDLManager } from './ddl-manager.js';
@@ -112,6 +112,12 @@ export async function initDDLQueue(db: Database): Promise<void> {
     // — applied below — and supervise runs maintenance automatically.
     _boss = new PgBoss({
       connectionString,
+      // Each worker sleeps `interval - (now() - started)` between polls. On the
+      // wall clock, a poll that began before a step back (NTP, or a test moving
+      // `Date.now`) measured a negative duration and slept the whole step:
+      // every DDL job then sat queued (ddl-queue-clock-jump.test.ts). Durations
+      // need a clock that only moves forward.
+      clock: { ...systemClock, now: () => performance.timeOrigin + performance.now() },
     });
     _boss.on('error', (err: Error) => {
       console.warn('[ddl-queue] pg-boss error:', err.message);
