@@ -183,3 +183,19 @@ narrows what an approved manifest forwards, and narrowings wait for v2.
 
 **What v2 should do.** Carry the forwarded headers on the declared route entry
 (ADR 0039), which already names its method, and drop the path-keyed map.
+
+## 8. `addField` inside an open request builds a unique key under the lock — narrowing
+
+**What happens.** A `unique` field added by the engine's own routes builds its
+key with `CREATE UNIQUE INDEX CONCURRENTLY`, so the table keeps taking writes
+(DR-37). An extension that calls `addField` inside a request it holds open
+cannot do that: a concurrent build would wait on the request's own virtual
+transaction id and deadlock. So the key is built in the request's transaction,
+and the table refuses writes while it is built (about 400 ms per million rows).
+
+**What v1 does.** Nothing (owner, 2026-11-15): refusing a `unique` `addField`
+inside an open request narrows what v1 accepts, and narrowings wait for v2.
+
+**What v2 should do.** Refuse a `unique` field added inside an open request,
+or take it out of the request: the engine builds the key after the request
+commits, as the routes do.
