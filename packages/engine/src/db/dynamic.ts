@@ -949,15 +949,26 @@ const FK_ACTIONS: Record<string, string> = {
 /**
  * The foreign key on each of `keys` (`table.column`) as the database enforces
  * it — not as `zvd_relations` describes it; a column without one is absent.
- * `validated` is false for a key added NOT VALID whose rows were never checked.
+ * `ref` is the table it references; `validated` is false for a key added NOT
+ * VALID whose rows were never checked.
  */
 export async function foreignKeysOf(
   db: Database,
   keys: string[],
-): Promise<Map<string, { name: string; onDelete: string; onUpdate: string; validated: boolean }>> {
+): Promise<
+  Map<string, { name: string; ref: string; onDelete: string; onUpdate: string; validated: boolean }>
+> {
   if (keys.length === 0) return new Map();
-  const { rows } = await sql<{ k: string; name: string; d: string; u: string; v: boolean }>`
+  const { rows } = await sql<{
+    k: string;
+    name: string;
+    ref: string;
+    d: string;
+    u: string;
+    v: boolean;
+  }>`
     SELECT c.relname || '.' || a.attname AS k, con.conname AS name,
+           con.confrelid::regclass::text AS ref,
            con.confdeltype::text AS d, con.confupdtype::text AS u, con.convalidated AS v
       FROM pg_constraint con
       JOIN pg_class c ON c.oid = con.conrelid
@@ -968,7 +979,13 @@ export async function foreignKeysOf(
   return new Map(
     rows.map((r) => [
       r.k,
-      { name: r.name, onDelete: FK_ACTIONS[r.d], onUpdate: FK_ACTIONS[r.u], validated: r.v },
+      {
+        name: r.name,
+        ref: r.ref,
+        onDelete: FK_ACTIONS[r.d],
+        onUpdate: FK_ACTIONS[r.u],
+        validated: r.v,
+      },
     ]),
   );
 }
