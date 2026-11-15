@@ -24,8 +24,8 @@
  *
  *     ZVELTIO_IMPORT_LOGS_CONTRACT=1
  *
- * Same shape as ZVELTIO_FAIL_CLOSED_TENANT (migration 047): the engine cannot
- * know when the operator's rollout is finished, so the operator says so.
+ * The engine cannot know when the operator's rollout is finished, so the
+ * operator says so.
  */
 
 import { sql } from 'kysely';

@@ -432,7 +432,7 @@ d('extension work with no caller is an actor with no identity (ADR 0040)', () =>
 
   it('a worker statement with no caller: a per-actor rule admits no row, and decides none', async () => {
     // With a tenant and no caller, and with no invocation at all (which reads
-    // the default tenant): before, both read, updated, deleted and inserted.
+    // no tenant, DR-03): before, both read, updated, deleted and inserted.
     expect(await workerProbe(OWN)).toEqual(NONE);
     expect(await workerProbe(DECIDE)).toEqual(NONE);
     expect(await workerProbe(OWN, false)).toEqual(NONE);
@@ -441,7 +441,9 @@ d('extension work with no caller is an actor with no identity (ADR 0040)', () =>
   it('a worker statement with no caller: collection permissions answer as before', async () => {
     expect(await workerProbe(FREE, true, false)).toEqual(NONE);
     expect(await workerProbe(FREE, false, false)).toEqual(NONE);
-    expect(await workerProbe(FREE, false)).toEqual(ONE);
+    // No invocation is no tenant: the fallback is closed (DR-03), so even a
+    // collection the worker reaches answers nothing. It read the default tenant.
+    expect(await workerProbe(FREE, false)).toEqual(NONE);
     expect(await workerProbe(FREE)).toEqual(ONE);
     expect(await workerProbe(STATIC)).toEqual(ONE);
   });

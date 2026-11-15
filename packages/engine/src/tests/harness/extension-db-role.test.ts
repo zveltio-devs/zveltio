@@ -308,9 +308,9 @@ d('ctx.db runs as the extension role in a tenant transaction', () => {
       const engineSees = await tenantsSeen(plain);
       expect(engineSees).toBeLessThan(2); // RLS binds the plain role on the pool
       // Collection permissions (R1): an extension's statement with no actor —
-      // the pool, outside any request — gets nothing from a collection, where
-      // the engine's own statement still sees its default tenant.
-      expect(engineSees).toBe(1);
+      // the pool, outside any request — gets nothing from a collection, and with
+      // the tenant fallback closed (DR-03) neither does the engine's own.
+      expect(engineSees).toBe(0);
       expect(await tenantsSeen(ext)).toBe(0);
       // The twin is never handed to a role that RLS binds.
       const m = await sql<{ m: boolean }>`

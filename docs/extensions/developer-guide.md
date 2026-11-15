@@ -2421,8 +2421,9 @@ Timing options (pick ONE per schedule):
 
 Tenancy — `perTenant: true`:
 - Without it the handler runs **once, with no tenant**: `ctx.db` falls back to
-  the pool with no tenant set, and a table under tenant RLS answers for the root
-  tenant only. Fine for work that touches no tenant data.
+  the pool with no tenant set, and a table under tenant RLS answers nothing and
+  refuses writes (the root tenant's rows only where the operator opted out with
+  `ZVELTIO_FAIL_CLOSED_TENANT=0`). Fine for work that touches no tenant data.
 - With it the handler runs once per **active** tenant where the extension is
   active, each inside that tenant's transaction, so `ctx.db` (and permission
   checks) answer for that tenant. A tenant that turned the extension off is

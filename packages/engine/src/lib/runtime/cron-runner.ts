@@ -41,8 +41,8 @@ export interface ExtensionSchedule {
   /**
    * Run the handler once per active tenant where the extension is active, each
    * inside that tenant's transaction (`ctx.db` bound to it). Without it the
-   * handler runs once with no tenant, and tenant-RLS tables answer for the root
-   * tenant only. See `guardPerTenantScheduleHandler`.
+   * handler runs once with no tenant, and tenant-RLS tables answer nothing (the
+   * root tenant only with ZVELTIO_FAIL_CLOSED_TENANT=0). See `guardPerTenantScheduleHandler`.
    */
   perTenant?: boolean;
 }

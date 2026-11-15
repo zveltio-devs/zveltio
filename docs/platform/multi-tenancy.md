@@ -364,19 +364,30 @@ to with `X-Tenant-Slug`, as it does in any tenant they do not belong to.
 
 ```sql
 CASE
-  WHEN zveltio.visible_tenants is set    THEN that list
-  WHEN zveltio.current_tenant is set     THEN [that tenant]
-  WHEN zveltio.fail_closed_tenant = on   THEN []                 -- no rows
-  ELSE [the default tenant]                                      -- fail-OPEN
+  WHEN zveltio.visible_tenants is set     THEN that list
+  WHEN zveltio.current_tenant is set      THEN [that tenant]
+  WHEN zveltio.fail_closed_tenant = off   THEN [the default tenant]  -- opt-out
+  ELSE []                                                            -- no rows
 END
 ```
 
-**The last branch is the one to ask about.** With no context the predicate
-resolves to the default tenant, so code that misses the context reads the
-default tenant's data instead of nothing. `ZVELTIO_FAIL_CLOSED_TENANT=1` exists,
-but it is **off by default**. That is a choice, not an oversight — but it is the
-most attackable choice in the whole model, and an adversarial audit should
-attack it first.
+**With no context, nothing.** Code that misses the tenant context reads no
+rows and writes none (`zveltio_tenant_write_ok` answers false), so the mistake
+shows up as an empty answer or a refused write instead of the default tenant's
+data. This is the database's own default (migration 123, DR-03): an absent
+setting is closed, so it holds on a database restored without its settings and
+on a connection the engine never configured. Only an explicit `'off'` reopens
+the default-tenant fallback — and any other value, a typo included, stays
+closed.
+
+`ZVELTIO_FAIL_CLOSED_TENANT=0` is the opt-out. At boot the engine stores `'off'`
+on the database and warns that the fallback is open; removing the variable
+resets it. It exists for a single-tenant install whose own code reads tenant
+tables without a tenant (a script on the engine's role, an extension's
+background work with no caller), until that code sets one: the engine's own
+background work — cron flows, jobs, webhooks, purges — already names its
+tenant or publishes every tenant (`withEveryTenant`). Before migration 123 the
+default was the opposite, and `ZVELTIO_FAIL_CLOSED_TENANT=1` was the opt-in.
 
 ### The tables a tenant is resolved from
 

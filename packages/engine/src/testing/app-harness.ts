@@ -121,8 +121,9 @@ export async function getTestApp(): Promise<{ app: Hono; db: Database }> {
  *
  * The documented install runs the engine as a NOSUPERUSER NOBYPASSRLS owner
  * (`scripts/bootstrap-db-role.sh`), and FORCE RLS binds that connection too: on
- * the bare pool, with no tenant set, a policed table takes and shows only the
- * default tenant's rows. A fixture for another firm written there is refused —
+ * the bare pool, with no tenant set, a policed table takes and shows no rows
+ * (DR-03; the default tenant's with ZVELTIO_FAIL_CLOSED_TENANT=0). A fixture
+ * written there is refused —
  * on a superuser it was silently accepted, which is how 300 harness tests came
  * to depend on a privilege production does not have (L32). Stays the owner.
  */

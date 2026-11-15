@@ -178,14 +178,15 @@ d(TITLE, () => {
     expect(denied, boot.out.slice(-3000)).toEqual([]);
     expect(boot.ready, boot.out.slice(-3000)).toBe(true);
 
-    // ZVELTIO_FAIL_CLOSED_TENANT=1 is fatal when it cannot be applied.
+    // The script's role stores the opt-out (ZVELTIO_FAIL_CLOSED_TENANT=0) and,
+    // when it is removed, resets it: an 'off' it could not reset is fatal.
     const prev = process.env.ZVELTIO_FAIL_CLOSED_TENANT;
     const own = createDb(urlFor(APP, PASS));
     try {
-      process.env.ZVELTIO_FAIL_CLOSED_TENANT = '1';
+      process.env.ZVELTIO_FAIL_CLOSED_TENANT = '0';
       await applyFailClosedTenantSetting(own);
-      expect(await dbSetting('zveltio.fail_closed_tenant')).toBe('zveltio.fail_closed_tenant=on');
-      process.env.ZVELTIO_FAIL_CLOSED_TENANT = '';
+      expect(await dbSetting('zveltio.fail_closed_tenant')).toBe('zveltio.fail_closed_tenant=off');
+      delete process.env.ZVELTIO_FAIL_CLOSED_TENANT;
       await applyFailClosedTenantSetting(own);
       expect(await dbSetting('zveltio.fail_closed_tenant')).toBeNull();
     } finally {

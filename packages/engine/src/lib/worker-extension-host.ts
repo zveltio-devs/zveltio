@@ -866,7 +866,7 @@ export class WorkerExtensionHost {
       // The tenant of the request this query was issued under, from the host's
       // own dispatch record. A query outside any request — a background hook —
       // names no id and runs with no tenant context, which the isolation
-      // predicate resolves to the default tenant rather than to everything. A
+      // predicate resolves to no tenant at all (DR-03) rather than to everything. A
       // query naming a request that is over is refused (`requestScope`).
       let scope: InvokeScope | undefined;
       try {
@@ -1681,8 +1681,8 @@ const WORKER_QUERY_TIMEOUT_S = 10;
  *    a SUPERUSER, so worker SQL previously ran with every privilege Postgres
  *    has and RLS did not apply to it at all. Under the
  *    role, the isolation policies bind: with no tenant GUC on this connection
- *    the predicate resolves to the DEFAULT tenant (engine migration 029), so an
- *    extension sees one tenant's rows instead of all of them.
+ *    the predicate resolves to no tenant (engine migration 123, DR-03), so an
+ *    extension sees no tenant's rows instead of all of them.
  *
  *  - the caller's tenant, set as the `zveltio.current_tenant` GUC so the
  *    isolation policies resolve to the tenant whose request this is. The host
@@ -1691,11 +1691,12 @@ const WORKER_QUERY_TIMEOUT_S = 10;
  *    states is a tenant it chose.
  *
  * A query issued outside any request — a background hook, a scheduled task —
- * carries no invocation id and therefore no tenant. It gets the default
- * tenant's rows, which is what the predicate resolves to with no GUC. That is a
+ * carries no invocation id and therefore no tenant. It gets no tenant's rows,
+ * which is what the predicate resolves to with no GUC (the default tenant's
+ * only where the operator opted out, ZVELTIO_FAIL_CLOSED_TENANT=0). That is a
  * limitation rather than a hole: such code has no caller to inherit a tenant
- * from, and reading one tenant's data is a bug the extension can see, where
- * reading everyone's was one nobody could.
+ * from, and reading nothing is a bug the extension can see, where reading
+ * everyone's was one nobody could.
  */
 /**
  * The role the worker SQL bridge switches to: the extension's own (`own`, made
@@ -1794,7 +1795,7 @@ async function openWorkerTxn(extName: string, scope?: InvokeScope): Promise<Rese
 function workerSettings(scope: InvokeScope | undefined): [string, string][] {
   // Extension work is an actor, whoever the caller — none included (ADR 0040):
   // with no identity a rule on a caller value matches no row. No tenant, no
-  // other setting: the default tenant's rows, as the predicate resolves them.
+  // other setting: no tenant's rows, as the predicate resolves them (DR-03).
   if (!scope?.tenantId) return [['zveltio.actor', 'on']];
   // The tenant and the caller, from the host's own record — the settings
   // `withTenantIsolation` publishes for the request, so the row rules keyed

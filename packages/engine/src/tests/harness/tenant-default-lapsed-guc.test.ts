@@ -1,15 +1,15 @@
 /**
  * An INSERT with no tenant context — a fresh pooled connection, or one whose
- * `SET LOCAL zveltio.current_tenant` has lapsed to '' after COMMIT — can land in
- * the default tenant and nowhere else.
+ * `SET LOCAL zveltio.current_tenant` has lapsed to '' after COMMIT — is refused
+ * (DR-03: the tenant fallback is closed by default, migration 123).
  *
  * Every `tenant_id` column default falls back to the default tenant when the
- * setting is absent or empty. That is deliberate, and it is safe only while the
- * write half of the policy agrees with it: `zveltio_tenant_write_ok` admits the
- * default tenant and nothing else without a context, and nothing at all when
- * `zveltio.fail_closed_tenant` is on. So a lapsed connection cannot be told apart
- * from a fresh one, a contextless writer that names another tenant is refused
- * rather than re-homed, and the fail-closed install refuses the write outright.
+ * setting is absent or empty. The write half of the policy decides whether that
+ * lands: `zveltio_tenant_write_ok` admits nothing without a context, unless
+ * `zveltio.fail_closed_tenant` is explicitly 'off' (ZVELTIO_FAIL_CLOSED_TENANT=0),
+ * where it admits the default tenant and nothing else. So a lapsed connection
+ * cannot be told apart from a fresh one, and a contextless writer that names
+ * another tenant is refused rather than re-homed, either way.
  *
  * Driven through a one-connection pool opened as `zveltio_rls`, so the second
  * statement runs on the very connection the first transaction committed on —
@@ -78,25 +78,24 @@ d('tenant_id default on a connection with no tenant context', () => {
     await sql`DELETE FROM zv_tenants WHERE id = ${OTHER}::uuid`.execute(db);
   });
 
-  it('a lapsed setting is empty, and the insert lands in the default tenant', async () => {
+  it('a lapsed setting is empty, and the contextless insert is refused', async () => {
     await lapse();
     expect(await setting()).toBe('');
-    const r = await insertBare(`${STAMP}-lapsed`);
-    expect(r.rows[0]!.tenant_id).toBe(ROOT);
+    expect(await sqlstate(insertBare(`${STAMP}-lapsed`))).toBe('42501');
   });
 
-  it('is never visible to the tenant whose transaction the connection last served', async () => {
-    await lapse();
-    await insertBare(`${STAMP}-unseen`);
-    const asOther = await db.transaction().execute(async (trx) => {
-      await sql`SELECT set_config('zveltio.current_tenant', ${OTHER}, true)`.execute(trx);
-      await sql`SET LOCAL ROLE zveltio_rls`.execute(trx);
-      return sql<{ n: number }>`
-        SELECT count(*)::int AS n FROM zv_media_tags WHERE name = ${`${STAMP}-unseen`}`.execute(
-        trx,
-      );
-    });
-    expect(asOther.rows[0]!.n).toBe(0);
+  it('a fresh connection behaves exactly as a lapsed one', async () => {
+    const fresh = new Kysely<DbSchema>({
+      dialect: new BunSqlDialect({ connectionString: rlsUrl(), max: 1 }),
+    }) as unknown as Database;
+    try {
+      const v = await sql<{ v: string | null }>`
+        SELECT current_setting('zveltio.current_tenant', true) AS v`.execute(fresh);
+      expect(['', null]).toContain(v.rows[0]!.v);
+      expect(await sqlstate(insertBare(`${STAMP}-fresh`, fresh))).toBe('42501');
+    } finally {
+      await fresh.destroy();
+    }
   });
 
   it('a contextless writer that names another tenant is refused, not re-homed', async () => {
@@ -108,29 +107,33 @@ d('tenant_id default on a connection with no tenant context', () => {
     expect(state).toBe('42501');
   });
 
-  it('a fresh connection behaves exactly as a lapsed one', async () => {
-    const fresh = new Kysely<DbSchema>({
-      dialect: new BunSqlDialect({ connectionString: rlsUrl(), max: 1 }),
-    }) as unknown as Database;
-    try {
-      const v = await sql<{ v: string | null }>`
-        SELECT current_setting('zveltio.current_tenant', true) AS v`.execute(fresh);
-      expect(['', null]).toContain(v.rows[0]!.v);
-      const r = await insertBare(`${STAMP}-fresh`, fresh);
-      expect(r.rows[0]!.tenant_id).toBe(ROOT);
-    } finally {
-      await fresh.destroy();
+  it('any value but off keeps it closed, a typo included', async () => {
+    await lapse();
+    for (const value of ['on', 'yes', 'of']) {
+      const state = await sqlstate(
+        one.transaction().execute(async (trx) => {
+          await sql`SELECT set_config('zveltio.fail_closed_tenant', ${value}, true)`.execute(trx);
+          await sql`INSERT INTO zv_media_tags (name) VALUES (${`${STAMP}-closed`})`.execute(trx);
+        }),
+      );
+      expect(state, value).toBe('42501');
     }
   });
 
-  it('with fail-closed tenancy on, the contextless insert is refused', async () => {
+  it('opted out (ZVELTIO_FAIL_CLOSED_TENANT=0 stores off), it lands in the default tenant and nowhere else', async () => {
     await lapse();
-    const state = await sqlstate(
-      one.transaction().execute(async (trx) => {
-        await sql`SELECT set_config('zveltio.fail_closed_tenant', 'on', true)`.execute(trx);
-        await sql`INSERT INTO zv_media_tags (name) VALUES (${`${STAMP}-closed`})`.execute(trx);
-      }),
-    );
-    expect(state).toBe('42501');
+    const landed = await one.transaction().execute(async (trx) => {
+      await sql`SELECT set_config('zveltio.fail_closed_tenant', 'off', true)`.execute(trx);
+      return insertBare(`${STAMP}-open`, trx);
+    });
+    expect(landed.rows[0]!.tenant_id).toBe(ROOT);
+    // ...and is never visible to the tenant whose transaction the connection last served.
+    const asOther = await db.transaction().execute(async (trx) => {
+      await sql`SELECT set_config('zveltio.current_tenant', ${OTHER}, true)`.execute(trx);
+      await sql`SET LOCAL ROLE zveltio_rls`.execute(trx);
+      return sql<{ n: number }>`
+        SELECT count(*)::int AS n FROM zv_media_tags WHERE name = ${`${STAMP}-open`}`.execute(trx);
+    });
+    expect(asOther.rows[0]!.n).toBe(0);
   });
 });

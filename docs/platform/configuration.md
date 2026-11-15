@@ -349,7 +349,7 @@ EXTENSIONS_DIR=/app/extensions
 | `ZVELTIO_TENANT_ID` | — | Tenant id requests fall back to when no header or subdomain names one (single-tenant mode). Must be the `id` of an existing `zv_tenants` row: the engine refuses to boot otherwise — create the tenant first, or unset the variable to serve the default tenant. A suspended tenant named here answers 403 like any other. (`ZVELTIO_TENANT_NAME` is no longer read: the name is the row's.) |
 | `BACKUP_DB_USER` | unset | Role `pg_dump` connects as. **Required on a hardened install**: the engine's own role is bound by `FORCE ROW LEVEL SECURITY`, so `pg_dump` as the engine fails on a virgin database. Create a role with `BYPASSRLS`, used for nothing else — see [DISASTER-RECOVERY.md](disaster-recovery.md). Unset falls back to the engine's own credentials. |
 | `BACKUP_DB_PASSWORD` | unset | Password for `BACKUP_DB_USER`. Only read when that is set. |
-| `ZVELTIO_FAIL_CLOSED_TENANT` | unset | Set to `1` to make `zveltio_tenant_scope_ok` return **no rows** when `zveltio.current_tenant` is unset (`001_initial.sql`, section `from 047_fail_closed_tenant_opt_in.sql`). Default remains fail-open-to-default-tenant. **Do not enable** on single-tenant installs or jobs that omit tenant context. |
+| `ZVELTIO_FAIL_CLOSED_TENANT` | unset (closed) | A query with no tenant context sees **no rows** and may write none — the default since migration 123 (DR-03), held by the database itself, so it also binds a connection the engine never configured. `=0` is the opt-out: boot stores `zveltio.fail_closed_tenant = 'off'` on the database (ALTER DATABASE, as the database owner) and such a query sees and writes the **default tenant** again; the engine warns at every boot while it is set. Removing it resets the stored value; a stored `'off'` the engine cannot reset refuses the boot. Any value but `0` is closed. |
 | `ZVELTIO_ALLOW_UNENFORCED_RLS` | unset | Escape hatch when the engine role can bypass RLS and `zveltio_rls` is unavailable. Required to start in production in that state; only defensible on single-tenant installs. |
 
 In multi-tenant mode, tenants are resolved from:
@@ -391,6 +391,7 @@ absent, and `env | grep ZVELTIO_ALLOW` should print nothing.
 |----------|-------------------|-----------------------|
 | `ZVELTIO_ALLOW_PLAINTEXT_ENCRYPTED_FIELDS` | Refusing to write a field marked `encrypted: true` when `FIELD_ENCRYPTION_KEY` is unset. With `=1` the value is stored in the clear. | Never on an install holding PII. A development database, or a deliberate migration off encryption. |
 | `ZVELTIO_ALLOW_UNENFORCED_RLS` | Refusing to start when the engine's own role can bypass RLS and `zveltio_rls` is unavailable. | Single-tenant installs, where there is no second tenant to leak to. |
+| `ZVELTIO_FAIL_CLOSED_TENANT=0` | The closed tenant fallback: with `=0` a query with no tenant context reads and writes the default tenant's rows instead of none. | A single-tenant install whose own code (an extension's background work, a script on the engine's role) reads tenant tables without a tenant, until that code sets one. |
 | `ZVELTIO_ALLOW_MIGRATION_DIVERGENCE` | Refusing to start against a schema newer than the binary. | A rollback window you are actively supervising. |
 | `ZVELTIO_ALLOW_MISSING_DB` | Gates and the harness lane refusing to run without a database, rather than passing having checked nothing. | A lint-only CI job that genuinely has no Postgres. |
 | `ZVELTIO_EDGE_TRANSPORT` | Where edge function invocations run. Unset (RFC step 10): a function that declares its `egress` (a column of the function, set in Studio) goes where third-party extensions go (`ZVELTIO_EXT_TRANSPORT`: the runner in production, a local child in development); one that declares nothing stays a child of the engine, under the engine's user and with its network, and the engine warns once. `=runner` sends every invocation to the extension runner ([RFC](../engine/rfc-extension-runner.md), step 5) — the `zveltio-ext-runner@edge` instance on bare metal, the runner container (`ZVELTIO_EXT_RUNNER_SOCKET`) in compose and Helm — under a uid that cannot read the engine's files, environment or processes; `=process` keeps every invocation local. On the runner a function's `fetch` crosses to the engine, which performs it with the SSRF guard and only to the hosts in its `egress` (exact `host` on the scheme's default port, or `host:port`; every redirect hop checked again; 1 MiB request and 5 MiB response bodies, 50 requests and 6 in flight per invocation); a function without the list reaches nothing. Same ceilings (`EDGE_MEMORY_LIMIT_MB`, `EDGE_CPU_LIMIT_S`, below 1024 MiB floored: the runner has no per-invocation cgroup), same results; no pre-spawned pool. | `=runner` once every function that calls out declares its `egress`. |
@@ -399,12 +400,11 @@ absent, and `env | grep ZVELTIO_ALLOW` should print nothing.
 | `RATE_LIMIT_DENYLIST` | Nothing — it TIGHTENS. Comma-separated CIDRs refused before any handler runs. Listed here beside its twin so the pair is never found half-configured. | Blocking a known abusive range at the edge. |
 | `ZVELTIO_REGISTRATION_ENABLED` | The refusal to self-register (`registration_disabled`). Opens `POST /api/auth/sign-up/email` to anyone. | An instance that is genuinely meant to accept public sign-ups. |
 
-Two more do the opposite — they make the engine STRICTER, and are worth knowing
+Three more do the opposite — they make the engine STRICTER, and are worth knowing
 for the same reason:
 
 | Variable | What it tightens |
 |----------|------------------|
-| `ZVELTIO_FAIL_CLOSED_TENANT` | A query with no tenant context sees zero rows instead of the default tenant's. See the Multi-Tenancy section. |
 | `ZVELTIO_STRICT_TENANT_SCOPE` | A query against a tenant-scoped table outside tenant context throws instead of falling back. |
 | `ZVELTIO_REQUIRE_CATALOG` | An unreachable extension registry blocks the load instead of degrading to the local catalogue. |
 | `ZVELTIO_REQUIRE_REVOCATION_CHECK` | An unreachable registry blocks extension loading instead of warning. |
