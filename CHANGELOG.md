@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Changing a relation's actions over rows that break its key answers 422, not 500.** `PATCH /api/relations/:id` re-creates the foreign key `NOT VALID` and checks the rows after the commit (DR-38). When the previous key was `NOT VALID` or missing and a row points at no parent, that check fails with SQLSTATE 23503; the change was already undone, but the route rethrew the database error and the client got a 500. It now answers 422 naming the cause. Only that refusal changes: a lock timeout still answers 503, and a failed undo stays a 500.
+
 ## [3.0.0-beta.122] - 2026-11-15
 
 **The DDL queue keeps running when the system clock steps back.** Each pg-boss worker timed its poll on the wall clock and slept `interval - (now - started)`; a poll that began before a clock step back (an NTP correction) measured a negative duration and slept the whole step, so every schema change queued behind it, and `POST /api/collections` answered 400 after 30 s. The queue now times its polls on a monotonic clock. Found as a harness stall: DR-40's test moves `Date.now`, and every DDL test after it timed out.

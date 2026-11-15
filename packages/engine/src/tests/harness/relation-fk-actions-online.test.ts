@@ -217,7 +217,7 @@ d('a relation action change re-creates its key without the table lock', () => {
       ),
     );
     const res = await patch({ on_delete: 'SET NULL' });
-    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.status).toBe(422);
     expect(await keys()).toEqual([]);
     expect((await row())!.on_delete).toBe('CASCADE');
 
