@@ -108,7 +108,7 @@ d('a purge drops the collections the extension owns, with all their rules', () =
       db,
     );
     await sql`DELETE FROM zv_validation_rules WHERE collection IN (${sql.join(ALL)})`.execute(db);
-    await asDefaultTenant(db, sql`DROP TABLE IF EXISTS zvd_jnc_po_items_po_tags CASCADE`);
+    await sql`DROP TABLE IF EXISTS zvd_jnc_po_items_po_tags CASCADE`.execute(db);
     for (const c of ALL) await dropTestCollection(db, c);
   };
   /** Installed, enabled by god, with an operator collection beside it. */

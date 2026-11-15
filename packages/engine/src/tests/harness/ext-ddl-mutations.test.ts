@@ -175,9 +175,8 @@ d("ctx.DDLManager's mutations inside a request", () => {
     it(`registerMetadata + syncFieldsFromDB adopt a table (${mode})`, async () => {
       const name = `ddlmut_adopt_${mode[0]}${TAG}`;
       made.push(name);
-      await asDefaultTenant(
+      await sql`CREATE TABLE ${sql.id(`zvd_${name}`)} (id uuid PRIMARY KEY, label text)`.execute(
         db,
-        sql`CREATE TABLE ${sql.id(`zvd_${name}`)} (id uuid PRIMARY KEY, label text)`,
       );
       let synced = 0;
       await inRequest(mode, async () => {

@@ -199,7 +199,7 @@ d('collection triggers under every restricted writer role', () => {
     await getWorkerHost(workerApp).stopAll();
     _resetWorkerHostForTests();
     if (base) rmSync(base, { recursive: true, force: true });
-    await asDefaultTenant(db, sql`DROP TABLE IF EXISTS ${sql.table(TABLE)} CASCADE`);
+    await sql`DROP TABLE IF EXISTS ${sql.table(TABLE)} CASCADE`.execute(db);
     await asDefaultTenant(db, sql`DELETE FROM zv_sync_tombstones WHERE collection = ${TABLE}`);
     await db.deleteFrom('zvd_collections').where('name', '=', COLLECTION).execute();
     // Roles are cluster-wide and outlive the test database.

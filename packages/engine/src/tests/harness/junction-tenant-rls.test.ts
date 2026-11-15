@@ -110,7 +110,7 @@ d('m2m junction tables under tenant RLS', () => {
 
   afterAll(async () => {
     if (!db) return;
-    await asDefaultTenant(db, sql`DROP TABLE IF EXISTS ${sql.id(LEGACY)} CASCADE`).catch(() => {});
+    await sql`DROP TABLE IF EXISTS ${sql.id(LEGACY)} CASCADE`.execute(db).catch(() => {});
     for (const name of [SRC, TGT]) {
       await DDLManager.dropCollection(db, name, { force: true }).catch(() => {});
     }
@@ -124,7 +124,7 @@ d('m2m junction tables under tenant RLS', () => {
 
   it('another tenant cannot delete them', async () => {
     await withTenantIsolation(OTHER, (trx) => sql`DELETE FROM ${sql.id(J)}`.execute(trx));
-    expect(await count(db, J)).toBe(1);
+    expect(await withTenantIsolation(ROOT, (trx) => count(trx, J))).toBe(1);
   });
 
   it('a link written under a tenant lands in that tenant', async () => {

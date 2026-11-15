@@ -211,7 +211,7 @@ d('a relation action change re-creates its key without the table lock', () => {
   it('rows a key never checked refuse the change, and no NOT VALID key is left', async () => {
     // The key drifted away and a row now points at no parent.
     const [k] = await keys();
-    await asDefaultTenant(db, sql`ALTER TABLE ${sql.id(CT)} DROP CONSTRAINT ${sql.id(k!.name)}`);
+    await sql`ALTER TABLE ${sql.id(CT)} DROP CONSTRAINT ${sql.id(k!.name)}`.execute(db);
     await asTenant(db, TENANT, (trx) =>
       sql`INSERT INTO ${sql.id(CT)} (title, project_id) VALUES ('orphan', gen_random_uuid())`.execute(
         trx,

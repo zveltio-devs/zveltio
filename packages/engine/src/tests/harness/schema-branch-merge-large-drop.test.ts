@@ -114,10 +114,9 @@ d('schema-branch merge drops a field of a >100k-row table after its rules', () =
     for (const id of branches) {
       await sql`DELETE FROM zv_schema_branches WHERE id = ${id}`.execute(db);
     }
-    for (const s of schemas)
-      await asDefaultTenant(db, sql`DROP SCHEMA IF EXISTS ${sql.id(s)} CASCADE`);
+    for (const s of schemas) await sql`DROP SCHEMA IF EXISTS ${sql.id(s)} CASCADE`.execute(db);
     await sql`DELETE FROM zvd_rls_policies WHERE role = ${ROLE}`.execute(db);
-    await asDefaultTenant(db, sql`DROP TABLE IF EXISTS ${sql.id(TABLE)} CASCADE`);
+    await sql`DROP TABLE IF EXISTS ${sql.id(TABLE)} CASCADE`.execute(db);
     await db.deleteFrom('zvd_collections').where('name', '=', COL).execute();
   });
 

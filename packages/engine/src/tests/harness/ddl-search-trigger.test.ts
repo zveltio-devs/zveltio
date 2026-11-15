@@ -93,10 +93,7 @@ d('collection search trigger (in-process)', () => {
     );
 
     // A rename that bypasses the metadata, as a hand-run ALTER would.
-    await asDefaultTenant(
-      db,
-      sql`ALTER TABLE ${sql.id(`zvd_${MAIN}`)} RENAME COLUMN extra TO extra2`,
-    );
+    await sql`ALTER TABLE ${sql.id(`zvd_${MAIN}`)} RENAME COLUMN extra TO extra2`.execute(db);
     expect((await insert(MAIN, { title: 'still' })).search_text).toBe('still');
   });
 

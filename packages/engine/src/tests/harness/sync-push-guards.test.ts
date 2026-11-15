@@ -194,12 +194,9 @@ d('sync push guards (in-process)', () => {
   it('push and pull refuse a zvd_ table that is not a registered collection', async () => {
     const table = `zvd_jnc_hpush_${Date.now()}`;
     const rowId = crypto.randomUUID();
-    await asDefaultTenant(
-      db,
-      sql`CREATE TABLE ${sql.id(table)} (id uuid PRIMARY KEY, a_id uuid,
+    await sql`CREATE TABLE ${sql.id(table)} (id uuid PRIMARY KEY, a_id uuid,
               created_at timestamptz NOT NULL DEFAULT now(),
-              updated_at timestamptz NOT NULL DEFAULT now())`,
-    );
+              updated_at timestamptz NOT NULL DEFAULT now())`.execute(db);
     try {
       await asDefaultTenant(db, sql`INSERT INTO ${sql.id(table)} (id) VALUES (${rowId})`);
       const res = await push(godCookie, [
@@ -222,7 +219,7 @@ d('sync push guards (in-process)', () => {
       expect(pulled.status).toBe(200);
       expect(changes).toEqual([]);
     } finally {
-      await asDefaultTenant(db, sql`DROP TABLE IF EXISTS ${sql.id(table)}`);
+      await sql`DROP TABLE IF EXISTS ${sql.id(table)}`.execute(db);
     }
   });
 });
