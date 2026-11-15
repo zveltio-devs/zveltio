@@ -67,13 +67,13 @@ describe('the address written to an audit trail', () => {
   it('is what request-log actually writes', async () => {
     delete process.env.TRUSTED_PROXY;
     let written: Record<string, unknown> | undefined;
-    // Captures the row instead of a database. `onAfterCommit` runs its callback
-    // immediately when no tenant transaction is open, which is this test.
+    // Captures the row instead of a database. The request log batches its rows
+    // (DR-41), so the write lands within one flush, as an array.
     const stub = {
       insertInto: () => ({
-        values: (row: Record<string, unknown>) => ({
+        values: (rows: Record<string, unknown>[]) => ({
           execute: async () => {
-            written = row;
+            written = rows[0];
             return [];
           },
         }),
@@ -84,6 +84,7 @@ describe('the address written to an audit trail', () => {
     app.use('*', requestLogMiddleware(stub));
     app.get('/api/things', (c) => c.text('ok'));
     await app.request('/api/things', { headers: { 'x-forwarded-for': '9.9.9.9, 8.8.8.8' } });
+    for (let i = 0; i < 40 && !written; i++) await Bun.sleep(25);
 
     expect(written).toBeDefined();
     expect(written?.ip).toBeNull();
