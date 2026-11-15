@@ -3,7 +3,15 @@ import { sql } from 'kysely';
 import { indexName, pgIdentifier } from '../pg-identifier.js';
 import { z } from 'zod';
 import type { Database } from '../../db/index.js';
-import { forgetJsonbColumns, forgetReadableColumns, readableColumns } from '../../db/dynamic.js';
+import {
+  dynamicSetForeignKeyActions,
+  type ForeignKeyChange,
+  foreignKeysOf,
+  forgetJsonbColumns,
+  forgetReadableColumns,
+  readableColumns,
+  validateForeignKeyChange,
+} from '../../db/dynamic.js';
 import { fieldTypeRegistry, renderSqlDefault, type FieldConfig } from './field-type-registry.js';
 import { buildTenantUniqueIndex, findTenantUniqueIndex } from './unique-key-reconcile.js';
 import { toJsonb } from '../jsonb.js';
@@ -436,7 +444,10 @@ export class DDLManager {
 
   /**
    * Adds a UUID FK column to `tableName` referencing `targetTable(id)` with
-   * lock_timeout, then creates a CONCURRENTLY index on it.
+   * lock_timeout, then creates a CONCURRENTLY index on it. On a column that
+   * already exists it adds the key (or gives it these actions), validated after
+   * the commit: rows that break it, a column that is not a uuid or one that
+   * references another table refuse, and no key is left behind (DR-39).
    *
    * Must be called OUTSIDE an open transaction unless `concurrently` is false
    * (`createCollection`, inside its own) — and that is checked rather than only
@@ -480,15 +491,46 @@ export class DDLManager {
       throw new Error(`Invalid on_delete/on_update value: ${od}/${ou}`);
     }
     const { dropMaskView, sealColumns } = await import('./sealed-columns.js');
+    const k = `${tableName}.${fieldName}`;
+    let change: ForeignKeyChange | undefined;
+    let madeNotNull = false;
     await withLockTimeout(db, async (trx) => {
       await dropMaskView(trx, tableName);
-      await sql
-        .raw(
-          `ALTER TABLE "${tableName}" ADD COLUMN IF NOT EXISTS "${fieldName}" UUID ` +
-            `REFERENCES "${targetTable}"(id) ON DELETE ${od} ON UPDATE ${ou}`,
-        )
-        .execute(trx);
-      // Separate from the ADD: it also holds for a column a failed earlier attempt left.
+      // The lock the ADD takes, taken before the check so the check holds.
+      await sql`LOCK TABLE ${sql.id(tableName)} IN ACCESS EXCLUSIVE MODE`.execute(trx);
+      const col = (
+        await sql<{ type: string; notnull: boolean }>`
+          SELECT format_type(atttypid, atttypmod) AS type, attnotnull AS notnull
+            FROM pg_attribute
+           WHERE attrelid = to_regclass(quote_ident(${tableName}))
+             AND attname = ${fieldName} AND NOT attisdropped`.execute(trx)
+      ).rows[0];
+      if (!col) {
+        await sql
+          .raw(
+            `ALTER TABLE "${tableName}" ADD COLUMN IF NOT EXISTS "${fieldName}" UUID ` +
+              `REFERENCES "${targetTable}"(id) ON DELETE ${od} ON UPDATE ${ou}`,
+          )
+          .execute(trx);
+      } else {
+        // The column exists (an o2m's `target_field`, a uuid field made a
+        // relation, a retry): `ADD COLUMN IF NOT EXISTS … REFERENCES` skipped
+        // the key with the column, and the relation was recorded unenforced
+        // (DR-39). The key is added NOT VALID here; its rows are checked after
+        // the commit, outside this lock, and rows that break it refuse.
+        if (col.type !== 'uuid') {
+          throw new Error(
+            `"${fieldName}" on ${tableName} is ${col.type}: a relation's key column is a uuid`,
+          );
+        }
+        const fk = (await foreignKeysOf(trx, [k])).get(k);
+        if (fk && fk.ref !== targetTable) {
+          throw new Error(`"${fieldName}" on ${tableName} already references ${fk.ref}`);
+        }
+        change = await dynamicSetForeignKeyActions(trx, tableName, fieldName, targetTable, od, ou);
+        madeNotNull = required && !col.notnull;
+      }
+      // Separate from the ADD: it also holds for a column that already existed.
       if (required) {
         await sql`ALTER TABLE ${sql.id(tableName)} ALTER COLUMN ${sql.id(fieldName)} SET NOT NULL`.execute(
           trx,
@@ -496,6 +538,15 @@ export class DDLManager {
       }
       await sealColumns(trx, tableName.slice('zvd_'.length));
     });
+    if (change) {
+      await validateForeignKeyChange(db, change, async (trx) => {
+        if (madeNotNull) {
+          await sql`ALTER TABLE ${sql.id(tableName)} ALTER COLUMN ${sql.id(fieldName)} DROP NOT NULL`.execute(
+            trx,
+          );
+        }
+      });
+    }
     // Index the FK column for join performance
     await buildIndex(
       db,
