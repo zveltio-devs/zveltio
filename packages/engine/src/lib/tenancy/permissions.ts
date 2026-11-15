@@ -16,6 +16,7 @@ import {
   getCurrentTenantTrx,
   getResolvedGod,
   onAfterCommit,
+  requestTransactionState,
   runWithoutTenantTrx,
 } from './tenant-context.js';
 import { DEFAULT_TENANT_ID, type RlsIdentity, withEveryTenant } from './tenant-manager.js';
@@ -1202,6 +1203,38 @@ export function principalRole(userId: string): Promise<string> {
     : resolveUserRole({ id: userId });
 }
 
+/**
+ * Read a `"user"` row on the request's transaction when one is open, else on the
+ * pool; and say which.
+ *
+ * On the pool while a request holds its transaction, the read is a second
+ * connection, and at `c = DB_POOL_MAX` none comes: the whole pool sits `idle in
+ * transaction` until the acquire timeout (DR-40, measured in LV-20). So inside
+ * one it is read ON it, under a savepoint so a failed read throws without
+ * aborting the caller's transaction. Only a REQUEST's: it runs as `zveltio_rls`,
+ * which reads `"user"` by design (the boot grant in tenant-manager.ts); a job's
+ * or a flow's may run as a role that may not, and is not holding a request.
+ *
+ * On the pool, deliberately NOT savepoint-guarded: `SAVEPOINT` there answers
+ * `25P01`, and a version that wrapped it anyway showed thirteen consecutive
+ * 25P01s followed by a `25P02` on an unrelated request. See lib/savepoint.ts.
+ */
+export async function readUserRow<T>(
+  read: (db: Database) => Promise<T>,
+): Promise<{ value: T; onTrx: boolean }> {
+  const trx = requestTransactionState() === 'open' ? getCurrentTenantTrx() : undefined;
+  if (!trx) return { value: await read(_db), onTrx: false };
+  const value = await withSavepoint(
+    trx,
+    'zv_user_row',
+    () => read(trx),
+    (err) => {
+      throw err;
+    },
+  );
+  return { value, onTrx: true };
+}
+
 export async function isGodUser(userId: string): Promise<boolean> {
   try {
     return await lookupGod(userId);
@@ -1246,32 +1279,13 @@ async function lookupGod(userId: string): Promise<boolean> {
     }
   }
 
-  // Inside a tenant transaction the miss is read ON it, like `unloadedRoles`:
-  // a pool read there is a second connection while the transaction holds one,
-  // and at `c = DB_POOL_MAX` it never comes (DR-40). Under a savepoint, so a
-  // failed read throws without aborting the caller's transaction; not memoized,
-  // since it can see that transaction's uncommitted rows. `zveltio_rls` reads
-  // `"user"` by design (the boot grant in tenant-manager.ts).
-  //
-  // On the pool, deliberately NOT savepoint-guarded: `SAVEPOINT` there answers
-  // `25P01`, and a version that wrapped it anyway showed thirteen consecutive
-  // 25P01s followed by a `25P02` on an unrelated request. See lib/savepoint.ts.
-  const trx = getCurrentTenantTrx();
-  const read = (db: Database) =>
-    sql<{ role: string }>`SELECT role FROM "user" WHERE id = ${userId} LIMIT 1`.execute(db);
-  const result = trx
-    ? await withSavepoint(
-        trx,
-        'zv_god_lookup',
-        () => read(trx),
-        (err) => {
-          throw err;
-        },
-      )
-    : await read(_db);
+  const { value: result, onTrx } = await readUserRow((db) =>
+    sql<{ role: string }>`SELECT role FROM "user" WHERE id = ${userId} LIMIT 1`.execute(db),
+  );
 
   const isGod = result.rows[0]?.role === 'god';
-  if (trx) return isGod;
+  // Not memoized from the transaction: it can see its own uncommitted rows.
+  if (onTrx) return isGod;
   _localGod.set(userId, { value: isGod, at: Date.now() });
 
   if (cache) {

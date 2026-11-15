@@ -8,7 +8,9 @@
  * memo lives five seconds, `sessionPrefetch` primes it before the transaction
  * opens, and a request that queued for longer than that asked the pool again —
  * after `BEGIN` (the reach), in the access check, the read scope, the membership
- * gate and the god audit — while holding its own connection. Once every pooled
+ * gate and the god audit — while holding its own connection. An API key's
+ * issuer email (`issuerEmail`, the same five seconds) did the same on key
+ * requests. Once every pooled
  * connection was held by such a request, none of them could get the second, and
  * each waited out the 35 s acquire timeout.
  *
@@ -19,9 +21,12 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
+import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { _setConnectionTracing, tracedAcquisitionSite } from '../../db/connection-trace.js';
 import { DDLManager } from '../../lib/data/index.js';
+import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
+import { DEFAULT_TENANT_ID } from '../../lib/tenancy/index.js';
 import {
   createGodSession,
   createMemberSession,
@@ -54,8 +59,8 @@ d('DR-40: memos lapsing mid-request take no second connection', () => {
   let db: Database;
   let member = '';
   let god = '';
-  const list = (cookie: string) =>
-    app.request(`/api/data/${C}?limit=5`, { headers: { cookie } });
+  let key = '';
+  const list = (cookie: string) => app.request(`/api/data/${C}?limit=5`, { headers: { cookie } });
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
@@ -64,9 +69,16 @@ d('DR-40: memos lapsing mid-request take no second connection', () => {
       fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
     } as never);
     god = await createGodSession(app, db);
-    ({ cookie: member } = await createMemberSession(app, db, {
+    const created = await createMemberSession(app, db, {
       grants: [{ collection: C, actions: ['read', 'create'] }],
-    }));
+    });
+    member = created.cookie;
+    key = generateApiKey();
+    await sql`
+      INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, is_active, tenant_id, created_by)
+      VALUES (${C}, ${await hashApiKey(key)}, ${key.slice(0, 12)},
+              ${JSON.stringify([{ collection: C, actions: ['*'] }])}::jsonb, true,
+              ${DEFAULT_TENANT_ID}::uuid, ${created.userId})`.execute(db);
     for (let i = 0; i < 12; i++) {
       const res = await app.request(`/api/data/${C}`, {
         method: 'POST',
@@ -79,10 +91,12 @@ d('DR-40: memos lapsing mid-request take no second connection', () => {
 
   afterAll(async () => {
     _setConnectionTracing(false);
-    if (db) await dropTestCollection(db, C);
+    if (!db) return;
+    await sql`DELETE FROM zv_api_keys WHERE name = ${C}`.execute(db);
+    await dropTestCollection(db, C);
   }, 60_000);
 
-  it('a list, a read and a write count no extra connection', async () => {
+  it('a list (session, god, key, cursor, aggregate), a read and a write count no extra connection', async () => {
     const seen: Record<string, string> = {};
     const extra = (res: Response) => {
       const n = res.headers.get('x-zveltio-extra-connections') ?? '0';
@@ -93,9 +107,27 @@ d('DR-40: memos lapsing mid-request take no second connection', () => {
       await lapsing(async () => {
         seen['member list'] = extra(await list(member));
         seen['god list'] = extra(await list(god));
-        const one = (await (await list(member)).json()) as { records: Array<{ id: string }> };
+        seen['key list'] = extra(
+          await app.request(`/api/data/${C}?limit=5`, { headers: { 'x-api-key': key } }),
+        );
+        const one = (await (await list(member)).json()) as {
+          records: Array<{ id: string }>;
+          next_cursor: string;
+        };
+        // Siblings through the same read gate: the keyset walk and the aggregate.
+        seen['member cursor'] = extra(
+          await app.request(
+            `/api/data/${C}?limit=5&cursor=${encodeURIComponent(one.next_cursor)}`,
+            { headers: { cookie: member } },
+          ),
+        );
+        seen['member aggregate'] = extra(
+          await app.request(`/api/data/${C}/aggregate?fn=count`, { headers: { cookie: member } }),
+        );
         seen['member get'] = extra(
-          await app.request(`/api/data/${C}/${one.records[0]!.id}`, { headers: { cookie: member } }),
+          await app.request(`/api/data/${C}/${one.records[0]!.id}`, {
+            headers: { cookie: member },
+          }),
         );
         seen['member write'] = extra(
           await app.request(`/api/data/${C}`, {
@@ -111,6 +143,9 @@ d('DR-40: memos lapsing mid-request take no second connection', () => {
     expect(seen).toEqual({
       'member list': '200 0',
       'god list': '200 0',
+      'key list': '200 0',
+      'member cursor': '200 0',
+      'member aggregate': '200 0',
       'member get': '200 0',
       'member write': '201 0',
     });
@@ -122,7 +157,7 @@ d('DR-40: memos lapsing mid-request take no second connection', () => {
     // timeout; with one connection per request they queue and finish.
     const started = performance.now();
     const statuses = await lapsing(() =>
-      Promise.all(Array.from({ length: pool * 3 }, () => list(member).then((r) => r.status))),
+      Promise.all(Array.from({ length: pool * 3 }, async () => (await list(member)).status)),
     );
     const seconds = (performance.now() - started) / 1000;
     expect({ statuses: [...new Set(statuses)], slow: seconds > 15 }).toEqual({
