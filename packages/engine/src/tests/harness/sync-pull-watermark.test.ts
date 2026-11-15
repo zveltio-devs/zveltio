@@ -63,15 +63,15 @@ d('sync pull holds its position behind in-flight transactions', () => {
 
   it('a row committed after the pull still arrives', async () => {
     const collections = [`zvd_${NAME}`];
-    await insert(db, 'before');
+    await asDefaultTenant(db, (t) => insert(t, 'before'));
 
     let first: PullBody | null = null;
-    await db.transaction().execute(async (trx) => {
+    await asDefaultTenant(db, async (trx) => {
       // `updated_at` = this transaction's start.
       await insert(trx, 'in-flight');
       await Bun.sleep(5);
       // Committed, and newer than the in-flight row.
-      await insert(db, 'after');
+      await asDefaultTenant(db, (t) => insert(t, 'after'));
       first = await pull({ collections });
     });
     const f = first as unknown as PullBody;

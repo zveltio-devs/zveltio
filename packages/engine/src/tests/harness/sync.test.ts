@@ -55,10 +55,7 @@ d('sync routes (in-process)', () => {
 
   afterAll(async () => {
     if (!db) return;
-    await sql
-      .raw(`DELETE FROM "zvd_${COLLECTION}"`)
-      .execute(db)
-      .catch(() => {});
+    await asDefaultTenant(db, sql.raw(`DELETE FROM "zvd_${COLLECTION}"`)).catch(() => {});
     await sql
       .raw(`DROP TABLE IF EXISTS "zvd_${COLLECTION}" CASCADE`)
       .execute(db)
@@ -129,9 +126,10 @@ d('sync routes (in-process)', () => {
     );
     expect(res.status).toBe(200);
 
-    const rows = (await sql
-      .raw(`SELECT secret FROM "zvd_${COLLECTION}" WHERE id = '${recordId}'`)
-      .execute(db)) as { rows: { secret: string }[] };
+    const rows = (await asDefaultTenant(
+      db,
+      sql.raw(`SELECT secret FROM "zvd_${COLLECTION}" WHERE id = '${recordId}'`),
+    )) as { rows: { secret: string }[] };
     expect(rows.rows.length).toBe(1);
     const stored = rows.rows[0]!.secret;
     expect(stored).not.toBe(plaintext);
@@ -251,9 +249,10 @@ d('sync routes (in-process)', () => {
 
     // Stored encrypted — the push path's job, asserted so a failure here is
     // unambiguous about which half broke.
-    const stored = (await sql
-      .raw(`SELECT api_key FROM "zvd_${COLLECTION}" WHERE id = '${recordId}'`)
-      .execute(db)) as { rows: { api_key: string }[] };
+    const stored = (await asDefaultTenant(
+      db,
+      sql.raw(`SELECT api_key FROM "zvd_${COLLECTION}" WHERE id = '${recordId}'`),
+    )) as { rows: { api_key: string }[] };
     expect(stored.rows[0]!.api_key.startsWith('enc:v1:')).toBe(true);
 
     const res = await syncPull(app, cookie, { collections: [COLLECTION] });

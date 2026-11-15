@@ -101,14 +101,11 @@ d('an API key is not a Casbin subject', () => {
 
     raw = generateApiKey();
     keyId = (
-      await asDefaultTenant(
-        db,
-        sql<{ id: string }>`
+      await sql<{ id: string }>`
         INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, rate_limit, is_active, tenant_id, created_by)
         VALUES ('casbin subject probe', ${await hashApiKey(raw)}, 'zvk_', ${JSON.stringify([{ collection: CHILD, actions: ['read'] }])}::jsonb, 100, true,
                 ${DEFAULT_TENANT_ID}::uuid, ${issuer})
-        RETURNING id`,
-      )
+        RETURNING id`.execute(db)
     ).rows[0]!.id;
   });
 
@@ -119,9 +116,7 @@ d('an API key is not a Casbin subject', () => {
     await e.removeFilteredPolicy(0, KEY_ROLE).catch(() => {});
     await e.deleteRolesForUser(issuer).catch(() => {});
     await e.deleteRolesForUser(`apikey:${keyId}`).catch(() => {});
-    await asDefaultTenant(db, sql`DELETE FROM zv_api_keys WHERE id = ${keyId}::uuid`).catch(
-      () => {},
-    );
+    await sql`DELETE FROM zv_api_keys WHERE id = ${keyId}::uuid`.execute(db).catch(() => {});
     await sql`DELETE FROM "user" WHERE id = ${issuer}`.execute(db).catch(() => {});
     await dropTestCollection(db, CHILD).catch(() => {});
     await dropTestCollection(db, PARENT).catch(() => {});
@@ -195,17 +190,14 @@ d('an API key is not a Casbin subject', () => {
   it('a key scoped to the related collection expands it, as its issuer may', async () => {
     const both = generateApiKey();
     const id = (
-      await asDefaultTenant(
-        db,
-        sql<{ id: string }>`
+      await sql<{ id: string }>`
         INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, rate_limit, is_active, tenant_id, created_by)
         VALUES ('casbin subject probe 2', ${await hashApiKey(both)}, 'zvk_', ${JSON.stringify([
           { collection: CHILD, actions: ['read'] },
           { collection: PARENT, actions: ['read'] },
         ])}::jsonb, 100, true,
                 ${DEFAULT_TENANT_ID}::uuid, ${issuer})
-        RETURNING id`,
-      )
+        RETURNING id`.execute(db)
     ).rows[0]!.id;
     try {
       expect(await expanded()).toBeUndefined();
@@ -213,7 +205,7 @@ d('an API key is not a Casbin subject', () => {
         title: 'secret parent',
       });
     } finally {
-      await asDefaultTenant(db, sql`DELETE FROM zv_api_keys WHERE id = ${id}::uuid`);
+      await sql`DELETE FROM zv_api_keys WHERE id = ${id}::uuid`.execute(db);
     }
   });
 });

@@ -64,10 +64,9 @@ d('bulk write is all or nothing (ADR 0044, in-process)', () => {
   afterAll(async () => {
     for (const u of unsubs) u();
     if (!db) return;
-    await asDefaultTenant(
-      db,
-      sql`DELETE FROM pgboss.job WHERE data->>'webhookId' = ${webhookId}`,
-    ).catch(() => {});
+    await sql`DELETE FROM pgboss.job WHERE data->>'webhookId' = ${webhookId}`
+      .execute(db)
+      .catch(() => {});
     await asDefaultTenant(db, sql`DELETE FROM zvd_webhooks WHERE id = ${webhookId}::uuid`).catch(
       () => {},
     );

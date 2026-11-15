@@ -179,7 +179,7 @@ d('an API key runs an extension action with $ext:<name> execute', () => {
     await forgetRuleObjects(db, RES);
     invalidateActivationCache();
     if (!db) return;
-    for (const id of keys) await asDefaultTenant(db, sql`DELETE FROM zv_api_keys WHERE id = ${id}`);
+    for (const id of keys) await sql`DELETE FROM zv_api_keys WHERE id = ${id}`.execute(db);
     await sql`DELETE FROM zv_extension_registry WHERE name = ${EXT}`.execute(db);
     await sql`DELETE FROM zvd_permissions WHERE v2 = ${RES}`.execute(db);
     await asDefaultTenant(db, sql`DELETE FROM zv_revisions WHERE collection = ${C}`);
@@ -254,17 +254,14 @@ d('an API key runs an extension action with $ext:<name> execute', () => {
       });
     expect((await role('POST')).status).toBe(200);
     const raw = generateApiKey();
-    const row = await asDefaultTenant(
-      db,
-      sql<{ id: string }>`
+    const row = await sql<{ id: string }>`
       INSERT INTO zv_api_keys
         (name, key_hash, key_prefix, scopes, created_by, is_active, tenant_id)
       VALUES ('akact-issuer', ${await hashApiKey(raw)}, ${raw.slice(0, 12)},
               ${JSON.stringify([execute, writeC])}::jsonb, ${issuer.userId}, true,
               ${DEFAULT_TENANT_ID})
       RETURNING id
-    `,
-    );
+    `.execute(db);
     keys.push(row.rows[0]!.id);
     const read = () => engine.request(`/api/data/${C}`, { headers: { 'x-api-key': raw } });
     const create = (label: string) =>
@@ -304,17 +301,14 @@ d('an API key runs an extension action with $ext:<name> execute', () => {
     await (await getEnforcer()).addPolicy(creator.userId, '*', RES, 'execute');
     await invalidateUserPermCache(creator.userId);
     const raw = generateApiKey();
-    const row = await asDefaultTenant(
-      db,
-      sql<{ id: string }>`
+    const row = await sql<{ id: string }>`
       INSERT INTO zv_api_keys
         (name, key_hash, key_prefix, scopes, created_by, is_active, tenant_id)
       VALUES ('akact-member', ${await hashApiKey(raw)}, ${raw.slice(0, 12)},
               ${JSON.stringify([execute, writeC])}::jsonb, ${creator.userId}, true,
               ${DEFAULT_TENANT_ID})
       RETURNING id
-    `,
-    );
+    `.execute(db);
     keys.push(row.rows[0]!.id);
     expect((await act('addItem', { label: 'member-key' }, raw)).status).toBe(200);
     expect(await rowsLabelled('member-key')).toEqual([{ created_by: creator.userId }]);

@@ -164,14 +164,11 @@ d("a key's row rules are its own AND its issuer's", () => {
 
     raw = generateApiKey();
     keyId = (
-      await asDefaultTenant(
-        db,
-        sql<{ id: string }>`
+      await sql<{ id: string }>`
         INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, rate_limit, is_active, tenant_id, created_by)
         VALUES ('issuer row probe', ${await hashApiKey(raw)}, 'zvk_', ${JSON.stringify([{ collection: COLLECTION, actions: ['read'] }])}::jsonb, 100, true,
                 ${DEFAULT_TENANT_ID}::uuid, ${issuer})
-        RETURNING id`,
-      )
+        RETURNING id`.execute(db)
     ).rows[0]!.id;
   });
 
@@ -180,9 +177,7 @@ d("a key's row rules are its own AND its issuer's", () => {
     const e = await getEnforcer();
     await e.removeFilteredPolicy(0, ROLE).catch(() => {});
     await e.deleteRolesForUser(issuer).catch(() => {});
-    await asDefaultTenant(db, sql`DELETE FROM zv_api_keys WHERE id = ${keyId}::uuid`).catch(
-      () => {},
-    );
+    await sql`DELETE FROM zv_api_keys WHERE id = ${keyId}::uuid`.execute(db).catch(() => {});
     await sql`DELETE FROM zvd_rls_policies WHERE collection = ${COLLECTION}`
       .execute(db)
       .catch(() => {});

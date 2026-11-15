@@ -75,9 +75,9 @@ d('members issue their own API keys (ADR 0010)', () => {
 
   afterAll(async () => {
     await setSwitch(false);
-    await asDefaultTenant(db, sql`DELETE FROM zv_api_keys WHERE name = ${NAME}`);
+    await sql`DELETE FROM zv_api_keys WHERE name = ${NAME}`.execute(db);
     for (const id of tenants) {
-      await asDefaultTenant(db, sql`DELETE FROM zv_tenant_users WHERE tenant_id = ${id}::uuid`);
+      await sql`DELETE FROM zv_tenant_users WHERE tenant_id = ${id}::uuid`.execute(db);
       await sql`DELETE FROM zv_tenants WHERE id = ${id}::uuid`.execute(db);
     }
   });
@@ -148,11 +148,8 @@ d('members issue their own API keys (ADR 0010)', () => {
     expect((await patch('*')).status).toBe(400);
     expect((await patch('$schema')).status).toBe(400);
     expect((await patch('mak_other')).status).toBe(200);
-    const row = await asDefaultTenant(
-      db,
-      sql<{ scopes: unknown }>`
-      SELECT scopes FROM zv_api_keys WHERE id = ${id}::uuid`,
-    );
+    const row = await sql<{ scopes: unknown }>`
+      SELECT scopes FROM zv_api_keys WHERE id = ${id}::uuid`.execute(db);
     expect(row.rows[0]?.scopes).toEqual([{ collection: 'mak_other', actions: ['read'] }]);
 
     // Writes the engine would never apply are refused, not answered with success.
@@ -163,11 +160,8 @@ d('members issue their own API keys (ADR 0010)', () => {
         body: JSON.stringify(body),
       });
     expect((await raw(`/api/admin/api-keys/${id}`, 'PATCH', { rate_limit: 1 })).status).toBe(409);
-    const own = await asDefaultTenant(
-      db,
-      sql<{ rate_limit: number | null }>`
-      SELECT rate_limit FROM zv_api_keys WHERE id = ${id}::uuid`,
-    );
+    const own = await sql<{ rate_limit: number | null }>`
+      SELECT rate_limit FROM zv_api_keys WHERE id = ${id}::uuid`.execute(db);
     expect(own.rows[0]?.rate_limit).toBeNull();
     const override = await raw(`/api/api-keys/${id}/rate-limit`, 'PUT', {
       window_ms: 60_000,
@@ -259,11 +253,8 @@ d('members issue their own API keys (ADR 0010)', () => {
     await sql`INSERT INTO zv_tenants (id, slug, name, status)
               VALUES (${tenant}::uuid, ${slug}, ${slug}, 'active')`.execute(db);
     tenants.push(tenant);
-    await asDefaultTenant(
-      db,
-      sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role)
-              VALUES (${tenant}::uuid, ${m.userId}, 'member')`,
-    );
+    await sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role)
+              VALUES (${tenant}::uuid, ${m.userId}, 'member')`.execute(db);
     const res = await app.request('/api/me/api-keys', {
       method: 'POST',
       headers: {
@@ -293,11 +284,8 @@ d('members issue their own API keys (ADR 0010)', () => {
     const m = await member();
     const a = ((await (await create(m)).json()) as { key: string }).key;
     const b = ((await (await create(m)).json()) as { key: string }).key;
-    const row = await asDefaultTenant(
-      db,
-      sql<{ member_issued: boolean }>`
-      SELECT member_issued FROM zv_api_keys WHERE created_by = ${m.userId} LIMIT 1`,
-    );
+    const row = await sql<{ member_issued: boolean }>`
+      SELECT member_issued FROM zv_api_keys WHERE created_by = ${m.userId} LIMIT 1`.execute(db);
     expect(row.rows[0]?.member_issued).toBe(true);
 
     const savedEnv = process.env.NODE_ENV;

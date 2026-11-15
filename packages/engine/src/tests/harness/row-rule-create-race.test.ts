@@ -86,12 +86,9 @@ d('a row rule racing a collection create', () => {
 
   async function someoneWaitsOnALock(): Promise<void> {
     for (let i = 0; i < 200; i++) {
-      const r = await asDefaultTenant(
-        db,
-        sql<{ n: number }>`
+      const r = await sql<{ n: number }>`
         SELECT COUNT(*)::int AS n FROM pg_stat_activity
-         WHERE datname = current_database() AND wait_event_type = 'Lock'`,
-      );
+         WHERE datname = current_database() AND wait_event_type = 'Lock'`.execute(db);
       if (r.rows[0]!.n > 0) return;
       await Bun.sleep(25);
     }
@@ -111,12 +108,13 @@ d('a row rule racing a collection create', () => {
     );
 
   const seed = (name: string) =>
-    sql
-      .raw(
+    asDefaultTenant(
+      db,
+      sql.raw(
         `INSERT INTO zvd_${name} (tenant_id, "${OWNER}") VALUES ` +
           `('${tenant}', '${ALICE}'), ('${tenant}', '${BOB}')`,
-      )
-      .execute(db);
+      ),
+    );
 
   /**
    * Write `collection`'s rule paused at `pauseAt` (after it looked for tables),
@@ -145,10 +143,7 @@ d('a row rule racing a collection create', () => {
   beforeAll(async () => {
     ({ db } = await getTestApp());
     tenant = (
-      await asDefaultTenant(
-        db,
-        sql<{ id: string }>`SELECT id FROM zv_tenants ORDER BY created_at LIMIT 1`,
-      )
+      await sql<{ id: string }>`SELECT id FROM zv_tenants ORDER BY created_at LIMIT 1`.execute(db)
     ).rows[0]!.id;
   });
 

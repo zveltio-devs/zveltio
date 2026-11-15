@@ -111,7 +111,7 @@ d('writes by a principal that cannot read the collection', () => {
       await sql`DELETE FROM zv_api_key_access_log WHERE api_key_id = ${id}`
         .execute(db)
         .catch(() => {});
-      await asDefaultTenant(db, sql`DELETE FROM zv_api_keys WHERE id = ${id}`).catch(() => {});
+      await sql`DELETE FROM zv_api_keys WHERE id = ${id}`.execute(db).catch(() => {});
     }
     await asDefaultTenant(db, sql`DELETE FROM zv_revisions WHERE collection = ${COLL}`).catch(
       () => {},

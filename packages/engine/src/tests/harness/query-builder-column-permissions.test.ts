@@ -22,7 +22,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createMemberSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createMemberSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `qbcol_${Date.now()}`;
@@ -41,11 +46,12 @@ d('query builder honours column permissions', () => {
         { name: 'salary', type: 'text', required: false, unique: false, indexed: false },
       ],
     } as never);
-    await sql
-      .raw(
+    await asDefaultTenant(
+      db,
+      sql.raw(
         `INSERT INTO "zvd_${COLLECTION}" (title, salary) VALUES ('a','SECRET-1'),('b','SECRET-2')`,
-      )
-      .execute(db);
+      ),
+    );
     await db
       .insertInto('zvd_column_permissions')
       .values({

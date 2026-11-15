@@ -79,20 +79,16 @@ d('identity tables under tenant RLS (065)', () => {
     );
     for (const tenant of [ROOT, CHILD]) {
       rawKey[tenant] = generateApiKey();
-      await asDefaultTenant(
-        db,
-        sql`
+      await sql`
         INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, is_active, created_by, tenant_id)
         VALUES (${`${TAG}-${tenant}`}, ${await hashApiKey(rawKey[tenant]!)},
-                ${rawKey[tenant]!.slice(0, 12)}, '[]'::jsonb, true, ${USER}, ${tenant}::uuid)`,
-      );
-      await asDefaultTenant(
+                ${rawKey[tenant]!.slice(0, 12)}, '[]'::jsonb, true, ${USER}, ${tenant}::uuid)`.execute(
         db,
-        sql`
+      );
+      await sql`
         INSERT INTO zv_invitations (email, role, token, expires_at, tenant_id)
         VALUES (${`${TAG}-${tenant}@test.local`}, 'member', ${`${TAG}-${tenant}`},
-                now() + interval '1 day', ${tenant}::uuid)`,
-      );
+                now() + interval '1 day', ${tenant}::uuid)`.execute(db);
       const folder = await asTenant(db, tenant, (trx) =>
         sql<{ id: string }>`
         INSERT INTO zv_media_folders (name, tenant_id) VALUES (${TAG}, ${tenant}::uuid)
@@ -110,14 +106,11 @@ d('identity tables under tenant RLS (065)', () => {
 
   afterAll(async () => {
     if (!db) return;
-    await asDefaultTenant(db, sql`DELETE FROM zv_api_keys WHERE name LIKE ${`${TAG}%`}`);
-    await asDefaultTenant(db, sql`DELETE FROM zv_invitations WHERE email LIKE ${`${TAG}%`}`);
-    await asDefaultTenant(db, sql`DELETE FROM zv_media_shares WHERE created_by = ${USER}`);
+    await sql`DELETE FROM zv_api_keys WHERE name LIKE ${`${TAG}%`}`.execute(db);
+    await sql`DELETE FROM zv_invitations WHERE email LIKE ${`${TAG}%`}`.execute(db);
+    await sql`DELETE FROM zv_media_shares WHERE created_by = ${USER}`.execute(db);
     await asDefaultTenant(db, sql`DELETE FROM zv_media_folders WHERE name = ${TAG}`);
-    await asDefaultTenant(
-      db,
-      sql`DELETE FROM zv_tenant_users WHERE user_id IN (${USER}, ${LEAVER})`,
-    );
+    await sql`DELETE FROM zv_tenant_users WHERE user_id IN (${USER}, ${LEAVER})`.execute(db);
     await sql`DELETE FROM "user" WHERE id IN (${USER}, ${LEAVER})`.execute(db);
     await sql`DELETE FROM zv_tenants WHERE id IN (${CHILD}::uuid, ${PARENT}::uuid)`.execute(db);
   });
@@ -182,20 +175,14 @@ d('identity tables under tenant RLS (065)', () => {
       ((await q.then(() => null).catch((e) => e)) as { errno?: string } | null)?.errno;
     expect(
       await refused(
-        asDefaultTenant(
-          db,
-          sql`INSERT INTO zv_api_keys (name, key_hash, key_prefix, created_by)
-            VALUES (${`${TAG}-none`}, ${`${TAG}-none`}, 'zvk_none', ${USER})`,
-        ),
+        sql`INSERT INTO zv_api_keys (name, key_hash, key_prefix, created_by)
+            VALUES (${`${TAG}-none`}, ${`${TAG}-none`}, 'zvk_none', ${USER})`.execute(db),
       ),
     ).toBe('23502');
     expect(
       await refused(
-        asDefaultTenant(
-          db,
-          sql`INSERT INTO zv_invitations (email, role, token, expires_at)
-            VALUES (${`${TAG}-none@test.local`}, 'member', ${`${TAG}-none`}, now())`,
-        ),
+        sql`INSERT INTO zv_invitations (email, role, token, expires_at)
+            VALUES (${`${TAG}-none@test.local`}, 'member', ${`${TAG}-none`}, now())`.execute(db),
       ),
     ).toBe('23502');
     const folder = await asDefaultTenant(
@@ -205,11 +192,8 @@ d('identity tables under tenant RLS (065)', () => {
     );
     expect(
       await refused(
-        asDefaultTenant(
-          db,
-          sql`INSERT INTO zv_media_shares (folder_id, token, created_by)
-            VALUES (${folder.rows[0]!.id}::uuid, ${`${TAG}-none`}, ${USER})`,
-        ),
+        sql`INSERT INTO zv_media_shares (folder_id, token, created_by)
+            VALUES (${folder.rows[0]!.id}::uuid, ${`${TAG}-none`}, ${USER})`.execute(db),
       ),
     ).toBe('23502');
   });
@@ -246,23 +230,17 @@ d('identity tables under tenant RLS (065)', () => {
 
   it('deleting an account inside one tenant revokes its keys in every tenant', async () => {
     for (const tenant of [ROOT, CHILD]) {
-      await asDefaultTenant(
-        db,
-        sql`
+      await sql`
         INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, is_active, created_by, tenant_id)
         VALUES (${`${TAG}-leaver-${tenant}`}, ${`${TAG}-leaver-${tenant}`}, 'zvk_leaver',
-                '[]'::jsonb, true, ${LEAVER}, ${tenant}::uuid)`,
-      );
+                '[]'::jsonb, true, ${LEAVER}, ${tenant}::uuid)`.execute(db);
     }
     await withTenantIsolation(ROOT, (trx) =>
       deleteUser(trx, db, LEAVER, { actor: 'harness', reason: 'identity-tables-rls' }),
     );
-    const left = await asDefaultTenant(
-      db,
-      sql<{ n: number }>`
+    const left = await sql<{ n: number }>`
       SELECT count(*)::int AS n FROM zv_api_keys
-       WHERE name LIKE ${`${TAG}-leaver-%`} AND is_active`,
-    );
+       WHERE name LIKE ${`${TAG}-leaver-%`} AND is_active`.execute(db);
     expect(left.rows[0]?.n).toBe(0);
   });
 

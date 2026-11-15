@@ -37,14 +37,11 @@ it.skipIf(!harnessAvailable())(
         } as never)
         .execute(),
     );
-    await asDefaultTenant(
-      db,
-      sql`
+    await sql`
       INSERT INTO zv_flow_steps (flow_id, step_order, name, type, config)
       VALUES (${flowId}, 1, 'probe step', 'query_db',
               ${JSON.stringify({ query: 'SELECT 1 AS one' })}::text::jsonb)
-    `,
-    );
+    `.execute(db);
 
     const restore = _internalForTests.setFlowReaderRoleForTests('zveltio_absent_role_probe');
     try {

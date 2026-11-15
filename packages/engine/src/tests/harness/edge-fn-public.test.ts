@@ -74,7 +74,7 @@ d('public edge function invoke (in-process)', () => {
   });
 
   afterAll(async () => {
-    if (db) await asDefaultTenant(db, sql`DELETE FROM zv_api_keys WHERE name LIKE ${`${FN}-%`}`);
+    if (db) await sql`DELETE FROM zv_api_keys WHERE name LIKE ${`${FN}-%`}`.execute(db);
     if (!db || !fnId) return;
     await asDefaultTenant(db, (t) =>
       t.deleteFrom('zv_edge_function_logs').where('function_id', '=', fnId).execute(),

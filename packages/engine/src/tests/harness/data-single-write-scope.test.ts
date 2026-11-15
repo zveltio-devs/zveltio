@@ -47,7 +47,7 @@ async function memberSession(app: Hono, db: Database): Promise<{ cookie: string;
     body: JSON.stringify({ email, password, name: 'Member' }),
   });
   const userId = ((await signUp.json()) as { user?: { id: string } }).user?.id ?? '';
-  await asDefaultTenant(db, sql`UPDATE "user" SET role = 'member' WHERE id = ${userId}`);
+  await sql`UPDATE "user" SET role = 'member' WHERE id = ${userId}`.execute(db);
 
   const enforcer = await getEnforcer();
   for (const action of ACTIONS) await enforcer.addPolicy(userId, '*', COLLECTION, action);
@@ -90,7 +90,7 @@ d('data single writes honour the read scope (in-process)', () => {
   // so the test reads with the exemption the engine publishes for god.
   const titleOf = async (id: string): Promise<string | undefined> =>
     (
-      await db.transaction().execute(async (trx) => {
+      await asDefaultTenant(db, async (trx) => {
         await sql`SELECT set_config('zveltio.rls_bypass', 'on', true)`.execute(trx);
         return sql<{
           title: string;

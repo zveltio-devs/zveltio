@@ -201,10 +201,9 @@ d('password and encrypted fields leave through no door (in-process)', () => {
       .execute()
       .catch(() => {});
     if (flowId) {
-      await asDefaultTenant(
-        db,
-        sql`DELETE FROM zv_flow_runs WHERE flow_id = ${flowId}::uuid`,
-      ).catch(() => {});
+      await sql`DELETE FROM zv_flow_runs WHERE flow_id = ${flowId}::uuid`
+        .execute(db)
+        .catch(() => {});
       await asDefaultTenant(db, sql`DELETE FROM zv_flows WHERE id = ${flowId}::uuid`).catch(
         () => {},
       );
@@ -215,11 +214,8 @@ d('password and encrypted fields leave through no door (in-process)', () => {
   it('a data flow is given neither (and keeps neither in zv_flow_runs)', async () => {
     await drainFlowJobs(db);
     const runs = (
-      await asDefaultTenant(
-        db,
-        sql<{ trigger_data: unknown }>`
-        SELECT trigger_data FROM zv_flow_runs WHERE flow_id = ${flowId}::uuid`,
-      )
+      await sql<{ trigger_data: unknown }>`
+        SELECT trigger_data FROM zv_flow_runs WHERE flow_id = ${flowId}::uuid`.execute(db)
     ).rows;
     expect(runs.length).toBe(1);
     expectWithheld(runs);

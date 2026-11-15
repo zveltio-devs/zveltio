@@ -43,12 +43,9 @@ d('invitation token at rest', () => {
     const token = new URL(invite_url).searchParams.get('token') ?? '';
     expect(token).toMatch(/^[0-9a-f]{64}$/);
 
-    const row = await asDefaultTenant(
-      db,
-      sql<{ id: string; token: string }>`
+    const row = await sql<{ id: string; token: string }>`
       SELECT id::text, token FROM zv_invitations WHERE email = ${email}
-    `,
-    );
+    `.execute(db);
     expect(row.rows[0]!.token).toBe(sha256(token));
 
     const leaked = await asDefaultTenant(

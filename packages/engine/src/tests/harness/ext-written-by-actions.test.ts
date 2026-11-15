@@ -218,15 +218,12 @@ d('writtenBy: "actions" — only the owning extension’s actions and jobs write
 
     keyRaw = generateApiKey();
     keyId = (
-      await asDefaultTenant(
-        db,
-        sql<{ id: string }>`
+      await sql<{ id: string }>`
         INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, rate_limit, is_active, tenant_id, created_by)
         VALUES ('writtenBy probe', ${await hashApiKey(keyRaw)}, 'zvk_',
                 ${JSON.stringify([{ collection: F, actions: all }])}::jsonb, 100, true,
                 ${DEFAULT_TENANT_ID}::uuid, ${await createKeyCreator(db, [DEFAULT_TENANT_ID])})
-        RETURNING id`,
-      )
+        RETURNING id`.execute(db)
     ).rows[0]!.id;
 
     app = new Hono();
@@ -432,9 +429,7 @@ d('writtenBy: "actions" — only the owning extension’s actions and jobs write
     await sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${OTHER}, ${BROKEN}, ${CALLER})`.execute(
       db,
     );
-    await asDefaultTenant(db, sql`DELETE FROM zv_api_keys WHERE id = ${keyId}::uuid`).catch(
-      () => {},
-    );
+    await sql`DELETE FROM zv_api_keys WHERE id = ${keyId}::uuid`.execute(db).catch(() => {});
     await asEveryTenant(db, (trx) =>
       sql`DELETE FROM zv_revisions WHERE collection IN (${sql.join([F, W, CC, CN, PAR])})`.execute(
         trx,

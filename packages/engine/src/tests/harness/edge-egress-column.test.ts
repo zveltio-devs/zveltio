@@ -129,20 +129,21 @@ d('edge function egress column (061)', () => {
       `'{{a.test},{b.test}}'`,
       `'[0:1]={a.test,b.test}'`,
     ]) {
-      const err = await sql
-        .raw(`UPDATE zv_edge_functions SET egress = ${bad}::text[] WHERE name = '${FN}'`)
-        .execute(db)
-        .then(
-          () => null,
-          // Bun.SQL carries the SQLSTATE on `errno`, pg on `code`.
-          (e: { code?: string; errno?: string }) => e.errno ?? e.code,
-        );
+      const err = await asDefaultTenant(
+        db,
+        sql.raw(`UPDATE zv_edge_functions SET egress = ${bad}::text[] WHERE name = '${FN}'`),
+      ).then(
+        () => null,
+        // Bun.SQL carries the SQLSTATE on `errno`, pg on `code`.
+        (e: { code?: string; errno?: string }) => e.errno ?? e.code,
+      );
       expect([bad, err]).toEqual([bad, '23514']);
     }
     for (const ok of [`NULL`, `'{}'`, `'{a.test,[2001:db8::1]:8443,b-c.d.test:80}'`]) {
-      await sql
-        .raw(`UPDATE zv_edge_functions SET egress = ${ok}::text[] WHERE name = '${FN}'`)
-        .execute(db);
+      await asDefaultTenant(
+        db,
+        sql.raw(`UPDATE zv_edge_functions SET egress = ${ok}::text[] WHERE name = '${FN}'`),
+      );
     }
     await asDefaultTenant(
       db,

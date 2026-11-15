@@ -65,10 +65,9 @@ d('API keys are bound to their tenant', () => {
 
   afterAll(async () => {
     if (!db) return;
-    await asDefaultTenant(
-      db,
-      sql`DELETE FROM zv_api_keys WHERE name IN (${`foreign-${STAMP}`}, ${`root-${STAMP}`})`,
-    ).catch(() => {});
+    await sql`DELETE FROM zv_api_keys WHERE name IN (${`foreign-${STAMP}`}, ${`root-${STAMP}`})`
+      .execute(db)
+      .catch(() => {});
     await asDefaultTenant(db, sql`DELETE FROM zv_edge_functions WHERE id = ${FN_ID}::uuid`).catch(
       () => {},
     );
@@ -106,9 +105,8 @@ d('API keys are bound to their tenant', () => {
   it('stamps last_used_at for a root key acting in another tenant', async () => {
     // Since 065 the request transaction only sees its own tenant's keys, so a
     // stamp written through it matched no row and changed nothing.
-    await asDefaultTenant(
+    await sql`UPDATE zv_api_keys SET last_used_at = NULL WHERE name = ${`root-${STAMP}`}`.execute(
       db,
-      sql`UPDATE zv_api_keys SET last_used_at = NULL WHERE name = ${`root-${STAMP}`}`,
     );
     const res = await app.request('/api/data/zvd_accounts', {
       headers: { 'X-API-Key': ROOT_KEY, 'X-Tenant-Slug': `key-binding-${STAMP}` },
@@ -117,11 +115,8 @@ d('API keys are bound to their tenant', () => {
     let stamped = null;
     for (let i = 0; i < 50 && !stamped; i++) {
       await Bun.sleep(20);
-      const row = await asDefaultTenant(
-        db,
-        sql<{ last_used_at: Date | null }>`
-        SELECT last_used_at FROM zv_api_keys WHERE name = ${`root-${STAMP}`}`,
-      );
+      const row = await sql<{ last_used_at: Date | null }>`
+        SELECT last_used_at FROM zv_api_keys WHERE name = ${`root-${STAMP}`}`.execute(db);
       stamped = row.rows[0]?.last_used_at ?? null;
     }
     expect(stamped).not.toBeNull();

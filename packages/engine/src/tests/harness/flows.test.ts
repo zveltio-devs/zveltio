@@ -44,9 +44,7 @@ d('flows CRUD + steps + run (in-process)', () => {
 
   afterAll(async () => {
     if (db && flowId) {
-      await asDefaultTenant(db, sql`DELETE FROM zv_flow_steps WHERE flow_id = ${flowId}`).catch(
-        () => {},
-      );
+      await sql`DELETE FROM zv_flow_steps WHERE flow_id = ${flowId}`.execute(db).catch(() => {});
       await asDefaultTenant(db, sql`DELETE FROM zv_flows WHERE id = ${flowId}`).catch(() => {});
     }
   });

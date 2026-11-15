@@ -77,11 +77,8 @@ d('a data API write needs its tenant transaction (ADR 0035)', () => {
     ).rows[0]!.n;
   const runs = async () =>
     (
-      await asDefaultTenant(
-        db,
-        sql<{ n: number }>`
-        SELECT count(*)::int AS n FROM zv_flow_runs WHERE flow_id = ${flow}::uuid`,
-      )
+      await sql<{ n: number }>`
+        SELECT count(*)::int AS n FROM zv_flow_runs WHERE flow_id = ${flow}::uuid`.execute(db)
     ).rows[0]!.n;
   const of = <T extends { title: string }>(list: T[], title: string) =>
     list.filter((e) => e.title === title);
@@ -137,9 +134,7 @@ d('a data API write needs its tenant transaction (ADR 0035)', () => {
   afterAll(async () => {
     unlisten();
     if (!db) return;
-    await asDefaultTenant(db, sql`DELETE FROM zv_flow_runs WHERE flow_id = ${flow}::uuid`).catch(
-      () => {},
-    );
+    await sql`DELETE FROM zv_flow_runs WHERE flow_id = ${flow}::uuid`.execute(db).catch(() => {});
     await asDefaultTenant(db, sql`DELETE FROM zv_flows WHERE id = ${flow}::uuid`).catch(() => {});
     await sql`DELETE FROM pgboss.job WHERE name = ${WEBHOOK_QUEUE} AND data->>'webhookId' = ${hook}`
       .execute(db)

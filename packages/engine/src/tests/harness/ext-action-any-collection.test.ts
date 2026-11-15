@@ -132,16 +132,13 @@ d('an action reaches any collection as its caller (ADR 0047)', () => {
   /** `granted`: the consent recorded at install; null = none recorded (grandfathered). */
   async function load(ext: ZveltioExtension, granted: string[] | null): Promise<void> {
     const parsed = ManifestSchema.parse({ name: ext.name, version: '1.0.0', ...manifest });
-    await asDefaultTenant(db, sql`DELETE FROM zv_extension_registry WHERE name = ${ext.name}`);
-    await asDefaultTenant(
-      db,
-      sql`
+    await sql`DELETE FROM zv_extension_registry WHERE name = ${ext.name}`.execute(db);
+    await sql`
       INSERT INTO zv_extension_registry
         (name, display_name, tenant_id, is_installed, is_enabled, manifest, granted_capabilities)
       VALUES (${ext.name}, ${ext.name}, NULL, true, true, ${toJsonb(parsed)},
               ${granted === null ? null : toJsonb(granted)})
-    `,
-    );
+    `.execute(db);
     const ctx = {
       db,
       auth: getAuth(),
@@ -176,7 +173,7 @@ d('an action reaches any collection as its caller (ADR 0047)', () => {
   };
   const createdBy = async (label: string) =>
     (
-      await db.transaction().execute(async (trx) => {
+      await asDefaultTenant(db, async (trx) => {
         await sql`SELECT set_config('zveltio.rls_bypass', 'on', true)`.execute(trx);
         return sql<{ created_by: string | null }>`
           SELECT created_by FROM ${sql.table(`zvd_${C}`)} WHERE label = ${label}`.execute(trx);

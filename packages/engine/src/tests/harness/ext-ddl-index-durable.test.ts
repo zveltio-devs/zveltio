@@ -111,7 +111,7 @@ d('deferred index builds of ctx.DDLManager', () => {
     // What a CONCURRENTLY build that died half-way leaves behind: the name, not
     // valid. Made by one that fails, rather than forged in pg_index, which only
     // a superuser may write and the documented owner role is not.
-    await sql.raw(`INSERT INTO zvd_${name} (qty) VALUES (1), (1)`).execute(db);
+    await asDefaultTenant(db, sql.raw(`INSERT INTO zvd_${name} (qty) VALUES (1), (1)`));
     await sql
       .raw(`CREATE UNIQUE INDEX CONCURRENTLY ${index} ON zvd_${name} (qty)`)
       .execute(db)
@@ -142,7 +142,7 @@ d('deferred index builds of ctx.DDLManager', () => {
     const isLocked = new Promise<void>((r) => {
       locked = r;
     });
-    const holder = db.transaction().execute(async (trx) => {
+    const holder = asDefaultTenant(db, async (trx) => {
       await sql.raw(`LOCK TABLE zvd_${name} IN ACCESS SHARE MODE`).execute(trx);
       locked();
       await held;

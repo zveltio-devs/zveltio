@@ -159,9 +159,10 @@ d('admin RLS routes (in-process)', () => {
       expect(res.status).toBe(200);
     };
     await setMemberRule(false);
-    await sql
-      .raw(`INSERT INTO "zvd_${COLLECTION}" (title, created_by) VALUES ('not-mine', NULL)`)
-      .execute(db);
+    await asDefaultTenant(
+      db,
+      sql.raw(`INSERT INTO "zvd_${COLLECTION}" (title, created_by) VALUES ('not-mine', NULL)`),
+    );
     const titles = async () => {
       const res = await app.request(`/api/data/${COLLECTION}`, {
         headers: { cookie: member.cookie },

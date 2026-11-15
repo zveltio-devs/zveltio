@@ -47,13 +47,10 @@ d('unimplemented flow step (in-process)', () => {
     );
     const id = rows[0]!.id;
     flowIds.push(id);
-    await asDefaultTenant(
-      db,
-      sql`
+    await sql`
       INSERT INTO zv_flow_steps (flow_id, step_order, name, type, config, on_error)
       VALUES (${id}, 0, ${stepType}, ${stepType}, '{}'::jsonb, 'stop')
-    `,
-    );
+    `.execute(db);
     return id;
   }
 
@@ -63,9 +60,8 @@ d('unimplemented flow step (in-process)', () => {
     // executor implements, so these rows can no longer be created. Dropping it
     // for the duration reproduces a pre-migration install exactly — which is
     // the population this test is about: flows already stored and running.
-    await asDefaultTenant(
+    await sql`ALTER TABLE zv_flow_steps DROP CONSTRAINT IF EXISTS zv_flow_steps_type_check`.execute(
       db,
-      sql`ALTER TABLE zv_flow_steps DROP CONSTRAINT IF EXISTS zv_flow_steps_type_check`,
     );
   });
 
@@ -78,12 +74,8 @@ d('unimplemented flow step (in-process)', () => {
       .execute(db)
       .catch(() => {});
     for (const id of flowIds) {
-      await asDefaultTenant(db, sql`DELETE FROM zv_flow_runs WHERE flow_id = ${id}`).catch(
-        () => {},
-      );
-      await asDefaultTenant(db, sql`DELETE FROM zv_flow_steps WHERE flow_id = ${id}`).catch(
-        () => {},
-      );
+      await sql`DELETE FROM zv_flow_runs WHERE flow_id = ${id}`.execute(db).catch(() => {});
+      await sql`DELETE FROM zv_flow_steps WHERE flow_id = ${id}`.execute(db).catch(() => {});
       await asDefaultTenant(db, sql`DELETE FROM zv_flows WHERE id = ${id}`).catch(() => {});
     }
   });
@@ -106,13 +98,10 @@ d('unimplemented flow step (in-process)', () => {
     const flowId = await makeFlow('transform');
     await executeFlow(db, flowId, {});
 
-    const { rows } = await asDefaultTenant(
-      db,
-      sql<{ status: string }>`
+    const { rows } = await sql<{ status: string }>`
       SELECT status FROM zv_flow_runs WHERE flow_id = ${flowId}
       ORDER BY started_at DESC NULLS LAST LIMIT 1
-    `,
-    );
+    `.execute(db);
     // The half that mattered most: the run history said "success" for a flow
     // that had done nothing, so nobody had any reason to look at it.
     expect(rows[0]?.status).toBe('failed');
@@ -122,12 +111,9 @@ d('unimplemented flow step (in-process)', () => {
     // Positive control. A `default` arm that threw for everything would pass
     // every assertion above while breaking every real flow on the instance.
     const flowId = await makeFlow('query_db');
-    await asDefaultTenant(
-      db,
-      sql`UPDATE zv_flow_steps SET config = ${JSON.stringify({
-        query: 'SELECT 1 AS ok',
-      })}::jsonb WHERE flow_id = ${flowId}`,
-    );
+    await sql`UPDATE zv_flow_steps SET config = ${JSON.stringify({
+      query: 'SELECT 1 AS ok',
+    })}::jsonb WHERE flow_id = ${flowId}`.execute(db);
 
     const result = await executeFlow(db, flowId, {});
     expect(result.status).toBe('success');

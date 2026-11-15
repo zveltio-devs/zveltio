@@ -46,12 +46,13 @@ d('a new collection carries the row rules already written', () => {
   const ruleIds: string[] = [];
 
   const seed = (name: string) =>
-    sql
-      .raw(
+    asDefaultTenant(
+      db,
+      sql.raw(
         `INSERT INTO zvd_${name} (tenant_id, "${OWNER}") VALUES ` +
           `('${tenant}', '${ALICE}'), ('${tenant}', '${BOB}')`,
-      )
-      .execute(db);
+      ),
+    );
 
   /** Owners the DATABASE returns to Alice for a query with no rule filter on it. */
   const seen = (name: string) =>
@@ -69,10 +70,7 @@ d('a new collection carries the row rules already written', () => {
   beforeAll(async () => {
     ({ db } = await getTestApp());
     tenant = (
-      await asDefaultTenant(
-        db,
-        sql<{ id: string }>`SELECT id FROM zv_tenants ORDER BY created_at LIMIT 1`,
-      )
+      await sql<{ id: string }>`SELECT id FROM zv_tenants ORDER BY created_at LIMIT 1`.execute(db)
     ).rows[0]!.id;
     const rule = {
       role: ROLE,

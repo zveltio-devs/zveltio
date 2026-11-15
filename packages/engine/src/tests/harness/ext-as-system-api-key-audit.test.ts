@@ -120,7 +120,7 @@ d('asSystem names the API key that asked for it', () => {
   afterAll(async () => {
     invalidateActivationCache();
     if (!db) return;
-    if (keyId) await asDefaultTenant(db, sql`DELETE FROM zv_api_keys WHERE id = ${keyId}`);
+    if (keyId) await sql`DELETE FROM zv_api_keys WHERE id = ${keyId}`.execute(db);
     await sql`DELETE FROM zv_extension_registry WHERE name = ${EXT}`.execute(db);
     await dropTestCollection(db, C);
   });

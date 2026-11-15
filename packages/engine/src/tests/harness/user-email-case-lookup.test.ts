@@ -204,10 +204,9 @@ d('a mixed-case stored address is found by any spelling', () => {
       body: JSON.stringify({ user_email: member.email.toUpperCase(), role: 'member' }),
     });
     expect(added.status).toBe(201);
-    const members = await asDefaultTenant(
+    const members = await sql<{ user_id: string }>`
+      SELECT user_id FROM zv_tenant_users WHERE tenant_id = ${tenantId}::uuid ORDER BY user_id`.execute(
       db,
-      sql<{ user_id: string }>`
-      SELECT user_id FROM zv_tenant_users WHERE tenant_id = ${tenantId}::uuid ORDER BY user_id`,
     );
     expect(members.rows.map((r) => r.user_id).sort()).toEqual([ownerId, member.userId].sort());
   });

@@ -57,10 +57,9 @@ d('bulk and sync webhook events (ADR 0035 slice 3)', () => {
 
   afterAll(async () => {
     if (!db) return;
-    await asDefaultTenant(
-      db,
-      sql`DELETE FROM pgboss.job WHERE name = ${WEBHOOK_QUEUE} AND data->>'webhookId' = ${hook}`,
-    ).catch(() => {});
+    await sql`DELETE FROM pgboss.job WHERE name = ${WEBHOOK_QUEUE} AND data->>'webhookId' = ${hook}`
+      .execute(db)
+      .catch(() => {});
     await asDefaultTenant(db, sql`DELETE FROM zvd_webhooks WHERE id = ${hook}::uuid`);
     await sql.raw(`DROP TABLE IF EXISTS "zvd_${C}" CASCADE`).execute(db);
     await sql`DELETE FROM zvd_collections WHERE name = ${C}`.execute(db);
@@ -77,13 +76,10 @@ d('bulk and sync webhook events (ADR 0035 slice 3)', () => {
   /** This webhook's jobs whose record title starts with `prefix`. */
   const jobsFor = async (prefix: string) =>
     (
-      await asDefaultTenant(
-        db,
-        sql<{ data: WebhookJob }>`
+      await sql<{ data: WebhookJob }>`
         SELECT data FROM pgboss.job
          WHERE name = ${WEBHOOK_QUEUE} AND data->>'webhookId' = ${hook}
-           AND data->'data'->>'title' LIKE ${`${prefix}%`}`,
-      )
+           AND data->'data'->>'title' LIKE ${`${prefix}%`}`.execute(db)
     ).rows.map((r) => r.data);
 
   const titles = async (prefix: string) =>

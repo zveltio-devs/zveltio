@@ -202,12 +202,9 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
       grants: [{ collection: COLL, actions: ['read'] }],
     });
     unenrolledId = unenrolled.userId;
-    await asDefaultTenant(
-      db,
-      sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role, valid_from)
+    await sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role, valid_from)
               VALUES (${DEFAULT_TENANT_ID}::uuid, ${memberId}, 'member', now() - interval '2 days')
-              ON CONFLICT (tenant_id, user_id) DO UPDATE SET valid_to = NULL`,
-    );
+              ON CONFLICT (tenant_id, user_id) DO UPDATE SET valid_to = NULL`.execute(db);
 
     app.use('/ext/*', sessionPrefetch(getAuth(), db));
     app.use('/ext/*', tenantMiddleware);
@@ -276,11 +273,8 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
     // After every mode has counted, so one mode's insert is not the next one's row.
     for (const mode of MODES) out[mode]!.addInForce = await call(mode, '/add', asMember, 'POST');
     // Every assignment of the member in the default tenant lapses.
-    await asDefaultTenant(
-      db,
-      sql`UPDATE zv_tenant_users SET valid_to = now() - interval '1 day'
-              WHERE tenant_id = ${DEFAULT_TENANT_ID}::uuid AND user_id = ${memberId}`,
-    );
+    await sql`UPDATE zv_tenant_users SET valid_to = now() - interval '1 day'
+              WHERE tenant_id = ${DEFAULT_TENANT_ID}::uuid AND user_id = ${memberId}`.execute(db);
     // Each mode on the same two rows, so one mode's leak cannot hide the next one's.
     for (const mode of MODES) {
       await asDefaultTenant(db, sql`DELETE FROM ${sql.table(TABLE)}`);
@@ -323,9 +317,8 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
       await sql`DELETE FROM zv_extension_forward_approvals WHERE name = ${extName(m)}`.execute(db);
       await revokeExtensionDbRoles(db, extName(m), true).catch(() => undefined);
     }
-    await asDefaultTenant(
+    await sql`DELETE FROM zv_tenant_users WHERE user_id = ANY(${[memberId, unenrolledId]})`.execute(
       db,
-      sql`DELETE FROM zv_tenant_users WHERE user_id = ANY(${[memberId, unenrolledId]})`,
     );
     if (colPermId) {
       await sql`DELETE FROM zvd_column_permissions WHERE id = ${colPermId}`.execute(db);

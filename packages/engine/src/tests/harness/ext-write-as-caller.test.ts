@@ -258,7 +258,7 @@ d('an extension writes records as the request caller, and only as them', () => {
   afterAll(async () => {
     invalidateActivationCache();
     if (!db) return;
-    for (const id of keys) await asDefaultTenant(db, sql`DELETE FROM zv_api_keys WHERE id = ${id}`);
+    for (const id of keys) await sql`DELETE FROM zv_api_keys WHERE id = ${id}`.execute(db);
     await sql`DELETE FROM zv_extension_registry WHERE name IN (${WRITER}, ${NOCAP})`.execute(db);
     await asDefaultTenant(db, sql`DELETE FROM zv_revisions WHERE collection = ${C}`);
     await dropTestCollection(db, C);

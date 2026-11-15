@@ -81,11 +81,8 @@ d('m2m junction tables under tenant RLS', () => {
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
     cookie = await createGodSession(app, db);
-    await asDefaultTenant(
-      db,
-      sql`INSERT INTO zv_tenants (id, slug, name, status)
-              VALUES (${OTHER}::uuid, ${SLUG}, ${SLUG}, 'active')`,
-    );
+    await sql`INSERT INTO zv_tenants (id, slug, name, status)
+              VALUES (${OTHER}::uuid, ${SLUG}, ${SLUG}, 'active')`.execute(db);
     await createRoute(TGT, [{ name: 'name', type: 'text' }]);
     await createRoute(SRC, [
       { name: 'title', type: 'text' },
@@ -117,9 +114,7 @@ d('m2m junction tables under tenant RLS', () => {
     for (const name of [SRC, TGT]) {
       await DDLManager.dropCollection(db, name, { force: true }).catch(() => {});
     }
-    await asDefaultTenant(db, sql`DELETE FROM zv_tenants WHERE id = ${OTHER}::uuid`).catch(
-      () => {},
-    );
+    await sql`DELETE FROM zv_tenants WHERE id = ${OTHER}::uuid`.execute(db).catch(() => {});
   });
 
   it('another tenant does not see the links', async () => {
@@ -184,13 +179,14 @@ d('m2m junction tables under tenant RLS', () => {
         )
         .execute(db);
       // Source decides; with no source, the target; with neither, the default tenant.
-      await sql
-        .raw(
+      await asDefaultTenant(
+        db,
+        sql.raw(
           `INSERT INTO "${LEGACY}" ("${TGT}_id", "${SRC}_id") VALUES ` +
             `('${ids.tRoot}', '${ids.sOther}'), ('${ids.tOther}', '${ids.sRoot}'), ` +
             `(NULL, '${ids.sOther}'), (NULL, NULL)`,
-        )
-        .execute(db);
+        ),
+      );
     });
 
     const backfilled = async (trx: Database) =>
@@ -210,28 +206,25 @@ d('m2m junction tables under tenant RLS', () => {
       const rollback = new Error('rollback');
       let got: string[] = [];
       const superuser = await connectedAsSuperuser(db);
-      await db
-        .transaction()
-        .execute(async (trx) => {
-          if (superuser) {
-            for (const t of [`zvd_${SRC}`, `zvd_${TGT}`, LEGACY]) {
-              await sql`ALTER TABLE ${sql.id(t)} OWNER TO zveltio_rls`.execute(trx);
-            }
-            await sql.raw('SET LOCAL ROLE zveltio_rls').execute(trx);
+      await asDefaultTenant(db, async (trx) => {
+        if (superuser) {
+          for (const t of [`zvd_${SRC}`, `zvd_${TGT}`, LEGACY]) {
+            await sql`ALTER TABLE ${sql.id(t)} OWNER TO zveltio_rls`.execute(trx);
           }
-          await runUp(trx);
-          await runUp(trx);
-          got = await backfilled(trx);
-          throw rollback;
-        })
-        .catch((err) => {
-          if (err !== rollback) throw err;
-        });
+          await sql.raw('SET LOCAL ROLE zveltio_rls').execute(trx);
+        }
+        await runUp(trx);
+        await runUp(trx);
+        got = await backfilled(trx);
+        throw rollback;
+      }).catch((err) => {
+        if (err !== rollback) throw err;
+      });
       expect(got.sort()).toEqual(expected());
     }, 60_000);
 
     it('then the boot reconcile isolates it', async () => {
-      await db.transaction().execute(async (trx) => {
+      await asDefaultTenant(db, async (trx) => {
         await runUp(trx);
         await runUp(trx);
       });

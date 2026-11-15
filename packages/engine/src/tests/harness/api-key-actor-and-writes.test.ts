@@ -47,10 +47,7 @@ d('API keys and writes meet the same rules (in-process)', () => {
   beforeAll(async () => {
     ({ db } = await getTestApp());
     tenant = (
-      await asDefaultTenant(
-        db,
-        sql<{ id: string }>`SELECT id FROM zv_tenants ORDER BY created_at LIMIT 1`,
-      )
+      await sql<{ id: string }>`SELECT id FROM zv_tenants ORDER BY created_at LIMIT 1`.execute(db)
     ).rows[0]!.id;
 
     await sql
@@ -72,13 +69,14 @@ d('API keys and writes meet the same rules (in-process)', () => {
       )
       .execute(db);
     await sql.raw(`GRANT SELECT, INSERT, UPDATE ON ${TABLE} TO zveltio_rls`).execute(db);
-    await sql
-      .raw(`
+    await asDefaultTenant(
+      db,
+      sql.raw(`
       INSERT INTO ${TABLE} (tenant_id, title, created_by) VALUES
         ('${tenant}', 'mine',    'issuer-k1'),
         ('${tenant}', 'someone', 'user-9')
-    `)
-      .execute(db);
+    `),
+    );
 
     await sql`
       INSERT INTO zvd_collections (name, display_name) VALUES (${COLL}, ${COLL})
@@ -178,15 +176,12 @@ d('API keys and writes meet the same rules (in-process)', () => {
     // whatever third caller comes next.
     const raw = generateApiKey();
     const keyId = (
-      await asDefaultTenant(
-        db,
-        sql<{ id: string }>`
+      await sql<{ id: string }>`
         INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, rate_limit, is_active, tenant_id, created_by)
         VALUES ('shared probe', ${await hashApiKey(raw)}, 'zvk_', '[]'::jsonb, 100, true, ${tenant}::uuid,
                 ${await createKeyCreator(db, [tenant])})
         RETURNING id
-      `,
-      )
+      `.execute(db)
     ).rows[0]!.id;
 
     try {
@@ -203,9 +198,7 @@ d('API keys and writes meet the same rules (in-process)', () => {
       );
       expect(published).toBe(`apikey:${keyId}`);
     } finally {
-      await asDefaultTenant(db, sql`DELETE FROM zv_api_keys WHERE id = ${keyId}::uuid`).catch(
-        () => {},
-      );
+      await sql`DELETE FROM zv_api_keys WHERE id = ${keyId}::uuid`.execute(db).catch(() => {});
     }
   });
 
@@ -217,15 +210,12 @@ d('API keys and writes meet the same rules (in-process)', () => {
     const keyFor = async (issuer: string) => {
       const raw = generateApiKey();
       const id = (
-        await asDefaultTenant(
-          db,
-          sql<{ id: string }>`
+        await sql<{ id: string }>`
           INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, rate_limit, is_active, tenant_id, created_by, rls_bypass)
           VALUES ('bypass probe', ${await hashApiKey(raw)}, 'zvk_', '[]'::jsonb, 100, true, ${tenant}::uuid,
                   ${issuer}, true)
           RETURNING id
-        `,
-        )
+        `.execute(db)
       ).rows[0]!.id;
       return { raw, id };
     };
@@ -246,21 +236,17 @@ d('API keys and writes meet the same rules (in-process)', () => {
     const admin = await keyFor(await createKeyCreator(db, [tenant]));
     // A member's: no data:view_all, so the key is held to the rule.
     const memberId = `harness-member-${crypto.randomUUID()}`;
-    await asDefaultTenant(
-      db,
-      sql`INSERT INTO "user" (id, name, email)
-              VALUES (${memberId}, 'Member issuer', ${`${memberId}@test.local`})`,
-    );
+    await sql`INSERT INTO "user" (id, name, email)
+              VALUES (${memberId}, 'Member issuer', ${`${memberId}@test.local`})`.execute(db);
     const member = await keyFor(memberId);
     try {
       expect(await seenWith(admin.raw)).toEqual(['mine', 'someone']);
       expect(await seenWith(member.raw)).toEqual([]);
     } finally {
-      await asDefaultTenant(
-        db,
-        sql`DELETE FROM zv_api_keys WHERE id IN (${admin.id}::uuid, ${member.id}::uuid)`,
-      ).catch(() => {});
-      await asDefaultTenant(db, sql`DELETE FROM "user" WHERE id = ${memberId}`).catch(() => {});
+      await sql`DELETE FROM zv_api_keys WHERE id IN (${admin.id}::uuid, ${member.id}::uuid)`
+        .execute(db)
+        .catch(() => {});
+      await sql`DELETE FROM "user" WHERE id = ${memberId}`.execute(db).catch(() => {});
     }
   });
 
@@ -272,15 +258,12 @@ d('API keys and writes meet the same rules (in-process)', () => {
     // answer is the policy.
     const raw = generateApiKey();
     const keyId = (
-      await asDefaultTenant(
-        db,
-        sql<{ id: string }>`
+      await sql<{ id: string }>`
         INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, rate_limit, is_active, tenant_id, created_by)
         VALUES ('wiring probe', ${await hashApiKey(raw)}, 'zvk_', '[]'::jsonb, 100, true, ${tenant}::uuid,
                 ${await createKeyCreator(db, [tenant])})
         RETURNING id
-      `,
-      )
+      `.execute(db)
     ).rows[0]!.id;
 
     // Enough of a Hono context for this path: no session, the key in the header.
@@ -313,9 +296,7 @@ d('API keys and writes meet the same rules (in-process)', () => {
       // identity and skipped itself.
       expect(seen).toEqual([]);
     } finally {
-      await asDefaultTenant(db, sql`DELETE FROM zv_api_keys WHERE id = ${keyId}::uuid`).catch(
-        () => {},
-      );
+      await sql`DELETE FROM zv_api_keys WHERE id = ${keyId}::uuid`.execute(db).catch(() => {});
     }
   });
 });

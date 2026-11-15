@@ -294,7 +294,7 @@ d('a unique field is unique per tenant', () => {
     });
 
     it('a second instance skips while one holds the lock', async () => {
-      await db.transaction().execute(async (other) => {
+      await asDefaultTenant(db, async (other) => {
         await sql`SELECT pg_advisory_xact_lock(hashtext('zveltio:unique-key-reconcile'))`.execute(
           other,
         );
@@ -387,7 +387,7 @@ d('a unique field is unique per tenant', () => {
         const ready = new Promise<void>((r) => {
           inserted = r;
         });
-        const writer = db.transaction().execute(async (trx) => {
+        const writer = asDefaultTenant(db, async (trx) => {
           await sql`INSERT INTO ${sql.id(slow)} (code, tenant_id) VALUES ('w', ${TENANT_A}::uuid)`.execute(
             trx,
           );

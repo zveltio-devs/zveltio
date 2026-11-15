@@ -69,13 +69,10 @@ d('sync pull uses the (tenant_id, updated_at, id) index', () => {
     ).rows[0]!;
   const indexStats = async (): Promise<IndexStats> =>
     (
-      await asDefaultTenant(
-        db,
-        sql<NonNullable<IndexStats>>`
+      await sql<NonNullable<IndexStats>>`
         SELECT idx_scan::text, idx_tup_read::text
           FROM pg_stat_user_indexes WHERE indexrelname = ${INDEX}
-      `,
-      )
+      `.execute(db)
     ).rows[0];
 
   beforeAll(async () => {
@@ -94,13 +91,14 @@ d('sync pull uses the (tenant_id, updated_at, id) index', () => {
     expect([200, 201, 202]).toContain(res.status);
     // Rows spread over the past month, all older than any cursor below. A pair
     // ties on `updated_at` so the keyset's second column is exercised.
-    await sql
-      .raw(
+    await asDefaultTenant(
+      db,
+      sql.raw(
         `INSERT INTO "${TABLE}" (title, updated_at)
          SELECT 'r' || g, now() - interval '30 days' + (g / 2) * interval '10 seconds'
          FROM generate_series(1, ${ROWS}) g`,
-      )
-      .execute(db);
+      ),
+    );
     await sql.raw(`ANALYZE "${TABLE}"`).execute(db);
   }, 60_000);
 

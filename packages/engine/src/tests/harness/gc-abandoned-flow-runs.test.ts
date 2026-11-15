@@ -37,14 +37,11 @@ d('runGarbageCollector — abandoned flow runs', () => {
   });
 
   async function insertRun(status: string, startedHoursAgo: number): Promise<string> {
-    const r = await asDefaultTenant(
-      db,
-      sql<{ id: string }>`
+    const r = await sql<{ id: string }>`
       INSERT INTO zv_flow_runs (flow_id, status, started_at)
       VALUES (${flowId}, ${status}, NOW() - (${startedHoursAgo}::int || ' hours')::interval)
       RETURNING id::text AS id
-    `,
-    );
+    `.execute(db);
     return r.rows[0]!.id;
   }
 
@@ -55,13 +52,10 @@ d('runGarbageCollector — abandoned flow runs', () => {
 
     await runGarbageCollector(db);
 
-    const rows = await asDefaultTenant(
-      db,
-      sql<{ id: string; status: string; error: string | null; fin: boolean }>`
+    const rows = await sql<{ id: string; status: string; error: string | null; fin: boolean }>`
       SELECT id::text AS id, status, error, finished_at IS NOT NULL AS fin
       FROM zv_flow_runs WHERE flow_id = ${flowId}
-    `,
-    );
+    `.execute(db);
     const byId = new Map(rows.rows.map((r) => [r.id, r]));
 
     expect(byId.get(abandoned)).toMatchObject({ status: 'failed', fin: true });

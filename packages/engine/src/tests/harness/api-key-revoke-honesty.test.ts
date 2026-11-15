@@ -38,7 +38,7 @@ d('revoking an API key reports what it did (in-process)', () => {
 
   afterAll(async () => {
     for (const id of made) {
-      await asDefaultTenant(db, sql`DELETE FROM zv_api_keys WHERE id = ${id}`);
+      await sql`DELETE FROM zv_api_keys WHERE id = ${id}`.execute(db);
     }
     await asDefaultTenant(db, sql`DELETE FROM zv_audit_log WHERE resource_type = 'api_key'`);
   });
@@ -96,12 +96,9 @@ d('revoking an API key reports what it did (in-process)', () => {
     });
     expect(res.status).toBe(200);
 
-    const row = await asDefaultTenant(
-      db,
-      sql<{ is_active: boolean }>`
+    const row = await sql<{ is_active: boolean }>`
       SELECT is_active FROM zv_api_keys WHERE id = ${id}
-    `,
-    );
+    `.execute(db);
     expect(row.rows[0]?.is_active).toBe(false);
 
     const audited = await asDefaultTenant(

@@ -234,11 +234,8 @@ d('TXN_SKIP routers roll back a half-finished write', () => {
       }>`SELECT name FROM zv_flows WHERE id = ${flow.id}`,
     );
     expect(row.rows[0].name).toBe(`${FLOW}_p`);
-    const steps = await asDefaultTenant(
-      db,
-      sql<{ name: string }>`
-      SELECT name FROM zv_flow_steps WHERE flow_id = ${flow.id}`,
-    );
+    const steps = await sql<{ name: string }>`
+      SELECT name FROM zv_flow_steps WHERE flow_id = ${flow.id}`.execute(db);
     expect(steps.rows.map((s) => s.name)).toEqual(['first']);
   });
 

@@ -42,7 +42,7 @@ async function memberSession(app: Hono, db: Database): Promise<{ cookie: string;
   });
   const signUpBody = (await signUp.json()) as { user?: { id: string } };
   const userId = signUpBody.user?.id ?? '';
-  await asDefaultTenant(db, sql`UPDATE "user" SET role = 'member' WHERE id = ${userId}`);
+  await sql`UPDATE "user" SET role = 'member' WHERE id = ${userId}`.execute(db);
 
   const enforcer = await getEnforcer();
   await enforcer.addPolicy(userId, '*', COLLECTION, 'read');
@@ -218,7 +218,7 @@ d('data list RLS in/not_in (in-process)', () => {
   // Past the row rule: on the collection's own table it is a Postgres policy
   // too, so the test reads with the exemption the engine publishes for god.
   const betaRow = () =>
-    db.transaction().execute(async (trx) => {
+    asDefaultTenant(db, async (trx) => {
       await sql`SELECT set_config('zveltio.rls_bypass', 'on', true)`.execute(trx);
       return sql<{ id: string }>`
         SELECT id FROM ${sql.id(`zvd_${COLLECTION}`)} WHERE title = 'beta'
