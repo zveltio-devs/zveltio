@@ -1562,7 +1562,8 @@ export interface ActionHost {
    *
    * `{ files: true }` hands this one job the stored files the user handed the
    * request in `$files` (ADR 0032): it throws when the request carried none, for
-   * a second job of the same call, and in an action run by another action. Only
+   * a second job of the same call, once the action used `host.files`, and in an
+   * action run by another action. Only
    * `true`: no form of `enqueue` takes ids. The id it resolves to is also the id
    * of the file the job may `put`. Engines from 3.0.0-beta.109.
    */
@@ -1579,6 +1580,36 @@ export interface ActionHost {
   actions?: {
     run(extension: string, action: string, input: unknown): Promise<unknown>;
   };
+  /**
+   * The stored files the caller handed this request in `$files` (ADR 0052), as
+   * the caller, and nothing else; needs the `files` capability. The grant has
+   * one consumer: an action that used `host.files` cannot also `enqueue(…,
+   * { files: true })`, and one that did cannot use `host.files`. Every call
+   * throws 403 `file_not_granted` when the request carried no `$files`, and in
+   * an action run by another action. Absent on engines before 3.0.0-beta.123.
+   */
+  files?: ActionHostFiles;
+}
+
+/**
+ * An action's stored files: those its request handed it in `$files`, through
+ * `/api/storage`'s checks for the same caller, in the request transaction.
+ */
+export interface ActionHostFiles {
+  /**
+   * A file of `ActionFiles.read`, with its bytes. Any other id throws 403
+   * `file_not_granted`; a handed file the caller can no longer read, 404.
+   */
+  read(id: string): Promise<HostFile & { bytes: Uint8Array }>;
+  /**
+   * Store the one file of `ActionFiles.write`: under its name, private, the
+   * caller's own upload, counted against their quota. `contentType` is used
+   * only when neither the bytes nor the name say what the file is. Its bytes
+   * follow the request transaction: a refused action leaves no file. Throws
+   * 403 without a write grant, 413 past `maxBytes` or over quota, 409 for a
+   * second put.
+   */
+  put(bytes: Uint8Array, options?: { contentType?: string }): Promise<HostFile>;
 }
 
 /** The data API, through `ActionHost` or `JobHost`, for the collections the manifest declares. */
@@ -1679,7 +1710,7 @@ export interface JobHost {
 /**
  * `$files`, beside an action's input in `POST /ext/<ext>/actions/<action>`: the
  * stored files the caller hands the job the action enqueues with
- * `{ files: true }` (ADR 0032). The engine takes it out before the input schema
+ * `{ files: true }` (ADR 0032), or the action's own `host.files` (ADR 0052). The engine takes it out before the input schema
  * and checks it as the caller first: each `read` id one they may read
  * (`/api/storage/:id`, else 404), at most 32; `write.name` an upload type
  * `/api/storage/upload` accepts; `write.maxBytes` at most 32 MiB. A member key

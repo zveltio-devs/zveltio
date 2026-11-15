@@ -38,7 +38,7 @@ import { ANY_COLLECTION } from '../manifest-capabilities.js';
 import { actionWrites, type ExtensionContext, type ExtensionInternals } from './internals.js';
 import { enqueueJob, extensionPrincipal, jobData } from './jobs.js';
 import { admitFileGrant, type FileGrant } from './file-grants.js';
-import { callerFiles } from './caller-files.js';
+import { callerFiles, grantedFiles, type HandedFiles } from './caller-files.js';
 import { systemCollectionsFor } from './as-system.js';
 import {
   asIdentityOn,
@@ -208,7 +208,7 @@ export function mountActions(
     auditAction(c, p, extName, def.name, undefined, grant);
     let result: unknown;
     try {
-      const files = grant && { grant, used: false };
+      const files = grant && { grant, readBytes: 0 };
       result = await def.run(
         parsed.data,
         await actionHost(c, p, p.trx, extName, def, ctx, true, files),
@@ -306,7 +306,8 @@ function auditAction(
  * The host `def` runs with. `mayCall`: the action was called over HTTP, so it may
  * run the actions its manifest lists in `calls` — one level deep, which is all
  * ADR 0014 needs; a called action that calls again throws. `files`: the
- * request's `$files`, for one `enqueue` (ADR 0032); a called action has none.
+ * request's `$files`, for one `enqueue` (ADR 0032) or the action's own
+ * `host.files` (ADR 0052), not both; a called action has none.
  */
 async function actionHost(
   c: Context,
@@ -316,8 +317,11 @@ async function actionHost(
   def: CompiledAction,
   ctx: ExtensionContext,
   mayCall: boolean,
-  files?: { grant: FileGrant; used: boolean },
+  files?: HandedFiles,
 ): Promise<ActionHost> {
+  const noGrant = mayCall
+    ? 'the request carried no $files'
+    : 'it was run by another action, which hands it no files';
   return {
     // On the request's transaction, not the pool: a second connection taken
     // while this one is held is how the engine stands still at c = DB_POOL_MAX.
@@ -352,18 +356,15 @@ async function actionHost(
           (o.files === undefined || o.files === true));
       if (!valid) refuse('its options are { files: true }; no form of enqueue takes file ids');
       if (o?.files !== true) return enqueueJob(extName, p, def, job, input);
-      if (!files) {
-        refuse(
-          mayCall
-            ? 'the request carried no $files'
-            : 'it was run by another action, which hands it no files',
-        );
-      }
+      if (!files) refuse(noGrant);
       // Taken before the await: two enqueues in flight cannot both receive it.
-      if (files!.used) refuse("the request's $files already went to another job");
-      files!.used = true;
+      if (files!.to === 'job') refuse("the request's $files already went to another job");
+      if (files!.to === 'action') refuse("the action already used the request's $files itself");
+      files!.to = 'job';
       return enqueueJob(extName, p, def, job, input, files!.grant);
     },
+    // ADR 0052: the request's `$files`, as the caller; the grant's one consumer.
+    files: grantedFiles(c, extName, files, noGrant),
     actions: {
       run: async (extension, action, input) => {
         const call = `${extension}.${action}`;
