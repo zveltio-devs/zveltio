@@ -229,11 +229,11 @@ export class BunSqlDialect implements Dialect {
 // ─── Module-level pool ref for migration runner ───────────────────────────────
 // `unsafe(sql)` with no params uses the simple-query protocol and runs several
 // commands, on the pool and on a reserved connection alike (measured, 1.3.14).
-export let _activeBunPool: BunSQLPool | null = null;
+export let _activeBunPool: RawPool | null = null;
 let _activeDriver: BunSqlDriver | null = null;
 
 /**
- * Drop every pooled connection and its cached plans. See `recyclePool`.
+ * Drop every pooled connection and the cached parameter types. See `recyclePool`.
  *
  * A no-op when no driver holds the handles. That used to mean only one thing —
  * nothing had opened a pool, so there were no stale plans to clear and throwing
@@ -337,11 +337,24 @@ class BunSqlDriver implements Driver {
     this.#pool = new (Bun as any).SQL(cleanUrl, {
       max: this.#config.max ?? 20,
       idleTimeout: Math.ceil(idleTimeoutMs / 1000),
+      // No named prepared statements: each statement is parsed afresh (the
+      // unnamed statement, as `pg` sends). A named one keeps its result type,
+      // and an ALTER that changes it — a field added, retyped, dropped, a
+      // masking view rebuilt — makes Postgres refuse the next run on every
+      // backend that had prepared it: `0A000 cached plan must not change
+      // result type`. Every data request runs in a transaction, which that
+      // error aborts, so it reached the client as a 500 — 30 of 50 readers on
+      // one added column (DR-43). No pool recycle can prevent it: a request
+      // already holding an old backend, or queued behind the ALTER's lock,
+      // meets the stale plan anyway. Measured cost, saturated on one 4-core
+      // box: 15% fewer bare statements per second, about 5% fewer
+      // single-record GETs per second through the app (503 to 479).
+      prepare: false,
       ...(sslEnabled ? {} : { ssl: false, tls: false }),
     }) as BunSQLPool;
     // Only the primary database claims these. See `primary` in the config.
     if (this.#config.primary) {
-      _activeBunPool = this.#pool;
+      _activeBunPool = bridgePool(this.#pool);
       _activeDriver = this;
     }
   }
@@ -349,20 +362,13 @@ class BunSqlDriver implements Driver {
   /**
    * Throw away every pooled backend and open a fresh pool.
    *
-   * Called after extension migrations, at boot and at run time. Those migrations alter
-   * tables the ENGINE owns — ten of them today, `zvd_collections` among them —
-   * and they run AFTER the boot steps that already queried the database, so the
-   * pool is holding prepared plans built against the old shape. The next request
-   * to draw such a connection gets `0A000 cached plan must not change result
-   * type`, and inside the request transaction the dialect deliberately does not
-   * retry, so it surfaces as a 500. Measured in CI: the engine started at
-   * 18:52:55.23 and the `ai` extension's migration added three columns to
-   * `zvd_collections` at 18:52:56.51.
-   *
-   * Why a new pool and not `DISCARD ALL`: measured, not assumed. `DISCARD ALL`
-   * deallocates server-side while Bun keeps referring to the statement by name,
-   * so the very next query fails with `26000 prepared statement … does not
-   * exist` — and keeps failing. A fresh pool drops both sides at once.
+   * Called after a schema change: extension migrations (at boot and at run
+   * time) and a collection's DDL (`announceSchemaChange`), here and, through the
+   * bus, on every replica. It was written for prepared plans that outlived the
+   * change (`0A000 cached plan must not change result type`); the pool prepares
+   * nothing now (`prepare: false`, DR-43). What it still drops is the cached
+   * parameter types (`paramTypes`): a column retyped to or from json changes how
+   * a string bound to it is encoded.
    *
    * At run time (an enable, an upgrade, a purge) transactions are open on the
    * old pool — the enable's own advisory-lock holder among them. So the old pool
@@ -379,6 +385,7 @@ class BunSqlDriver implements Driver {
     // New pool first: a query arriving meanwhile must find a pool, not a
     // driver that throws "not initialized".
     const old = this.#pool;
+    clearParamTypeCache();
     await this.init();
     void old.close().catch(() => {});
   }
@@ -507,71 +514,112 @@ function arrayLiteral(items: readonly unknown[]): string {
   return `{${parts.join(',')}}`;
 }
 
-// ─── Param inlining (simple-query fallback) ─────────────────────────────────
-/** Postgres-style literal escape used as a last-resort fallback when prepared
- *  statements fail with SQLSTATE 0A000. Inputs are values Kysely produced from
- *  TypeScript code — strings, numbers, booleans, dates, null. We never reach
- *  here for arbitrary user SQL, so this is safe by construction. */
-function quoteLiteral(v: unknown): string {
-  if (v === null || v === undefined) return 'NULL';
-  if (typeof v === 'boolean') return v ? 'TRUE' : 'FALSE';
-  if (typeof v === 'number' && Number.isFinite(v)) return String(v);
-  if (typeof v === 'bigint') return String(v);
-  if (v instanceof Date) return `'${v.toISOString()}'`;
-  if (Buffer.isBuffer(v)) return `'\\x${v.toString('hex')}'`;
-  // Object → JSON literal (jsonb columns)
-  const s = typeof v === 'string' ? v : JSON.stringify(v);
-  return `'${s.replace(/'/g, "''")}'`;
+// ─── json/jsonb parameters ───────────────────────────────────────────────────
+
+/**
+ * What a statement's parameters are bound as, asked of the server once per
+ * statement text: a string bound to a `json`/`jsonb` parameter is sent
+ * JSON-encoded, so `'en'` is stored as the JSON string `"en"` and
+ * `JSON.stringify(o)` as a JSON string holding `o`'s text.
+ *
+ * That is how `Bun.SQL` binds a PREPARED statement — it reads the parameter
+ * types the server describes — and the engine and its extensions were written
+ * against it (`toJsonb` is the way to store a value). The pool prepares nothing
+ * now (`prepare: false`, DR-43), so the server would parse such a string
+ * itself: `'en'` would fail (22P02) and a JSON text would be stored as its value.
+ * The `pg` dialect asks the same question for the same reason.
+ *
+ * Cached per text, and dropped with the pool (`recyclePool`), which a schema
+ * change triggers here and, through the bus, on every replica.
+ */
+const TYPE_CACHE_MAX = 5_000;
+const paramTypeCache = new Map<string, readonly string[]>();
+let describeSeq = 0;
+
+/** Forget every statement's parameter types — the schema they were read from changed. */
+export function clearParamTypeCache(): void {
+  paramTypeCache.clear();
 }
 
-function inlineParams(sql: string, params: unknown[]): string {
-  if (params.length === 0) return sql;
-  // Replace $1, $2, … with quoted literals. We walk the string once and skip
-  // over single-quoted strings and SQL comments to avoid corrupting them.
-  let out = '';
-  let i = 0;
-  while (i < sql.length) {
-    const ch = sql[i];
-    // pass-through string literal
-    if (ch === "'") {
-      const start = i++;
-      while (i < sql.length) {
-        if (sql[i] === "'" && sql[i + 1] === "'") {
-          i += 2;
-          continue;
-        }
-        if (sql[i] === "'") {
-          i++;
-          break;
-        }
-        i++;
-      }
-      out += sql.slice(start, i);
-      continue;
-    }
-    // pass-through line comment
-    if (ch === '-' && sql[i + 1] === '-') {
-      const nl = sql.indexOf('\n', i);
-      const end = nl === -1 ? sql.length : nl + 1;
-      out += sql.slice(i, end);
-      i = end;
-      continue;
-    }
-    // $n parameter
-    if (ch === '$' && sql[i + 1] >= '0' && sql[i + 1] <= '9') {
-      let j = i + 1;
-      while (j < sql.length && sql[j] >= '0' && sql[j] <= '9') j++;
-      const idx = parseInt(sql.slice(i + 1, j), 10) - 1;
-      if (idx >= 0 && idx < params.length) {
-        out += quoteLiteral(params[idx]);
-        i = j;
-        continue;
-      }
-    }
-    out += ch;
-    i++;
+/**
+ * The types the server infers for `text`'s parameters. `simple` runs a
+ * multi-statement text on the simple protocol on the statement's own connection
+ * and answers each statement's rows.
+ */
+export async function paramTypes(
+  text: string,
+  simple: (sql: string) => Promise<readonly (readonly { t?: string[] }[] | undefined)[]>,
+): Promise<readonly string[]> {
+  const hit = paramTypeCache.get(text);
+  if (hit) return hit;
+  const name = `zv_param_types_${++describeSeq}`;
+  // One round trip. A statement that cannot be prepared cannot be executed
+  // either, so its error is the statement's own and is thrown as such. The
+  // newline ends a trailing `--` comment; the answer is found by its column,
+  // not its position, so a trailing `;` in `text` cannot shift it.
+  const results = await simple(
+    `PREPARE ${name} AS ${text}\n; ` +
+      `SELECT parameter_types::text[] AS t FROM pg_prepared_statements WHERE name = '${name}'; ` +
+      `DEALLOCATE ${name}`,
+  );
+  const types = results.find((rows) => rows?.[0]?.t)?.[0]?.t ?? [];
+  if (paramTypeCache.size >= TYPE_CACHE_MAX) {
+    const oldest = paramTypeCache.keys().next().value;
+    if (oldest !== undefined) paramTypeCache.delete(oldest);
   }
-  return out;
+  paramTypeCache.set(text, types);
+  return types;
+}
+
+/** `sql` on `conn`, each string bound to a json/jsonb parameter JSON-encoded (`paramTypes`). */
+async function unsafeBound<R>(
+  conn: BunReservedConnection,
+  sql: string,
+  params: unknown[],
+): Promise<R[]> {
+  if (params.length === 0) return conn.unsafe<R>(sql);
+  // Only a string binds differently: an object or array is JSON either way.
+  if (!params.some((v) => typeof v === 'string')) return conn.unsafe<R>(sql, params);
+  const types = await paramTypes(
+    sql,
+    async (q) => (await conn.unsafe(q)) as unknown as { t?: string[] }[][],
+  );
+  return conn.unsafe<R>(sql, encodeJsonParams(params, types));
+}
+
+/**
+ * The pool as the worker-extension SQL bridge sees it: its statements bound
+ * the way the dialect binds its own (`unsafeBound`).
+ */
+function bridgePool(pool: BunSQLPool): RawPool {
+  const reserve = async () => {
+    const conn = await pool.reserve();
+    return {
+      unsafe: <T>(sql: string, params?: unknown[]) => unsafeBound<T>(conn, sql, params ?? []),
+      release: () => conn.release(),
+    };
+  };
+  return {
+    unsafe: async <T>(sql: string, params?: unknown[]) => {
+      if (!params?.length) return pool.unsafe<T>(sql);
+      const conn = await reserve();
+      try {
+        return await conn.unsafe<T>(sql, params);
+      } finally {
+        conn.release();
+      }
+    },
+    reserve,
+  };
+}
+
+/** JSON-encode each value of `params` (already `encodeArrayParams`-ed) bound to json/jsonb. */
+export function encodeJsonParams(params: unknown[], types: readonly string[]): unknown[] {
+  return params.map((v, i) =>
+    (types[i] === 'json' || types[i] === 'jsonb') && v !== null && v !== undefined
+      ? JSON.stringify(v)
+      : v,
+  );
 }
 
 // ─── Connection ──────────────────────────────────────────────────────────────
@@ -591,18 +639,6 @@ class BunSqlSmartConnection implements DatabaseConnection {
   #reserved: BunReservedConnection | null = null;
   /** True between BEGIN and COMMIT/ROLLBACK. Read by `release()`. */
   #inTransaction = false;
-  /**
-   * Set once this connection has raised `0A000`. From then on it stops using
-   * prepared statements, which is the only thing that can raise it.
-   *
-   * The alternative — a SAVEPOINT before every statement so the retry becomes
-   * legal — costs a round trip on every query inside a transaction, forever, to
-   * protect against something most connections never see. This costs nothing
-   * until it happens and nothing that matters afterwards: the simple-query path
-   * skips the plan cache, so it cannot go stale.
-   */
-  #skipPrepared = false;
-
   constructor(pool: () => BunSQLPool) {
     this.#pool = pool;
   }
@@ -654,8 +690,7 @@ class BunSqlSmartConnection implements DatabaseConnection {
    * re-measure `tests/harness/bun-pool-isolation.test.ts` before going back.
    */
   async #run<R>(sql: string, params: unknown[]): Promise<R[]> {
-    const exec = (conn: BunReservedConnection) =>
-      params.length > 0 ? conn.unsafe<R>(sql, params) : conn.unsafe<R>(sql);
+    const exec = (conn: BunReservedConnection) => unsafeBound<R>(conn, sql, params);
     if (this.#reserved) return exec(this.#reserved);
     // A transaction opened here would go back to the pool still open.
     if (OPENS_TRANSACTION.test(sql)) {
@@ -671,86 +706,7 @@ class BunSqlSmartConnection implements DatabaseConnection {
 
   async executeQuery<R>(compiledQuery: CompiledQuery): Promise<QueryResult<R>> {
     const params = encodeArrayParams(compiledQuery.parameters as unknown[]);
-
-    const runPrepared = async (): Promise<QueryResult<R>> =>
-      BunSqlSmartConnection.#wrap(await this.#run<R>(compiledQuery.sql, params));
-
-    /** Last-resort fallback after a prepared-statement failure: inline the
-     *  params into the SQL and run via simple-query protocol (no prepare,
-     *  no plan cache). Postgres' libpq-level escaping of literals is what
-     *  we duplicate here — values are URL-safe primitives Kysely produced. */
-    const runInline = async (): Promise<QueryResult<R>> => {
-      const inlined = inlineParams(compiledQuery.sql, params);
-      return BunSqlSmartConnection.#wrap(await this.#run<R>(inlined, []));
-    };
-
-    if (this.#skipPrepared) return runInline();
-
-    try {
-      return await runPrepared();
-    } catch (err) {
-      // Postgres SQLSTATE 0A000 — "cached plan must not change result type"
-      // is raised when a prepared statement's result schema no longer matches
-      // the underlying table (DDL ran since the plan was prepared). The Bun
-      // pool keeps prepared statements alive per backend connection, so a
-      // single retry only succeeds if the next acquire happens to land on a
-      // different connection. We retry once with prepared, then fall back to
-      // simple-query (no prepare, no cache) which can never hit this issue.
-      // `errno` carries the SQLSTATE on this driver; `code` carries the generic
-      // marker `ERR_POSTGRES_SERVER_ERROR`. Reading only `code` made this test
-      // always false, so the whole 0A000 recovery below -- retry, then
-      // simple-query fallback, written to close 8 failures in 19 E2E runs --
-      // hung on the message regex beside it. It worked, which is why nobody
-      // noticed; it would stop working the moment the server's message text
-      // differed. `ERR_POSTGRES_CONNECTION_CLOSED` in `release()` below is
-      // genuinely a `code`, and stays one.
-      const e = err as { code?: string; errno?: string; message?: string } | undefined;
-      const isCachedPlan =
-        e?.errno === '0A000' ||
-        e?.code === '0A000' ||
-        /cached plan must not change result type/i.test(e?.message ?? '');
-      if (!isCachedPlan) throw err;
-
-      // Inside a transaction the retry cannot work, and trying destroys the
-      // evidence.
-      //
-      // `0A000` is a failed statement like any other, so Postgres has already
-      // aborted the transaction. The retry below then answers `25P02 current
-      // transaction is aborted`, `stillCached` is false, and THAT is what gets
-      // thrown — so the caller, the request log and Kysely's error hook all see
-      // 25P02 and nothing else. The real cause never surfaces anywhere.
-      //
-      // That is how it read from the outside: an intermittent 500 with
-      // `25P02` and no failed statement before it in the trace, on
-      // `select * from "zvd_collections" where "name" = $1` — a prepared
-      // statement against a table the collection-create path is busy altering,
-      // which is exactly what raises `0A000`. E2E failed that way in 8 of 19
-      // runs, on a different endpoint each time.
-      //
-      // Outside a transaction the retry is still right: each statement is its
-      // own transaction, so nothing is aborted and a second attempt — or the
-      // simple-query fallback — genuinely recovers.
-      // Whatever happens to this statement, stop preparing on this connection.
-      // A stale plan is not a one-off: the same cached plan is reused until the
-      // backend goes away, so the next request to draw this connection meets it
-      // again. Turning the plan cache off for this connection makes the failure
-      // non-recurring instead of periodic.
-      this.#skipPrepared = true;
-
-      if (this.#inTransaction) throw err;
-
-      try {
-        return await runPrepared();
-      } catch (err2) {
-        const e2 = err2 as { code?: string; errno?: string; message?: string } | undefined;
-        const stillCached =
-          e2?.errno === '0A000' ||
-          e2?.code === '0A000' ||
-          /cached plan must not change result type/i.test(e2?.message ?? '');
-        if (!stillCached) throw err2;
-        return runInline();
-      }
-    }
+    return BunSqlSmartConnection.#wrap(await this.#run<R>(compiledQuery.sql, params));
   }
 
   // eslint-disable-next-line require-yield

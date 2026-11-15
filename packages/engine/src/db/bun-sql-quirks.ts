@@ -7,7 +7,7 @@
  * workaround is removed in one place rather than hunted down across the tree.
  *
  * The driver's own defects — no timeout on `reserve()` or on a queued query,
- * `close()` hanging on a dead backend, cached plans surviving a migration —
+ * `close()` hanging on a dead backend, cached plans that would outlive an ALTER —
  * are handled inside `bun-sql-dialect.ts`, where the driver is called. This
  * module holds only what callers of the database see.
  */
