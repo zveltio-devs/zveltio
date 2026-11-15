@@ -11,13 +11,12 @@
  * Switching must not change what lands in the database, so this answers like
  * `BunSqlDialect` wherever a caller or a stored byte could tell them apart:
  *
- *   - **Parameters bound to `json`/`jsonb` are JSON-encoded.** `Bun.SQL` reads
- *     the parameter types the server describes and encodes such a value as
- *     JSON — a string becomes a JSON string. `pg` sends a string as it is, so
- *     the same statement stored a different value, or failed to parse it. The
- *     types are asked once per statement text (`PREPARE`, then
- *     `pg_prepared_statements`), cached, and only for statements that bind a
- *     string or an object.
+ *   - **Parameters bound to `json`/`jsonb` are JSON-encoded** — a string
+ *     becomes a JSON string — as `BunSqlDialect` binds them. `pg` sends a
+ *     string as it is, so the same statement stored a different value, or
+ *     failed to parse it. The types are asked once per statement text
+ *     (`paramTypes`, shared with `BunSqlDialect`), cached, and only for
+ *     statements that bind a string or an object.
  *   - **Arrays are bound as `BunSqlDialect` binds them**: a Postgres array
  *     literal, built the same way.
  *   - **A failed statement carries its SQLSTATE on `errno`**, as `Bun.SQL`
@@ -46,7 +45,10 @@ import {
 import {
   PoolBusyError,
   type RawPool,
+  clearParamTypeCache,
   encodeArrayParams,
+  encodeJsonParams,
+  paramTypes,
   registerActivePool,
 } from './bun-sql-dialect.js';
 
@@ -83,36 +85,6 @@ export function normalizePgError(err: unknown): unknown {
 const typeSensitive = (v: unknown) =>
   typeof v === 'string' || (v !== null && typeof v === 'object');
 
-const TYPE_CACHE_MAX = 5_000;
-const paramTypeCache = new Map<string, readonly string[]>();
-let prepareSeq = 0;
-
-/** Drop the cached parameter types, e.g. after migrations altered columns. */
-export function clearPgParamTypeCache(): void {
-  paramTypeCache.clear();
-}
-
-async function paramTypes(client: pg.PoolClient, text: string): Promise<readonly string[]> {
-  const hit = paramTypeCache.get(text);
-  if (hit) return hit;
-  const name = `zv_param_types_${++prepareSeq}`;
-  // One round trip: the simple protocol runs the three in order. A statement
-  // that cannot be prepared cannot be executed either, so its error is the
-  // statement's own and is thrown as such.
-  const res = (await client.query(
-    `PREPARE ${name} AS ${text}; ` +
-      `SELECT parameter_types::text[] AS t FROM pg_prepared_statements WHERE name = '${name}'; ` +
-      `DEALLOCATE ${name}`,
-  )) as unknown as pg.QueryResult[];
-  const types = ((res[1]?.rows[0] as { t?: string[] } | undefined)?.t ?? []) as string[];
-  if (paramTypeCache.size >= TYPE_CACHE_MAX) {
-    const oldest = paramTypeCache.keys().next().value;
-    if (oldest !== undefined) paramTypeCache.delete(oldest);
-  }
-  paramTypeCache.set(text, types);
-  return types;
-}
-
 /** The parameters as `Bun.SQL` would send them for this statement. */
 async function bindLikeBun(
   client: pg.PoolClient,
@@ -122,14 +94,11 @@ async function bindLikeBun(
   // An array parameter as `BunSqlDialect` binds it: one encoder for both.
   const out = encodeArrayParams(params);
   if (!params.some(typeSensitive)) return out;
-  const types = await paramTypes(client, text);
-  return out.map((v, i) => {
-    const t = types[i];
-    if ((t === 'json' || t === 'jsonb') && v !== null && v !== undefined) {
-      return JSON.stringify(v);
-    }
-    return v;
-  });
+  const types = await paramTypes(
+    text,
+    async (q) => ((await client.query(q)) as unknown as pg.QueryResult[])[1]?.rows,
+  );
+  return encodeJsonParams(out, types);
 }
 
 async function run(
@@ -239,7 +208,7 @@ function rawPool(pool: pg.Pool): RawPool {
         release: () => client.release(),
       };
     },
-    recycle: async () => clearPgParamTypeCache(),
+    recycle: async () => clearParamTypeCache(),
   };
 }
 
