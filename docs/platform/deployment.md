@@ -156,6 +156,20 @@ PostgreSQL 18 or newer is required on every platform. What these platforms do
 not give the runner — a network or memory limit per extension — is listed in
 [operations.md](operations.md).
 
+## How long a request may take
+
+The engine closes a connection that has sent no response bytes for **120
+seconds** (`idleTimeout` on `Bun.serve`). Most requests answer in
+milliseconds; the ones that can come near the bound are schema changes that run
+inside the request: retyping a field rewrites the table at about 10 seconds per
+million rows, and `POST /api/admin/schema/apply` runs every change of the plan
+in turn. A request cut at the bound loses its answer, not its work: the change
+goes on and commits, so check the schema before you retry it. Before rc.1 such
+work answers `202` with a job to poll instead.
+
+A reverse proxy in front of the engine needs a read timeout at least as long
+(nginx `proxy_read_timeout 120s;` — its default is 60 s).
+
 ---
 
 ## SSL/TLS Setup

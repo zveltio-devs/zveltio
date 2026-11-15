@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**A request may take 120 seconds before its connection is closed, up from 10 (DR-36).** `Bun.serve` ran with Bun's default `idleTimeout` of 10 s, so a schema change working inside the request past 10 s (a retype measured 9.9 s at a million rows) lost its connection while the work went on, and a retry queued it a second time. The bound is now set explicitly to 120 s and documented in `docs/platform/deployment.md`, with the reverse-proxy timeout to match. Long schema work becomes a job answering `202` before rc.1 (ADR 0053).
+
 **Changing a relation's actions over rows that break its key answers 422, not 500.** `PATCH /api/relations/:id` re-creates the foreign key `NOT VALID` and checks the rows after the commit (DR-38). When the previous key was `NOT VALID` or missing and a row points at no parent, that check fails with SQLSTATE 23503; the change was already undone, but the route rethrew the database error and the client got a 500. It now answers 422 naming the cause. Only that refusal changes: a lock timeout still answers 503, and a failed undo stays a 500.
 
 ## [3.0.0-beta.122] - 2026-11-15
