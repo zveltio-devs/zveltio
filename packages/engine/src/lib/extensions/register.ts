@@ -95,7 +95,7 @@ import {
   routeCollections,
   routeHost,
 } from './actions.js';
-import { compileJobs, hostCall, registerJobs, verifiedJobsCode } from './jobs.js';
+import { compileJobs, hostCall, registerJobs, runsInRunner, verifiedJobsCode } from './jobs.js';
 import type { HostCall } from './job-runner.js';
 import { buildExtensionConfig } from './config.js';
 import {
@@ -933,7 +933,7 @@ export async function finalizeExtensionLoad(
     manifest,
     extension,
     worker,
-    worker || (manifest?.jobs ?? []).some((j) => (j.egress ?? []).length > 0)
+    (manifest?.jobs ?? []).some((j) => runsInRunner(j, worker))
       ? verifiedJobsCode(extDir, manifest)
       : null,
   );
