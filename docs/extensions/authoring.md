@@ -231,6 +231,11 @@ export default defineExtension(['data:write', 'data:system'], {
   administrator approves. A job cannot list `"*"` (the manifest is refused),
   and `"*"` does not widen a route. Engines from the release carrying ADR 0047;
   an older engine reads `"*"` as a collection named `*` and refuses every call.
+  **First-party only** (ADR 0053 decision 5): an extension whose tier the
+  publisher-tier gate did not verify as first-party is refused at load when an
+  action lists `"*"`, and that includes every worker-isolated extension, whose
+  tier is never looked up. List each collection instead
+  ([v2 candidate 9](v2-candidates.md)).
 - `throw new ActionRefusal(status, code, message)` answers the caller with that
   4xx. Any other throw answers 500. Both roll back what the action wrote.
 - `host.actions.run(extension, action, input)` runs an action of an extension

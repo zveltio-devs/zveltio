@@ -199,3 +199,23 @@ inside an open request narrows what v1 accepts, and narrowings wait for v2.
 **What v2 should do.** Refuse a `unique` field added inside an open request,
 or take it out of the request: the engine builds the key after the request
 commits, as the routes do.
+
+## 9. `"*"` in an action is first-party only — narrowing
+
+**What happened.** ADR 0047 let an action list `"*"` in `reads` / `writes` and
+reach any collection as its caller, consented as `collections:any:read` /
+`collections:any:write`. A third-party extension holding that consent reaches
+every collection the person running it can, which is more than any review of
+its manifest can bound.
+
+**What v1 does.** Narrowed now, an owner exception to the freeze (ADR 0053
+decision 5, 2026-11-15), like entries 3, 4 and 5: an extension may list `"*"`
+only when the publisher-tier gate verified it first-party, never by its name.
+Any other extension listing it is refused at load with a `lastLoadError`
+naming the action. A worker-isolated extension never has its tier looked up,
+so it is never first-party here. No external author used `"*"`; the
+first-party users are `analytics/quality`, `content/drafts` and
+`integrations/migrators`.
+
+**What v2 should do.** Decide with DR-09 whether `"*"` stays a first-party
+privilege or becomes something a reviewed third party can be granted.

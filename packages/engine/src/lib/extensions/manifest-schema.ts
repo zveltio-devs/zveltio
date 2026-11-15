@@ -317,6 +317,8 @@ export const ManifestSchema = z
      * `"*"` in either list reaches any collection, only as the caller (ADR 0047):
      * the data API with the caller's grants, row and column rules, never as the
      * system; consented as `collections:any:read` / `collections:any:write`.
+     * First-party only: `enforcePublisherTier` refuses it from any other
+     * extension at load (ADR 0053 d5).
      */
     actions: z
       .array(
