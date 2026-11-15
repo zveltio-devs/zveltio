@@ -208,7 +208,7 @@ export function mountActions(
     auditAction(c, p, extName, def.name, undefined, grant);
     let result: unknown;
     try {
-      const files = grant && { grant };
+      const files = grant && { grant, readBytes: 0 };
       result = await def.run(
         parsed.data,
         await actionHost(c, p, p.trx, extName, def, ctx, true, files),

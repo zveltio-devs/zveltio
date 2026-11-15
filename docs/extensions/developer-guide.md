@@ -466,7 +466,9 @@ return { file: out.id };
 ```
 
 `read` takes only an id of `read` (any other throws 403 `file_not_granted`, even
-your caller's own file). `put` stores the one file of `write`, once (409 for a
+your caller's own file). The engine holds the bytes whole: one action reads at most
+`MAX_UPLOAD_BYTES` (one upload's worth, 50 MB by default) in all, 413
+`file_too_large` past it. `put` stores the one file of `write`, once (409 for a
 second): private, your caller's own upload, counted against their quota (413
 over it, 413 past `maxBytes`); `contentType` is used only when neither the bytes
 nor the name say what the file is. Both act as your caller through

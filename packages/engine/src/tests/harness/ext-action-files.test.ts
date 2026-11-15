@@ -191,6 +191,13 @@ d('an action reads and writes the files its request hands it (ADR 0052)', () => 
             return outcome(() => read(input, host));
           },
           relay: (input, host) => host.actions!.run(DEP, 'read', input),
+          readEach: async (input, host) => {
+            const out: Outcome[] = [];
+            for (const id of (input as { ids: string[] }).ids) {
+              out.push(await outcome(() => read({ id }, host)));
+            }
+            return out;
+          },
         },
         jobs: { noop },
         async register() {},
@@ -206,6 +213,7 @@ d('an action reads and writes the files its request hands it (ADR 0052)', () => 
           action('readThenEnqueue', { enqueues: ['noop'] }),
           action('enqueueThenRead', { enqueues: ['noop'] }),
           action('relay', { calls: [`${DEP}.read`] }),
+          action('readEach'),
         ],
         jobs: [{ name: 'noop', input: { type: 'object' }, retry: { limit: 0 } }],
       },
@@ -256,6 +264,22 @@ d('an action reads and writes the files its request hands it (ADR 0052)', () => 
       $files: { read: [made.colleagues] },
     });
     expect(theirs.status).toBe(404);
+  });
+
+  it('reads at most one upload’s worth of bytes in all, however many ids were handed', async () => {
+    const prev = process.env.MAX_UPLOAD_BYTES;
+    process.env.MAX_UPLOAD_BYTES = '10'; // each fixture file is 6 bytes
+    try {
+      const ids = [made.handed, made.unhanded];
+      const r = await act(EXT, 'readEach', { ids, $files: { read: ids } });
+      expect(r.status).toBe(200);
+      const [first, second] = r.result as Outcome[];
+      expect(first).toMatchObject({ ok: { size: 6 } });
+      expect(second).toMatchObject({ status: 413, code: 'file_too_large' });
+    } finally {
+      if (prev === undefined) delete process.env.MAX_UPLOAD_BYTES;
+      else process.env.MAX_UPLOAD_BYTES = prev;
+    }
   });
 
   it('has no files without $files, nor in an action another action ran', async () => {

@@ -22,6 +22,7 @@ import { getStorage } from '../storage/index.js';
 import {
   fileActorOf,
   type FileRefusal,
+  maxUploadBytes,
   readableFile,
   removeFile,
   storeFile,
@@ -79,12 +80,17 @@ async function putAsCaller(
   member: string,
   input: Parameters<typeof storeFile>[2],
 ): Promise<HostFile> {
+  // `storeFile` writes the row whether or not the driver took the bytes; an id
+  // with nothing behind it is a failure the caller learns only on the next read.
+  const storage = getStorage();
+  if (!storage.isConfigured()) {
+    throw problem('storage_not_configured', 503, `host.files.${member}: storage not configured`);
+  }
   const actor = await fileActorOf(user, tenantId);
   const r = await inSavepoint(trx, () => storeFile(trx, actor, input));
   if (!('file' in r)) throw refused(member, r);
-  const storage = getStorage();
   const path = r.file.storage_path;
-  if (storage.isConfigured()) onAfterRollback(() => storage.delete(path));
+  onAfterRollback(() => storage.delete(path));
   return hostFile(r.file);
 }
 
@@ -118,6 +124,8 @@ export interface HandedFiles {
   grant: FileGrant;
   to?: 'job' | 'action';
   put?: boolean;
+  /** Bytes `read` has handed the action so far. */
+  readBytes: number;
 }
 
 /**
@@ -157,6 +165,18 @@ export function grantedFiles(
       }
       const file = await readableFile(who.trx, await fileActorOf(who.user, who.tenantId), id);
       if (!file) throw problem('file_not_found', 404, `host.files.read: file not found: ${id}`);
+      // The bytes are held whole in the engine: one action reads at most one
+      // upload's worth in all, not 32 of them (a job's cap is JOB_FILE_LIMITS).
+      const size = Number(file.size);
+      const limit = maxUploadBytes();
+      if (handed!.readBytes + size > limit) {
+        throw problem(
+          'file_too_large',
+          413,
+          `host.files.read: an action reads at most ${limit} bytes in all`,
+        );
+      }
+      handed!.readBytes += size;
       return { ...hostFile(file), bytes: await storedBytes('read', file) };
     },
     put: async (bytes, options) => {
