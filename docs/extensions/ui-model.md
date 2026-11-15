@@ -137,10 +137,10 @@ What the specification holds:
     action started is under way (a job's status: `queued`, `sending`). The
     button is busy, and the front end reads the record again until they no
     longer hold;
-  - `files`: the stored files the request hands the action's job (`$files`,
-    ADR 0032). `read` is a value of file ids or a `file` field's value (its
+  - `files`: the stored files the request hands the action, or its job
+    (`$files`, ADR 0032 and 0052). `read` is a value of file ids or a `file` field's value (its
     files' ids are handed; an empty one hands nothing), `write` names the one
-    file the job may store (`name`, `maxBytes`). The engine checks each file as
+    file the action or its job may store (`name`, `maxBytes`). The engine checks each file as
     the caller.
 - **A detail's `onOpen`** runs an action once for each record the detail
   shows that meets its `when` (marking a message read). Its result is not

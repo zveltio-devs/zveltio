@@ -294,7 +294,7 @@ your `ctx`, not inside your own code.
 | `data:write` | `createRecord`, `updateRecord`, `deleteRecord` — write a collection record through the data API's own handlers (access check, column permissions, row policies, alters, entity access, hooks, revisions, webhooks, flows, realtime) as the caller the engine authenticated for the request `c` you pass. There is no identity parameter; outside that request they throw. |
 | `data:system` | `asSystem(collections, fn, { reason })` — run `fn` as the system inside the running tenant for the named collections (`['products']`): collection permissions stand down for `ctx.db` during the call, tenant isolation, row rules and the table guard do not (it gives collections, never the rows a row rule withholds; where there is no caller, a rule on a caller value keeps no row, ADR 0040). Only inside a tenant's work (a request, or a job in `withTenantIsolation`). Every call writes an `extension.as_system` audit row when it settles, with the extension, the user, the collections, the reason and the outcome (`ok`/`error`); `{ actor: (result) => 'scim_token:' + result.id }` adds who called, from `fn`'s result, as `metadata.claimed_actor` — the extension's word, never the row's user. For work that is more than the caller may do — stock a customer cannot edit, a counter a public form bumps; what can be said as a permission (the `public` role reading published rows, creating form responses) belongs in the permissions instead. Also `enqueue(c, job, input)`: queue a job from the handler of a `publicRoutes` entry the job lists in `fromPublicRoutes`, in the request's transaction and tenant, with no author (an inbound webhook; ADR 0018, see authoring.md). |
 | `notifications` | `sendNotification`. |
-| `files` | A job's `host.files` — the stored files its user handed it (ADR 0032, below); an inline route's `ctx.host(c).files` — put and delete as the caller (ADR 0034, authoring.md). |
+| `files` | A job's and an action's `host.files` — the stored files the request handed it (ADR 0032 and 0052, below); an inline route's `ctx.host(c).files` — put and delete as the caller (ADR 0034, authoring.md). |
 | `documents` | `generatePDF`, `generatePDFAsync`, `renderTemplate`. |
 | `edge-functions` | `runEdgeFunction`. |
 | `introspection` | `introspectSchema`, `extensionRegistry`, `runQualityScan`. |
@@ -429,7 +429,8 @@ const id = await host.enqueue('send', { draftId }, { files: true });
 ```
 
 `{ files: true }` throws when the request carried no `$files`, for a second
-job in the same call, and in an action run by another action
+job in the same call, once the action used `host.files` itself (below), and in
+an action run by another action
 (`host.actions.run`, which refuses `$files` in its input with 400). A public
 route's job and a job enqueued without it have no files.
 
@@ -453,6 +454,28 @@ call also needs `files` (403 `capability_required`). A call moves at most
 as base64 apart from its 16 MiB, so budget `memoryMb` at about five times your
 largest file. Inline jobs get the same `host.files`. Engines from
 3.0.0-beta.109.
+
+**An action may use the grant itself** (ADR 0052) instead of handing it to a
+job: an import that reads the uploaded CSV and writes its rows in the request
+transaction, an export that stores the one file it built and answers its id.
+
+```ts
+const csv = await host.files.read(fileId); // { id, name, contentType, size, bytes }
+const out = await host.files.put(bytes, { contentType: 'text/csv' }); // under write.name
+return { file: out.id };
+```
+
+`read` takes only an id of `read` (any other throws 403 `file_not_granted`, even
+your caller's own file). `put` stores the one file of `write`, once (409 for a
+second): private, your caller's own upload, counted against their quota (413
+over it, 413 past `maxBytes`); `contentType` is used only when neither the bytes
+nor the name say what the file is. Both act as your caller through
+`/api/storage`'s checks, in the request transaction: if the action then fails,
+the file and its bytes go with it. The grant has one consumer: an action that
+used `host.files` cannot also `enqueue(…, { files: true })`, nor the other way
+round. Every call throws 403 `file_not_granted` when the request carried no
+`$files`, and in an action another action ran. Needs `files`. Engines from
+3.0.0-beta.123.
 
 ---
 

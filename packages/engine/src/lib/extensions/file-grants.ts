@@ -187,6 +187,26 @@ export const hostFile = (f: StoredFile): HostFile => ({
   size: Number(f.size),
 });
 
+/** The bytes of `file`, from the storage driver; its error text stays in the log. */
+export async function storedBytes(member: string, file: StoredFile): Promise<Uint8Array> {
+  const storage = getStorage();
+  if (!storage.isConfigured()) {
+    throw problem('storage_not_configured', 503, 'Storage not configured');
+  }
+  const obj = await storage.get(file.storage_path).catch((err: unknown) => {
+    console.error('storage: read failed', file.id, err);
+    return undefined;
+  });
+  if (!obj) {
+    throw problem(
+      'file_bytes_unavailable',
+      502,
+      `host.files.${member}: ${file.id} could not be read`,
+    );
+  }
+  return obj.bytes;
+}
+
 /**
  * `host.files` of one attempt of job `jobId`, in its tenant transaction `trx`
  * (ADR 0032 decision 2). `held`: the extension holds `files`. `grant`: what the
@@ -264,23 +284,10 @@ export function jobFiles(o: {
       if (!file || !mayReadFile(file, actor.principalId, actor.seesAll, tenantId)) return null;
       // The row's size first, so a file past the limits is never read into memory.
       room('get', Number(file.size));
-      if (!storage.isConfigured()) {
-        throw problem('storage_not_configured', 503, 'Storage not configured');
-      }
-      const obj = await storage.get(file.storage_path).catch((err: unknown) => {
-        console.error('storage: read failed', file.id, err);
-        return undefined;
-      });
-      if (!obj) {
-        throw problem(
-          'file_bytes_unavailable',
-          502,
-          `host.files.get: ${file.id} could not be read`,
-        );
-      }
-      room('get', obj.bytes.byteLength);
-      run.bytes += obj.bytes.byteLength;
-      return { ...hostFile(file), bytes: obj.bytes };
+      const bytes = await storedBytes('get', file);
+      room('get', bytes.byteLength);
+      run.bytes += bytes.byteLength;
+      return { ...hostFile(file), bytes };
     },
     put: async (bytes) => {
       need('put');
