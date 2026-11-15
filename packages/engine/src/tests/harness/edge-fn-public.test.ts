@@ -61,15 +61,12 @@ d('public edge function invoke (in-process)', () => {
     );
     fnId = (row as { id: string }).id;
     for (const [name, k] of Object.entries(KEYS)) {
-      await asDefaultTenant(
-        db,
-        sql`
+      await sql`
         INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, is_active, tenant_id, created_by)
         VALUES (${`${FN}-${name}`}, ${await hashApiKey(k.raw)}, ${k.raw.slice(0, 12)},
                 '[{"collection":"$edge","actions":["execute"]}]'::jsonb, true, ${k.tenant}::uuid,
                 ${await createKeyCreator(db)})
-      `,
-      );
+      `.execute(db);
     }
   });
 

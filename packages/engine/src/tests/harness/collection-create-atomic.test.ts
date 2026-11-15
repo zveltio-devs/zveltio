@@ -39,9 +39,8 @@ d('collection create is atomic', () => {
   let db: Database;
   const exists = async (table: string) =>
     (
-      await asDefaultTenant(
+      await sql<{ t: string | null }>`SELECT to_regclass(${`public.${table}`})::text AS t`.execute(
         db,
-        sql<{ t: string | null }>`SELECT to_regclass(${`public.${table}`})::text AS t`,
       )
     ).rows[0]?.t != null;
   const failure = (p: Promise<unknown>) =>

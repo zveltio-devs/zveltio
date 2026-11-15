@@ -78,13 +78,10 @@ d('sync pull returns deletes', () => {
       name: NAME,
       fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
     } as never);
-    await asDefaultTenant(
-      db,
-      sql`
+    await sql`
       INSERT INTO zv_tenants (id, slug, name) VALUES (${OTHER_TENANT}::uuid, 'hsyncdel-b', 'B')
       ON CONFLICT (id) DO NOTHING
-    `,
-    );
+    `.execute(db);
   });
 
   afterAll(async () => {
@@ -93,7 +90,7 @@ d('sync pull returns deletes', () => {
     await asEveryTenant(db, (trx) =>
       sql`DELETE FROM zv_sync_tombstones WHERE collection = ${TABLE}`.execute(trx),
     );
-    await asDefaultTenant(db, sql`DELETE FROM zv_tenants WHERE id = ${OTHER_TENANT}::uuid`);
+    await sql`DELETE FROM zv_tenants WHERE id = ${OTHER_TENANT}::uuid`.execute(db);
   });
 
   it('a row deleted through the API reaches a client as a delete', async () => {

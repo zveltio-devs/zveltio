@@ -71,12 +71,9 @@ d('identity tables under tenant RLS (065)', () => {
       db,
     );
     // USER reads PARENT's subtree, and is a member of the child too.
-    await asDefaultTenant(
-      db,
-      sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role, read_scope) VALUES
+    await sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role, read_scope) VALUES
                 (${PARENT}::uuid, ${USER}, 'admin', 'subtree'),
-                (${CHILD}::uuid, ${USER}, 'member', 'self')`,
-    );
+                (${CHILD}::uuid, ${USER}, 'member', 'self')`.execute(db);
     for (const tenant of [ROOT, CHILD]) {
       rawKey[tenant] = generateApiKey();
       await sql`

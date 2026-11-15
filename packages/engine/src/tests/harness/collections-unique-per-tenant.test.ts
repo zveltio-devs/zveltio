@@ -135,13 +135,10 @@ d('a unique field is unique per tenant', () => {
   }
 
   it('the key is (tenant_id, column), and a non-unique field has none', async () => {
-    const keys = await asDefaultTenant(
-      db,
-      sql<{ def: string }>`
+    const keys = await sql<{ def: string }>`
       SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
       WHERE conrelid = ${TABLE}::regclass AND contype = 'u' ORDER BY 1
-    `,
-    );
+    `.execute(db);
     expect(keys.rows.map((r) => r.def)).toEqual([
       'UNIQUE (tenant_id, code)',
       'UNIQUE (tenant_id, ref)',
@@ -178,13 +175,10 @@ d('a unique field is unique per tenant', () => {
     const legacy = `zvd_${LEGACY}`;
     const keys = async (table: string) =>
       (
-        await asDefaultTenant(
-          db,
-          sql<{ def: string }>`
+        await sql<{ def: string }>`
           SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
           WHERE conrelid = ${table}::regclass AND contype = 'u' ORDER BY 1
-        `,
-        )
+        `.execute(db)
       ).rows.map((r) => r.def);
     const uniqueIndexes = async (table: string) =>
       (

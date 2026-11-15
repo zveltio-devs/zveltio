@@ -59,13 +59,10 @@ d('sync pull uses the (tenant_id, updated_at, id) index', () => {
 
   const tableStats = async (): Promise<TableStats> =>
     (
-      await asDefaultTenant(
-        db,
-        sql<TableStats>`
+      await sql<TableStats>`
         SELECT seq_tup_read::text, idx_tup_fetch::text
           FROM pg_stat_user_tables WHERE relname = ${TABLE}
-      `,
-      )
+      `.execute(db)
     ).rows[0]!;
   const indexStats = async (): Promise<IndexStats> =>
     (

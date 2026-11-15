@@ -416,9 +416,8 @@ d('a job reaches only the stored files its user hands it (ADR 0032)', () => {
       sql`DELETE FROM zv_api_keys WHERE name LIKE ${`jobfiles-%-${STAMP}`}`.execute(t),
     );
     await sql`DELETE FROM pgboss.job WHERE name LIKE ${'ext.jobfiles-%'}`.execute(db);
-    await asDefaultTenant(
+    await sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${DEP}, ${NOFILES})`.execute(
       db,
-      sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${DEP}, ${NOFILES})`,
     );
     await asEveryTenant(db, (trx) =>
       sql`DELETE FROM zv_audit_log WHERE resource_id LIKE ${'jobfiles-%'}`.execute(trx),

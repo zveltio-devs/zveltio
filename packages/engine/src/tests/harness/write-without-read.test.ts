@@ -341,13 +341,10 @@ d('writes by a principal that cannot read the collection', () => {
       const m = await createMemberSession(app, db, {
         grants: [{ collection: COLL, actions }],
       });
-      await asDefaultTenant(
-        db,
-        sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role, valid_from, valid_to)
+      await sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role, valid_from, valid_to)
         VALUES (${TENANT}::uuid, ${m.userId}, 'member', now() - interval '2 days', now() - interval '1 day')
         ON CONFLICT (tenant_id, user_id) DO UPDATE
-          SET valid_from = EXCLUDED.valid_from, valid_to = EXCLUDED.valid_to`,
-      );
+          SET valid_from = EXCLUDED.valid_from, valid_to = EXCLUDED.valid_to`.execute(db);
       return m.cookie;
     };
     for (const actions of [['create'], ['read', 'create']]) {
@@ -379,13 +376,10 @@ d('writes by a principal that cannot read the collection', () => {
     const m = await createMemberSession(app, db, {
       grants: [{ collection: COLL, actions: ['create', 'update', 'delete'] }],
     });
-    await asDefaultTenant(
-      db,
-      sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role, valid_from, valid_to)
+    await sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role, valid_from, valid_to)
       VALUES (${TENANT}::uuid, ${m.userId}, 'member', now() - interval '2 days', now() - interval '1 day')
       ON CONFLICT (tenant_id, user_id) DO UPDATE
-        SET valid_from = EXCLUDED.valid_from, valid_to = EXCLUDED.valid_to`,
-    );
+        SET valid_from = EXCLUDED.valid_from, valid_to = EXCLUDED.valid_to`.execute(db);
     const who = { cookie: m.cookie };
     const created = crypto.randomUUID();
     const victim = await seed('lapsed-victim');

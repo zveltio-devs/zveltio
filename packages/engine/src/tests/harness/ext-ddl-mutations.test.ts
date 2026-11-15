@@ -91,12 +91,11 @@ d("ctx.DDLManager's mutations inside a request", () => {
     // CI sometimes never sees the index (Handler Coverage, since 2026-09-30) and
     // no local run reproduces it. Say why before failing: the queue's jobs for
     // this table, and the transactions a CONCURRENTLY build would wait on.
-    const jobs = await asDefaultTenant(
-      db,
-      sql`
+    const jobs = await sql`
       SELECT state, retry_count, created_on, started_on, left(output::text, 200) AS output
-        FROM pgboss.job WHERE name = 'ddl.build_index' AND data::text LIKE ${`%${table}%`}`,
-    ).catch((e) => ({ rows: [{ error: (e as Error).message }] }));
+        FROM pgboss.job WHERE name = 'ddl.build_index' AND data::text LIKE ${`%${table}%`}`
+      .execute(db)
+      .catch((e) => ({ rows: [{ error: (e as Error).message }] }));
     const old = await sql`
       SELECT pid, state, backend_type, now() - xact_start AS age, wait_event, left(query, 120) AS q
         FROM pg_stat_activity

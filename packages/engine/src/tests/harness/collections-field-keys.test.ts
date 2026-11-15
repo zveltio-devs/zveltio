@@ -131,12 +131,9 @@ d('collections field keys (in-process)', () => {
     await DDLManager.addField(db, COLLECTION, { name: 'ref', type: 'text' } as never);
     expect((await patch('ref', { unique: true })).status).toBe(200);
     const defs = (
-      await asDefaultTenant(
-        db,
-        sql<{ def: string }>`
+      await sql<{ def: string }>`
         SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
-         WHERE conrelid = to_regclass(${TABLE}) AND contype = 'u'`,
-      )
+         WHERE conrelid = to_regclass(${TABLE}) AND contype = 'u'`.execute(db)
     ).rows
       .map((r) => r.def)
       .sort();

@@ -43,14 +43,11 @@ d('API keys are bound to their tenant', () => {
   let db: Database;
 
   const insertKey = async (raw: string, tenantId: string, name: string, memberOf = [tenantId]) => {
-    await asDefaultTenant(
-      db,
-      sql`
+    await sql`
       INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, is_active, tenant_id, created_by)
       VALUES (${name}, ${await hashApiKey(raw)}, ${raw.slice(0, 12)},
               '["*"]'::jsonb, true, ${tenantId}::uuid, ${await createKeyCreator(db, memberOf)})
-    `,
-    );
+    `.execute(db);
   };
 
   beforeAll(async () => {
