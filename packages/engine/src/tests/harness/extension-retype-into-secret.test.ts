@@ -32,11 +32,12 @@ import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { toJsonb } from '../../lib/jsonb.js';
 import {
+  asDefaultTenant,
   createMemberSession,
   dropTestCollection,
+  forgetRuleObjects,
   getTestApp,
   harnessAvailable,
-  forgetRuleObjects,
   ruleObjects,
 } from '../../testing/app-harness.js';
 
@@ -74,8 +75,8 @@ d("an extension's update turns its text field secret (ADR 0024 §6)", () => {
 
   const raw = async () =>
     (
-      await sql<{ id: string; tok: string; pin: string }>`
-        SELECT id::text AS id, tok, pin FROM ${sql.table(`zvd_${C}`)} ORDER BY label`.execute(db)
+      await asDefaultTenant(db, sql<{ id: string; tok: string; pin: string }>`
+        SELECT id::text AS id, tok, pin FROM ${sql.table(`zvd_${C}`)} ORDER BY label`)
     ).rows;
 
   beforeAll(async () => {
@@ -86,9 +87,9 @@ d("an extension's update turns its text field secret (ADR 0024 §6)", () => {
     for (const n of [1, 2]) {
       const tok = await maybeEncrypt(`tok-${n}`, true);
       sealed.push(String(tok));
-      const row = await sql<{ id: string }>`
+      const row = await asDefaultTenant(db, sql<{ id: string }>`
         INSERT INTO ${sql.table(`zvd_${C}`)} (label, tok, pin)
-        VALUES (${`row-${n}`}, ${tok}, ${`pin-${n}`}) RETURNING id::text AS id`.execute(db);
+        VALUES (${`row-${n}`}, ${tok}, ${`pin-${n}`}) RETURNING id::text AS id`);
       ids.push(row.rows[0]!.id);
     }
     member = await createMemberSession(engine, db, {

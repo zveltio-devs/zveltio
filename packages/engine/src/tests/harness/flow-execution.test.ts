@@ -21,7 +21,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -33,20 +38,20 @@ async function insertStep(
   config: Record<string, unknown>,
   onError: 'stop' | 'continue' | 'retry' = 'continue',
 ): Promise<void> {
-  await sql`
+  await asDefaultTenant(db, sql`
     INSERT INTO zv_flow_steps (flow_id, step_order, name, type, config, on_error)
     VALUES (${flowId}, ${order}, ${type}, ${type}, ${JSON.stringify(config)}::jsonb, ${onError})
-  `.execute(db);
+  `);
 }
 
 /** Poll zv_flow_runs until a run for this flow reaches a terminal status. */
 async function waitForRun(db: Database, flowId: string, timeoutMs = 8000): Promise<string | null> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const row = await sql<{ status: string }>`
+    const row = await asDefaultTenant(db, sql<{ status: string }>`
       SELECT status FROM zv_flow_runs WHERE flow_id = ${flowId}
       ORDER BY started_at DESC NULLS LAST LIMIT 1
-    `.execute(db);
+    `);
     const status = row.rows[0]?.status;
     if (status && ['completed', 'failed', 'error', 'success'].includes(status)) return status;
     await new Promise((r) => setTimeout(r, 100));
@@ -121,9 +126,9 @@ d('flow execution (in-process)', () => {
   afterAll(async () => {
     for (const id of [flowId, failFlowId, notifyFlowId]) {
       if (db && id) {
-        await sql`DELETE FROM zv_flow_runs WHERE flow_id = ${id}`.execute(db).catch(() => {});
-        await sql`DELETE FROM zv_flow_steps WHERE flow_id = ${id}`.execute(db).catch(() => {});
-        await sql`DELETE FROM zv_flows WHERE id = ${id}`.execute(db).catch(() => {});
+        await asDefaultTenant(db, sql`DELETE FROM zv_flow_runs WHERE flow_id = ${id}`).catch(() => {});
+        await asDefaultTenant(db, sql`DELETE FROM zv_flow_steps WHERE flow_id = ${id}`).catch(() => {});
+        await asDefaultTenant(db, sql`DELETE FROM zv_flows WHERE id = ${id}`).catch(() => {});
       }
     }
   });
@@ -156,7 +161,7 @@ d('flow execution (in-process)', () => {
     const status = await waitForRun(db, failFlowId);
     expect(status).not.toBeNull();
 
-    const flows = await sql<{ n: number }>`SELECT count(*)::int AS n FROM zv_flows`.execute(db);
+    const flows = await asDefaultTenant(db, sql<{ n: number }>`SELECT count(*)::int AS n FROM zv_flows`);
     expect(flows.rows[0]!.n).toBeGreaterThan(0);
   });
 

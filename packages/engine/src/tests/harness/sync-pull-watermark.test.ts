@@ -14,7 +14,12 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { syncWatermarkUs } from '../../routes/sync.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const NAME = `hsyncwm_${Date.now()}`;
@@ -93,9 +98,9 @@ d('sync pull holds its position behind in-flight transactions', () => {
       }),
     });
     expect(res.status).toBe(200);
-    const { rows } = await sql<{ old: boolean }>`
+    const { rows } = await asDefaultTenant(db, sql<{ old: boolean }>`
       SELECT updated_at < now() - interval '1 day' AS old
-      FROM ${sql.table(`zvd_${NAME}`)} WHERE title = 'backdated'`.execute(db);
+      FROM ${sql.table(`zvd_${NAME}`)} WHERE title = 'backdated'`);
     expect(rows).toEqual([{ old: false }]);
   });
 

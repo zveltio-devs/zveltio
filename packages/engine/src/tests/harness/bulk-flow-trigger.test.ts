@@ -30,6 +30,9 @@ import { withTenantIsolation } from '../../lib/tenancy/index.js';
 import { enqueueChangeEvent } from '../../lib/webhooks.js';
 import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
 import {
+  asDefaultTenant,
+  asEveryTenant,
+  asTenant,
   createGodSession,
   drainFlowJobs,
   getTestApp,
@@ -77,30 +80,34 @@ d('bulk writes fire their automations (in-process)', () => {
       await Bun.sleep(100);
     }
 
-    const flow = await sql<{ id: string }>`
-      INSERT INTO zv_flows (name, trigger_type, trigger_config, is_active)
-      VALUES (${`probe-flow-${tag}`}, 'on_create', ${JSON.stringify({ collection: coll })}::jsonb, true)
-      RETURNING id::text AS id
-    `.execute(db);
+    const flow = await asTenant(db, DEFAULT_TENANT_ID, (t) =>
+      sql<{ id: string }>`
+        INSERT INTO zv_flows (name, trigger_type, trigger_config, is_active)
+        VALUES (${`probe-flow-${tag}`}, 'on_create', ${JSON.stringify({ collection: coll })}::jsonb, true)
+        RETURNING id::text AS id
+      `.execute(t),
+    );
     flowId = flow.rows[0]!.id;
   }, 60_000);
 
   afterAll(async () => {
     if (flowId) {
-      await sql`DELETE FROM zv_flow_runs WHERE flow_id = ${flowId}::uuid`
-        .execute(db)
-        .catch(() => {});
-      await sql`DELETE FROM zv_flows WHERE id = ${flowId}::uuid`.execute(db).catch(() => {});
+      await asEveryTenant(db, async (t) => {
+        await sql`DELETE FROM zv_flow_runs WHERE flow_id = ${flowId}::uuid`.execute(t);
+        await sql`DELETE FROM zv_flows WHERE id = ${flowId}::uuid`.execute(t);
+      }).catch(() => {});
     }
-    await sql`DROP TABLE IF EXISTS ${sql.table(`zvd_${coll}`)}`.execute(db).catch(() => {});
+    await asDefaultTenant(db, sql`DROP TABLE IF EXISTS ${sql.table(`zvd_${coll}`)}`).catch(() => {});
     await sql`DELETE FROM zvd_collections WHERE name = ${coll}`.execute(db).catch(() => {});
   });
 
   async function runsFor(): Promise<number> {
-    const r = await sql<{ n: number }>`
-      SELECT count(*)::int AS n FROM zv_flow_runs
-       WHERE flow_id = ${flowId}::uuid AND status = 'success'
-    `.execute(db);
+    const r = await asEveryTenant(db, (t) =>
+      sql<{ n: number }>`
+        SELECT count(*)::int AS n FROM zv_flow_runs
+         WHERE flow_id = ${flowId}::uuid AND status = 'success'
+      `.execute(t),
+    );
     return r.rows[0]!.n;
   }
 
@@ -154,10 +161,12 @@ d('bulk writes fire their automations (in-process)', () => {
 
   it('a trigger job delivered again does not run the flow again', async () => {
     const runs = () =>
-      sql<{ event_id: string; finished_at: Date }>`
-        SELECT event_id::text AS event_id, finished_at FROM zv_flow_runs
-         WHERE flow_id = ${flowId}::uuid AND status = 'success' ORDER BY id
-      `.execute(db);
+      asEveryTenant(db, (t) =>
+        sql<{ event_id: string; finished_at: Date }>`
+          SELECT event_id::text AS event_id, finished_at FROM zv_flow_runs
+           WHERE flow_id = ${flowId}::uuid AND status = 'success' ORDER BY id
+        `.execute(t),
+      );
     const before = (await runs()).rows;
     await redeliver(before[0]!.event_id);
     // Same rows, and none finished again: the steps were not executed twice.
@@ -177,24 +186,30 @@ d('bulk writes fire their automations (in-process)', () => {
       throw new Error('rolled back');
     }).catch(() => {});
     await drainFlowJobs(db);
-    const left = await sql<{ n: number }>`
-      SELECT (SELECT count(*) FROM pgboss.job WHERE data->>'eventId' = ${eventId})::int
-           + (SELECT count(*) FROM zv_flow_runs WHERE event_id = ${eventId}::uuid)::int AS n
-    `.execute(db);
+    const left = await asEveryTenant(db, (t) =>
+      sql<{ n: number }>`
+        SELECT (SELECT count(*) FROM pgboss.job WHERE data->>'eventId' = ${eventId})::int
+             + (SELECT count(*) FROM zv_flow_runs WHERE event_id = ${eventId}::uuid)::int AS n
+      `.execute(t),
+    );
     expect(left.rows[0]!.n).toBe(0);
   });
 
   it('a run its process died in is marked interrupted, not run again', async () => {
     const eventId = crypto.randomUUID();
-    await sql`
-      INSERT INTO zv_flow_runs (flow_id, status, trigger_data, event_id)
-      VALUES (${flowId}::uuid, 'running', '{}'::jsonb, ${eventId}::uuid)
-    `.execute(db);
+    await asTenant(db, DEFAULT_TENANT_ID, (t) =>
+      sql`
+        INSERT INTO zv_flow_runs (flow_id, status, trigger_data, event_id)
+        VALUES (${flowId}::uuid, 'running', '{}'::jsonb, ${eventId}::uuid)
+      `.execute(t),
+    );
     await redeliver(eventId);
-    const after = await sql<{ status: string; error: string | null }>`
-      SELECT status, error FROM zv_flow_runs
-       WHERE flow_id = ${flowId}::uuid AND event_id = ${eventId}::uuid
-    `.execute(db);
+    const after = await asEveryTenant(db, (t) =>
+      sql<{ status: string; error: string | null }>`
+        SELECT status, error FROM zv_flow_runs
+         WHERE flow_id = ${flowId}::uuid AND event_id = ${eventId}::uuid
+      `.execute(t),
+    );
     expect(after.rows).toEqual([{ status: 'failed', error: 'interrupted' }]);
   });
 });

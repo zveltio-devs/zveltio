@@ -17,7 +17,12 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { applyRowRulePolicy } from '../../lib/tenancy/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const ts = Date.now();
@@ -94,8 +99,8 @@ d('schema-branch merge drops a field of a >100k-row table after its rules', () =
       name: COL,
       fields: [text(STAR), text(LOCAL)],
     } as never);
-    await sql`INSERT INTO ${sql.id(TABLE)} (${sql.id(LOCAL)})
-              SELECT 'r' || g FROM generate_series(1, ${ROWS}) g`.execute(db);
+    await asDefaultTenant(db, sql`INSERT INTO ${sql.id(TABLE)} (${sql.id(LOCAL)})
+              SELECT 'r' || g FROM generate_series(1, ${ROWS}) g`);
     starRule = await rule('*', STAR, 'static:1');
     localRule = await rule(COL, LOCAL, 'static:2');
     await applyRowRulePolicy(db, COL);
@@ -106,9 +111,9 @@ d('schema-branch merge drops a field of a >100k-row table after its rules', () =
     for (const id of branches) {
       await sql`DELETE FROM zv_schema_branches WHERE id = ${id}`.execute(db);
     }
-    for (const s of schemas) await sql`DROP SCHEMA IF EXISTS ${sql.id(s)} CASCADE`.execute(db);
+    for (const s of schemas) await asDefaultTenant(db, sql`DROP SCHEMA IF EXISTS ${sql.id(s)} CASCADE`);
     await sql`DELETE FROM zvd_rls_policies WHERE role = ${ROLE}`.execute(db);
-    await sql`DROP TABLE IF EXISTS ${sql.id(TABLE)} CASCADE`.execute(db);
+    await asDefaultTenant(db, sql`DROP TABLE IF EXISTS ${sql.id(TABLE)} CASCADE`);
     await db.deleteFrom('zvd_collections').where('name', '=', COL).execute();
   });
 

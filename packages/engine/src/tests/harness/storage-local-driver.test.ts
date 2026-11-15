@@ -14,7 +14,12 @@ import { dirname, join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const TMP = mkdtempSync(join(tmpdir(), 'zv-local-store-'));
 const d = harnessAvailable() ? describe : describe.skip;
@@ -138,11 +143,12 @@ d('storage local-driver round-trip (in-process)', () => {
       });
       expect(res.status).toBe(500);
       expect(existsSync(onDisk)).toBe(true);
-      const row = await db
+      const row = await asDefaultTenant(db, (t) =>
+         t
         .selectFrom('zv_media_files')
         .select('id')
         .where('id', '=', fileId)
-        .executeTakeFirst();
+        .executeTakeFirst());
       expect(row).toBeTruthy();
     } finally {
       chmodSync(dirname(onDisk), 0o755);

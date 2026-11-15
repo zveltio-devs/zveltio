@@ -9,7 +9,12 @@ import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { purgeExtensionData } from '../../lib/extensions/migration-runner.js';
 import { realtimeBus, SCHEMA_CHANGED_EVENT } from '../../lib/runtime/index.js';
-import { dropTestCollection, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  dropTestCollection,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const EXT = `hpurge${Date.now() % 1_000_000}`;
@@ -29,8 +34,8 @@ d("purge clears what the engine keeps for the extension's dropped tables", () =>
         fields: [{ name: 'title', type: 'text' }],
       } as never);
     }
-    await sql`INSERT INTO zv_migrations (name, down_sql)
-              VALUES (${`ext:${EXT}:001_init`}, ${`DROP TABLE "zvd_${NAME}" CASCADE`})`.execute(db);
+    await asDefaultTenant(db, sql`INSERT INTO zv_migrations (name, down_sql)
+              VALUES (${`ext:${EXT}:001_init`}, ${`DROP TABLE "zvd_${NAME}" CASCADE`})`);
   });
 
   afterAll(async () => {

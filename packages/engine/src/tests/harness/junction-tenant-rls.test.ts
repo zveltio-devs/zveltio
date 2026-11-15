@@ -17,6 +17,7 @@ import { parseMigrationFile, splitSqlStatements } from '../../db/migrations/inde
 import { DDLManager } from '../../lib/data/index.js';
 import { reconcileTenantRLS, withTenantIsolation } from '../../lib/tenancy/index.js';
 import {
+  asDefaultTenant,
   asTenant,
   connectedAsSuperuser,
   createGodSession,
@@ -80,8 +81,8 @@ d('m2m junction tables under tenant RLS', () => {
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
     cookie = await createGodSession(app, db);
-    await sql`INSERT INTO zv_tenants (id, slug, name, status)
-              VALUES (${OTHER}::uuid, ${SLUG}, ${SLUG}, 'active')`.execute(db);
+    await asDefaultTenant(db, sql`INSERT INTO zv_tenants (id, slug, name, status)
+              VALUES (${OTHER}::uuid, ${SLUG}, ${SLUG}, 'active')`);
     await createRoute(TGT, [{ name: 'name', type: 'text' }]);
     await createRoute(SRC, [
       { name: 'title', type: 'text' },
@@ -109,11 +110,11 @@ d('m2m junction tables under tenant RLS', () => {
 
   afterAll(async () => {
     if (!db) return;
-    await sql`DROP TABLE IF EXISTS ${sql.id(LEGACY)} CASCADE`.execute(db).catch(() => {});
+    await asDefaultTenant(db, sql`DROP TABLE IF EXISTS ${sql.id(LEGACY)} CASCADE`).catch(() => {});
     for (const name of [SRC, TGT]) {
       await DDLManager.dropCollection(db, name, { force: true }).catch(() => {});
     }
-    await sql`DELETE FROM zv_tenants WHERE id = ${OTHER}::uuid`.execute(db).catch(() => {});
+    await asDefaultTenant(db, sql`DELETE FROM zv_tenants WHERE id = ${OTHER}::uuid`).catch(() => {});
   });
 
   it('another tenant does not see the links', async () => {

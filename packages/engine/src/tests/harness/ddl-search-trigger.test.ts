@@ -14,7 +14,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager, dropMaskView } from '../../lib/data/index.js';
-import { dropTestCollection, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  dropTestCollection,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const SFX = Date.now();
@@ -34,12 +39,11 @@ d('collection search trigger (in-process)', () => {
   let db: Database;
 
   const insert = (c: string, row: Record<string, string>) =>
-    sql<{ search_text: string | null; search_vector: string | null }>`
+    asDefaultTenant(db, sql<{ search_text: string | null; search_vector: string | null }>`
       INSERT INTO ${sql.id(`zvd_${c}`)} (${sql.join(Object.keys(row).map((k) => sql.id(k)))})
       VALUES (${sql.join(Object.values(row))})
       RETURNING search_text, search_vector::text AS search_vector
-    `
-      .execute(db)
+    `)
       .then((r) => r.rows[0]!);
 
   beforeAll(async () => {
@@ -87,7 +91,7 @@ d('collection search trigger (in-process)', () => {
     );
 
     // A rename that bypasses the metadata, as a hand-run ALTER would.
-    await sql`ALTER TABLE ${sql.id(`zvd_${MAIN}`)} RENAME COLUMN extra TO extra2`.execute(db);
+    await asDefaultTenant(db, sql`ALTER TABLE ${sql.id(`zvd_${MAIN}`)} RENAME COLUMN extra TO extra2`);
     expect((await insert(MAIN, { title: 'still' })).search_text).toBe('still');
   });
 

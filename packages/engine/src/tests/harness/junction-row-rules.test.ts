@@ -15,7 +15,11 @@ import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { type RlsIdentity, withTenantIsolation } from '../../lib/tenancy/index.js';
 import { createRlsPolicy, deleteRlsPolicy } from '../../lib/tenancy/rls.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const ts = Date.now();
@@ -45,7 +49,7 @@ d('a new junction carries the row rules already written for it', () => {
   beforeAll(async () => {
     ({ db } = await getTestApp());
     tenant = (
-      await sql<{ id: string }>`SELECT id FROM zv_tenants ORDER BY created_at LIMIT 1`.execute(db)
+      await asDefaultTenant(db, sql<{ id: string }>`SELECT id FROM zv_tenants ORDER BY created_at LIMIT 1`)
     ).rows[0]!.id;
     await DDLManager.createCollection(db, { name: SRC, fields: [field] } as never);
     await DDLManager.createCollection(db, { name: DST, fields: [field] } as never);

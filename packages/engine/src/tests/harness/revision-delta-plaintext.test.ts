@@ -16,7 +16,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() && process.env.FIELD_ENCRYPTION_KEY ? describe : describe.skip;
 const COLLECTION = `hrevdelta_${Date.now()}`;
@@ -83,28 +88,30 @@ d('revision delta and encrypted fields (in-process)', () => {
       .where('name', '=', COLLECTION)
       .execute()
       .catch(() => {});
-    await db
+    await asDefaultTenant(db, (t) =>
+       t
       .deleteFrom('zv_revisions')
       .where('collection', '=', COLLECTION)
-      .execute()
+      .execute())
       .catch(() => {});
   });
 
   it('stores the column encrypted, which is the premise', async () => {
-    const row = await sql<{ secret: string }>`
+    const row = await asDefaultTenant(db, sql<{ secret: string }>`
       SELECT secret FROM ${sql.table(TABLE)} WHERE id = ${recordId}::uuid
-    `.execute(db);
+    `);
     expect(row.rows[0]!.secret.startsWith('enc:v1:')).toBe(true);
   });
 
   it('does not keep the plaintext in the revision delta', async () => {
-    const rev = await db
+    const rev = await asDefaultTenant(db, (t) =>
+       t
       .selectFrom('zv_revisions')
       .select(['data', 'delta'])
       .where('collection', '=', COLLECTION)
       .where('record_id', '=', recordId)
       .where('action', '=', 'update')
-      .executeTakeFirstOrThrow();
+      .executeTakeFirstOrThrow());
 
     expect(JSON.stringify(rev.data)).not.toContain(SECRET);
     expect(JSON.stringify(rev.delta ?? {})).not.toContain(SECRET);

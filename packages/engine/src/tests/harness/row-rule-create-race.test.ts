@@ -20,7 +20,11 @@ import { DDLManager } from '../../lib/data/index.js';
 import { announcingDDLManager } from '../../lib/extensions/register.js';
 import { type RlsIdentity, withTenantIsolation } from '../../lib/tenancy/index.js';
 import { createRlsPolicy, deleteRlsPolicy, initRls } from '../../lib/tenancy/rls.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const ts = Date.now();
@@ -86,9 +90,9 @@ d('a row rule racing a collection create', () => {
 
   async function someoneWaitsOnALock(): Promise<void> {
     for (let i = 0; i < 200; i++) {
-      const r = await sql<{ n: number }>`
+      const r = await asDefaultTenant(db, sql<{ n: number }>`
         SELECT COUNT(*)::int AS n FROM pg_stat_activity
-         WHERE datname = current_database() AND wait_event_type = 'Lock'`.execute(db);
+         WHERE datname = current_database() AND wait_event_type = 'Lock'`);
       if (r.rows[0]!.n > 0) return;
       await Bun.sleep(25);
     }
@@ -142,7 +146,7 @@ d('a row rule racing a collection create', () => {
   beforeAll(async () => {
     ({ db } = await getTestApp());
     tenant = (
-      await sql<{ id: string }>`SELECT id FROM zv_tenants ORDER BY created_at LIMIT 1`.execute(db)
+      await asDefaultTenant(db, sql<{ id: string }>`SELECT id FROM zv_tenants ORDER BY created_at LIMIT 1`)
     ).rows[0]!.id;
   });
 

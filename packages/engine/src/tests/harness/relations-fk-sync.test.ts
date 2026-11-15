@@ -11,6 +11,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { serialize } from '../../lib/schema-artifact/export.js';
 import {
+  asDefaultTenant,
   createGodSession,
   dropTestCollection,
   getTestApp,
@@ -163,9 +164,7 @@ d('a relation change reaches its foreign key', () => {
     await insert(CHILD, { project_id: parent, title: 't' });
     const del = await call('DELETE', `/api/data/${PARENT}/${parent}`);
     expect(del.status).toBeGreaterThanOrEqual(400);
-    const left = await sql`SELECT 1 FROM ${sql.id(`zvd_${PARENT}`)} WHERE id = ${parent}`.execute(
-      db,
-    );
+    const left = await asDefaultTenant(db, sql`SELECT 1 FROM ${sql.id(`zvd_${PARENT}`)} WHERE id = ${parent}`);
     expect(left.rows).toHaveLength(1);
 
     // The export reads the key, so the file now says RESTRICT and plans nothing.
@@ -210,7 +209,7 @@ d('a relation change reaches its foreign key', () => {
   }, 60_000);
 
   it('a file turning a SET NULL key required with CASCADE applies, and back', async () => {
-    await sql`DELETE FROM ${sql.id(`zvd_${CHILD}`)}`.execute(db);
+    await asDefaultTenant(db, sql`DELETE FROM ${sql.id(`zvd_${CHILD}`)}`);
     const strict = childFile('CASCADE');
     strict.fields[1] = { ...strict.fields[1], required: true };
     strict.relations[1] = { ...strict.relations[1], onDelete: 'CASCADE' };

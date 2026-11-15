@@ -25,6 +25,7 @@ import type { DbSchema } from '../../db/schema.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { WebhookManager, WEBHOOK_QUEUE } from '../../lib/webhooks.js';
 import {
+  asDefaultTenant,
   asEveryTenant,
   asTenant,
   createGodSession,
@@ -139,8 +140,8 @@ d('webhooks fire after the commit', () => {
        WHERE name = ${WEBHOOK_QUEUE} AND data->>'webhookId' = ${hook}`.execute(db);
     expect(queued.rows[0]!.n).toBe(0);
     await drainWebhookJobs(db);
-    const kept = await sql<{ n: number }>`
-      SELECT count(*)::int AS n FROM ${sql.table(TABLE)}`.execute(db);
+    const kept = await asDefaultTenant(db, sql<{ n: number }>`
+      SELECT count(*)::int AS n FROM ${sql.table(TABLE)}`);
     expect(kept.rows[0]!.n).toBe(0); // the rollback is real
     expect(await deliveries()).toEqual([]);
     expect(sent).toEqual([]);

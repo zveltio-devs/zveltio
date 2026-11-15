@@ -11,6 +11,7 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import {
+  asDefaultTenant,
   createGodSession,
   createMemberSession,
   getTestApp,
@@ -42,7 +43,7 @@ d('edge function administration (in-process)', () => {
   });
 
   afterAll(async () => {
-    if (db) await sql`DELETE FROM zv_edge_functions WHERE name = ${NAME}`.execute(db);
+    if (db) await asDefaultTenant(db, sql`DELETE FROM zv_edge_functions WHERE name = ${NAME}`);
   });
 
   it('refuses anonymous callers and members', async () => {
@@ -81,17 +82,17 @@ d('edge function administration (in-process)', () => {
     expect(fn.is_active).toBe(false);
     expect(fn).not.toHaveProperty('egress_before');
 
-    const row = await sql<{ metadata: { before: unknown; after: unknown } }>`
+    const row = await asDefaultTenant(db, sql<{ metadata: { before: unknown; after: unknown } }>`
       SELECT metadata FROM zv_audit_log
-       WHERE event_type = 'edge_function.egress_changed' AND resource_id = ${id}`.execute(db);
+       WHERE event_type = 'edge_function.egress_changed' AND resource_id = ${id}`);
     expect(row.rows[0]?.metadata).toMatchObject({ before: null, after: ['api.example.com'] });
   });
 
   it('deletes, audits it, and answers 404 for a function that is gone', async () => {
     expect((await call(admin, 'DELETE', `/${id}`)).status).toBe(200);
-    const row = await sql<{ n: number }>`
+    const row = await asDefaultTenant(db, sql<{ n: number }>`
       SELECT count(*)::int AS n FROM zv_audit_log
-       WHERE event_type = 'edge_function.deleted' AND resource_id = ${id}`.execute(db);
+       WHERE event_type = 'edge_function.deleted' AND resource_id = ${id}`);
     expect(row.rows[0]?.n).toBe(1);
     expect((await call(admin, 'DELETE', `/${id}`)).status).toBe(404);
     expect((await call(admin, 'GET', `/${id}`)).status).toBe(404);

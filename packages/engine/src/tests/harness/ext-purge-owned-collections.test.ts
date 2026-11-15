@@ -31,6 +31,7 @@ import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import { engineEvents } from '../../lib/runtime/index.js';
 import { getEnforcer } from '../../lib/tenancy/index.js';
 import {
+  asDefaultTenant,
   createSteppedUpGod,
   dropTestCollection,
   getTestApp,
@@ -96,15 +97,15 @@ d('a purge drops the collections the extension owns, with all their rules', () =
   };
   const forget = async () => {
     for (const t of ['zvd_relations']) {
-      await sql`DELETE FROM ${sql.table(t)} WHERE source_collection IN (${sql.join(ALL)})
-                 OR target_collection IN (${sql.join(ALL)})`.execute(db);
+      await asDefaultTenant(db, sql`DELETE FROM ${sql.table(t)} WHERE source_collection IN (${sql.join(ALL)})
+                 OR target_collection IN (${sql.join(ALL)})`);
     }
     await sql`DELETE FROM zvd_rls_policies WHERE collection IN (${sql.join(ALL)})`.execute(db);
     await sql`DELETE FROM zvd_column_permissions WHERE collection_name IN (${sql.join(ALL)})`.execute(
       db,
     );
     await sql`DELETE FROM zv_validation_rules WHERE collection IN (${sql.join(ALL)})`.execute(db);
-    await sql`DROP TABLE IF EXISTS zvd_jnc_po_items_po_tags CASCADE`.execute(db);
+    await asDefaultTenant(db, sql`DROP TABLE IF EXISTS zvd_jnc_po_items_po_tags CASCADE`);
     for (const c of ALL) await dropTestCollection(db, c);
   };
   /** Installed, enabled by god, with an operator collection beside it. */
@@ -230,7 +231,7 @@ d('a purge drops the collections the extension owns, with all their rules', () =
     // Uninstall without purge: the data and every rule stay.
     expect((await uninstall(false)).status).toBe(200);
     expect(await leftovers(OWNED)).toEqual(before);
-    const kept = await sql<{ title: string }>`SELECT title FROM zvd_po_items`.execute(db);
+    const kept = await asDefaultTenant(db, sql<{ title: string }>`SELECT title FROM zvd_po_items`);
     expect(kept.rows.map((r) => r.title)).toEqual(['kept']);
 
     // Purge: tables and junction gone, nothing names them anywhere.

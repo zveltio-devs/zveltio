@@ -31,6 +31,7 @@ import { dispatchToWs } from '../../lib/runtime/realtime-bus.js';
 import { _sseConnectionsForTests } from '../../routes/realtime.js';
 import { broadcastEvent, websocketHandler, _wsPermCacheForTests } from '../../routes/ws.js';
 import {
+  asDefaultTenant,
   createGodSession,
   createMemberSession,
   getTestApp,
@@ -61,10 +62,10 @@ d('a user_email row rule is not dropped for a caller without an email', () => {
       role: 'member',
       grants: [{ collection: COLLECTION, actions: ['read', 'list'] }],
     });
-    await sql`
+    await asDefaultTenant(db, sql`
       INSERT INTO ${sql.table(`zvd_${COLLECTION}`)} (title, owner_email)
       VALUES ('mine', ${member.email}), ('theirs', ${OTHER})
-    `.execute(db);
+    `);
     // Straight into the table and then through the route's own rebuild, so the
     // database policy is the one the engine would generate.
     await sql`

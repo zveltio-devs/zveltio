@@ -23,6 +23,7 @@ import { DDLManager } from '../../lib/data/index.js';
 import { executeFlow } from '../../lib/flows/index.js';
 import { dispatchToWs, SCHEMA_CHANGED_EVENT } from '../../lib/runtime/index.js';
 import {
+  asDefaultTenant,
   asEveryTenant,
   asTenant,
   createGodSession,
@@ -58,16 +59,16 @@ d('a field added under a pooled SELECT *', () => {
         RETURNING id::text AS id`.execute(trx),
     );
     flowId = flow.rows[0]!.id;
-    await sql`
+    await asDefaultTenant(db, sql`
       INSERT INTO zv_flow_steps (flow_id, step_order, name, type, config, on_error)
       VALUES (${flowId}, 0, 'export', 'export_collection',
-              ${JSON.stringify({ collection: COLLECTION })}::jsonb, 'stop')`.execute(db);
+              ${JSON.stringify({ collection: COLLECTION })}::jsonb, 'stop')`);
   });
 
   afterAll(async () => {
     if (!db) return;
-    await sql`DELETE FROM zv_flow_runs WHERE flow_id = ${flowId}`.execute(db).catch(() => {});
-    await sql`DELETE FROM zv_flow_steps WHERE flow_id = ${flowId}`.execute(db).catch(() => {});
+    await asDefaultTenant(db, sql`DELETE FROM zv_flow_runs WHERE flow_id = ${flowId}`).catch(() => {});
+    await asDefaultTenant(db, sql`DELETE FROM zv_flow_steps WHERE flow_id = ${flowId}`).catch(() => {});
     await asEveryTenant(db, (trx) =>
       sql`DELETE FROM zv_flows WHERE id = ${flowId}`.execute(trx),
     ).catch(() => {});

@@ -7,7 +7,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hlttstr_${Date.now()}`;
@@ -35,7 +40,8 @@ d('data list time-travel string JSON (in-process)', () => {
     expect(create.status).toBe(201);
     recordId = ((await create.json()) as { id: string }).id;
 
-    await db
+    await asDefaultTenant(db, (t) =>
+       t
       .insertInto('zv_revisions')
       .values({
         collection: COLLECTION,
@@ -45,15 +51,16 @@ d('data list time-travel string JSON (in-process)', () => {
         data: sql`to_jsonb(${JSON.stringify({ id: recordId, title: 'past-title' })}::text)`,
         created_at: past,
       })
-      .execute();
+      .execute());
   });
 
   afterAll(async () => {
     if (!db) return;
-    await db
+    await asDefaultTenant(db, (t) =>
+       t
       .deleteFrom('zv_revisions')
       .where('collection', '=', COLLECTION)
-      .execute()
+      .execute())
       .catch(() => {});
     await sql
       .raw(`DROP TABLE IF EXISTS "zvd_${COLLECTION}" CASCADE`)

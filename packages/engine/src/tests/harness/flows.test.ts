@@ -15,7 +15,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -39,8 +44,8 @@ d('flows CRUD + steps + run (in-process)', () => {
 
   afterAll(async () => {
     if (db && flowId) {
-      await sql`DELETE FROM zv_flow_steps WHERE flow_id = ${flowId}`.execute(db).catch(() => {});
-      await sql`DELETE FROM zv_flows WHERE id = ${flowId}`.execute(db).catch(() => {});
+      await asDefaultTenant(db, sql`DELETE FROM zv_flow_steps WHERE flow_id = ${flowId}`).catch(() => {});
+      await asDefaultTenant(db, sql`DELETE FROM zv_flows WHERE id = ${flowId}`).catch(() => {});
     }
   });
 
@@ -161,8 +166,8 @@ d('flows CRUD + steps + run (in-process)', () => {
     try {
       const at = async () =>
         (
-          await sql<{ next_run_at: Date | null }>`
-            SELECT next_run_at FROM zv_flows WHERE id = ${id}`.execute(db)
+          await asDefaultTenant(db, sql<{ next_run_at: Date | null }>`
+            SELECT next_run_at FROM zv_flows WHERE id = ${id}`)
         ).rows[0]!.next_run_at;
       const first = await at();
       expect(first).not.toBeNull();
@@ -186,7 +191,7 @@ d('flows CRUD + steps + run (in-process)', () => {
         expect([cron, bad.status]).toEqual([cron, 400]);
       }
     } finally {
-      await sql`DELETE FROM zv_flows WHERE id = ${id}`.execute(db);
+      await asDefaultTenant(db, sql`DELETE FROM zv_flows WHERE id = ${id}`);
     }
   });
 

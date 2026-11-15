@@ -16,7 +16,12 @@ import type { Database } from '../../db/index.js';
 import type { CollectionInput } from '../../lib/data/ddl-manager.js';
 import { DDLManager, runCreateCollection } from '../../lib/data/index.js';
 import { announcingDDLManager } from '../../lib/extensions/register.js';
-import { dropTestCollection, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  dropTestCollection,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const SFX = Date.now();
@@ -34,9 +39,7 @@ d('collection create is atomic', () => {
   let db: Database;
   const exists = async (table: string) =>
     (
-      await sql<{ t: string | null }>`SELECT to_regclass(${`public.${table}`})::text AS t`.execute(
-        db,
-      )
+      await asDefaultTenant(db, sql<{ t: string | null }>`SELECT to_regclass(${`public.${table}`})::text AS t`)
     ).rows[0]?.t != null;
   const failure = (p: Promise<unknown>) =>
     p.then(
@@ -92,16 +95,14 @@ d('collection create is atomic', () => {
     await runCreateCollection(db, { name: JOB, fields });
     expect(await exists(`zvd_${JOB}`)).toBe(true);
     expect(await exists(`zvd_jnc_${JOB}_${DST}`)).toBe(true);
-    const fk = await sql<{ n: number }>`
+    const fk = await asDefaultTenant(db, sql<{ n: number }>`
       SELECT count(*)::int AS n FROM pg_constraint
        WHERE conrelid = ${`public.zvd_${JOB}`}::regclass AND contype = 'f'
-         AND confrelid = ${`public.zvd_${DST}`}::regclass`.execute(db);
+         AND confrelid = ${`public.zvd_${DST}`}::regclass`);
     expect(fk.rows[0]?.n).toBe(1);
-    const trg = await sql<{ n: number }>`
+    const trg = await asDefaultTenant(db, sql<{ n: number }>`
       SELECT count(*)::int AS n FROM pg_trigger
-       WHERE tgrelid = ${`public.zvd_${JOB}`}::regclass AND tgname = ${`zvd_${JOB}_search_update`}`.execute(
-      db,
-    );
+       WHERE tgrelid = ${`public.zvd_${JOB}`}::regclass AND tgname = ${`zvd_${JOB}_search_update`}`);
     expect(trg.rows[0]?.n).toBe(1);
     const grants = await sql<{ n: number }>`
       SELECT count(*)::int AS n FROM zvd_permissions WHERE ptype = 'p' AND v2 = ${JOB}`.execute(db);

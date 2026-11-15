@@ -23,7 +23,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const PARENTS = `hobsp_${Date.now()}`;
@@ -104,10 +109,11 @@ d('after-response writers survive a failed write (in-process)', () => {
       .where('path', '=', path())
       .execute()
       .catch(() => {});
-    await db
+    await asDefaultTenant(db, (t) =>
+       t
       .deleteFrom('zv_audit_log')
       .where('resource_id', '=', path())
-      .execute()
+      .execute())
       .catch(() => {});
   });
 
@@ -126,12 +132,13 @@ d('after-response writers survive a failed write (in-process)', () => {
 
   it('records the god action that failed in zv_audit_log', async () => {
     const row = await eventually(() =>
-      db
+      asDefaultTenant(db, (t) =>
+         t
         .selectFrom('zv_audit_log')
         .select(['event_type'])
         .where('resource_id', '=', path())
         .where('event_type', '=', 'god_action')
-        .executeTakeFirst(),
+        .executeTakeFirst()),
     );
     expect(row).toBeDefined();
   });

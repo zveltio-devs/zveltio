@@ -25,6 +25,7 @@ import { applyTenantRLS } from '../../lib/tenancy/index.js';
 import { withTenantIsolation } from '../../lib/tenancy/index.js';
 import {
   ALL_COLLECTIONS_ACTOR,
+  asDefaultTenant,
   dropTestCollection,
   getTestApp,
   harnessAvailable,
@@ -48,7 +49,7 @@ d('deferred index builds of ctx.DDLManager', () => {
       fields: [{ name: 'qty', type: 'integer' }],
     } as never);
     await applyTenantRLS(db, `zvd_${name}`);
-    await sql`INSERT INTO ${sql.id(`zvd_${name}`)} DEFAULT VALUES`.execute(db);
+    await asDefaultTenant(db, sql`INSERT INTO ${sql.id(`zvd_${name}`)} DEFAULT VALUES`);
   };
   const inRequest = (fn: () => Promise<void>) =>
     withTenantIsolation(TENANT, fn, { identity: ALL_COLLECTIONS_ACTOR });
@@ -92,8 +93,8 @@ d('deferred index builds of ctx.DDLManager', () => {
     await inRequest(async () => {
       await ddl.addField(ext, name, { name: 'note', type: 'text', indexed: true } as never);
       // Recorded before the request ends, outside it: a crash from here on loses nothing.
-      const queued = await sql<{ n: number }>`SELECT count(*)::int AS n FROM pgboss.job
-        WHERE name = 'ddl.build_index' AND singleton_key = ${`idx_zvd_${name}_note`}`.execute(db);
+      const queued = await asDefaultTenant(db, sql<{ n: number }>`SELECT count(*)::int AS n FROM pgboss.job
+        WHERE name = 'ddl.build_index' AND singleton_key = ${`idx_zvd_${name}_note`}`);
       expect(queued.rows[0]!.n).toBe(1);
       throw new Error('request fails after the schema change');
     }).catch((err: Error) => expect(err.message).toBe('request fails after the schema change'));

@@ -8,9 +8,10 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import {
+  asDefaultTenant,
   createGodSession,
-  getTestApp,
   drainWebhookJobs,
+  getTestApp,
   harnessAvailable,
 } from '../../testing/app-harness.js';
 
@@ -64,10 +65,9 @@ d('webhook update + delete via data writes (in-process)', () => {
     globalThis.fetch = originalFetch;
     if (!db) return;
     if (webhookId) {
-      await sql`DELETE FROM zvd_webhook_deliveries WHERE webhook_id = ${webhookId}`
-        .execute(db)
+      await asDefaultTenant(db, sql`DELETE FROM zvd_webhook_deliveries WHERE webhook_id = ${webhookId}`)
         .catch(() => {});
-      await sql`DELETE FROM zvd_webhooks WHERE id = ${webhookId}`.execute(db).catch(() => {});
+      await asDefaultTenant(db, sql`DELETE FROM zvd_webhooks WHERE id = ${webhookId}`).catch(() => {});
     }
     await sql
       .raw(`DROP TABLE IF EXISTS "zvd_${COLLECTION}" CASCADE`)
@@ -81,9 +81,9 @@ d('webhook update + delete via data writes (in-process)', () => {
   });
 
   const deliveryCount = async () => {
-    const row = await sql<{ count: string }>`
+    const row = await asDefaultTenant(db, sql<{ count: string }>`
       SELECT count(*)::text AS count FROM zvd_webhook_deliveries WHERE webhook_id = ${webhookId}
-    `.execute(db);
+    `);
     return Number(row.rows[0]?.count ?? 0);
   };
 

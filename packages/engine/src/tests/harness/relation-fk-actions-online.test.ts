@@ -24,6 +24,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import {
+  asDefaultTenant,
   asTenant,
   createGodSession,
   dropTestCollection,
@@ -75,10 +76,10 @@ d('a relation action change re-creates its key without the table lock', () => {
 
   const waitingPid = async (pattern: string) => {
     for (let i = 0; i < 300; i++) {
-      const r = await sql<{ pid: number }>`
+      const r = await asDefaultTenant(db, sql<{ pid: number }>`
         SELECT pid FROM pg_stat_activity
          WHERE datname = current_database() AND wait_event_type = 'Lock'
-           AND query ILIKE ${pattern}`.execute(db);
+           AND query ILIKE ${pattern}`);
       if (r.rows[0]) return r.rows[0].pid;
       await Bun.sleep(10);
     }
@@ -199,7 +200,7 @@ d('a relation action change re-creates its key without the table lock', () => {
         res = await patch({ on_delete: 'RESTRICT' });
       },
       async (pid) => {
-        await sql`SELECT pg_cancel_backend(${pid})`.execute(db);
+        await asDefaultTenant(db, sql`SELECT pg_cancel_backend(${pid})`);
       },
     );
     expect(res!.status).toBeGreaterThanOrEqual(400);
@@ -210,7 +211,7 @@ d('a relation action change re-creates its key without the table lock', () => {
   it('rows a key never checked refuse the change, and no NOT VALID key is left', async () => {
     // The key drifted away and a row now points at no parent.
     const [k] = await keys();
-    await sql`ALTER TABLE ${sql.id(CT)} DROP CONSTRAINT ${sql.id(k!.name)}`.execute(db);
+    await asDefaultTenant(db, sql`ALTER TABLE ${sql.id(CT)} DROP CONSTRAINT ${sql.id(k!.name)}`);
     await asTenant(db, TENANT, (trx) =>
       sql`INSERT INTO ${sql.id(CT)} (title, project_id) VALUES ('orphan', gen_random_uuid())`.execute(
         trx,

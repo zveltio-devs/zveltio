@@ -20,10 +20,11 @@ import { DDLManager } from '../../lib/data/index.js';
 import { getEnforcer, invalidateUserPermCache } from '../../lib/tenancy/permissions.js';
 import { invalidateRlsCache } from '../../lib/tenancy/rls.js';
 import {
+  asDefaultTenant,
   createGodSession,
+  forgetRuleObjects,
   getTestApp,
   harnessAvailable,
-  forgetRuleObjects,
   ruleObjects,
 } from '../../testing/app-harness.js';
 
@@ -41,7 +42,7 @@ async function memberSession(app: Hono, db: Database): Promise<{ cookie: string;
   });
   const signUpBody = (await signUp.json()) as { user?: { id: string } };
   const userId = signUpBody.user?.id ?? '';
-  await sql`UPDATE "user" SET role = 'member' WHERE id = ${userId}`.execute(db);
+  await asDefaultTenant(db, sql`UPDATE "user" SET role = 'member' WHERE id = ${userId}`);
 
   const enforcer = await getEnforcer();
   await enforcer.addPolicy(userId, '*', COLLECTION, 'read');

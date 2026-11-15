@@ -22,10 +22,11 @@ import { queryAlterRegistry } from '../../lib/data/query-alter.js';
 import { invalidateRlsCache } from '../../lib/tenancy/rls.js';
 import { getEnforcer, invalidateUserPermCache } from '../../lib/tenancy/permissions.js';
 import {
+  asDefaultTenant,
   createGodSession,
+  forgetRuleObjects,
   getTestApp,
   harnessAvailable,
-  forgetRuleObjects,
   insertPastRowRules,
   ruleObjects,
 } from '../../testing/app-harness.js';
@@ -46,7 +47,7 @@ async function memberSession(app: Hono, db: Database): Promise<{ cookie: string;
     body: JSON.stringify({ email, password, name: 'Member' }),
   });
   const userId = ((await signUp.json()) as { user?: { id: string } }).user?.id ?? '';
-  await sql`UPDATE "user" SET role = 'member' WHERE id = ${userId}`.execute(db);
+  await asDefaultTenant(db, sql`UPDATE "user" SET role = 'member' WHERE id = ${userId}`);
 
   const enforcer = await getEnforcer();
   for (const action of ACTIONS) await enforcer.addPolicy(userId, '*', COLLECTION, action);

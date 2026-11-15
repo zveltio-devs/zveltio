@@ -18,12 +18,13 @@ import { DDLManager } from '../../lib/data/index.js';
 import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
 import { runOutsideTenantContext, withTenantIsolation } from '../../lib/tenancy/index.js';
 import {
+  asDefaultTenant,
   createGodSession,
   createMemberSession,
   dropTestCollection,
+  forgetRuleObjects,
   getTestApp,
   harnessAvailable,
-  forgetRuleObjects,
   ruleObjects,
 } from '../../testing/app-harness.js';
 
@@ -112,11 +113,9 @@ d('row rules reach the database with their commit', () => {
       name: RULED,
       fields: [{ name: 'owner', type: 'text', required: false, unique: false, indexed: false }],
     } as never);
-    await sql`
+    await asDefaultTenant(db, sql`
       INSERT INTO ${sql.table(TABLE)} (tenant_id, owner)
-      VALUES (${DEFAULT_TENANT_ID}::uuid, ${memberId}), (${DEFAULT_TENANT_ID}::uuid, 'someone-else')`.execute(
-      db,
-    );
+      VALUES (${DEFAULT_TENANT_ID}::uuid, ${memberId}), (${DEFAULT_TENANT_ID}::uuid, 'someone-else')`);
   });
 
   afterAll(async () => {

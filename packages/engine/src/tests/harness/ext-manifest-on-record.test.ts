@@ -27,7 +27,12 @@ import {
   registerRegisteredSensitiveResources,
   SENSITIVE_DEFAULTS_REPAIRED,
 } from '../../lib/tenancy/resource-grants.js';
-import { dropTestCollection, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  dropTestCollection,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const S = `mrec${Date.now() % 1_000_000}`;
@@ -72,9 +77,9 @@ d('an extension whose files are gone keeps its recorded claim', () => {
                VALUES (${name}, ${name}, NULL, ${installed}, false)`.execute(db);
   };
   const down = (ext: string, tables: string[]) =>
-    sql`INSERT INTO zv_migrations (name, down_sql)
+    asDefaultTenant(db, sql`INSERT INTO zv_migrations (name, down_sql)
         VALUES (${`ext:${ext}:001_init`},
-                ${tables.map((t) => `DROP TABLE "zvd_${t}" CASCADE;`).join(' ')})`.execute(db);
+                ${tables.map((t) => `DROP TABLE "zvd_${t}" CASCADE;`).join(' ')})`);
 
   beforeAll(async () => {
     ({ db } = await getTestApp());

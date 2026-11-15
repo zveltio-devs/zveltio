@@ -14,14 +14,19 @@
  */
 import { expect, it } from 'bun:test';
 import { _internalForTests, flowScheduler } from '../../lib/flows/flow-scheduler.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 it.skipIf(!harnessAvailable())(
   'a second replica cannot claim a flow that is mid-execution',
   async () => {
     const { db } = await getTestApp();
     const id = crypto.randomUUID();
-    await db
+    await asDefaultTenant(db, (t) =>
+       t
       .insertInto('zv_flows' as never)
       .values({
         id,
@@ -31,7 +36,7 @@ it.skipIf(!harnessAvailable())(
         is_active: true,
         next_run_at: new Date(Date.now() - 60_000),
       } as never)
-      .execute();
+      .execute());
 
     // A separate connection is the whole point: two transactions on ONE
     // connection see each other's locks as their own and the probe would pass
@@ -59,7 +64,7 @@ it.skipIf(!harnessAvailable())(
     } finally {
       await replicaB.end();
       _internalForTests.setExecuteFlowForTests(null);
-      await db.deleteFrom('zv_flows').where('id', '=', id).execute();
+      await asDefaultTenant(db, (t) => t.deleteFrom('zv_flows').where('id', '=', id).execute());
     }
   },
   30_000,

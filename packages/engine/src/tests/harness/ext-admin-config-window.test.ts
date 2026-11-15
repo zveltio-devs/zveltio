@@ -22,6 +22,7 @@ import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import { sessionPrefetch } from '../../middleware/session-prefetch.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
 import {
+  asDefaultTenant,
   createGodSession,
   dropTestCollection,
   getTestApp,
@@ -125,7 +126,7 @@ d('an extension mutation authorized against admin needs the configuration window
   };
   const titles = async () =>
     (
-      await sql<{ title: string }>`SELECT title FROM ${sql.table(TABLE)} ORDER BY title`.execute(db)
+      await asDefaultTenant(db, sql<{ title: string }>`SELECT title FROM ${sql.table(TABLE)} ORDER BY title`)
     ).rows.map((r) => r.title);
 
   beforeAll(async () => {
@@ -218,7 +219,7 @@ d('an extension mutation authorized against admin needs the configuration window
     it(`${mode}: a read checking admin, and a collection mutation, are not configuration`, async () => {
       expect(await call(mode, 'GET', '/settings')).toEqual({ status: 200, body: { admin: true } });
       expect(await call(mode, 'POST', '/items')).toEqual({ status: 200, body: { saved: true } });
-      await sql`DELETE FROM ${sql.table(TABLE)}`.execute(db);
+      await asDefaultTenant(db, sql`DELETE FROM ${sql.table(TABLE)}`);
     });
   }
 

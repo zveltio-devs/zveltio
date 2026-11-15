@@ -8,6 +8,7 @@ import type { Database } from '../../db/index.js';
 import { sql } from 'kysely';
 import { DDLManager } from '../../lib/data/index.js';
 import {
+  asDefaultTenant,
   createGodSession,
   dropTestCollection,
   getTestApp,
@@ -90,7 +91,7 @@ d('admin system routes (in-process)', () => {
     } as never);
     try {
       const table = DDLManager.getTableName(name);
-      await sql`INSERT INTO ${sql.table(table)} (title) VALUES ('a'), ('b')`.execute(db);
+      await asDefaultTenant(db, sql`INSERT INTO ${sql.table(table)} (title) VALUES ('a'), ('b')`);
       const res = await app.request('/api/admin/stats', { headers: { cookie } });
       const { records } = (await res.json()) as {
         records: { total: number; by_collection: Record<string, number> } | null;

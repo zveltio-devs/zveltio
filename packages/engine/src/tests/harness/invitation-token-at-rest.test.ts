@@ -17,7 +17,12 @@ import { describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { sql } from 'kysely';
 import { parseMigrationFile } from '../../db/migrations/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const sha256 = (s: string) => `sha256:${createHash('sha256').update(s, 'utf8').digest('hex')}`;
@@ -38,20 +43,20 @@ d('invitation token at rest', () => {
     const token = new URL(invite_url).searchParams.get('token') ?? '';
     expect(token).toMatch(/^[0-9a-f]{64}$/);
 
-    const row = await sql<{ id: string; token: string }>`
+    const row = await asDefaultTenant(db, sql<{ id: string; token: string }>`
       SELECT id::text, token FROM zv_invitations WHERE email = ${email}
-    `.execute(db);
+    `);
     expect(row.rows[0]!.token).toBe(sha256(token));
 
-    const leaked = await sql<{ n: number }>`
+    const leaked = await asDefaultTenant(db, sql<{ n: number }>`
       SELECT COUNT(*)::int AS n FROM zv_audit_log
        WHERE resource_id = ${token} OR metadata::text LIKE ${`%${token}%`}
-    `.execute(db);
+    `);
     expect(leaked.rows[0]!.n).toBe(0);
-    const audited = await sql<{ n: number }>`
+    const audited = await asDefaultTenant(db, sql<{ n: number }>`
       SELECT COUNT(*)::int AS n FROM zv_audit_log
        WHERE event_type = 'user.invited' AND resource_id = ${row.rows[0]!.id}
-    `.execute(db);
+    `);
     expect(audited.rows[0]!.n).toBe(1);
 
     // What a database reader holds opens nothing.

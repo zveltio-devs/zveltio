@@ -31,6 +31,7 @@ import {
   withTenantIsolation,
 } from '../../lib/tenancy/index.js';
 import {
+  asDefaultTenant,
   createGodSession,
   createMemberSession,
   dropTestCollection,
@@ -58,19 +59,19 @@ d('writes by a principal that cannot read the collection', () => {
     });
   const seed = async (title: string) =>
     (
-      await sql<{ id: string }>`INSERT INTO ${sql.table(TABLE)} (title, tenant_id)
-        VALUES (${title}, ${TENANT}::uuid) RETURNING id`.execute(db)
+      await asDefaultTenant(db, sql<{ id: string }>`INSERT INTO ${sql.table(TABLE)} (title, tenant_id)
+        VALUES (${title}, ${TENANT}::uuid) RETURNING id`)
     ).rows[0]!.id;
   const row = async (id: string) =>
     (
-      await sql<{
+      await asDefaultTenant(db, sql<{
         title: string;
-      }>`SELECT title FROM ${sql.table(TABLE)} WHERE id = ${id}::uuid`.execute(db)
+      }>`SELECT title FROM ${sql.table(TABLE)} WHERE id = ${id}::uuid`)
     ).rows[0];
   const revision = async (id: string, action: string) =>
     (
-      await sql<{ data: Record<string, unknown> }>`SELECT data FROM zv_revisions
-        WHERE collection = ${COLL} AND record_id = ${id} AND action = ${action}`.execute(db)
+      await asDefaultTenant(db, sql<{ data: Record<string, unknown> }>`SELECT data FROM zv_revisions
+        WHERE collection = ${COLL} AND record_id = ${id} AND action = ${action}`)
     ).rows[0];
 
   beforeAll(async () => {
@@ -101,9 +102,9 @@ d('writes by a principal that cannot read the collection', () => {
       await sql`DELETE FROM zv_api_key_access_log WHERE api_key_id = ${id}`
         .execute(db)
         .catch(() => {});
-      await sql`DELETE FROM zv_api_keys WHERE id = ${id}`.execute(db).catch(() => {});
+      await asDefaultTenant(db, sql`DELETE FROM zv_api_keys WHERE id = ${id}`).catch(() => {});
     }
-    await sql`DELETE FROM zv_revisions WHERE collection = ${COLL}`.execute(db).catch(() => {});
+    await asDefaultTenant(db, sql`DELETE FROM zv_revisions WHERE collection = ${COLL}`).catch(() => {});
     await dropTestCollection(db, COLL).catch(() => {});
   });
 
@@ -329,10 +330,10 @@ d('writes by a principal that cannot read the collection', () => {
       const m = await createMemberSession(app, db, {
         grants: [{ collection: COLL, actions }],
       });
-      await sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role, valid_from, valid_to)
+      await asDefaultTenant(db, sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role, valid_from, valid_to)
         VALUES (${TENANT}::uuid, ${m.userId}, 'member', now() - interval '2 days', now() - interval '1 day')
         ON CONFLICT (tenant_id, user_id) DO UPDATE
-          SET valid_from = EXCLUDED.valid_from, valid_to = EXCLUDED.valid_to`.execute(db);
+          SET valid_from = EXCLUDED.valid_from, valid_to = EXCLUDED.valid_to`);
       return m.cookie;
     };
     for (const actions of [['create'], ['read', 'create']]) {
@@ -344,8 +345,8 @@ d('writes by a principal that cannot read the collection', () => {
         { title },
       );
       expect({ actions, status: res.status }).toEqual({ actions, status: 403 });
-      const n = await sql<{ n: number }>`SELECT count(*)::int AS n FROM ${sql.table(TABLE)}
-        WHERE title = ${title}`.execute(db);
+      const n = await asDefaultTenant(db, sql<{ n: number }>`SELECT count(*)::int AS n FROM ${sql.table(TABLE)}
+        WHERE title = ${title}`);
       expect(n.rows[0]!.n).toBe(0);
     }
   });
@@ -361,10 +362,10 @@ d('writes by a principal that cannot read the collection', () => {
     const m = await createMemberSession(app, db, {
       grants: [{ collection: COLL, actions: ['create', 'update', 'delete'] }],
     });
-    await sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role, valid_from, valid_to)
+    await asDefaultTenant(db, sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role, valid_from, valid_to)
       VALUES (${TENANT}::uuid, ${m.userId}, 'member', now() - interval '2 days', now() - interval '1 day')
       ON CONFLICT (tenant_id, user_id) DO UPDATE
-        SET valid_from = EXCLUDED.valid_from, valid_to = EXCLUDED.valid_to`.execute(db);
+        SET valid_from = EXCLUDED.valid_from, valid_to = EXCLUDED.valid_to`);
     const who = { cookie: m.cookie };
     const created = crypto.randomUUID();
     const victim = await seed('lapsed-victim');
@@ -407,10 +408,8 @@ d('writes by a principal that cannot read the collection', () => {
       sql`DELETE FROM ${sql.table(TABLE)} WHERE id = ${victim}::uuid`.execute(trx),
     );
 
-    const landed = await sql<{ title: string }>`SELECT title FROM ${sql.table(TABLE)}
-      WHERE title LIKE 'lapsed-%' AND title <> 'lapsed-victim' OR id = ${created}::uuid`.execute(
-      db,
-    );
+    const landed = await asDefaultTenant(db, sql<{ title: string }>`SELECT title FROM ${sql.table(TABLE)}
+      WHERE title LIKE 'lapsed-%' AND title <> 'lapsed-victim' OR id = ${created}::uuid`);
     expect({
       rawInsert,
       landed: landed.rows.map((r) => r.title),

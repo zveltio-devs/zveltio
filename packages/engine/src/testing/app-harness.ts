@@ -139,6 +139,19 @@ export function asTenant<T>(
 }
 
 /**
+ * One test statement as the default tenant: what a statement with no tenant
+ * context reached before DR-03, and what it reaches nothing of now. For a test's
+ * OWN fixtures, checks and cleanup on the bare pool; an engine path under test
+ * never gets its tenant from here.
+ */
+export function asDefaultTenant<R>(
+  db: Database,
+  q: { execute(executor: Database): Promise<R> } | ((trx: Database) => Promise<R>),
+): Promise<R> {
+  return asTenant(db, DEFAULT_TENANT_ID, (trx) => (typeof q === 'function' ? q(trx) : q.execute(trx)));
+}
+
+/**
  * Run `fn` in a transaction that READS (and so deletes) every firm's rows, for a
  * test's own checks and cleanup — the reach `withEveryTenant` gives the engine's
  * background work, staying the owner. Writes still need `asTenant`, and so does
@@ -516,7 +529,8 @@ export async function insertPastRowRules(
   const cols = Object.keys(row);
   return db.transaction().execute(async (trx) => {
     await sql`SELECT set_config('zveltio.rls_bypass', 'on', true),
-                     set_config('zveltio.actor', 'off', true)`.execute(trx);
+                     set_config('zveltio.actor', 'off', true),
+                     set_config('zveltio.current_tenant', ${DEFAULT_TENANT_ID}, true)`.execute(trx);
     const r = await sql<{ id: string }>`
       INSERT INTO ${sql.table(`zvd_${collection}`)} (${sql.join(cols.map((c) => sql.ref(c)))})
       VALUES (${sql.join(cols.map((c) => row[c]))}) RETURNING id`.execute(trx);

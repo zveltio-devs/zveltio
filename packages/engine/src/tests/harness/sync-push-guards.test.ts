@@ -20,7 +20,12 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { getEnforcer, invalidateUserPermCache } from '../../lib/tenancy/permissions.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLUMNS = `hpushcol_${Date.now()}`;
@@ -147,9 +152,9 @@ d('sync push guards (in-process)', () => {
     expect(body.results[0]?.status).toBe('error');
     expect(body.results[0]?.error).toMatch(/read-only for your role/);
 
-    const row = await sql<{ salary: string }>`
+    const row = await asDefaultTenant(db, sql<{ salary: string }>`
       SELECT salary FROM ${sql.id(`zvd_${COLUMNS}`)} WHERE id = ${recordId}
-    `.execute(db);
+    `);
     expect(row.rows[0]?.salary).toBe('100');
   });
 
@@ -171,9 +176,9 @@ d('sync push guards (in-process)', () => {
     expect(body.results[1]?.error ?? '').not.toMatch(/transaction is aborted/);
     expect(body.results[1]?.status).toBe('ok');
 
-    const written = await sql<{ n: number }>`
+    const written = await asDefaultTenant(db, sql<{ n: number }>`
       SELECT count(*)::int AS n FROM ${sql.id(`zvd_${B}`)} WHERE id = ${goodId}
-    `.execute(db);
+    `);
     expect(written.rows[0]?.n).toBe(1);
   });
 
@@ -183,17 +188,17 @@ d('sync push guards (in-process)', () => {
   it('push and pull refuse a zvd_ table that is not a registered collection', async () => {
     const table = `zvd_jnc_hpush_${Date.now()}`;
     const rowId = crypto.randomUUID();
-    await sql`CREATE TABLE ${sql.id(table)} (id uuid PRIMARY KEY, a_id uuid,
+    await asDefaultTenant(db, sql`CREATE TABLE ${sql.id(table)} (id uuid PRIMARY KEY, a_id uuid,
               created_at timestamptz NOT NULL DEFAULT now(),
-              updated_at timestamptz NOT NULL DEFAULT now())`.execute(db);
+              updated_at timestamptz NOT NULL DEFAULT now())`);
     try {
-      await sql`INSERT INTO ${sql.id(table)} (id) VALUES (${rowId})`.execute(db);
+      await asDefaultTenant(db, sql`INSERT INTO ${sql.id(table)} (id) VALUES (${rowId})`);
       const res = await push(godCookie, [
         { collection: table, recordId: rowId, operation: 'delete', clientTimestamp: Date.now() },
       ]);
       const body = (await res.json()) as { results: { status: string; error?: string }[] };
       expect(body.results[0]?.status).toBe('error');
-      const left = await sql`SELECT 1 FROM ${sql.id(table)} WHERE id = ${rowId}`.execute(db);
+      const left = await asDefaultTenant(db, sql`SELECT 1 FROM ${sql.id(table)} WHERE id = ${rowId}`);
       expect(left.rows).toHaveLength(1);
 
       const pulled = await app.request('/api/sync/pull', {
@@ -205,7 +210,7 @@ d('sync push guards (in-process)', () => {
       expect(pulled.status).toBe(200);
       expect(changes).toEqual([]);
     } finally {
-      await sql`DROP TABLE IF EXISTS ${sql.id(table)}`.execute(db);
+      await asDefaultTenant(db, sql`DROP TABLE IF EXISTS ${sql.id(table)}`);
     }
   });
 });

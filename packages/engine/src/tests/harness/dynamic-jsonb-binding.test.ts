@@ -22,7 +22,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hjsonb_${Date.now()}`;
@@ -75,10 +80,10 @@ d('json fields bind as jsonb (in-process)', () => {
   }
 
   const shape = (id: string) =>
-    sql<{ t: string; a: string | null; has: boolean }>`
+    asDefaultTenant(db, sql<{ t: string; a: string | null; has: boolean }>`
       SELECT jsonb_typeof(payload) AS t, payload->>'a' AS a, (payload ? 'a') AS has
         FROM ${sql.table(TABLE)} WHERE id = ${id}::uuid
-    `.execute(db);
+    `);
 
   it('an object is queryable with jsonb operators', async () => {
     const row = await write({ a: 1, b: 'x' }, 'POST');
@@ -91,10 +96,10 @@ d('json fields bind as jsonb (in-process)', () => {
   it('an array is stored as an array, not a Postgres array literal', async () => {
     const row = await write([{ a: 1 }, { a: 2 }], 'POST');
     const r = (
-      await sql<{ t: string; n: number }>`
+      await asDefaultTenant(db, sql<{ t: string; n: number }>`
       SELECT jsonb_typeof(payload) AS t, jsonb_array_length(payload) AS n
         FROM ${sql.table(TABLE)} WHERE id = ${row.id}::uuid
-    `.execute(db)
+    `)
     ).rows[0]!;
     expect(r.t).toBe('array');
     expect(Number(r.n)).toBe(2);

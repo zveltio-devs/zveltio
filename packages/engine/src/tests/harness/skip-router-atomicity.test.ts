@@ -11,7 +11,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const TS = Date.now();
@@ -128,7 +133,7 @@ d('TXN_SKIP routers roll back a half-finished write', () => {
       await sql.raw(`DROP TRIGGER IF EXISTS atom_refuse ON ${t}`).execute(db);
     }
     await sql.raw('DROP FUNCTION IF EXISTS atom_refuse()').execute(db);
-    await sql`DELETE FROM zv_flows WHERE name LIKE ${`${FLOW}%`}`.execute(db);
+    await asDefaultTenant(db, sql`DELETE FROM zv_flows WHERE name LIKE ${`${FLOW}%`}`);
     await sql`DELETE FROM zv_settings WHERE key = 'company_name' AND value::text LIKE '%atom_%'`.execute(
       db,
     );
@@ -203,7 +208,7 @@ d('TXN_SKIP routers roll back a half-finished write', () => {
     });
     expect(res.status).toBe(500);
     // Before: an active flow with zero steps, and every retry added another.
-    const rows = await sql`SELECT id FROM zv_flows WHERE name = ${FLOW}`.execute(db);
+    const rows = await asDefaultTenant(db, sql`SELECT id FROM zv_flows WHERE name = ${FLOW}`);
     expect(rows.rows.length).toBe(0);
   });
 
@@ -222,12 +227,12 @@ d('TXN_SKIP routers roll back a half-finished write', () => {
       steps: [step('atom_boom')],
     });
     expect(res.status).toBe(500);
-    const row = await sql<{
+    const row = await asDefaultTenant(db, sql<{
       name: string;
-    }>`SELECT name FROM zv_flows WHERE id = ${flow.id}`.execute(db);
+    }>`SELECT name FROM zv_flows WHERE id = ${flow.id}`);
     expect(row.rows[0].name).toBe(`${FLOW}_p`);
-    const steps = await sql<{ name: string }>`
-      SELECT name FROM zv_flow_steps WHERE flow_id = ${flow.id}`.execute(db);
+    const steps = await asDefaultTenant(db, sql<{ name: string }>`
+      SELECT name FROM zv_flow_steps WHERE flow_id = ${flow.id}`);
     expect(steps.rows.map((s) => s.name)).toEqual(['first']);
   });
 

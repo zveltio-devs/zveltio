@@ -7,7 +7,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const PARENT = `hrestp_${Date.now()}`;
@@ -86,9 +91,9 @@ d('data m2o restrict on delete (in-process)', () => {
     const body = (await del.json()) as { errors?: string[] };
     expect(body.errors?.[0]).toContain('is still referenced by');
 
-    const row = await sql<{ id: string }>`
+    const row = await asDefaultTenant(db, sql<{ id: string }>`
       SELECT id FROM ${sql.id(`zvd_${PARENT}`)} WHERE id = ${parentId}
-    `.execute(db);
+    `);
     expect(row.rows.length).toBe(1);
   });
 });

@@ -14,7 +14,12 @@ import { applyDeclaredCollections } from '../../lib/extensions/declared-collecti
 import { planExtensionSchema, runApplyOp } from '../../lib/schema-artifact/apply.js';
 import { SchemaFileError } from '../../lib/schema-artifact/plan.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { dropTestCollection, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  dropTestCollection,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
@@ -37,8 +42,8 @@ d("an extension's update retypes a field within its column (ADR 0042 slice 5)", 
   const table = `zvd_${C}`;
   const raw = async () =>
     (
-      await sql<{ body: string; files: unknown }>`
-        SELECT body, files FROM ${sql.table(table)} ORDER BY label`.execute(db)
+      await asDefaultTenant(db, sql<{ body: string; files: unknown }>`
+        SELECT body, files FROM ${sql.table(table)} ORDER BY label`)
     ).rows;
   const relfilenode = async () =>
     (
@@ -57,10 +62,10 @@ d("an extension's update retypes a field within its column (ADR 0042 slice 5)", 
   beforeAll(async () => {
     ({ db } = await getTestApp());
     await applyDeclaredCollections(db, EXT, file('textarea', 'json'), true);
-    await sql`
+    await asDefaultTenant(db, sql`
       INSERT INTO ${sql.table(table)} (label, body, files) VALUES
         ('a', '<p>Hi <img src=x onerror=alert(1)></p>', ${JSON.stringify([{ file_id: 'f1', filename: 'a.pdf' }])}::jsonb),
-        ('b', 'plain', NULL)`.execute(db);
+        ('b', 'plain', NULL)`);
   }, 60_000);
 
   afterAll(async () => {

@@ -7,7 +7,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 import { toJsonb } from '../../lib/jsonb.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -44,10 +49,11 @@ d('data single time-travel deep (in-process)', () => {
 
   afterAll(async () => {
     if (!db) return;
-    await db
+    await asDefaultTenant(db, (t) =>
+       t
       .deleteFrom('zv_revisions')
       .where('collection', '=', COLLECTION)
-      .execute()
+      .execute())
       .catch(() => {});
     await sql
       .raw(`DROP TABLE IF EXISTS "zvd_${COLLECTION}" CASCADE`)
@@ -81,7 +87,8 @@ d('data single time-travel deep (in-process)', () => {
     const survivorId = ((await survivor.json()) as { id: string }).id;
 
     const past = new Date(Date.now() - 60_000);
-    await db
+    await asDefaultTenant(db, (t) =>
+       t
       .insertInto('zv_revisions')
       .values({
         collection: COLLECTION,
@@ -90,7 +97,7 @@ d('data single time-travel deep (in-process)', () => {
         data: toJsonb({ id: survivorId, title: 'from-string-json' }),
         created_at: past,
       })
-      .execute();
+      .execute());
 
     const res = await app.request(
       `/api/data/${COLLECTION}/${survivorId}?as_of=${encodeURIComponent(past.toISOString())}`,

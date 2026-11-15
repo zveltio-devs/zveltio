@@ -14,8 +14,9 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import {
-  createKeyCreator,
+  asDefaultTenant,
   createGodSession,
+  createKeyCreator,
   getTestApp,
   harnessAvailable,
 } from '../../testing/app-harness.js';
@@ -43,7 +44,8 @@ d('public edge function invoke (in-process)', () => {
     // Seeded straight into the table: the subject here is `/api/fn`, not the
     // administration routes (edge-function-admin.test.ts), so the fixture is
     // set up by the shortest honest route.
-    const row = await db
+    const row = await asDefaultTenant(db, (t) =>
+       t
       .insertInto('zv_edge_functions')
       .values({
         name: FN,
@@ -55,30 +57,32 @@ d('public edge function invoke (in-process)', () => {
         path: `/api/fn/${FN}`,
       } as never)
       .returning('id')
-      .executeTakeFirstOrThrow();
+      .executeTakeFirstOrThrow());
     fnId = (row as { id: string }).id;
     for (const [name, k] of Object.entries(KEYS)) {
-      await sql`
+      await asDefaultTenant(db, sql`
         INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, is_active, tenant_id, created_by)
         VALUES (${`${FN}-${name}`}, ${await hashApiKey(k.raw)}, ${k.raw.slice(0, 12)},
                 '[{"collection":"$edge","actions":["execute"]}]'::jsonb, true, ${k.tenant}::uuid,
                 ${await createKeyCreator(db)})
-      `.execute(db);
+      `);
     }
   });
 
   afterAll(async () => {
-    if (db) await sql`DELETE FROM zv_api_keys WHERE name LIKE ${`${FN}-%`}`.execute(db);
+    if (db) await asDefaultTenant(db, sql`DELETE FROM zv_api_keys WHERE name LIKE ${`${FN}-%`}`);
     if (!db || !fnId) return;
-    await db
+    await asDefaultTenant(db, (t) =>
+       t
       .deleteFrom('zv_edge_function_logs')
       .where('function_id', '=', fnId)
-      .execute()
+      .execute())
       .catch(() => {});
-    await db
+    await asDefaultTenant(db, (t) =>
+       t
       .deleteFrom('zv_edge_functions')
       .where('id', '=', fnId)
-      .execute()
+      .execute())
       .catch(() => {});
   });
 

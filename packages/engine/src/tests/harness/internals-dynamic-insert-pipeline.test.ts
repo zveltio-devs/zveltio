@@ -20,7 +20,11 @@ import type { ExtensionInternals } from '../../lib/extensions/internals.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import { DEFAULT_TENANT_ID, withTenantIsolation } from '../../lib/tenancy/index.js';
 import { invalidateRulesCache } from '../../lib/validation-engine.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hintins_${Date.now()}`;
@@ -92,8 +96,8 @@ d('ctx.internals.dynamicInsert runs the field pipeline', () => {
 
   it('stores an encrypted field as ciphertext', async () => {
     const row = (await insert({ status: 'draft', contact: 'a@b.co' })) as { id: string };
-    const stored = await sql<{ contact: string }>`
-      SELECT contact FROM ${sql.table(TABLE)} WHERE id = ${row.id}`.execute(db);
+    const stored = await asDefaultTenant(db, sql<{ contact: string }>`
+      SELECT contact FROM ${sql.table(TABLE)} WHERE id = ${row.id}`);
     expect(stored.rows[0]?.contact).toStartWith('enc:');
   });
 });

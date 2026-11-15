@@ -15,6 +15,7 @@ import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { runGarbageCollector } from '../../lib/runtime/index.js';
 import {
+  asDefaultTenant,
   asEveryTenant,
   asTenant,
   connectedAsSuperuser,
@@ -77,10 +78,10 @@ d('sync pull returns deletes', () => {
       name: NAME,
       fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
     } as never);
-    await sql`
+    await asDefaultTenant(db, sql`
       INSERT INTO zv_tenants (id, slug, name) VALUES (${OTHER_TENANT}::uuid, 'hsyncdel-b', 'B')
       ON CONFLICT (id) DO NOTHING
-    `.execute(db);
+    `);
   });
 
   afterAll(async () => {
@@ -89,7 +90,7 @@ d('sync pull returns deletes', () => {
     await asEveryTenant(db, (trx) =>
       sql`DELETE FROM zv_sync_tombstones WHERE collection = ${TABLE}`.execute(trx),
     );
-    await sql`DELETE FROM zv_tenants WHERE id = ${OTHER_TENANT}::uuid`.execute(db);
+    await asDefaultTenant(db, sql`DELETE FROM zv_tenants WHERE id = ${OTHER_TENANT}::uuid`);
   });
 
   it('a row deleted through the API reaches a client as a delete', async () => {
@@ -150,7 +151,7 @@ d('sync pull returns deletes', () => {
       await sql`DELETE FROM ${sql.table(TABLE)} WHERE id = ${x}::uuid`.execute(trx);
       await Bun.sleep(5);
       // Committed, and newer: a position past it would skip x's tombstone.
-      await sql`DELETE FROM ${sql.table(TABLE)} WHERE id = ${y}::uuid`.execute(db);
+      await asDefaultTenant(db, sql`DELETE FROM ${sql.table(TABLE)} WHERE id = ${y}::uuid`);
       first = await pull({ cursors });
     });
     const f = first as unknown as PullBody;

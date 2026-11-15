@@ -27,6 +27,7 @@ import { _setRlsRoleAvailableForTests } from '../../lib/tenancy/tenant-manager.j
 import { withTenantIsolation } from '../../lib/tenancy/index.js';
 import {
   ALL_COLLECTIONS_ACTOR,
+  asEveryTenant,
   dropTestCollection,
   getTestApp,
   harnessAvailable,
@@ -97,11 +98,13 @@ d('an extension creates a collection and fills it in one request', () => {
           expect(grants.rows.filter((g) => !g.ok).map((g) => g.role)).toEqual([]);
           await sql`INSERT INTO ${sql.id(table)} (title) VALUES ('filled')`.execute(ext);
         });
-        const rows = await sql<{ title: string; tenant_id: string; forced: boolean }>`
-          SELECT t.title, t.tenant_id::text AS tenant_id,
-                 (SELECT relforcerowsecurity FROM pg_class WHERE oid = ${`public.${table}`}::regclass)
-                   AS forced
-            FROM ${sql.id(table)} t`.execute(db);
+        const rows = await asEveryTenant(db, (t) =>
+          sql<{ title: string; tenant_id: string; forced: boolean }>`
+            SELECT t.title, t.tenant_id::text AS tenant_id,
+                   (SELECT relforcerowsecurity FROM pg_class WHERE oid = ${`public.${table}`}::regclass)
+                     AS forced
+              FROM ${sql.id(table)} t`.execute(t),
+        );
         expect(rows.rows).toEqual([{ title: 'filled', tenant_id: TENANT, forced: true }]);
       } finally {
         restore();

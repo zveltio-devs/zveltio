@@ -19,6 +19,7 @@ import {
   type UniqueKeyReconcileResult,
 } from '../../lib/data/index.js';
 import {
+  asDefaultTenant,
   asTenant,
   createGodSession,
   dropTestCollection,
@@ -114,14 +115,14 @@ d('a unique field is unique per tenant', () => {
     });
     expect(((await merged.json()) as { errors: string[] }).errors).toEqual([]);
     await db.deleteFrom('zv_schema_branches').where('id', '=', branch.id).execute();
-    await sql`DROP SCHEMA IF EXISTS ${sql.id(schema)} CASCADE`.execute(db);
+    await asDefaultTenant(db, sql`DROP SCHEMA IF EXISTS ${sql.id(schema)} CASCADE`);
   }, 60_000);
 
   afterAll(async () => {
     if (!db) return;
     await dropTestCollection(db, COLLECTION);
     await dropTestCollection(db, LEGACY);
-    await sql`DROP TABLE IF EXISTS ${sql.id(FOREIGN)}`.execute(db);
+    await asDefaultTenant(db, sql`DROP TABLE IF EXISTS ${sql.id(FOREIGN)}`);
   });
 
   for (const column of ['code', 'ref', 'sku', 'tag']) {
@@ -134,10 +135,10 @@ d('a unique field is unique per tenant', () => {
   }
 
   it('the key is (tenant_id, column), and a non-unique field has none', async () => {
-    const keys = await sql<{ def: string }>`
+    const keys = await asDefaultTenant(db, sql<{ def: string }>`
       SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
       WHERE conrelid = ${TABLE}::regclass AND contype = 'u' ORDER BY 1
-    `.execute(db);
+    `);
     expect(keys.rows.map((r) => r.def)).toEqual([
       'UNIQUE (tenant_id, code)',
       'UNIQUE (tenant_id, ref)',
@@ -174,10 +175,10 @@ d('a unique field is unique per tenant', () => {
     const legacy = `zvd_${LEGACY}`;
     const keys = async (table: string) =>
       (
-        await sql<{ def: string }>`
+        await asDefaultTenant(db, sql<{ def: string }>`
           SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
           WHERE conrelid = ${table}::regclass AND contype = 'u' ORDER BY 1
-        `.execute(db)
+        `)
       ).rows.map((r) => r.def);
     const uniqueIndexes = async (table: string) =>
       (
@@ -202,15 +203,13 @@ d('a unique field is unique per tenant', () => {
         name: LEGACY,
         fields: [field('email', false), field('slug', false), field('ref', false)],
       } as never);
-      await sql`ALTER TABLE ${sql.id(legacy)} ADD UNIQUE (email), ADD UNIQUE (ref)`.execute(db);
-      await sql`ALTER TABLE ${sql.id(legacy)} ADD UNIQUE (tenant_id, ref)`.execute(db);
-      await sql`CREATE UNIQUE INDEX ${sql.id(`${legacy}_slug_uidx`)} ON ${sql.id(legacy)} (slug)`.execute(
-        db,
-      );
+      await asDefaultTenant(db, sql`ALTER TABLE ${sql.id(legacy)} ADD UNIQUE (email), ADD UNIQUE (ref)`);
+      await asDefaultTenant(db, sql`ALTER TABLE ${sql.id(legacy)} ADD UNIQUE (tenant_id, ref)`);
+      await asDefaultTenant(db, sql`CREATE UNIQUE INDEX ${sql.id(`${legacy}_slug_uidx`)} ON ${sql.id(legacy)} (slug)`);
 
       // A key a foreign key points at cannot be dropped.
       await DDLManager.createCollection(db, { name: FK, fields: [field('code', false)] } as never);
-      await sql`ALTER TABLE ${sql.id(`zvd_${FK}`)} ADD UNIQUE (code)`.execute(db);
+      await asDefaultTenant(db, sql`ALTER TABLE ${sql.id(`zvd_${FK}`)} ADD UNIQUE (code)`);
       await sql`
         CREATE TABLE ${sql.id(FK_REF)} (code text REFERENCES ${sql.id(`zvd_${FK}`)} (code))
       `.execute(db);
@@ -221,11 +220,11 @@ d('a unique field is unique per tenant', () => {
         fields: [field('code', false)],
       } as never);
       const broken = `zvd_${BROKEN}`;
-      await sql`ALTER TABLE ${sql.id(broken)} ADD UNIQUE (code)`.execute(db);
+      await asDefaultTenant(db, sql`ALTER TABLE ${sql.id(broken)} ADD UNIQUE (code)`);
       for (const code of ['a', 'b']) {
-        await sql`
+        await asDefaultTenant(db, sql`
           INSERT INTO ${sql.id(broken)} (code, tenant_id) VALUES (${code}, ${TENANT_A}::uuid)
-        `.execute(db);
+        `);
       }
       const died = await sql`
         CREATE UNIQUE INDEX CONCURRENTLY ${sql.id(`${broken}_tenant_id_code_key`)}
@@ -241,7 +240,7 @@ d('a unique field is unique per tenant', () => {
         name: BYOD,
         fields: [field('code', false)],
       } as never);
-      await sql`ALTER TABLE ${sql.id(`zvd_${BYOD}`)} ADD UNIQUE (code)`.execute(db);
+      await asDefaultTenant(db, sql`ALTER TABLE ${sql.id(`zvd_${BYOD}`)} ADD UNIQUE (code)`);
       await db
         .updateTable('zvd_collections')
         .set({ is_managed: false })
@@ -275,7 +274,7 @@ d('a unique field is unique per tenant', () => {
 
     afterAll(async () => {
       warn.mockRestore();
-      await sql`DROP TABLE IF EXISTS ${sql.id(FK_REF)}`.execute(db);
+      await asDefaultTenant(db, sql`DROP TABLE IF EXISTS ${sql.id(FK_REF)}`);
       for (const c of [FK, BROKEN, BYOD, PARTIAL, NULLABLE]) await dropTestCollection(db, c);
     });
 
@@ -367,7 +366,7 @@ d('a unique field is unique per tenant', () => {
           name: SLOW,
           fields: [field('code', false)],
         } as never);
-        await sql`ALTER TABLE ${sql.id(slow)} ADD UNIQUE (code)`.execute(db);
+        await asDefaultTenant(db, sql`ALTER TABLE ${sql.id(slow)} ADD UNIQUE (code)`);
         // An open writer makes CREATE INDEX CONCURRENTLY wait for it — one second.
         let inserted!: () => void;
         const ready = new Promise<void>((r) => {

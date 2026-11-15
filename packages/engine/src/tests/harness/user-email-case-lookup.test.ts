@@ -26,6 +26,7 @@ import type { Database } from '../../db/index.js';
 import { parseMigrationFile, splitSqlStatements } from '../../db/migrations/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import {
+  asDefaultTenant,
   createGodSession,
   createMemberSession,
   getTestApp,
@@ -110,10 +111,10 @@ d('a mixed-case stored address is found by any spelling', () => {
     });
     stored = legacySpelling(member.email);
     await sql`UPDATE "user" SET email = ${stored} WHERE id = ${member.userId}`.execute(db);
-    await sql`
+    await asDefaultTenant(db, sql`
       INSERT INTO ${sql.table(`zvd_${COLLECTION}`)} (title, owner_email)
       VALUES ('stored-spelling', ${stored}), ('lowercase-spelling', ${member.email}),
-             ('someone-else', 'someone-else@example.test')`.execute(db);
+             ('someone-else', 'someone-else@example.test')`);
     await sql`
       INSERT INTO zvd_rls_policies (collection, role, filter_field, filter_op, filter_value_source, is_enabled)
       VALUES (${COLLECTION}, '*', 'owner_email', 'eq', 'user_email', TRUE)`.execute(db);
@@ -200,10 +201,8 @@ d('a mixed-case stored address is found by any spelling', () => {
       body: JSON.stringify({ user_email: member.email.toUpperCase(), role: 'member' }),
     });
     expect(added.status).toBe(201);
-    const members = await sql<{ user_id: string }>`
-      SELECT user_id FROM zv_tenant_users WHERE tenant_id = ${tenantId}::uuid ORDER BY user_id`.execute(
-      db,
-    );
+    const members = await asDefaultTenant(db, sql<{ user_id: string }>`
+      SELECT user_id FROM zv_tenant_users WHERE tenant_id = ${tenantId}::uuid ORDER BY user_id`);
     expect(members.rows.map((r) => r.user_id).sort()).toEqual([ownerId, member.userId].sort());
   });
 
