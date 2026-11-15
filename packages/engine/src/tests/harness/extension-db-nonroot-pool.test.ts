@@ -25,6 +25,7 @@ import { tenantMiddleware } from '../../middleware/tenant.js';
 import {
   asEveryTenant,
   asTenant,
+  connectedAsSuperuser,
   getTestApp,
   harnessAvailable,
 } from '../../testing/app-harness.js';
@@ -164,10 +165,23 @@ d('ctx.db outside a transaction under a non-root firm', () => {
     expect(await landedIn('scoped')).toEqual([OTHER]);
   });
 
-  it('keeps the pool for the root firm and outside any tenant context', async () => {
-    expect((await ask('/api/health/nrp/root')).r).toBe('written');
-    expect(await landedIn('root')).toEqual([ROOT]);
-    expect(await write('boot')).toBe('written');
-    expect(await landedIn('boot')).toEqual([ROOT]);
+  // DR-03: the pool answers for no firm now, the root one included. Measured
+  // before poolOrRefusal refused it too: the root firm's write reached the pool
+  // and failed on the policy — "new row violates row-level security policy for
+  // table zv_dashboards" — naming neither the cause nor the remedy.
+  it('refuses the root firm too, and outside any tenant context the database answers', async () => {
+    const r = (await ask('/api/health/nrp/root')).r;
+    expect(r).toContain('no tenant transaction is open here');
+    expect(await landedIn('root')).toEqual([]);
+    // No context at all is the pool: a policed table refuses the contextless
+    // row, unless the connection bypasses RLS (a superuser lane), where the
+    // column default files it under root.
+    if (await connectedAsSuperuser(db)) {
+      expect(await write('boot')).toBe('written');
+      expect(await landedIn('boot')).toEqual([ROOT]);
+    } else {
+      expect(await write('boot')).toContain('row-level security');
+      expect(await landedIn('boot')).toEqual([]);
+    }
   });
 });
