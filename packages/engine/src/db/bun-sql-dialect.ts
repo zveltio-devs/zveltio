@@ -347,8 +347,8 @@ class BunSqlDriver implements Driver {
       // one added column (DR-43). No pool recycle can prevent it: a request
       // already holding an old backend, or queued behind the ALTER's lock,
       // meets the stale plan anyway. Measured cost, saturated on one 4-core
-      // box: 15% fewer bare statements per second, 5-6% fewer single-record
-      // GETs per second through the app (866 to 818).
+      // box: 15% fewer bare statements per second, about 5% fewer
+      // single-record GETs per second through the app (503 to 479).
       prepare: false,
       ...(sslEnabled ? {} : { ssl: false, tls: false }),
     }) as BunSQLPool;
