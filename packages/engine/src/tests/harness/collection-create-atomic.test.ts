@@ -39,7 +39,10 @@ d('collection create is atomic', () => {
   let db: Database;
   const exists = async (table: string) =>
     (
-      await asDefaultTenant(db, sql<{ t: string | null }>`SELECT to_regclass(${`public.${table}`})::text AS t`)
+      await asDefaultTenant(
+        db,
+        sql<{ t: string | null }>`SELECT to_regclass(${`public.${table}`})::text AS t`,
+      )
     ).rows[0]?.t != null;
   const failure = (p: Promise<unknown>) =>
     p.then(
@@ -95,14 +98,20 @@ d('collection create is atomic', () => {
     await runCreateCollection(db, { name: JOB, fields });
     expect(await exists(`zvd_${JOB}`)).toBe(true);
     expect(await exists(`zvd_jnc_${JOB}_${DST}`)).toBe(true);
-    const fk = await asDefaultTenant(db, sql<{ n: number }>`
+    const fk = await asDefaultTenant(
+      db,
+      sql<{ n: number }>`
       SELECT count(*)::int AS n FROM pg_constraint
        WHERE conrelid = ${`public.zvd_${JOB}`}::regclass AND contype = 'f'
-         AND confrelid = ${`public.zvd_${DST}`}::regclass`);
+         AND confrelid = ${`public.zvd_${DST}`}::regclass`,
+    );
     expect(fk.rows[0]?.n).toBe(1);
-    const trg = await asDefaultTenant(db, sql<{ n: number }>`
+    const trg = await asDefaultTenant(
+      db,
+      sql<{ n: number }>`
       SELECT count(*)::int AS n FROM pg_trigger
-       WHERE tgrelid = ${`public.zvd_${JOB}`}::regclass AND tgname = ${`zvd_${JOB}_search_update`}`);
+       WHERE tgrelid = ${`public.zvd_${JOB}`}::regclass AND tgname = ${`zvd_${JOB}_search_update`}`,
+    );
     expect(trg.rows[0]?.n).toBe(1);
     const grants = await sql<{ n: number }>`
       SELECT count(*)::int AS n FROM zvd_permissions WHERE ptype = 'p' AND v2 = ${JOB}`.execute(db);

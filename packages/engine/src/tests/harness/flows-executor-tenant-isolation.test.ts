@@ -53,10 +53,13 @@ async function makeFlow(
   `.execute(trx),
   );
   const flowId = row.rows[0]!.id;
-  await asDefaultTenant(db, sql`
+  await asDefaultTenant(
+    db,
+    sql`
     INSERT INTO zv_flow_steps (flow_id, step_order, name, type, config, on_error)
     VALUES (${flowId}, 0, 'echo', 'query_db', ${JSON.stringify(ECHO_TENANT)}::jsonb, 'stop')
-  `);
+  `,
+  );
   return flowId;
 }
 
@@ -86,8 +89,12 @@ d('flow executor tenant isolation (in-process)', () => {
     if (!db) return;
     await dropTestCollection(db, PROBE_COLLECTION).catch(() => {});
     for (const id of created) {
-      await asDefaultTenant(db, sql`DELETE FROM zv_flow_runs WHERE flow_id = ${id}`).catch(() => {});
-      await asDefaultTenant(db, sql`DELETE FROM zv_flow_steps WHERE flow_id = ${id}`).catch(() => {});
+      await asDefaultTenant(db, sql`DELETE FROM zv_flow_runs WHERE flow_id = ${id}`).catch(
+        () => {},
+      );
+      await asDefaultTenant(db, sql`DELETE FROM zv_flow_steps WHERE flow_id = ${id}`).catch(
+        () => {},
+      );
       await asEveryTenant(db, (trx) => sql`DELETE FROM zv_flows WHERE id = ${id}`.execute(trx));
     }
     await sql`DELETE FROM zv_tenants WHERE id = ${OTHER_TENANT}::uuid`.execute(db).catch(() => {});
@@ -139,9 +146,12 @@ d('flow executor tenant isolation (in-process)', () => {
     await drainFlowJobs(db);
 
     const countRuns = async (flowId: string): Promise<number> => {
-      const r = await asDefaultTenant(db, sql<{ n: number }>`
+      const r = await asDefaultTenant(
+        db,
+        sql<{ n: number }>`
         SELECT count(*)::int AS n FROM zv_flow_runs WHERE flow_id = ${flowId}
-      `);
+      `,
+      );
       return r.rows[0]!.n;
     };
     expect(await countRuns(mineFlow)).toBeGreaterThan(0); // fired

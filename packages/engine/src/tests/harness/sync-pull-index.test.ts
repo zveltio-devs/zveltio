@@ -59,17 +59,23 @@ d('sync pull uses the (tenant_id, updated_at, id) index', () => {
 
   const tableStats = async (): Promise<TableStats> =>
     (
-      await asDefaultTenant(db, sql<TableStats>`
+      await asDefaultTenant(
+        db,
+        sql<TableStats>`
         SELECT seq_tup_read::text, idx_tup_fetch::text
           FROM pg_stat_user_tables WHERE relname = ${TABLE}
-      `)
+      `,
+      )
     ).rows[0]!;
   const indexStats = async (): Promise<IndexStats> =>
     (
-      await asDefaultTenant(db, sql<NonNullable<IndexStats>>`
+      await asDefaultTenant(
+        db,
+        sql<NonNullable<IndexStats>>`
         SELECT idx_scan::text, idx_tup_read::text
           FROM pg_stat_user_indexes WHERE indexrelname = ${INDEX}
-      `)
+      `,
+      )
     ).rows[0];
 
   beforeAll(async () => {
@@ -158,10 +164,13 @@ d('sync pull uses the (tenant_id, updated_at, id) index', () => {
 
   it('a client behind the newest rows still gets exactly them, in keyset order', async () => {
     // The position of the 4 000th row in keyset order; the client owes the rest.
-    const order = await asDefaultTenant(db, sql<{ id: string; us: string }>`
+    const order = await asDefaultTenant(
+      db,
+      sql<{ id: string; us: string }>`
       SELECT id::text AS id, (extract(epoch FROM updated_at) * 1000000)::bigint::text AS us
         FROM ${sql.table(TABLE)} ORDER BY updated_at, id::text COLLATE "C"
-    `);
+    `,
+    );
     const at = order.rows[3999]!;
     const del = `${(Date.now() - 60_000) * 1000}`;
     const body = await pull({

@@ -76,9 +76,12 @@ d('data bulk update validation 422 (in-process)', () => {
     expect(body.errors[0]!.index).toBe(1);
     expect(body.errors[0]!.errors.join(' ')).not.toContain('not found');
 
-    const row = await asDefaultTenant(db, sql<{ contact: string }>`
+    const row = await asDefaultTenant(
+      db,
+      sql<{ contact: string }>`
       SELECT contact FROM ${sql.id(`zvd_${COLLECTION}`)} WHERE id = ${goodId}
-    `);
+    `,
+    );
     expect(row.rows[0]?.contact).toBe('ok@example.com');
   });
 });

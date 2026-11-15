@@ -110,10 +110,13 @@ d('record comments honour the read gate (in-process)', () => {
       });
       expect([200, 201]).toContain(res.status);
     }
-    await asDefaultTenant(db, sql`
+    await asDefaultTenant(
+      db,
+      sql`
       INSERT INTO zv_revisions (collection, record_id, action, data, tenant_id)
       VALUES (${GHOST}, ${crypto.randomUUID()}, 'update', ${JSON.stringify({ secret: 'ghost-data' })}::text::jsonb,
-              '00000000-0000-0000-0000-000000000001'::uuid)`);
+              '00000000-0000-0000-0000-000000000001'::uuid)`,
+    );
 
     // Written before the rule: since ADR 0037 it binds a god's writes too.
     openId = await post('open', 'open');
@@ -141,8 +144,10 @@ d('record comments honour the read gate (in-process)', () => {
   afterAll(async () => {
     if (!db) return;
     await forgetRuleObjects(db, COLLECTION);
-    await asDefaultTenant(db, sql`DELETE FROM zv_record_comments WHERE collection = ${COLLECTION}`)
-      .catch(() => {});
+    await asDefaultTenant(
+      db,
+      sql`DELETE FROM zv_record_comments WHERE collection = ${COLLECTION}`,
+    ).catch(() => {});
     if (policyId) {
       await sql`DELETE FROM zvd_rls_policies WHERE id = ${policyId}::uuid`
         .execute(db)
@@ -151,8 +156,10 @@ d('record comments honour the read gate (in-process)', () => {
     await sql`DELETE FROM zvd_column_permissions WHERE collection_name = ${COLLECTION}`
       .execute(db)
       .catch(() => {});
-    await asDefaultTenant(db, sql`DELETE FROM zv_revisions WHERE collection IN (${COLLECTION}, ${GHOST})`)
-      .catch(() => {});
+    await asDefaultTenant(
+      db,
+      sql`DELETE FROM zv_revisions WHERE collection IN (${COLLECTION}, ${GHOST})`,
+    ).catch(() => {});
     await dropTestCollection(db, COLLECTION).catch(() => {});
   });
 
@@ -185,9 +192,12 @@ d('record comments honour the read gate (in-process)', () => {
 
   // A revision is a copy of the record: the same rule as its comments.
   it('hides revisions of a collection from a tenant admin with no read on it', async () => {
-    const own = await asDefaultTenant(db, sql<{ id: string }>`
+    const own = await asDefaultTenant(
+      db,
+      sql<{ id: string }>`
       SELECT id FROM zv_revisions WHERE collection = ${COLLECTION} AND record_id = ${openId}
-       LIMIT 1`);
+       LIMIT 1`,
+    );
     const id = own.rows[0]?.id;
     expect(id).toBeDefined();
     const headers = { cookie: tenantAdminCookie };
@@ -204,9 +214,12 @@ d('record comments honour the read gate (in-process)', () => {
   });
 
   it('refuses a tenant admin with no read on the collection deleting a comment', async () => {
-    const row = await asDefaultTenant(db, sql<{ id: string }>`
+    const row = await asDefaultTenant(
+      db,
+      sql<{ id: string }>`
       SELECT id FROM zv_record_comments WHERE collection = ${COLLECTION} AND record_id = ${hiddenId}
-       LIMIT 1`);
+       LIMIT 1`,
+    );
     const id = row.rows[0]!.id;
     const res = await app.request(`/api/revisions/record/comments/${id}`, {
       method: 'DELETE',
@@ -252,14 +265,20 @@ d('record comments honour the read gate (in-process)', () => {
   };
   const stored = async (id: string) =>
     (
-      await asDefaultTenant(db, sql<Record<string, string>>`
-        SELECT * FROM ${sql.table(`zvd_${COLLECTION}`)} WHERE id = ${id}::uuid`)
+      await asDefaultTenant(
+        db,
+        sql<Record<string, string>>`
+        SELECT * FROM ${sql.table(`zvd_${COLLECTION}`)} WHERE id = ${id}::uuid`,
+      )
     ).rows[0]!;
   const revisionOf = async (recordId: string, action: string) =>
     (
-      await asDefaultTenant(db, sql<{ id: string }>`
+      await asDefaultTenant(
+        db,
+        sql<{ id: string }>`
         SELECT id FROM zv_revisions WHERE collection = ${COLLECTION} AND record_id = ${recordId}
-           AND action = ${action} ORDER BY created_at ASC LIMIT 1`)
+           AND action = ${action} ORDER BY created_at ASC LIMIT 1`,
+      )
     ).rows[0]!.id;
 
   it('does not list revisions of a row the row rule hides', async () => {
@@ -283,11 +302,14 @@ d('record comments honour the read gate (in-process)', () => {
     // No caller deletes a restricted row under the rule, a god included (ADR
     // 0037): its delete revision is written as `afterWrite` writes one.
     const doomed = crypto.randomUUID();
-    await asDefaultTenant(db, sql`
+    await asDefaultTenant(
+      db,
+      sql`
       INSERT INTO zv_revisions (collection, record_id, action, data, tenant_id)
       VALUES (${COLLECTION}, ${doomed}, 'delete',
               ${JSON.stringify({ id: doomed, title: 'doomed', bucket: 'restricted' })}::text::jsonb,
-              '00000000-0000-0000-0000-000000000001'::uuid)`);
+              '00000000-0000-0000-0000-000000000001'::uuid)`,
+    );
     const revId = await revisionOf(doomed, 'delete');
     const res = await app.request(`/api/revisions/${revId}`, { headers: { cookie: editorCookie } });
     expect(res.status).toBe(404);
@@ -310,9 +332,12 @@ d('record comments honour the read gate (in-process)', () => {
   it('shapes revision data and delta by the caller’s column permissions', async () => {
     await patchAsGod(openId, { salary: '120000', grade: 'A' });
     const revId = (
-      await asDefaultTenant(db, sql<{ id: string }>`
+      await asDefaultTenant(
+        db,
+        sql<{ id: string }>`
         SELECT id FROM zv_revisions WHERE collection = ${COLLECTION} AND record_id = ${openId}
-           AND delta ? 'salary' ORDER BY created_at DESC LIMIT 1`)
+           AND delta ? 'salary' ORDER BY created_at DESC LIMIT 1`,
+      )
     ).rows[0]!.id;
     const one = await app.request(`/api/revisions/${revId}`, { headers: { cookie: editorCookie } });
     expect(one.status).toBe(200);

@@ -135,10 +135,13 @@ d('a unique field is unique per tenant', () => {
   }
 
   it('the key is (tenant_id, column), and a non-unique field has none', async () => {
-    const keys = await asDefaultTenant(db, sql<{ def: string }>`
+    const keys = await asDefaultTenant(
+      db,
+      sql<{ def: string }>`
       SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
       WHERE conrelid = ${TABLE}::regclass AND contype = 'u' ORDER BY 1
-    `);
+    `,
+    );
     expect(keys.rows.map((r) => r.def)).toEqual([
       'UNIQUE (tenant_id, code)',
       'UNIQUE (tenant_id, ref)',
@@ -175,10 +178,13 @@ d('a unique field is unique per tenant', () => {
     const legacy = `zvd_${LEGACY}`;
     const keys = async (table: string) =>
       (
-        await asDefaultTenant(db, sql<{ def: string }>`
+        await asDefaultTenant(
+          db,
+          sql<{ def: string }>`
           SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
           WHERE conrelid = ${table}::regclass AND contype = 'u' ORDER BY 1
-        `)
+        `,
+        )
       ).rows.map((r) => r.def);
     const uniqueIndexes = async (table: string) =>
       (
@@ -203,9 +209,15 @@ d('a unique field is unique per tenant', () => {
         name: LEGACY,
         fields: [field('email', false), field('slug', false), field('ref', false)],
       } as never);
-      await asDefaultTenant(db, sql`ALTER TABLE ${sql.id(legacy)} ADD UNIQUE (email), ADD UNIQUE (ref)`);
+      await asDefaultTenant(
+        db,
+        sql`ALTER TABLE ${sql.id(legacy)} ADD UNIQUE (email), ADD UNIQUE (ref)`,
+      );
       await asDefaultTenant(db, sql`ALTER TABLE ${sql.id(legacy)} ADD UNIQUE (tenant_id, ref)`);
-      await asDefaultTenant(db, sql`CREATE UNIQUE INDEX ${sql.id(`${legacy}_slug_uidx`)} ON ${sql.id(legacy)} (slug)`);
+      await asDefaultTenant(
+        db,
+        sql`CREATE UNIQUE INDEX ${sql.id(`${legacy}_slug_uidx`)} ON ${sql.id(legacy)} (slug)`,
+      );
 
       // A key a foreign key points at cannot be dropped.
       await DDLManager.createCollection(db, { name: FK, fields: [field('code', false)] } as never);
@@ -222,9 +234,12 @@ d('a unique field is unique per tenant', () => {
       const broken = `zvd_${BROKEN}`;
       await asDefaultTenant(db, sql`ALTER TABLE ${sql.id(broken)} ADD UNIQUE (code)`);
       for (const code of ['a', 'b']) {
-        await asDefaultTenant(db, sql`
+        await asDefaultTenant(
+          db,
+          sql`
           INSERT INTO ${sql.id(broken)} (code, tenant_id) VALUES (${code}, ${TENANT_A}::uuid)
-        `);
+        `,
+        );
       }
       const died = await sql`
         CREATE UNIQUE INDEX CONCURRENTLY ${sql.id(`${broken}_tenant_id_code_key`)}

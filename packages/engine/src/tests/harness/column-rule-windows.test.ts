@@ -72,9 +72,12 @@ d('column rules reach the database with their commit (L37)', () => {
 
   const insertRow = async (table: string, values: string) =>
     (
-      await asDefaultTenant(db, sql<{ id: string }>`
+      await asDefaultTenant(
+        db,
+        sql<{ id: string }>`
         INSERT INTO ${sql.table(table)} (tenant_id, ${sql.raw(values)})
-        VALUES (${DEFAULT_TENANT_ID}::uuid, 'seed') RETURNING id::text AS id`)
+        VALUES (${DEFAULT_TENANT_ID}::uuid, 'seed') RETURNING id::text AS id`,
+      )
     ).rows[0]!.id;
 
   beforeAll(async () => {

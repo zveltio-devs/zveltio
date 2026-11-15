@@ -97,8 +97,11 @@ d('a purge drops the collections the extension owns, with all their rules', () =
   };
   const forget = async () => {
     for (const t of ['zvd_relations']) {
-      await asDefaultTenant(db, sql`DELETE FROM ${sql.table(t)} WHERE source_collection IN (${sql.join(ALL)})
-                 OR target_collection IN (${sql.join(ALL)})`);
+      await asDefaultTenant(
+        db,
+        sql`DELETE FROM ${sql.table(t)} WHERE source_collection IN (${sql.join(ALL)})
+                 OR target_collection IN (${sql.join(ALL)})`,
+      );
     }
     await sql`DELETE FROM zvd_rls_policies WHERE collection IN (${sql.join(ALL)})`.execute(db);
     await sql`DELETE FROM zvd_column_permissions WHERE collection_name IN (${sql.join(ALL)})`.execute(

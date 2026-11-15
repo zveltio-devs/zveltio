@@ -115,18 +115,24 @@ d('extension actions run as the caller, in the request transaction', () => {
     });
   const rowsLabelled = async (label: string) =>
     (
-      await asDefaultTenant(db, sql<{ id: string; created_by: string | null }>`
+      await asDefaultTenant(
+        db,
+        sql<{ id: string; created_by: string | null }>`
         SELECT id, created_by FROM ${sql.table(`zvd_${C}`)} WHERE label = ${label}
-      `)
+      `,
+      )
     ).rows;
   const auditRows = async (action: string) => {
     await _settleAuditWrites();
     return (
-      await asDefaultTenant(db, sql<{ user_id: string | null; metadata: Record<string, unknown> }>`
+      await asDefaultTenant(
+        db,
+        sql<{ user_id: string | null; metadata: Record<string, unknown> }>`
         SELECT user_id, metadata FROM zv_audit_log
         WHERE event_type = 'extension.action.executed' AND resource_id = ${`${EXT}:${action}`}
         ORDER BY created_at
-      `)
+      `,
+      )
     ).rows;
   };
 
@@ -139,7 +145,10 @@ d('extension actions run as the caller, in the request transaction', () => {
       fields: [{ name: 'label', type: 'text', required: false, unique: false, indexed: false }],
     } as never);
     for (let i = 0; i < 100; i++) {
-      const seen = await asDefaultTenant(db, sql<{ t: string | null }>`SELECT to_regclass(${`zvd_${C}`}) AS t`);
+      const seen = await asDefaultTenant(
+        db,
+        sql<{ t: string | null }>`SELECT to_regclass(${`zvd_${C}`}) AS t`,
+      );
       if (seen.rows[0]?.t) break;
       await Bun.sleep(100);
     }
@@ -296,7 +305,10 @@ d('extension actions run as the caller, in the request transaction', () => {
       db,
     );
     await sql`DELETE FROM zvd_permissions WHERE v2 IN (${RES}, ${SENS})`.execute(db);
-    await asDefaultTenant(db, sql`DELETE FROM zv_audit_log WHERE event_type = 'extension.action.executed'`);
+    await asDefaultTenant(
+      db,
+      sql`DELETE FROM zv_audit_log WHERE event_type = 'extension.action.executed'`,
+    );
     await asDefaultTenant(db, sql`DELETE FROM zv_revisions WHERE collection = ${C}`);
     await dropTestCollection(db, C);
   });
@@ -434,18 +446,24 @@ d('extension actions run as the caller, in the request transaction', () => {
 
     // Nor a column a read never serves: `search_text` carries every text field,
     // a column rule's hidden ones too, so testing it named their values.
-    const row = await asDefaultTenant(db, sql<{ st: string }>`
+    const row = await asDefaultTenant(
+      db,
+      sql<{ st: string }>`
       SELECT search_text AS st FROM ${sql.table(`zvd_${C}`)} WHERE id = ${id}
-    `);
+    `,
+    );
     const st = String(row.rows[0]?.st);
     const derived = await relabel(st, 'exp-g', 'search_text');
     expect(derived.status).toBe(403);
     expect(await derived.json()).toMatchObject({ code: 'expect_unreadable' });
 
     // Compared as a read serves it: a timestamp as its ISO string.
-    const at = await asDefaultTenant(db, sql<{ at: Date }>`
+    const at = await asDefaultTenant(
+      db,
+      sql<{ at: Date }>`
       SELECT updated_at AS at FROM ${sql.table(`zvd_${C}`)} WHERE id = ${id}
-    `);
+    `,
+    );
     const iso = new Date(at.rows[0]!.at).toISOString();
     expect((await relabel(iso, 'exp-h', 'updated_at')).status).toBe(200);
   });

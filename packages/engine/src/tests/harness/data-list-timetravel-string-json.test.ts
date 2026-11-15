@@ -41,27 +41,25 @@ d('data list time-travel string JSON (in-process)', () => {
     recordId = ((await create.json()) as { id: string }).id;
 
     await asDefaultTenant(db, (t) =>
-       t
-      .insertInto('zv_revisions')
-      .values({
-        collection: COLLECTION,
-        record_id: recordId,
-        action: 'update',
-        // A jsonb STRING holding the document — `toJsonb` would store the object.
-        data: sql`to_jsonb(${JSON.stringify({ id: recordId, title: 'past-title' })}::text)`,
-        created_at: past,
-      })
-      .execute());
+      t
+        .insertInto('zv_revisions')
+        .values({
+          collection: COLLECTION,
+          record_id: recordId,
+          action: 'update',
+          // A jsonb STRING holding the document — `toJsonb` would store the object.
+          data: sql`to_jsonb(${JSON.stringify({ id: recordId, title: 'past-title' })}::text)`,
+          created_at: past,
+        })
+        .execute(),
+    );
   });
 
   afterAll(async () => {
     if (!db) return;
     await asDefaultTenant(db, (t) =>
-       t
-      .deleteFrom('zv_revisions')
-      .where('collection', '=', COLLECTION)
-      .execute())
-      .catch(() => {});
+      t.deleteFrom('zv_revisions').where('collection', '=', COLLECTION).execute(),
+    ).catch(() => {});
     await sql
       .raw(`DROP TABLE IF EXISTS "zvd_${COLLECTION}" CASCADE`)
       .execute(db)

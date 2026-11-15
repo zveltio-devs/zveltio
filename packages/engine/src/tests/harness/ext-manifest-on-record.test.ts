@@ -77,9 +77,12 @@ d('an extension whose files are gone keeps its recorded claim', () => {
                VALUES (${name}, ${name}, NULL, ${installed}, false)`.execute(db);
   };
   const down = (ext: string, tables: string[]) =>
-    asDefaultTenant(db, sql`INSERT INTO zv_migrations (name, down_sql)
+    asDefaultTenant(
+      db,
+      sql`INSERT INTO zv_migrations (name, down_sql)
         VALUES (${`ext:${ext}:001_init`},
-                ${tables.map((t) => `DROP TABLE "zvd_${t}" CASCADE;`).join(' ')})`);
+                ${tables.map((t) => `DROP TABLE "zvd_${t}" CASCADE;`).join(' ')})`,
+    );
 
   beforeAll(async () => {
     ({ db } = await getTestApp());

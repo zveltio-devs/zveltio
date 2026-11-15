@@ -110,10 +110,13 @@ d('a job reaches only the stored files its user hands it (ADR 0032)', () => {
   async function load(ext: ZveltioExtension, manifest: Record<string, unknown>): Promise<void> {
     const parsed = ManifestSchema.parse({ name: ext.name, ...manifest });
     await asDefaultTenant(db, sql`DELETE FROM zv_extension_registry WHERE name = ${ext.name}`);
-    await asDefaultTenant(db, sql`
+    await asDefaultTenant(
+      db,
+      sql`
       INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled, manifest)
       VALUES (${ext.name}, ${ext.name}, NULL, true, true, ${toJsonb(parsed)})
-    `);
+    `,
+    );
     const ctx = { db, internals: buildExtensionInternals() } as unknown as ExtensionContext;
     await finalizeExtensionLoad(
       loader(ctx),
@@ -218,8 +221,11 @@ d('a job reaches only the stored files its user hands it (ADR 0032)', () => {
   const queued = async (tag: string) =>
     Number(
       (
-        await asDefaultTenant(db, sql<{ n: string }>`SELECT count(*) AS n FROM pgboss.job
-          WHERE name LIKE ${'ext.jobfiles-%'} AND data->'input'->>'tag' = ${tag}`)
+        await asDefaultTenant(
+          db,
+          sql<{ n: string }>`SELECT count(*) AS n FROM pgboss.job
+          WHERE name LIKE ${'ext.jobfiles-%'} AND data->'input'->>'tag' = ${tag}`,
+        )
       ).rows[0]?.n,
     );
   const fixture = (tenantId: string, user: string): FileActor => ({
@@ -263,15 +269,21 @@ d('a job reaches only the stored files its user hands it (ADR 0032)', () => {
       fields: [{ name: 'label', type: 'text', required: false, unique: false, indexed: false }],
     } as never);
     for (let i = 0; i < 100; i++) {
-      const seen = await asDefaultTenant(db, sql<{ t: string | null }>`SELECT to_regclass(${`zvd_${C}`}) AS t`);
+      const seen = await asDefaultTenant(
+        db,
+        sql<{ t: string | null }>`SELECT to_regclass(${`zvd_${C}`}) AS t`,
+      );
       if (seen.rows[0]?.t) break;
       await Bun.sleep(100);
     }
     const run = { collection: RES, actions: ['execute'] };
     author = await createMemberSession(engine, db, { grants: [run] });
     colleague = await createMemberSession(engine, db, { grants: [run] });
-    await asDefaultTenant(db, sql`INSERT INTO zv_tenants (id, slug, name, status)
-              VALUES (${OTHER}::uuid, ${SLUG}, ${SLUG}, 'active')`);
+    await asDefaultTenant(
+      db,
+      sql`INSERT INTO zv_tenants (id, slug, name, status)
+              VALUES (${OTHER}::uuid, ${SLUG}, ${SLUG}, 'active')`,
+    );
     for (const [k, scopes] of [
       ['storage', [{ collection: '$storage', actions: ['read', 'create'] }]],
       ['bare', []],
@@ -413,7 +425,10 @@ d('a job reaches only the stored files its user hands it (ADR 0032)', () => {
       sql`DELETE FROM zv_api_keys WHERE name LIKE ${`jobfiles-%-${STAMP}`}`.execute(t),
     );
     await asDefaultTenant(db, sql`DELETE FROM pgboss.job WHERE name LIKE ${'ext.jobfiles-%'}`);
-    await asDefaultTenant(db, sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${DEP}, ${NOFILES})`);
+    await asDefaultTenant(
+      db,
+      sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${DEP}, ${NOFILES})`,
+    );
     await asEveryTenant(db, (trx) =>
       sql`DELETE FROM zv_audit_log WHERE resource_id LIKE ${'jobfiles-%'}`.execute(trx),
     );
@@ -580,14 +595,20 @@ d('a job reaches only the stored files its user hands it (ADR 0032)', () => {
     }
     await setFile(trashed, { deleted_at: new Date() });
     await setFile(shared, { visibility: 'personal' });
-    await asDefaultTenant(db, sql`UPDATE zv_api_keys SET is_active = false WHERE id = ${keys.storageId}::uuid`);
+    await asDefaultTenant(
+      db,
+      sql`UPDATE zv_api_keys SET is_active = false WHERE id = ${keys.storageId}::uuid`,
+    );
     try {
       for (const tag of ['trash', 'personal', 'revoked']) gates.get(tag)!.release();
       expect(await outcome('trash')).toBe('null');
       expect(await outcome('personal')).toBe('null');
       expect(await outcome('revoked')).toBe('null');
     } finally {
-      await asDefaultTenant(db, sql`UPDATE zv_api_keys SET is_active = true WHERE id = ${keys.storageId}::uuid`);
+      await asDefaultTenant(
+        db,
+        sql`UPDATE zv_api_keys SET is_active = true WHERE id = ${keys.storageId}::uuid`,
+      );
     }
   }, 60_000);
 
@@ -775,8 +796,11 @@ export default {
         async () =>
           Number(
             (
-              await asDefaultTenant(db, sql<{ n: string }>`SELECT count(*) AS n FROM pgboss.queue
-                WHERE name LIKE ${`ext.${DENO}.%`}`)
+              await asDefaultTenant(
+                db,
+                sql<{ n: string }>`SELECT count(*) AS n FROM pgboss.queue
+                WHERE name LIKE ${`ext.${DENO}.%`}`,
+              )
             ).rows[0]?.n,
           ),
         (n) => n === 3,

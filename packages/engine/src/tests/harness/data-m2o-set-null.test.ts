@@ -91,9 +91,12 @@ d('data m2o set null on delete (in-process)', () => {
     });
     expect([200, 204]).toContain(del.status);
 
-    const row = await asDefaultTenant(db, sql<{ owner: string | null }>`
+    const row = await asDefaultTenant(
+      db,
+      sql<{ owner: string | null }>`
       SELECT owner FROM ${sql.id(`zvd_${CHILD}`)} WHERE id = ${childId}
-    `);
+    `,
+    );
     expect(row.rows[0]?.owner).toBeNull();
   });
 });

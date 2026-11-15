@@ -97,7 +97,9 @@ d('bulk writes fire their automations (in-process)', () => {
         await sql`DELETE FROM zv_flows WHERE id = ${flowId}::uuid`.execute(t);
       }).catch(() => {});
     }
-    await asDefaultTenant(db, sql`DROP TABLE IF EXISTS ${sql.table(`zvd_${coll}`)}`).catch(() => {});
+    await asDefaultTenant(db, sql`DROP TABLE IF EXISTS ${sql.table(`zvd_${coll}`)}`).catch(
+      () => {},
+    );
     await sql`DELETE FROM zvd_collections WHERE name = ${coll}`.execute(db).catch(() => {});
   });
 

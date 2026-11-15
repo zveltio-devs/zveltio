@@ -62,11 +62,14 @@ d('webhooks on pg-boss (ADR 0035)', () => {
         fields: [{ name: 'title', type: 'text', required: true, unique: false, indexed: false }],
       } as never);
     }
-    const row = await asDefaultTenant(db, sql<{ id: string }>`
+    const row = await asDefaultTenant(
+      db,
+      sql<{ id: string }>`
       INSERT INTO zvd_webhooks (tenant_id, name, url, events, collections, retry_attempts, secret)
       VALUES (${DEFAULT_TENANT_ID}::uuid, ${STAMP}, 'https://93.184.216.34/whpb',
               ARRAY['*']::text[], ARRAY[${C}]::text[], 1, ${await maybeEncrypt(SECRET, true)})
-      RETURNING id::text AS id`);
+      RETURNING id::text AS id`,
+    );
     hook = row.rows[0]!.id;
 
     originalFetch = globalThis.fetch;
@@ -86,9 +89,14 @@ d('webhooks on pg-boss (ADR 0035)', () => {
   afterAll(async () => {
     globalThis.fetch = originalFetch;
     if (!db) return;
-    await asDefaultTenant(db, sql`DELETE FROM pgboss.job WHERE name = ${WEBHOOK_QUEUE} AND data->>'webhookId' = ${hook}`)
-      .catch(() => {});
-    await asDefaultTenant(db, sql`DELETE FROM zvd_webhook_deliveries WHERE webhook_id = ${hook}::uuid`);
+    await asDefaultTenant(
+      db,
+      sql`DELETE FROM pgboss.job WHERE name = ${WEBHOOK_QUEUE} AND data->>'webhookId' = ${hook}`,
+    ).catch(() => {});
+    await asDefaultTenant(
+      db,
+      sql`DELETE FROM zvd_webhook_deliveries WHERE webhook_id = ${hook}::uuid`,
+    );
     await asDefaultTenant(db, sql`DELETE FROM zvd_webhooks WHERE id = ${hook}::uuid`);
     for (const name of [C, QUIET]) {
       await sql.raw(`DROP TABLE IF EXISTS "zvd_${name}" CASCADE`).execute(db);
@@ -106,32 +114,41 @@ d('webhooks on pg-boss (ADR 0035)', () => {
   /** This webhook's jobs whose record has `title`, oldest first. */
   const jobsFor = async (title: string): Promise<Job[]> =>
     (
-      await asDefaultTenant(db, sql<Job>`
+      await asDefaultTenant(
+        db,
+        sql<Job>`
         SELECT id::text AS id, state::text AS state, data FROM pgboss.job
          WHERE name = ${WEBHOOK_QUEUE} AND data->>'webhookId' = ${hook}
            AND data->'data'->>'title' = ${title}
-         ORDER BY created_on, (data->>'sequence')::bigint`)
+         ORDER BY created_on, (data->>'sequence')::bigint`,
+      )
     ).rows;
 
   const deliveriesOf = async (eventId: string) =>
     (
-      await asDefaultTenant(db, sql<{
-        attempt: number;
-        max_attempts: number;
-        delivered: boolean;
-        status: number | null;
-      }>`
+      await asDefaultTenant(
+        db,
+        sql<{
+          attempt: number;
+          max_attempts: number;
+          delivered: boolean;
+          status: number | null;
+        }>`
         SELECT attempt, max_attempts, delivered_at IS NOT NULL AS delivered, status
           FROM zvd_webhook_deliveries
-         WHERE webhook_id = ${hook}::uuid AND event_id = ${eventId}::uuid`)
+         WHERE webhook_id = ${hook}::uuid AND event_id = ${eventId}::uuid`,
+      )
     ).rows;
 
   const drain = () => drainWebhookJobs(db);
 
   const count = async (title: string) =>
     (
-      await asDefaultTenant(db, sql<{ n: number }>`
-        SELECT count(*)::int AS n FROM ${sql.table(`zvd_${C}`)} WHERE title = ${title}`)
+      await asDefaultTenant(
+        db,
+        sql<{ n: number }>`
+        SELECT count(*)::int AS n FROM ${sql.table(`zvd_${C}`)} WHERE title = ${title}`,
+      )
     ).rows[0]!.n;
 
   const dlq = async (eventId: string) => {
@@ -266,7 +283,10 @@ d('webhooks on pg-boss (ADR 0035)', () => {
     expect(await deliveriesOf(ok!.data.eventId)).toHaveLength(1);
     // Delivered once: the second run finds the delivered row and stops.
     expect(sent.filter((s) => s.id === ok!.data.eventId)).toHaveLength(1);
-    await asDefaultTenant(db, sql`DELETE FROM pgboss.job WHERE id IN (${failing!.id}::uuid, ${ok!.id}::uuid)`);
+    await asDefaultTenant(
+      db,
+      sql`DELETE FROM pgboss.job WHERE id IN (${failing!.id}::uuid, ${ok!.id}::uuid)`,
+    );
   }, 30_000);
 
   it('(e) two updates of one record carry increasing sequence values', async () => {
@@ -331,10 +351,13 @@ d('webhooks on pg-boss (ADR 0035)', () => {
     const since = await asDefaultTenant(db, sql<{ t: string }>`SELECT now()::text AS t`);
     const newJobs = async (collection: string) =>
       (
-        await asDefaultTenant(db, sql<{ n: number }>`
+        await asDefaultTenant(
+          db,
+          sql<{ n: number }>`
           SELECT count(*)::int AS n FROM pgboss.job
            WHERE created_on >= ${since.rows[0]!.t}::timestamptz
-             AND data::text LIKE ${`%${collection}%`}`)
+             AND data::text LIKE ${`%${collection}%`}`,
+        )
       ).rows[0]!.n;
     expect((await post(QUIET, 'quiet')).status).toBe(201);
     expect(await newJobs(QUIET)).toBe(0);

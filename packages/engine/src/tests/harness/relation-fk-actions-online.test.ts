@@ -76,10 +76,13 @@ d('a relation action change re-creates its key without the table lock', () => {
 
   const waitingPid = async (pattern: string) => {
     for (let i = 0; i < 300; i++) {
-      const r = await asDefaultTenant(db, sql<{ pid: number }>`
+      const r = await asDefaultTenant(
+        db,
+        sql<{ pid: number }>`
         SELECT pid FROM pg_stat_activity
          WHERE datname = current_database() AND wait_event_type = 'Lock'
-           AND query ILIKE ${pattern}`);
+           AND query ILIKE ${pattern}`,
+      );
       if (r.rows[0]) return r.rows[0].pid;
       await Bun.sleep(10);
     }

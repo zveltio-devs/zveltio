@@ -47,9 +47,12 @@ d('transition rules', () => {
   };
   const stored = async (id: string) =>
     (
-      await asDefaultTenant(db, sql<{
-        status: string;
-      }>`SELECT status FROM ${sql.table(`zvd_${COLLECTION}`)} WHERE id = ${id}`)
+      await asDefaultTenant(
+        db,
+        sql<{
+          status: string;
+        }>`SELECT status FROM ${sql.table(`zvd_${COLLECTION}`)} WHERE id = ${id}`,
+      )
     ).rows[0]?.status;
 
   beforeAll(async () => {
@@ -205,7 +208,10 @@ d('transition rules', () => {
   it('refuses a transition rule on a money field, which reads back locale-formatted', async () => {
     // Stored "$10.00" against written "9.00": as strings, "9" sorts after "$".
     const id = await create('draft');
-    await asDefaultTenant(db, sql`UPDATE ${sql.table(`zvd_${COLLECTION}`)} SET price = '10.00' WHERE id = ${id}`);
+    await asDefaultTenant(
+      db,
+      sql`UPDATE ${sql.table(`zvd_${COLLECTION}`)} SET price = '10.00' WHERE id = ${id}`,
+    );
     expect((await send('PATCH', `/${id}`, { price: '9.00' })).status).toBe(422);
     expect((await send('PATCH', `/${id}`, { title: 'untouched' })).status).toBe(200);
   });

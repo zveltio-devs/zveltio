@@ -91,9 +91,12 @@ d('data m2o restrict on delete (in-process)', () => {
     const body = (await del.json()) as { errors?: string[] };
     expect(body.errors?.[0]).toContain('is still referenced by');
 
-    const row = await asDefaultTenant(db, sql<{ id: string }>`
+    const row = await asDefaultTenant(
+      db,
+      sql<{ id: string }>`
       SELECT id FROM ${sql.id(`zvd_${PARENT}`)} WHERE id = ${parentId}
-    `);
+    `,
+    );
     expect(row.rows.length).toBe(1);
   });
 });

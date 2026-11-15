@@ -80,11 +80,14 @@ d('a flow runs under the role chosen at save (ADR 0004)', () => {
     const id = row.rows[0]!.id;
     flows.push(id);
     for (const [i, step] of steps.entries()) {
-      await asDefaultTenant(db, sql`
+      await asDefaultTenant(
+        db,
+        sql`
         INSERT INTO zv_flow_steps (flow_id, step_order, name, type, config, on_error)
         VALUES (${id}, ${i}, ${`s${i}`}, ${(step as { type: string }).type},
                 ${JSON.stringify((step as { config: unknown }).config)}::jsonb, 'stop')
-      `);
+      `,
+      );
     }
     return id;
   };
@@ -130,8 +133,12 @@ d('a flow runs under the role chosen at save (ADR 0004)', () => {
   afterAll(async () => {
     if (!db) return;
     for (const id of flows) {
-      await asDefaultTenant(db, sql`DELETE FROM zv_flow_runs WHERE flow_id = ${id}`).catch(() => {});
-      await asDefaultTenant(db, sql`DELETE FROM zv_flow_steps WHERE flow_id = ${id}`).catch(() => {});
+      await asDefaultTenant(db, sql`DELETE FROM zv_flow_runs WHERE flow_id = ${id}`).catch(
+        () => {},
+      );
+      await asDefaultTenant(db, sql`DELETE FROM zv_flow_steps WHERE flow_id = ${id}`).catch(
+        () => {},
+      );
       await asEveryTenant(db, (trx) => sql`DELETE FROM zv_flows WHERE id = ${id}`.execute(trx));
     }
     if (webhookId) {
@@ -290,8 +297,11 @@ d('a flow runs under the role chosen at save (ADR 0004)', () => {
     );
     await drainFlowJobs(db);
     const run = (
-      await asDefaultTenant(db, sql<{ status: string; trigger_data: unknown }>`
-        SELECT status, trigger_data FROM zv_flow_runs WHERE flow_id = ${flowId}`)
+      await asDefaultTenant(
+        db,
+        sql<{ status: string; trigger_data: unknown }>`
+        SELECT status, trigger_data FROM zv_flow_runs WHERE flow_id = ${flowId}`,
+      )
     ).rows[0];
     expect(run?.status).toBe('success');
     const data = JSON.stringify(run?.trigger_data);

@@ -164,7 +164,10 @@ d('a relation change reaches its foreign key', () => {
     await insert(CHILD, { project_id: parent, title: 't' });
     const del = await call('DELETE', `/api/data/${PARENT}/${parent}`);
     expect(del.status).toBeGreaterThanOrEqual(400);
-    const left = await asDefaultTenant(db, sql`SELECT 1 FROM ${sql.id(`zvd_${PARENT}`)} WHERE id = ${parent}`);
+    const left = await asDefaultTenant(
+      db,
+      sql`SELECT 1 FROM ${sql.id(`zvd_${PARENT}`)} WHERE id = ${parent}`,
+    );
     expect(left.rows).toHaveLength(1);
 
     // The export reads the key, so the file now says RESTRICT and plans nothing.

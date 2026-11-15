@@ -88,8 +88,11 @@ d('collections field keys (in-process)', () => {
     await expect(
       asDefaultTenant(db, sql`INSERT INTO ${sql.id(TABLE)} (code) VALUES ('b')`),
     ).rejects.toThrow();
-    const ins = await asDefaultTenant(db, sql<{ code: string }>`
-      INSERT INTO ${sql.id(TABLE)} DEFAULT VALUES RETURNING code`);
+    const ins = await asDefaultTenant(
+      db,
+      sql<{ code: string }>`
+      INSERT INTO ${sql.id(TABLE)} DEFAULT VALUES RETURNING code`,
+    );
     expect(ins.rows[0].code).toBe('x');
 
     expect(
@@ -100,8 +103,11 @@ d('collections field keys (in-process)', () => {
     expect(f.indexed).toBe(false);
     expect('defaultValue' in f).toBe(false);
     expect(await indexes()).toEqual([]);
-    const bare = await asDefaultTenant(db, sql<{ code: string | null }>`
-      INSERT INTO ${sql.id(TABLE)} DEFAULT VALUES RETURNING code`);
+    const bare = await asDefaultTenant(
+      db,
+      sql<{ code: string | null }>`
+      INSERT INTO ${sql.id(TABLE)} DEFAULT VALUES RETURNING code`,
+    );
     expect(bare.rows[0].code).toBeNull();
   });
 
@@ -125,9 +131,12 @@ d('collections field keys (in-process)', () => {
     await DDLManager.addField(db, COLLECTION, { name: 'ref', type: 'text' } as never);
     expect((await patch('ref', { unique: true })).status).toBe(200);
     const defs = (
-      await asDefaultTenant(db, sql<{ def: string }>`
+      await asDefaultTenant(
+        db,
+        sql<{ def: string }>`
         SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
-         WHERE conrelid = to_regclass(${TABLE}) AND contype = 'u'`)
+         WHERE conrelid = to_regclass(${TABLE}) AND contype = 'u'`,
+      )
     ).rows
       .map((r) => r.def)
       .sort();

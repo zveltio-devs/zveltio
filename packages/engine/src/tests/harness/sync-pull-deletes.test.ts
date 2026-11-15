@@ -78,10 +78,13 @@ d('sync pull returns deletes', () => {
       name: NAME,
       fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
     } as never);
-    await asDefaultTenant(db, sql`
+    await asDefaultTenant(
+      db,
+      sql`
       INSERT INTO zv_tenants (id, slug, name) VALUES (${OTHER_TENANT}::uuid, 'hsyncdel-b', 'B')
       ON CONFLICT (id) DO NOTHING
-    `);
+    `,
+    );
   });
 
   afterAll(async () => {

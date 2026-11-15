@@ -81,8 +81,11 @@ d('m2m junction tables under tenant RLS', () => {
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
     cookie = await createGodSession(app, db);
-    await asDefaultTenant(db, sql`INSERT INTO zv_tenants (id, slug, name, status)
-              VALUES (${OTHER}::uuid, ${SLUG}, ${SLUG}, 'active')`);
+    await asDefaultTenant(
+      db,
+      sql`INSERT INTO zv_tenants (id, slug, name, status)
+              VALUES (${OTHER}::uuid, ${SLUG}, ${SLUG}, 'active')`,
+    );
     await createRoute(TGT, [{ name: 'name', type: 'text' }]);
     await createRoute(SRC, [
       { name: 'title', type: 'text' },
@@ -114,7 +117,9 @@ d('m2m junction tables under tenant RLS', () => {
     for (const name of [SRC, TGT]) {
       await DDLManager.dropCollection(db, name, { force: true }).catch(() => {});
     }
-    await asDefaultTenant(db, sql`DELETE FROM zv_tenants WHERE id = ${OTHER}::uuid`).catch(() => {});
+    await asDefaultTenant(db, sql`DELETE FROM zv_tenants WHERE id = ${OTHER}::uuid`).catch(
+      () => {},
+    );
   });
 
   it('another tenant does not see the links', async () => {

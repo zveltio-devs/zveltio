@@ -140,8 +140,11 @@ d('webhooks fire after the commit', () => {
        WHERE name = ${WEBHOOK_QUEUE} AND data->>'webhookId' = ${hook}`.execute(db);
     expect(queued.rows[0]!.n).toBe(0);
     await drainWebhookJobs(db);
-    const kept = await asDefaultTenant(db, sql<{ n: number }>`
-      SELECT count(*)::int AS n FROM ${sql.table(TABLE)}`);
+    const kept = await asDefaultTenant(
+      db,
+      sql<{ n: number }>`
+      SELECT count(*)::int AS n FROM ${sql.table(TABLE)}`,
+    );
     expect(kept.rows[0]!.n).toBe(0); // the rollback is real
     expect(await deliveries()).toEqual([]);
     expect(sent).toEqual([]);

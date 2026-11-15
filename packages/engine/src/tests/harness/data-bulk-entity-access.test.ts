@@ -91,14 +91,20 @@ d('bulk entity-access enforcement (in-process)', () => {
     ).toBe(true);
 
     // the denied row was NOT modified
-    const locked = await asDefaultTenant(db, sql<{ title: string }>`
+    const locked = await asDefaultTenant(
+      db,
+      sql<{ title: string }>`
       SELECT title FROM ${sql.id(tableName)} WHERE id = ${lockedId}
-    `);
+    `,
+    );
     expect(locked.rows[0]?.title).toBe('locked-u');
     // ...and neither was the allowed one.
-    const open = await asDefaultTenant(db, sql<{ title: string }>`
+    const open = await asDefaultTenant(
+      db,
+      sql<{ title: string }>`
       SELECT title FROM ${sql.id(tableName)} WHERE id = ${openId}
-    `);
+    `,
+    );
     expect(open.rows[0]?.title).toBe('open-u');
   });
 
@@ -123,9 +129,12 @@ d('bulk entity-access enforcement (in-process)', () => {
     expect(body.errors).toEqual([{ index: 1, id: lockedId, errors: ['Forbidden'] }]);
 
     // both rows still exist
-    const still = await asDefaultTenant(db, sql<{ n: number }>`
+    const still = await asDefaultTenant(
+      db,
+      sql<{ n: number }>`
       SELECT count(*)::int AS n FROM ${sql.id(tableName)} WHERE id IN (${openId}, ${lockedId})
-    `);
+    `,
+    );
     expect(still.rows[0]!.n).toBe(2);
   });
 });

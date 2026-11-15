@@ -62,10 +62,13 @@ d('a user_email row rule is not dropped for a caller without an email', () => {
       role: 'member',
       grants: [{ collection: COLLECTION, actions: ['read', 'list'] }],
     });
-    await asDefaultTenant(db, sql`
+    await asDefaultTenant(
+      db,
+      sql`
       INSERT INTO ${sql.table(`zvd_${COLLECTION}`)} (title, owner_email)
       VALUES ('mine', ${member.email}), ('theirs', ${OTHER})
-    `);
+    `,
+    );
     // Straight into the table and then through the route's own rebuild, so the
     // database policy is the one the engine would generate.
     await sql`

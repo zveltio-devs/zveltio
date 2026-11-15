@@ -101,9 +101,12 @@ d('bulk writes honour query alters (in-process)', () => {
     const body = (await res.json()) as { errors: { errors: string[] }[] };
     expect(body.errors[0]!.errors).toEqual(['Record not found']);
 
-    const still = await asDefaultTenant(db, sql<{ label: string }>`
+    const still = await asDefaultTenant(
+      db,
+      sql<{ label: string }>`
       SELECT label FROM ${sql.table(TABLE)} WHERE id = ${hidden[0]}::uuid
-    `);
+    `,
+    );
     expect(still.rows[0]!.label).toBe('hide-me');
   });
 
@@ -117,9 +120,12 @@ d('bulk writes honour query alters (in-process)', () => {
     const body = (await res.json()) as { errors: { errors: string[] }[] };
     expect(body.errors[0]!.errors).toEqual(['Record not found']);
 
-    const still = await asDefaultTenant(db, sql<{ n: number }>`
+    const still = await asDefaultTenant(
+      db,
+      sql<{ n: number }>`
       SELECT count(*)::int AS n FROM ${sql.table(TABLE)} WHERE id = ${hidden[0]}::uuid
-    `);
+    `,
+    );
     expect(still.rows[0]!.n).toBe(1);
   });
 

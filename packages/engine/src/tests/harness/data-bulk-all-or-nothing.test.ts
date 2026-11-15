@@ -64,11 +64,16 @@ d('bulk write is all or nothing (ADR 0044, in-process)', () => {
   afterAll(async () => {
     for (const u of unsubs) u();
     if (!db) return;
-    await asDefaultTenant(db, sql`DELETE FROM pgboss.job WHERE data->>'webhookId' = ${webhookId}`)
-      .catch(() => {});
-    await asDefaultTenant(db, sql`DELETE FROM zvd_webhooks WHERE id = ${webhookId}::uuid`).catch(() => {});
-    await asDefaultTenant(db, sql`DELETE FROM zv_revisions WHERE collection = ${COLLECTION}`)
-      .catch(() => {});
+    await asDefaultTenant(
+      db,
+      sql`DELETE FROM pgboss.job WHERE data->>'webhookId' = ${webhookId}`,
+    ).catch(() => {});
+    await asDefaultTenant(db, sql`DELETE FROM zvd_webhooks WHERE id = ${webhookId}::uuid`).catch(
+      () => {},
+    );
+    await asDefaultTenant(db, sql`DELETE FROM zv_revisions WHERE collection = ${COLLECTION}`).catch(
+      () => {},
+    );
     await sql.raw(`DROP TABLE IF EXISTS "zvd_${COLLECTION}" CASCADE`).execute(db);
     await db.deleteFrom('zvd_collections').where('name', '=', COLLECTION).execute();
   });
@@ -92,9 +97,12 @@ d('bulk write is all or nothing (ADR 0044, in-process)', () => {
         sql<{ n: string }>`SELECT count(*)::text AS n FROM ${sql.table(`zvd_${COLLECTION}`)}`,
       ),
       labels: (
-        await asDefaultTenant(db, sql<{ label: string; score: number | null }>`SELECT label, score FROM ${sql.table(
-          `zvd_${COLLECTION}`,
-        )} ORDER BY label`)
+        await asDefaultTenant(
+          db,
+          sql<{ label: string; score: number | null }>`SELECT label, score FROM ${sql.table(
+            `zvd_${COLLECTION}`,
+          )} ORDER BY label`,
+        )
       ).rows,
       revisions: await n(
         sql<{

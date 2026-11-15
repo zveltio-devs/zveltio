@@ -11,11 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { runGarbageCollector } from '../../lib/runtime/index.js';
-import {
-  asDefaultTenant,
-  getTestApp,
-  harnessAvailable,
-} from '../../testing/app-harness.js';
+import { asDefaultTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -25,11 +21,14 @@ d('runGarbageCollector — abandoned flow runs', () => {
 
   beforeAll(async () => {
     ({ db } = await getTestApp());
-    const flow = await asDefaultTenant(db, sql<{ id: string }>`
+    const flow = await asDefaultTenant(
+      db,
+      sql<{ id: string }>`
       INSERT INTO zv_flows (name, trigger_type, trigger_config, is_active)
       VALUES (${`gc-abandoned-${Date.now()}`}, 'manual', '{}'::jsonb, true)
       RETURNING id::text AS id
-    `);
+    `,
+    );
     flowId = flow.rows[0]!.id;
   });
 
@@ -38,11 +37,14 @@ d('runGarbageCollector — abandoned flow runs', () => {
   });
 
   async function insertRun(status: string, startedHoursAgo: number): Promise<string> {
-    const r = await asDefaultTenant(db, sql<{ id: string }>`
+    const r = await asDefaultTenant(
+      db,
+      sql<{ id: string }>`
       INSERT INTO zv_flow_runs (flow_id, status, started_at)
       VALUES (${flowId}, ${status}, NOW() - (${startedHoursAgo}::int || ' hours')::interval)
       RETURNING id::text AS id
-    `);
+    `,
+    );
     return r.rows[0]!.id;
   }
 
@@ -53,10 +55,13 @@ d('runGarbageCollector — abandoned flow runs', () => {
 
     await runGarbageCollector(db);
 
-    const rows = await asDefaultTenant(db, sql<{ id: string; status: string; error: string | null; fin: boolean }>`
+    const rows = await asDefaultTenant(
+      db,
+      sql<{ id: string; status: string; error: string | null; fin: boolean }>`
       SELECT id::text AS id, status, error, finished_at IS NOT NULL AS fin
       FROM zv_flow_runs WHERE flow_id = ${flowId}
-    `);
+    `,
+    );
     const byId = new Map(rows.rows.map((r) => [r.id, r]));
 
     expect(byId.get(abandoned)).toMatchObject({ status: 'failed', fin: true });

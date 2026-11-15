@@ -57,10 +57,13 @@ d('a failed role lookup does not stand role-keyed row rules down', () => {
     // `"user".role` column, which the middleware appends on its own.
     await (await getEnforcer()).addGroupingPolicy(member.userId, ROLE, '*');
     await invalidateUserPermCache(member.userId);
-    await asDefaultTenant(db, sql`
+    await asDefaultTenant(
+      db,
+      sql`
       INSERT INTO ${sql.table(`zvd_${COLLECTION}`)} (title, owner_ref)
       VALUES ('mine', ${member.userId}), ('theirs', 'someone-else')
-    `);
+    `,
+    );
     await sql`
       INSERT INTO zvd_rls_policies (collection, role, filter_field, filter_op, filter_value_source, is_enabled)
       VALUES (${COLLECTION}, ${ROLE}, 'owner_ref', 'eq', 'user_id', TRUE)

@@ -227,12 +227,18 @@ d('TXN_SKIP routers roll back a half-finished write', () => {
       steps: [step('atom_boom')],
     });
     expect(res.status).toBe(500);
-    const row = await asDefaultTenant(db, sql<{
-      name: string;
-    }>`SELECT name FROM zv_flows WHERE id = ${flow.id}`);
+    const row = await asDefaultTenant(
+      db,
+      sql<{
+        name: string;
+      }>`SELECT name FROM zv_flows WHERE id = ${flow.id}`,
+    );
     expect(row.rows[0].name).toBe(`${FLOW}_p`);
-    const steps = await asDefaultTenant(db, sql<{ name: string }>`
-      SELECT name FROM zv_flow_steps WHERE flow_id = ${flow.id}`);
+    const steps = await asDefaultTenant(
+      db,
+      sql<{ name: string }>`
+      SELECT name FROM zv_flow_steps WHERE flow_id = ${flow.id}`,
+    );
     expect(steps.rows.map((s) => s.name)).toEqual(['first']);
   });
 

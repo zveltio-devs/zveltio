@@ -78,9 +78,12 @@ d('a failing record listener inside the request transaction', () => {
     // Else the assertions below would pass without the savepoint ever running.
     expect(ranInTrx).toBe(true);
     expect(res.status).toBe(201);
-    const rows = await asDefaultTenant(db, sql<{ label: string }>`
+    const rows = await asDefaultTenant(
+      db,
+      sql<{ label: string }>`
       SELECT label FROM ${sql.table(`zvd_${COLLECTION}`)} ORDER BY label
-    `);
+    `,
+    );
     expect(rows.rows.map((r) => r.label)).toEqual(['from-request']);
   });
 });

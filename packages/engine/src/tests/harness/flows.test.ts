@@ -44,7 +44,9 @@ d('flows CRUD + steps + run (in-process)', () => {
 
   afterAll(async () => {
     if (db && flowId) {
-      await asDefaultTenant(db, sql`DELETE FROM zv_flow_steps WHERE flow_id = ${flowId}`).catch(() => {});
+      await asDefaultTenant(db, sql`DELETE FROM zv_flow_steps WHERE flow_id = ${flowId}`).catch(
+        () => {},
+      );
       await asDefaultTenant(db, sql`DELETE FROM zv_flows WHERE id = ${flowId}`).catch(() => {});
     }
   });
@@ -166,8 +168,11 @@ d('flows CRUD + steps + run (in-process)', () => {
     try {
       const at = async () =>
         (
-          await asDefaultTenant(db, sql<{ next_run_at: Date | null }>`
-            SELECT next_run_at FROM zv_flows WHERE id = ${id}`)
+          await asDefaultTenant(
+            db,
+            sql<{ next_run_at: Date | null }>`
+            SELECT next_run_at FROM zv_flows WHERE id = ${id}`,
+          )
         ).rows[0]!.next_run_at;
       const first = await at();
       expect(first).not.toBeNull();

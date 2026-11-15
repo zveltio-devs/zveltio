@@ -65,9 +65,13 @@ d('webhook update + delete via data writes (in-process)', () => {
     globalThis.fetch = originalFetch;
     if (!db) return;
     if (webhookId) {
-      await asDefaultTenant(db, sql`DELETE FROM zvd_webhook_deliveries WHERE webhook_id = ${webhookId}`)
-        .catch(() => {});
-      await asDefaultTenant(db, sql`DELETE FROM zvd_webhooks WHERE id = ${webhookId}`).catch(() => {});
+      await asDefaultTenant(
+        db,
+        sql`DELETE FROM zvd_webhook_deliveries WHERE webhook_id = ${webhookId}`,
+      ).catch(() => {});
+      await asDefaultTenant(db, sql`DELETE FROM zvd_webhooks WHERE id = ${webhookId}`).catch(
+        () => {},
+      );
     }
     await sql
       .raw(`DROP TABLE IF EXISTS "zvd_${COLLECTION}" CASCADE`)
@@ -81,9 +85,12 @@ d('webhook update + delete via data writes (in-process)', () => {
   });
 
   const deliveryCount = async () => {
-    const row = await asDefaultTenant(db, sql<{ count: string }>`
+    const row = await asDefaultTenant(
+      db,
+      sql<{ count: string }>`
       SELECT count(*)::text AS count FROM zvd_webhook_deliveries WHERE webhook_id = ${webhookId}
-    `);
+    `,
+    );
     return Number(row.rows[0]?.count ?? 0);
   };
 

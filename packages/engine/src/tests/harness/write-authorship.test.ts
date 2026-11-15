@@ -38,11 +38,14 @@ d('dynamic write authorship (in-process)', () => {
 
   /** The row as the DATABASE holds it — not as the API reported it. */
   async function persisted(id: string) {
-    const { rows } = await asDefaultTenant(db, sql<{
-      created_by: string | null;
-      updated_by: string | null;
-      tenant_id: string | null;
-    }>`SELECT created_by, updated_by, tenant_id FROM ${sql.id(tableName)} WHERE id = ${id}`);
+    const { rows } = await asDefaultTenant(
+      db,
+      sql<{
+        created_by: string | null;
+        updated_by: string | null;
+        tenant_id: string | null;
+      }>`SELECT created_by, updated_by, tenant_id FROM ${sql.id(tableName)} WHERE id = ${id}`,
+    );
     return rows[0];
   }
 

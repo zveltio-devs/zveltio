@@ -152,9 +152,12 @@ d('sync push guards (in-process)', () => {
     expect(body.results[0]?.status).toBe('error');
     expect(body.results[0]?.error).toMatch(/read-only for your role/);
 
-    const row = await asDefaultTenant(db, sql<{ salary: string }>`
+    const row = await asDefaultTenant(
+      db,
+      sql<{ salary: string }>`
       SELECT salary FROM ${sql.id(`zvd_${COLUMNS}`)} WHERE id = ${recordId}
-    `);
+    `,
+    );
     expect(row.rows[0]?.salary).toBe('100');
   });
 
@@ -176,9 +179,12 @@ d('sync push guards (in-process)', () => {
     expect(body.results[1]?.error ?? '').not.toMatch(/transaction is aborted/);
     expect(body.results[1]?.status).toBe('ok');
 
-    const written = await asDefaultTenant(db, sql<{ n: number }>`
+    const written = await asDefaultTenant(
+      db,
+      sql<{ n: number }>`
       SELECT count(*)::int AS n FROM ${sql.id(`zvd_${B}`)} WHERE id = ${goodId}
-    `);
+    `,
+    );
     expect(written.rows[0]?.n).toBe(1);
   });
 
@@ -188,9 +194,12 @@ d('sync push guards (in-process)', () => {
   it('push and pull refuse a zvd_ table that is not a registered collection', async () => {
     const table = `zvd_jnc_hpush_${Date.now()}`;
     const rowId = crypto.randomUUID();
-    await asDefaultTenant(db, sql`CREATE TABLE ${sql.id(table)} (id uuid PRIMARY KEY, a_id uuid,
+    await asDefaultTenant(
+      db,
+      sql`CREATE TABLE ${sql.id(table)} (id uuid PRIMARY KEY, a_id uuid,
               created_at timestamptz NOT NULL DEFAULT now(),
-              updated_at timestamptz NOT NULL DEFAULT now())`);
+              updated_at timestamptz NOT NULL DEFAULT now())`,
+    );
     try {
       await asDefaultTenant(db, sql`INSERT INTO ${sql.id(table)} (id) VALUES (${rowId})`);
       const res = await push(godCookie, [
@@ -198,7 +207,10 @@ d('sync push guards (in-process)', () => {
       ]);
       const body = (await res.json()) as { results: { status: string; error?: string }[] };
       expect(body.results[0]?.status).toBe('error');
-      const left = await asDefaultTenant(db, sql`SELECT 1 FROM ${sql.id(table)} WHERE id = ${rowId}`);
+      const left = await asDefaultTenant(
+        db,
+        sql`SELECT 1 FROM ${sql.id(table)} WHERE id = ${rowId}`,
+      );
       expect(left.rows).toHaveLength(1);
 
       const pulled = await app.request('/api/sync/pull', {

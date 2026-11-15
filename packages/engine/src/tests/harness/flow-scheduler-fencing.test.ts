@@ -14,11 +14,7 @@
  */
 import { expect, it } from 'bun:test';
 import { _internalForTests, flowScheduler } from '../../lib/flows/flow-scheduler.js';
-import {
-  asDefaultTenant,
-  getTestApp,
-  harnessAvailable,
-} from '../../testing/app-harness.js';
+import { asDefaultTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 it.skipIf(!harnessAvailable())(
   'a second replica cannot claim a flow that is mid-execution',
@@ -26,17 +22,18 @@ it.skipIf(!harnessAvailable())(
     const { db } = await getTestApp();
     const id = crypto.randomUUID();
     await asDefaultTenant(db, (t) =>
-       t
-      .insertInto('zv_flows' as never)
-      .values({
-        id,
-        name: 'fencing probe',
-        trigger_type: 'cron',
-        trigger_config: JSON.stringify({ cron: '0 3 * * *' }),
-        is_active: true,
-        next_run_at: new Date(Date.now() - 60_000),
-      } as never)
-      .execute());
+      t
+        .insertInto('zv_flows' as never)
+        .values({
+          id,
+          name: 'fencing probe',
+          trigger_type: 'cron',
+          trigger_config: JSON.stringify({ cron: '0 3 * * *' }),
+          is_active: true,
+          next_run_at: new Date(Date.now() - 60_000),
+        } as never)
+        .execute(),
+    );
 
     // A separate connection is the whole point: two transactions on ONE
     // connection see each other's locks as their own and the probe would pass

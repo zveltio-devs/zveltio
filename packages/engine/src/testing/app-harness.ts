@@ -148,7 +148,9 @@ export function asDefaultTenant<R>(
   db: Database,
   q: { execute(executor: Database): Promise<R> } | ((trx: Database) => Promise<R>),
 ): Promise<R> {
-  return asTenant(db, DEFAULT_TENANT_ID, (trx) => (typeof q === 'function' ? q(trx) : q.execute(trx)));
+  return asTenant(db, DEFAULT_TENANT_ID, (trx) =>
+    typeof q === 'function' ? q(trx) : q.execute(trx),
+  );
 }
 
 /**

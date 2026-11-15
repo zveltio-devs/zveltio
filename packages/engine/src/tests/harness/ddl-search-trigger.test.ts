@@ -39,12 +39,14 @@ d('collection search trigger (in-process)', () => {
   let db: Database;
 
   const insert = (c: string, row: Record<string, string>) =>
-    asDefaultTenant(db, sql<{ search_text: string | null; search_vector: string | null }>`
+    asDefaultTenant(
+      db,
+      sql<{ search_text: string | null; search_vector: string | null }>`
       INSERT INTO ${sql.id(`zvd_${c}`)} (${sql.join(Object.keys(row).map((k) => sql.id(k)))})
       VALUES (${sql.join(Object.values(row))})
       RETURNING search_text, search_vector::text AS search_vector
-    `)
-      .then((r) => r.rows[0]!);
+    `,
+    ).then((r) => r.rows[0]!);
 
   beforeAll(async () => {
     ({ db } = await getTestApp());
@@ -91,7 +93,10 @@ d('collection search trigger (in-process)', () => {
     );
 
     // A rename that bypasses the metadata, as a hand-run ALTER would.
-    await asDefaultTenant(db, sql`ALTER TABLE ${sql.id(`zvd_${MAIN}`)} RENAME COLUMN extra TO extra2`);
+    await asDefaultTenant(
+      db,
+      sql`ALTER TABLE ${sql.id(`zvd_${MAIN}`)} RENAME COLUMN extra TO extra2`,
+    );
     expect((await insert(MAIN, { title: 'still' })).search_text).toBe('still');
   });
 

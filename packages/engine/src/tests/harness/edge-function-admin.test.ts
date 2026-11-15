@@ -82,17 +82,23 @@ d('edge function administration (in-process)', () => {
     expect(fn.is_active).toBe(false);
     expect(fn).not.toHaveProperty('egress_before');
 
-    const row = await asDefaultTenant(db, sql<{ metadata: { before: unknown; after: unknown } }>`
+    const row = await asDefaultTenant(
+      db,
+      sql<{ metadata: { before: unknown; after: unknown } }>`
       SELECT metadata FROM zv_audit_log
-       WHERE event_type = 'edge_function.egress_changed' AND resource_id = ${id}`);
+       WHERE event_type = 'edge_function.egress_changed' AND resource_id = ${id}`,
+    );
     expect(row.rows[0]?.metadata).toMatchObject({ before: null, after: ['api.example.com'] });
   });
 
   it('deletes, audits it, and answers 404 for a function that is gone', async () => {
     expect((await call(admin, 'DELETE', `/${id}`)).status).toBe(200);
-    const row = await asDefaultTenant(db, sql<{ n: number }>`
+    const row = await asDefaultTenant(
+      db,
+      sql<{ n: number }>`
       SELECT count(*)::int AS n FROM zv_audit_log
-       WHERE event_type = 'edge_function.deleted' AND resource_id = ${id}`);
+       WHERE event_type = 'edge_function.deleted' AND resource_id = ${id}`,
+    );
     expect(row.rows[0]?.n).toBe(1);
     expect((await call(admin, 'DELETE', `/${id}`)).status).toBe(404);
     expect((await call(admin, 'GET', `/${id}`)).status).toBe(404);

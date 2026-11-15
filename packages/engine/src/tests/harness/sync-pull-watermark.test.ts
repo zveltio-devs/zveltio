@@ -98,9 +98,12 @@ d('sync pull holds its position behind in-flight transactions', () => {
       }),
     });
     expect(res.status).toBe(200);
-    const { rows } = await asDefaultTenant(db, sql<{ old: boolean }>`
+    const { rows } = await asDefaultTenant(
+      db,
+      sql<{ old: boolean }>`
       SELECT updated_at < now() - interval '1 day' AS old
-      FROM ${sql.table(`zvd_${NAME}`)} WHERE title = 'backdated'`);
+      FROM ${sql.table(`zvd_${NAME}`)} WHERE title = 'backdated'`,
+    );
     expect(rows).toEqual([{ old: false }]);
   });
 

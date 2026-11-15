@@ -84,9 +84,12 @@ d('bulk delete forbidden-only 422 (in-process)', () => {
       { index: 1, id: id2, errors: ['Forbidden'] },
     ]);
 
-    const still = await asDefaultTenant(db, sql<{ n: number }>`
+    const still = await asDefaultTenant(
+      db,
+      sql<{ n: number }>`
       SELECT count(*)::int AS n FROM ${sql.id(tableName)}
-    `);
+    `,
+    );
     expect(still.rows[0]!.n).toBe(2);
   });
 });

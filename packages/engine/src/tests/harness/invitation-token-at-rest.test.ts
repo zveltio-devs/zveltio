@@ -43,20 +43,29 @@ d('invitation token at rest', () => {
     const token = new URL(invite_url).searchParams.get('token') ?? '';
     expect(token).toMatch(/^[0-9a-f]{64}$/);
 
-    const row = await asDefaultTenant(db, sql<{ id: string; token: string }>`
+    const row = await asDefaultTenant(
+      db,
+      sql<{ id: string; token: string }>`
       SELECT id::text, token FROM zv_invitations WHERE email = ${email}
-    `);
+    `,
+    );
     expect(row.rows[0]!.token).toBe(sha256(token));
 
-    const leaked = await asDefaultTenant(db, sql<{ n: number }>`
+    const leaked = await asDefaultTenant(
+      db,
+      sql<{ n: number }>`
       SELECT COUNT(*)::int AS n FROM zv_audit_log
        WHERE resource_id = ${token} OR metadata::text LIKE ${`%${token}%`}
-    `);
+    `,
+    );
     expect(leaked.rows[0]!.n).toBe(0);
-    const audited = await asDefaultTenant(db, sql<{ n: number }>`
+    const audited = await asDefaultTenant(
+      db,
+      sql<{ n: number }>`
       SELECT COUNT(*)::int AS n FROM zv_audit_log
        WHERE event_type = 'user.invited' AND resource_id = ${row.rows[0]!.id}
-    `);
+    `,
+    );
     expect(audited.rows[0]!.n).toBe(1);
 
     // What a database reader holds opens nothing.

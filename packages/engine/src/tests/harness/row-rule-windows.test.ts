@@ -113,9 +113,12 @@ d('row rules reach the database with their commit', () => {
       name: RULED,
       fields: [{ name: 'owner', type: 'text', required: false, unique: false, indexed: false }],
     } as never);
-    await asDefaultTenant(db, sql`
+    await asDefaultTenant(
+      db,
+      sql`
       INSERT INTO ${sql.table(TABLE)} (tenant_id, owner)
-      VALUES (${DEFAULT_TENANT_ID}::uuid, ${memberId}), (${DEFAULT_TENANT_ID}::uuid, 'someone-else')`);
+      VALUES (${DEFAULT_TENANT_ID}::uuid, ${memberId}), (${DEFAULT_TENANT_ID}::uuid, 'someone-else')`,
+    );
   });
 
   afterAll(async () => {

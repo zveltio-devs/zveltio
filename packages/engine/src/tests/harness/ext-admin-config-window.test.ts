@@ -126,7 +126,10 @@ d('an extension mutation authorized against admin needs the configuration window
   };
   const titles = async () =>
     (
-      await asDefaultTenant(db, sql<{ title: string }>`SELECT title FROM ${sql.table(TABLE)} ORDER BY title`)
+      await asDefaultTenant(
+        db,
+        sql<{ title: string }>`SELECT title FROM ${sql.table(TABLE)} ORDER BY title`,
+      )
     ).rows.map((r) => r.title);
 
   beforeAll(async () => {

@@ -83,9 +83,12 @@ d('a key meets its issuer column rules in the database (migration 095)', () => {
       fields: [field('title'), field('secret')],
     } as never);
     recordId = (
-      await asDefaultTenant(db, sql<{ id: string }>`
+      await asDefaultTenant(
+        db,
+        sql<{ id: string }>`
         INSERT INTO ${sql.table(TABLE)} (tenant_id, title, secret)
-        VALUES (${DEFAULT_TENANT_ID}::uuid, 'seed', 'classified') RETURNING id`)
+        VALUES (${DEFAULT_TENANT_ID}::uuid, 'seed', 'classified') RETURNING id`,
+      )
     ).rows[0]!.id;
 
     // A member (the role column rules are keyed on) granted this collection
@@ -109,11 +112,14 @@ d('a key meets its issuer column rules in the database (migration 095)', () => {
 
     raw = generateApiKey();
     keyId = (
-      await asDefaultTenant(db, sql<{ id: string }>`
+      await asDefaultTenant(
+        db,
+        sql<{ id: string }>`
         INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, rate_limit, is_active, tenant_id, created_by)
         VALUES ('issuer column probe', ${await hashApiKey(raw)}, 'zvk_', ${JSON.stringify([{ collection: COLLECTION, actions: ['read', 'update'] }])}::jsonb, 100, true,
                 ${DEFAULT_TENANT_ID}::uuid, ${issuer})
-        RETURNING id`)
+        RETURNING id`,
+      )
     ).rows[0]!.id;
   });
 
@@ -122,12 +128,15 @@ d('a key meets its issuer column rules in the database (migration 095)', () => {
     const e = await getEnforcer();
     await e.removeFilteredPolicy(0, ROLE).catch(() => {});
     await e.deleteRolesForUser(issuer).catch(() => {});
-    await asDefaultTenant(db, sql`DELETE FROM zv_api_keys WHERE id = ${keyId}::uuid`).catch(() => {});
+    await asDefaultTenant(db, sql`DELETE FROM zv_api_keys WHERE id = ${keyId}::uuid`).catch(
+      () => {},
+    );
     await sql`DELETE FROM zvd_column_permissions WHERE collection_name = ${COLLECTION}`
       .execute(db)
       .catch(() => {});
-    await asDefaultTenant(db, sql`DELETE FROM zv_revisions WHERE collection = ${COLLECTION}`)
-      .catch(() => {});
+    await asDefaultTenant(db, sql`DELETE FROM zv_revisions WHERE collection = ${COLLECTION}`).catch(
+      () => {},
+    );
     await sql`DELETE FROM "user" WHERE id = ${issuer}`.execute(db).catch(() => {});
     await dropTestCollection(db, COLLECTION).catch(() => {});
   });
@@ -178,11 +187,14 @@ d('a key meets its issuer column rules in the database (migration 095)', () => {
   });
 
   it('the revision view strips the column from history', async () => {
-    await asDefaultTenant(db, sql`
+    await asDefaultTenant(
+      db,
+      sql`
       INSERT INTO zv_revisions (tenant_id, collection, record_id, action, data, delta, user_id)
       VALUES (${DEFAULT_TENANT_ID}::uuid, ${COLLECTION}, ${recordId}, 'update',
               '{"title":"seed","secret":"classified"}'::jsonb, '{"secret":"classified"}'::jsonb, ${issuer})
-    `);
+    `,
+    );
     const r = await asKey((trx) =>
       sql<{ d: string | null; x: string | null }>`
         SELECT data->>'secret' AS d, delta->>'secret' AS x FROM zvv__revisions

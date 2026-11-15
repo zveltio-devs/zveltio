@@ -22,11 +22,7 @@ import {
   withTenantIsolation,
 } from '../../lib/tenancy/index.js';
 import { createRlsPolicy, deleteRlsPolicy, updateRlsPolicy } from '../../lib/tenancy/rls.js';
-import {
-  asDefaultTenant,
-  getTestApp,
-  harnessAvailable,
-} from '../../testing/app-harness.js';
+import { asDefaultTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
@@ -92,7 +88,10 @@ d('row rules are enforced by the database (in-process)', () => {
   beforeAll(async () => {
     ({ db } = await getTestApp());
     tenant = (
-      await asDefaultTenant(db, sql<{ id: string }>`SELECT id FROM zv_tenants ORDER BY created_at LIMIT 1`)
+      await asDefaultTenant(
+        db,
+        sql<{ id: string }>`SELECT id FROM zv_tenants ORDER BY created_at LIMIT 1`,
+      )
     ).rows[0]!.id;
 
     await sql

@@ -89,29 +89,30 @@ d('revision delta and encrypted fields (in-process)', () => {
       .execute()
       .catch(() => {});
     await asDefaultTenant(db, (t) =>
-       t
-      .deleteFrom('zv_revisions')
-      .where('collection', '=', COLLECTION)
-      .execute())
-      .catch(() => {});
+      t.deleteFrom('zv_revisions').where('collection', '=', COLLECTION).execute(),
+    ).catch(() => {});
   });
 
   it('stores the column encrypted, which is the premise', async () => {
-    const row = await asDefaultTenant(db, sql<{ secret: string }>`
+    const row = await asDefaultTenant(
+      db,
+      sql<{ secret: string }>`
       SELECT secret FROM ${sql.table(TABLE)} WHERE id = ${recordId}::uuid
-    `);
+    `,
+    );
     expect(row.rows[0]!.secret.startsWith('enc:v1:')).toBe(true);
   });
 
   it('does not keep the plaintext in the revision delta', async () => {
     const rev = await asDefaultTenant(db, (t) =>
-       t
-      .selectFrom('zv_revisions')
-      .select(['data', 'delta'])
-      .where('collection', '=', COLLECTION)
-      .where('record_id', '=', recordId)
-      .where('action', '=', 'update')
-      .executeTakeFirstOrThrow());
+      t
+        .selectFrom('zv_revisions')
+        .select(['data', 'delta'])
+        .where('collection', '=', COLLECTION)
+        .where('record_id', '=', recordId)
+        .where('action', '=', 'update')
+        .executeTakeFirstOrThrow(),
+    );
 
     expect(JSON.stringify(rev.data)).not.toContain(SECRET);
     expect(JSON.stringify(rev.delta ?? {})).not.toContain(SECRET);

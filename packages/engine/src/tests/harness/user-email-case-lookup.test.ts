@@ -111,10 +111,13 @@ d('a mixed-case stored address is found by any spelling', () => {
     });
     stored = legacySpelling(member.email);
     await sql`UPDATE "user" SET email = ${stored} WHERE id = ${member.userId}`.execute(db);
-    await asDefaultTenant(db, sql`
+    await asDefaultTenant(
+      db,
+      sql`
       INSERT INTO ${sql.table(`zvd_${COLLECTION}`)} (title, owner_email)
       VALUES ('stored-spelling', ${stored}), ('lowercase-spelling', ${member.email}),
-             ('someone-else', 'someone-else@example.test')`);
+             ('someone-else', 'someone-else@example.test')`,
+    );
     await sql`
       INSERT INTO zvd_rls_policies (collection, role, filter_field, filter_op, filter_value_source, is_enabled)
       VALUES (${COLLECTION}, '*', 'owner_email', 'eq', 'user_email', TRUE)`.execute(db);
@@ -201,8 +204,11 @@ d('a mixed-case stored address is found by any spelling', () => {
       body: JSON.stringify({ user_email: member.email.toUpperCase(), role: 'member' }),
     });
     expect(added.status).toBe(201);
-    const members = await asDefaultTenant(db, sql<{ user_id: string }>`
-      SELECT user_id FROM zv_tenant_users WHERE tenant_id = ${tenantId}::uuid ORDER BY user_id`);
+    const members = await asDefaultTenant(
+      db,
+      sql<{ user_id: string }>`
+      SELECT user_id FROM zv_tenant_users WHERE tenant_id = ${tenantId}::uuid ORDER BY user_id`,
+    );
     expect(members.rows.map((r) => r.user_id).sort()).toEqual([ownerId, member.userId].sort());
   });
 

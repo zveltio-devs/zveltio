@@ -83,9 +83,12 @@ d('per-field encryption at rest (in-process)', () => {
     expect(recordId).toBeDefined();
 
     // Read the raw column directly — it must be encrypted, never the plaintext.
-    const raw = await asDefaultTenant(db, sql<{ secret: string | null }>`
+    const raw = await asDefaultTenant(
+      db,
+      sql<{ secret: string | null }>`
       SELECT secret FROM ${sql.id(`zvd_${COLLECTION}`)} WHERE id = ${recordId}
-    `);
+    `,
+    );
     const stored = raw.rows[0]?.secret ?? '';
     expect(stored).toStartWith('enc:v1:');
     expect(stored).not.toContain(SECRET);

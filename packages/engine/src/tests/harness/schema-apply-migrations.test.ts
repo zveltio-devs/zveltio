@@ -69,7 +69,10 @@ d('schema apply migrations', () => {
         { name: 'note', type: 'text' },
       ],
     } as never);
-    await asDefaultTenant(db, sql`INSERT INTO ${sql.id(`zvd_${COL}`)} (title, note) VALUES ('kept', 'n')`);
+    await asDefaultTenant(
+      db,
+      sql`INSERT INTO ${sql.id(`zvd_${COL}`)} (title, note) VALUES ('kept', 'n')`,
+    );
     await sql`INSERT INTO zv_roles (name) VALUES (${ROLE})`.execute(db);
   });
 
@@ -97,9 +100,12 @@ d('schema apply migrations', () => {
     };
     const res = await call('apply', files);
     expect(res.status).toBe(200);
-    const rows = await asDefaultTenant(db, sql<{
-      headline: string;
-    }>`SELECT headline FROM ${sql.id(`zvd_${COL}`)}`);
+    const rows = await asDefaultTenant(
+      db,
+      sql<{
+        headline: string;
+      }>`SELECT headline FROM ${sql.id(`zvd_${COL}`)}`,
+    );
     expect(rows.rows.map((r) => r.headline)).toEqual(['kept']);
     // Recorded once: the same files plan nothing.
     const plan = await call('plan', files);

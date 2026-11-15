@@ -49,10 +49,13 @@ d('a row rule with an unknown value source fails closed', () => {
       role: 'member',
       grants: [{ collection: COLLECTION, actions: ['read', 'list'] }],
     });
-    await asDefaultTenant(db, sql`
+    await asDefaultTenant(
+      db,
+      sql`
       INSERT INTO ${sql.table(`zvd_${COLLECTION}`)} (title, owner)
       VALUES ('mine', ${member.userId}), ('theirs', 'someone-else')
-    `);
+    `,
+    );
     // The legacy typo, straight into the table and then through the rebuild the
     // routes use, so the database policy is the one the engine would generate.
     await sql`

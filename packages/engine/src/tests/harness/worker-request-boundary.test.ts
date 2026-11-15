@@ -164,8 +164,11 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
       ],
     } as never);
     await applyTenantRLS(db, TABLE);
-    await asDefaultTenant(db, sql`INSERT INTO ${sql.table(TABLE)} (title, tenant_id)
-              VALUES ('a', ${DEFAULT_TENANT_ID}::uuid), ('b', ${DEFAULT_TENANT_ID}::uuid)`);
+    await asDefaultTenant(
+      db,
+      sql`INSERT INTO ${sql.table(TABLE)} (title, tenant_id)
+              VALUES ('a', ${DEFAULT_TENANT_ID}::uuid), ('b', ${DEFAULT_TENANT_ID}::uuid)`,
+    );
     colPermId = await writeColumnRules(db, async (trx) => {
       const row = await trx
         .insertInto('zvd_column_permissions')
@@ -185,8 +188,11 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
       fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
     } as never);
     await applyTenantRLS(db, `zvd_${DENIED}`);
-    await asDefaultTenant(db, sql`INSERT INTO ${sql.table(`zvd_${DENIED}`)} (title, tenant_id)
-              VALUES ('x', ${DEFAULT_TENANT_ID}::uuid)`);
+    await asDefaultTenant(
+      db,
+      sql`INSERT INTO ${sql.table(`zvd_${DENIED}`)} (title, tenant_id)
+              VALUES ('x', ${DEFAULT_TENANT_ID}::uuid)`,
+    );
     const member = await createMemberSession(engine, db, {
       grants: [{ collection: COLL, actions: ['read', 'create', 'update', 'delete'] }],
     });
@@ -196,9 +202,12 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
       grants: [{ collection: COLL, actions: ['read'] }],
     });
     unenrolledId = unenrolled.userId;
-    await asDefaultTenant(db, sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role, valid_from)
+    await asDefaultTenant(
+      db,
+      sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role, valid_from)
               VALUES (${DEFAULT_TENANT_ID}::uuid, ${memberId}, 'member', now() - interval '2 days')
-              ON CONFLICT (tenant_id, user_id) DO UPDATE SET valid_to = NULL`);
+              ON CONFLICT (tenant_id, user_id) DO UPDATE SET valid_to = NULL`,
+    );
 
     app.use('/ext/*', sessionPrefetch(getAuth(), db));
     app.use('/ext/*', tenantMiddleware);
@@ -267,23 +276,35 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
     // After every mode has counted, so one mode's insert is not the next one's row.
     for (const mode of MODES) out[mode]!.addInForce = await call(mode, '/add', asMember, 'POST');
     // Every assignment of the member in the default tenant lapses.
-    await asDefaultTenant(db, sql`UPDATE zv_tenant_users SET valid_to = now() - interval '1 day'
-              WHERE tenant_id = ${DEFAULT_TENANT_ID}::uuid AND user_id = ${memberId}`);
+    await asDefaultTenant(
+      db,
+      sql`UPDATE zv_tenant_users SET valid_to = now() - interval '1 day'
+              WHERE tenant_id = ${DEFAULT_TENANT_ID}::uuid AND user_id = ${memberId}`,
+    );
     // Each mode on the same two rows, so one mode's leak cannot hide the next one's.
     for (const mode of MODES) {
       await asDefaultTenant(db, sql`DELETE FROM ${sql.table(TABLE)}`);
-      await asDefaultTenant(db, sql`INSERT INTO ${sql.table(TABLE)} (title, tenant_id)
-                VALUES ('a', ${DEFAULT_TENANT_ID}::uuid), ('b', ${DEFAULT_TENANT_ID}::uuid)`);
+      await asDefaultTenant(
+        db,
+        sql`INSERT INTO ${sql.table(TABLE)} (title, tenant_id)
+                VALUES ('a', ${DEFAULT_TENANT_ID}::uuid), ('b', ${DEFAULT_TENANT_ID}::uuid)`,
+      );
       out[mode]!.rowsLapsed = await call(mode, '/rows', asMember);
       out[mode]!.touchLapsed = await call(mode, '/touch', asMember, 'POST');
       out[mode]!.addLapsed = await call(mode, '/add', asMember, 'POST');
       out[mode]!.added = (
-        await asDefaultTenant(db, sql<{ n: number }>`SELECT count(*)::int AS n FROM ${sql.table(TABLE)}
-                                 WHERE title = 'added'`)
+        await asDefaultTenant(
+          db,
+          sql<{ n: number }>`SELECT count(*)::int AS n FROM ${sql.table(TABLE)}
+                                 WHERE title = 'added'`,
+        )
       ).rows[0]?.n;
       out[mode]!.left = (
-        await asDefaultTenant(db, sql<{ n: number }>`SELECT count(*)::int AS n FROM ${sql.table(TABLE)}
-                                 WHERE title IN ('a', 'b')`)
+        await asDefaultTenant(
+          db,
+          sql<{ n: number }>`SELECT count(*)::int AS n FROM ${sql.table(TABLE)}
+                                 WHERE title IN ('a', 'b')`,
+        )
       ).rows[0]?.n;
     }
   }, 180_000);
@@ -302,7 +323,10 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
       await sql`DELETE FROM zv_extension_forward_approvals WHERE name = ${extName(m)}`.execute(db);
       await revokeExtensionDbRoles(db, extName(m), true).catch(() => undefined);
     }
-    await asDefaultTenant(db, sql`DELETE FROM zv_tenant_users WHERE user_id = ANY(${[memberId, unenrolledId]})`);
+    await asDefaultTenant(
+      db,
+      sql`DELETE FROM zv_tenant_users WHERE user_id = ANY(${[memberId, unenrolledId]})`,
+    );
     if (colPermId) {
       await sql`DELETE FROM zvd_column_permissions WHERE id = ${colPermId}`.execute(db);
     }

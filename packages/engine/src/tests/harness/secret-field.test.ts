@@ -115,8 +115,11 @@ d('a secret field: write-only, read back by its own extension alone (ADR 0024)',
   };
   const stored = async (table: string, id: string, column = 'tok') =>
     (
-      await asDefaultTenant(db, sql<{ v: string | null }>`
-        SELECT ${sql.ref(column)} AS v FROM ${sql.table(`zvd_${table}`)} WHERE id = ${id}`)
+      await asDefaultTenant(
+        db,
+        sql<{ v: string | null }>`
+        SELECT ${sql.ref(column)} AS v FROM ${sql.table(`zvd_${table}`)} WHERE id = ${id}`,
+      )
     ).rows[0]?.v;
   const create = async (body: Record<string, unknown>) => {
     const res = await asMember('POST', `/api/data/${S}`, body);
@@ -337,17 +340,22 @@ d('a secret field: write-only, read back by its own extension alone (ADR 0024)',
       delete process.env.ZVELTIO_ALLOW_PLAINTEXT_ENCRYPTED_FIELDS;
     }
     expect(await stored(S, id)).toBe(before);
-    const raw = await asDefaultTenant(db, sql<{ n: number }>`
-      SELECT count(*)::int AS n FROM ${sql.table(`zvd_${S}`)} WHERE label = 'j'`);
+    const raw = await asDefaultTenant(
+      db,
+      sql<{ n: number }>`
+      SELECT count(*)::int AS n FROM ${sql.table(`zvd_${S}`)} WHERE label = 'j'`,
+    );
     expect(raw.rows[0]?.n).toBe(0);
   });
 
   it('a database CHECK refuses plaintext in a secret column, even from the table owner', async () => {
-    const raw = await asDefaultTenant(db, sql`INSERT INTO ${sql.table(`zvd_${S}`)} (tok) VALUES ('plain')`)
-      .then(
-        () => null,
-        (err: { errno?: string }) => err.errno,
-      );
+    const raw = await asDefaultTenant(
+      db,
+      sql`INSERT INTO ${sql.table(`zvd_${S}`)} (tok) VALUES ('plain')`,
+    ).then(
+      () => null,
+      (err: { errno?: string }) => err.errno,
+    );
     expect(raw).toBe('23514');
   });
 
@@ -382,11 +390,17 @@ d('a secret field: write-only, read back by its own extension alone (ADR 0024)',
       const keptK = await stored(R, oneId, 'k');
       expect(keptK?.startsWith('enc:v1:')).toBe(true);
       const copies = async () => {
-        const revs = await asDefaultTenant(db, sql<{ j: string }>`
+        const revs = await asDefaultTenant(
+          db,
+          sql<{ j: string }>`
           SELECT data::text || coalesce(delta::text, '') AS j FROM zv_revisions
-           WHERE collection = ${R}`);
-        const dels = await asDefaultTenant(db, sql<{ j: string }>`
-          SELECT payload::text AS j FROM zvd_webhook_deliveries WHERE webhook_id = ${webhookId}`);
+           WHERE collection = ${R}`,
+        );
+        const dels = await asDefaultTenant(
+          db,
+          sql<{ j: string }>`
+          SELECT payload::text AS j FROM zvd_webhook_deliveries WHERE webhook_id = ${webhookId}`,
+        );
         return [...revs.rows, ...dels.rows].map((r) => r.j).join('\n');
       };
       // The deliveries are jobs (ADR 0035); the harness runs no worker.
@@ -397,8 +411,11 @@ d('a secret field: write-only, read back by its own extension alone (ADR 0024)',
         await Bun.sleep(50);
       }
       expect(before).toContain('plain-value-2');
-      const delivered = await asDefaultTenant(db, sql<{ n: number }>`
-        SELECT count(*)::int AS n FROM zvd_webhook_deliveries WHERE webhook_id = ${webhookId}`);
+      const delivered = await asDefaultTenant(
+        db,
+        sql<{ n: number }>`
+        SELECT count(*)::int AS n FROM zvd_webhook_deliveries WHERE webhook_id = ${webhookId}`,
+      );
       expect(delivered.rows[0]!.n).toBeGreaterThan(0);
 
       for (const f of ['p', 'k', 'b']) await alterField(db, R, f, { newType: 'secret' });
@@ -416,22 +433,33 @@ d('a secret field: write-only, read back by its own extension alone (ADR 0024)',
       expect(await stored(R, oneId, 'k')).toBe(keptK);
       expect(await decryptField((await stored(R, oneId, 'b'))!)).toBe('true');
       // The boolean's DEFAULT false is gone: a row that omits it stores NULL.
-      const blank = await asDefaultTenant(db, sql<{ b: string | null }>`
-        INSERT INTO ${sql.table(`zvd_${R}`)} (p) VALUES (NULL) RETURNING b`);
+      const blank = await asDefaultTenant(
+        db,
+        sql<{ b: string | null }>`
+        INSERT INTO ${sql.table(`zvd_${R}`)} (p) VALUES (NULL) RETURNING b`,
+      );
       expect(blank.rows[0]?.b).toBeNull();
-      const plain = await asDefaultTenant(db, sql`INSERT INTO ${sql.table(`zvd_${R}`)} (b) VALUES ('false')`)
-        .then(
-          () => null,
-          (err: { errno?: string }) => err.errno,
-        );
+      const plain = await asDefaultTenant(
+        db,
+        sql`INSERT INTO ${sql.table(`zvd_${R}`)} (b) VALUES ('false')`,
+      ).then(
+        () => null,
+        (err: { errno?: string }) => err.errno,
+      );
       expect(plain).toBe('23514');
-      const rls = await asDefaultTenant(db, sql<{ ok: boolean }>`
-        SELECT has_column_privilege('zveltio_rls', ${`zvd_${R}`}::regclass, 'p', 'SELECT') AS ok`);
+      const rls = await asDefaultTenant(
+        db,
+        sql<{ ok: boolean }>`
+        SELECT has_column_privilege('zveltio_rls', ${`zvd_${R}`}::regclass, 'p', 'SELECT') AS ok`,
+      );
       expect(rls.rows[0]?.ok).toBe(false);
     } finally {
       globalThis.fetch = originalFetch;
       if (webhookId) {
-        await asDefaultTenant(db, sql`DELETE FROM zvd_webhook_deliveries WHERE webhook_id = ${webhookId}`);
+        await asDefaultTenant(
+          db,
+          sql`DELETE FROM zvd_webhook_deliveries WHERE webhook_id = ${webhookId}`,
+        );
         await asDefaultTenant(db, sql`DELETE FROM zvd_webhooks WHERE id = ${webhookId}`);
       }
     }
@@ -440,10 +468,13 @@ d('a secret field: write-only, read back by its own extension alone (ADR 0024)',
   it('the CHECK goes with the field', async () => {
     const checks = async () =>
       (
-        await asDefaultTenant(db, sql<{ n: number }>`
+        await asDefaultTenant(
+          db,
+          sql<{ n: number }>`
           SELECT count(*)::int AS n FROM pg_constraint
            WHERE conrelid = ${`zvd_${R}`}::regclass AND contype = 'c'
-             AND pg_get_constraintdef(oid) LIKE '%enc:v1:%'`)
+             AND pg_get_constraintdef(oid) LIKE '%enc:v1:%'`,
+        )
       ).rows[0]?.n;
     expect(await checks()).toBe(3);
     await dropField(db, R, 'b');

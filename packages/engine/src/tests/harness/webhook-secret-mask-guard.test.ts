@@ -33,9 +33,12 @@ d('PATCH /api/webhooks/:id — the masked secret', () => {
   let id: string;
 
   async function storedSecret(): Promise<string | null> {
-    const r = await asDefaultTenant(db, sql<{ secret: string | null }>`
+    const r = await asDefaultTenant(
+      db,
+      sql<{ secret: string | null }>`
       SELECT secret FROM zvd_webhooks WHERE id = ${id}
-    `);
+    `,
+    );
     return r.rows[0]?.secret ?? null;
   }
 

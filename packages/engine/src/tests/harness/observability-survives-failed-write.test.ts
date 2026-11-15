@@ -110,11 +110,8 @@ d('after-response writers survive a failed write (in-process)', () => {
       .execute()
       .catch(() => {});
     await asDefaultTenant(db, (t) =>
-       t
-      .deleteFrom('zv_audit_log')
-      .where('resource_id', '=', path())
-      .execute())
-      .catch(() => {});
+      t.deleteFrom('zv_audit_log').where('resource_id', '=', path()).execute(),
+    ).catch(() => {});
   });
 
   it('records the failed request in zv_request_logs', async () => {
@@ -133,12 +130,13 @@ d('after-response writers survive a failed write (in-process)', () => {
   it('records the god action that failed in zv_audit_log', async () => {
     const row = await eventually(() =>
       asDefaultTenant(db, (t) =>
-         t
-        .selectFrom('zv_audit_log')
-        .select(['event_type'])
-        .where('resource_id', '=', path())
-        .where('event_type', '=', 'god_action')
-        .executeTakeFirst()),
+        t
+          .selectFrom('zv_audit_log')
+          .select(['event_type'])
+          .where('resource_id', '=', path())
+          .where('event_type', '=', 'god_action')
+          .executeTakeFirst(),
+      ),
     );
     expect(row).toBeDefined();
   });

@@ -97,9 +97,12 @@ d('bulk delete mixed forbidden+aborted 422 (in-process)', () => {
       { index: 2, id: abortedId, errors: ['EXT_HOOK_ABORTED: retain'] },
     ]);
 
-    const remaining = await asDefaultTenant(db, sql<{ id: string }>`
+    const remaining = await asDefaultTenant(
+      db,
+      sql<{ id: string }>`
       SELECT id::text AS id FROM ${sql.id(tableName)} ORDER BY title
-    `);
+    `,
+    );
     expect(remaining.rows.map((r) => r.id).sort()).toEqual(
       [abortedId, deletableId, forbiddenId].sort(),
     );

@@ -151,9 +151,10 @@ d('writtenBy: "actions" — only the owning extension’s actions and jobs write
   const codeOf = async (res: Response) => ((await res.json()) as { code?: string }).code;
   const row = async (table: string, id: string) =>
     (
-      await asDefaultTenant(db, sql<
-        Record<string, unknown>
-      >`SELECT * FROM ${sql.table(`zvd_${table}`)} WHERE id = ${id}`)
+      await asDefaultTenant(
+        db,
+        sql<Record<string, unknown>>`SELECT * FROM ${sql.table(`zvd_${table}`)} WHERE id = ${id}`,
+      )
     ).rows[0];
   const idOf = async (res: Response) => {
     const b = (await res.json()) as { id?: string; result?: { id?: string } };
@@ -217,12 +218,15 @@ d('writtenBy: "actions" — only the owning extension’s actions and jobs write
 
     keyRaw = generateApiKey();
     keyId = (
-      await asDefaultTenant(db, sql<{ id: string }>`
+      await asDefaultTenant(
+        db,
+        sql<{ id: string }>`
         INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, rate_limit, is_active, tenant_id, created_by)
         VALUES ('writtenBy probe', ${await hashApiKey(keyRaw)}, 'zvk_',
                 ${JSON.stringify([{ collection: F, actions: all }])}::jsonb, 100, true,
                 ${DEFAULT_TENANT_ID}::uuid, ${await createKeyCreator(db, [DEFAULT_TENANT_ID])})
-        RETURNING id`)
+        RETURNING id`,
+      )
     ).rows[0]!.id;
 
     app = new Hono();
@@ -428,7 +432,9 @@ d('writtenBy: "actions" — only the owning extension’s actions and jobs write
     await sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${OTHER}, ${BROKEN}, ${CALLER})`.execute(
       db,
     );
-    await asDefaultTenant(db, sql`DELETE FROM zv_api_keys WHERE id = ${keyId}::uuid`).catch(() => {});
+    await asDefaultTenant(db, sql`DELETE FROM zv_api_keys WHERE id = ${keyId}::uuid`).catch(
+      () => {},
+    );
     await asEveryTenant(db, (trx) =>
       sql`DELETE FROM zv_revisions WHERE collection IN (${sql.join([F, W, CC, CN, PAR])})`.execute(
         trx,
@@ -566,7 +572,12 @@ d('writtenBy: "actions" — only the owning extension’s actions and jobs write
   it('a called action that fails leaves none of its writes, even when its caller catches the failure (ADR 0014)', async () => {
     const label = `half-${STAMP}`;
     const rows = async () =>
-      (await asDefaultTenant(db, sql`SELECT id FROM ${sql.table(`zvd_${W}`)} WHERE label = ${label}`)).rows;
+      (
+        await asDefaultTenant(
+          db,
+          sql`SELECT id FROM ${sql.table(`zvd_${W}`)} WHERE label = ${label}`,
+        )
+      ).rows;
     expect((await act(EXT, 'halfDone', { label })).status).toBe(500);
     expect(await rows()).toHaveLength(0);
     // The owner refused this row; its dependent must not keep it by catching.

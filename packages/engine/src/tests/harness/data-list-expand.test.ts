@@ -130,7 +130,10 @@ d('data list expand (in-process)', () => {
     entityAccessRegistry.registerAs(OWNER, `zvd_${PARENT}`, () => 'deny');
     expect(await expandedParent('?expand=parent')).toBeUndefined();
     const childId = (
-      await asDefaultTenant(db, sql<{ id: string }>`SELECT id FROM ${sql.id(`zvd_${CHILD}`)} LIMIT 1`)
+      await asDefaultTenant(
+        db,
+        sql<{ id: string }>`SELECT id FROM ${sql.id(`zvd_${CHILD}`)} LIMIT 1`,
+      )
     ).rows[0]!.id;
     expect(await expandedParent(`/${childId}?expand=parent`)).toBeUndefined();
   });

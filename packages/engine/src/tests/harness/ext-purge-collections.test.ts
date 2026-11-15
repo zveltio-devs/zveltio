@@ -34,8 +34,11 @@ d("purge clears what the engine keeps for the extension's dropped tables", () =>
         fields: [{ name: 'title', type: 'text' }],
       } as never);
     }
-    await asDefaultTenant(db, sql`INSERT INTO zv_migrations (name, down_sql)
-              VALUES (${`ext:${EXT}:001_init`}, ${`DROP TABLE "zvd_${NAME}" CASCADE`})`);
+    await asDefaultTenant(
+      db,
+      sql`INSERT INTO zv_migrations (name, down_sql)
+              VALUES (${`ext:${EXT}:001_init`}, ${`DROP TABLE "zvd_${NAME}" CASCADE`})`,
+    );
   });
 
   afterAll(async () => {

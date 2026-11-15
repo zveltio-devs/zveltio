@@ -95,15 +95,21 @@ d('an extension writes records as the request caller, and only as them', () => {
     });
   const authorOf = async (label: string) =>
     (
-      await asDefaultTenant(db, sql<{ id: string; created_by: string | null }>`
+      await asDefaultTenant(
+        db,
+        sql<{ id: string; created_by: string | null }>`
         SELECT id, created_by FROM ${sql.table(`zvd_${C}`)} WHERE label = ${label}
-      `)
+      `,
+      )
     ).rows[0];
   const revisionAuthor = async (id: string) =>
     (
-      await asDefaultTenant(db, sql<{ user_id: string | null }>`
+      await asDefaultTenant(
+        db,
+        sql<{ user_id: string | null }>`
         SELECT user_id FROM zv_revisions WHERE collection = ${C} AND record_id = ${id}
-      `)
+      `,
+      )
     ).rows.map((r) => r.user_id);
 
   beforeAll(async () => {
@@ -117,7 +123,10 @@ d('an extension writes records as the request caller, and only as them', () => {
       fields: [{ name: 'label', type: 'text', required: false, unique: false, indexed: false }],
     } as never);
     for (let i = 0; i < 100; i++) {
-      const seen = await asDefaultTenant(db, sql<{ t: string | null }>`SELECT to_regclass(${`zvd_${C}`}) AS t`);
+      const seen = await asDefaultTenant(
+        db,
+        sql<{ t: string | null }>`SELECT to_regclass(${`zvd_${C}`}) AS t`,
+      );
       if (seen.rows[0]?.t) break;
       await Bun.sleep(100);
     }

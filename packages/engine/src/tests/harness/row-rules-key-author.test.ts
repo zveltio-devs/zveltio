@@ -169,21 +169,27 @@ d('a key is its author to a row rule (ADR 0028)', () => {
       ['a2', a, 'draft'],
       ['b1', b, 'published'],
     ] as const) {
-      const r = await asDefaultTenant(db, sql<{ id: string }>`
+      const r = await asDefaultTenant(
+        db,
+        sql<{ id: string }>`
         INSERT INTO ${sql.table(TABLE)} (tenant_id, title, owner_email, created_by, status)
         VALUES (${DEFAULT_TENANT_ID}::uuid, ${title}, ${owner.email}, ${owner.userId}, ${status})
-        RETURNING id`);
+        RETURNING id`,
+      );
       rowId[title] = String(r.rows[0]!.id);
     }
     await onlyRule('created_by', 'user_id');
 
     raw = generateApiKey();
     keyId = (
-      await asDefaultTenant(db, sql<{ id: string }>`
+      await asDefaultTenant(
+        db,
+        sql<{ id: string }>`
         INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, rate_limit, is_active, tenant_id, created_by)
         VALUES ('key author probe', ${await hashApiKey(raw)}, 'zvk_', ${JSON.stringify(grants)}::jsonb, 1000, true,
                 ${DEFAULT_TENANT_ID}::uuid, ${a.userId})
-        RETURNING id`)
+        RETURNING id`,
+      )
     ).rows[0]!.id;
 
     // An extension job reading and updating the collection, recording what it saw.
@@ -265,7 +271,9 @@ d('a key is its author to a row rule (ADR 0028)', () => {
     await unregisterJobs(EXT);
     if (!db) return;
     await sql`DELETE FROM zv_extension_registry WHERE name = ${EXT}`.execute(db).catch(() => {});
-    await asDefaultTenant(db, sql`DELETE FROM zv_api_keys WHERE id = ${keyId}::uuid`).catch(() => {});
+    await asDefaultTenant(db, sql`DELETE FROM zv_api_keys WHERE id = ${keyId}::uuid`).catch(
+      () => {},
+    );
     await sql`DELETE FROM zvd_rls_policies WHERE collection = ${C}`.execute(db).catch(() => {});
     await dropTestCollection(db, C).catch(() => {});
   });

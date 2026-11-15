@@ -148,8 +148,11 @@ d('members issue their own API keys (ADR 0010)', () => {
     expect((await patch('*')).status).toBe(400);
     expect((await patch('$schema')).status).toBe(400);
     expect((await patch('mak_other')).status).toBe(200);
-    const row = await asDefaultTenant(db, sql<{ scopes: unknown }>`
-      SELECT scopes FROM zv_api_keys WHERE id = ${id}::uuid`);
+    const row = await asDefaultTenant(
+      db,
+      sql<{ scopes: unknown }>`
+      SELECT scopes FROM zv_api_keys WHERE id = ${id}::uuid`,
+    );
     expect(row.rows[0]?.scopes).toEqual([{ collection: 'mak_other', actions: ['read'] }]);
 
     // Writes the engine would never apply are refused, not answered with success.
@@ -160,8 +163,11 @@ d('members issue their own API keys (ADR 0010)', () => {
         body: JSON.stringify(body),
       });
     expect((await raw(`/api/admin/api-keys/${id}`, 'PATCH', { rate_limit: 1 })).status).toBe(409);
-    const own = await asDefaultTenant(db, sql<{ rate_limit: number | null }>`
-      SELECT rate_limit FROM zv_api_keys WHERE id = ${id}::uuid`);
+    const own = await asDefaultTenant(
+      db,
+      sql<{ rate_limit: number | null }>`
+      SELECT rate_limit FROM zv_api_keys WHERE id = ${id}::uuid`,
+    );
     expect(own.rows[0]?.rate_limit).toBeNull();
     const override = await raw(`/api/api-keys/${id}/rate-limit`, 'PUT', {
       window_ms: 60_000,
@@ -233,9 +239,12 @@ d('members issue their own API keys (ADR 0010)', () => {
     expect((await revoke(owner, id)).status).toBe(404);
 
     await _settleAuditWrites();
-    const audit = await asDefaultTenant(db, sql<{ event_type: string; user_id: string; tenant_id: string }>`
+    const audit = await asDefaultTenant(
+      db,
+      sql<{ event_type: string; user_id: string; tenant_id: string }>`
       SELECT event_type, user_id, tenant_id::text AS tenant_id FROM zv_audit_log
-       WHERE resource_type = 'api_key' AND resource_id = ${id} ORDER BY created_at`);
+       WHERE resource_type = 'api_key' AND resource_id = ${id} ORDER BY created_at`,
+    );
     expect(audit.rows).toEqual([
       { event_type: 'api_key.created', user_id: owner.userId, tenant_id: DEFAULT_TENANT_ID },
       { event_type: 'api_key.revoked', user_id: owner.userId, tenant_id: DEFAULT_TENANT_ID },
@@ -250,8 +259,11 @@ d('members issue their own API keys (ADR 0010)', () => {
     await sql`INSERT INTO zv_tenants (id, slug, name, status)
               VALUES (${tenant}::uuid, ${slug}, ${slug}, 'active')`.execute(db);
     tenants.push(tenant);
-    await asDefaultTenant(db, sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role)
-              VALUES (${tenant}::uuid, ${m.userId}, 'member')`);
+    await asDefaultTenant(
+      db,
+      sql`INSERT INTO zv_tenant_users (tenant_id, user_id, role)
+              VALUES (${tenant}::uuid, ${m.userId}, 'member')`,
+    );
     const res = await app.request('/api/me/api-keys', {
       method: 'POST',
       headers: {
@@ -281,8 +293,11 @@ d('members issue their own API keys (ADR 0010)', () => {
     const m = await member();
     const a = ((await (await create(m)).json()) as { key: string }).key;
     const b = ((await (await create(m)).json()) as { key: string }).key;
-    const row = await asDefaultTenant(db, sql<{ member_issued: boolean }>`
-      SELECT member_issued FROM zv_api_keys WHERE created_by = ${m.userId} LIMIT 1`);
+    const row = await asDefaultTenant(
+      db,
+      sql<{ member_issued: boolean }>`
+      SELECT member_issued FROM zv_api_keys WHERE created_by = ${m.userId} LIMIT 1`,
+    );
     expect(row.rows[0]?.member_issued).toBe(true);
 
     const savedEnv = process.env.NODE_ENV;

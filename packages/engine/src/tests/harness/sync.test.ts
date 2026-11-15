@@ -161,11 +161,8 @@ d('sync routes (in-process)', () => {
     // afterWrite is fire-and-forget, as it is in the bulk handler.
     await new Promise((r) => setTimeout(r, 250));
     const revs = await asDefaultTenant(db, (t) =>
-       t
-      .selectFrom('zv_revisions')
-      .select('action')
-      .where('record_id', '=', recordId)
-      .execute());
+      t.selectFrom('zv_revisions').select('action').where('record_id', '=', recordId).execute(),
+    );
     expect(revs.length).toBeGreaterThan(0);
     expect(revs[0]!.action).toBe('create');
   });
@@ -192,19 +189,19 @@ d('sync routes (in-process)', () => {
     const second = (await (await push('SECOND')).json()) as { results: { status: string }[] };
     expect(second.results[0]?.status).toBe('conflict');
 
-    const rows = await asDefaultTenant(db, sql<{ title: string }>`
+    const rows = await asDefaultTenant(
+      db,
+      sql<{ title: string }>`
       SELECT title FROM ${sql.id(`zvd_${COLLECTION}`)} WHERE id = ${recordId}
-    `);
+    `,
+    );
     expect(rows.rows[0]?.title).toBe('first');
 
     // And no revision for the write that did not happen.
     await new Promise((r) => setTimeout(r, 250));
     const revs = await asDefaultTenant(db, (t) =>
-       t
-      .selectFrom('zv_revisions')
-      .select('action')
-      .where('record_id', '=', recordId)
-      .execute());
+      t.selectFrom('zv_revisions').select('action').where('record_id', '=', recordId).execute(),
+    );
     expect(revs.length).toBe(1);
   });
 

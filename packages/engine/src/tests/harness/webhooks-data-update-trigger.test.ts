@@ -64,9 +64,13 @@ d('webhook trigger via data update (in-process)', () => {
     globalThis.fetch = originalFetch;
     if (!db) return;
     if (webhookId) {
-      await asDefaultTenant(db, sql`DELETE FROM zvd_webhook_deliveries WHERE webhook_id = ${webhookId}`)
-        .catch(() => {});
-      await asDefaultTenant(db, sql`DELETE FROM zvd_webhooks WHERE id = ${webhookId}`).catch(() => {});
+      await asDefaultTenant(
+        db,
+        sql`DELETE FROM zvd_webhook_deliveries WHERE webhook_id = ${webhookId}`,
+      ).catch(() => {});
+      await asDefaultTenant(db, sql`DELETE FROM zvd_webhooks WHERE id = ${webhookId}`).catch(
+        () => {},
+      );
     }
     await sql
       .raw(`DROP TABLE IF EXISTS "zvd_${COLLECTION}" CASCADE`)
@@ -89,9 +93,12 @@ d('webhook trigger via data update (in-process)', () => {
 
     await drainWebhookJobs(db);
 
-    const deliveries = await asDefaultTenant(db, sql<{ count: string }>`
+    const deliveries = await asDefaultTenant(
+      db,
+      sql<{ count: string }>`
       SELECT count(*)::text AS count FROM zvd_webhook_deliveries WHERE webhook_id = ${webhookId}
-    `);
+    `,
+    );
     expect(Number(deliveries.rows[0]?.count ?? 0)).toBeGreaterThanOrEqual(1);
   });
 });

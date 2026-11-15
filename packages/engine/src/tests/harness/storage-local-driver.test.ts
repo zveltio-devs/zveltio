@@ -144,11 +144,8 @@ d('storage local-driver round-trip (in-process)', () => {
       expect(res.status).toBe(500);
       expect(existsSync(onDisk)).toBe(true);
       const row = await asDefaultTenant(db, (t) =>
-         t
-        .selectFrom('zv_media_files')
-        .select('id')
-        .where('id', '=', fileId)
-        .executeTakeFirst());
+        t.selectFrom('zv_media_files').select('id').where('id', '=', fileId).executeTakeFirst(),
+      );
       expect(row).toBeTruthy();
     } finally {
       chmodSync(dirname(onDisk), 0o755);

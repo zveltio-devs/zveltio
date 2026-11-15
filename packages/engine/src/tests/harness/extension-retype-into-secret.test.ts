@@ -75,8 +75,11 @@ d("an extension's update turns its text field secret (ADR 0024 §6)", () => {
 
   const raw = async () =>
     (
-      await asDefaultTenant(db, sql<{ id: string; tok: string; pin: string }>`
-        SELECT id::text AS id, tok, pin FROM ${sql.table(`zvd_${C}`)} ORDER BY label`)
+      await asDefaultTenant(
+        db,
+        sql<{ id: string; tok: string; pin: string }>`
+        SELECT id::text AS id, tok, pin FROM ${sql.table(`zvd_${C}`)} ORDER BY label`,
+      )
     ).rows;
 
   beforeAll(async () => {
@@ -87,9 +90,12 @@ d("an extension's update turns its text field secret (ADR 0024 §6)", () => {
     for (const n of [1, 2]) {
       const tok = await maybeEncrypt(`tok-${n}`, true);
       sealed.push(String(tok));
-      const row = await asDefaultTenant(db, sql<{ id: string }>`
+      const row = await asDefaultTenant(
+        db,
+        sql<{ id: string }>`
         INSERT INTO ${sql.table(`zvd_${C}`)} (label, tok, pin)
-        VALUES (${`row-${n}`}, ${tok}, ${`pin-${n}`}) RETURNING id::text AS id`);
+        VALUES (${`row-${n}`}, ${tok}, ${`pin-${n}`}) RETURNING id::text AS id`,
+      );
       ids.push(row.rows[0]!.id);
     }
     member = await createMemberSession(engine, db, {

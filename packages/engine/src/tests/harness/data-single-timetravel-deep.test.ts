@@ -50,11 +50,8 @@ d('data single time-travel deep (in-process)', () => {
   afterAll(async () => {
     if (!db) return;
     await asDefaultTenant(db, (t) =>
-       t
-      .deleteFrom('zv_revisions')
-      .where('collection', '=', COLLECTION)
-      .execute())
-      .catch(() => {});
+      t.deleteFrom('zv_revisions').where('collection', '=', COLLECTION).execute(),
+    ).catch(() => {});
     await sql
       .raw(`DROP TABLE IF EXISTS "zvd_${COLLECTION}" CASCADE`)
       .execute(db)
@@ -88,16 +85,17 @@ d('data single time-travel deep (in-process)', () => {
 
     const past = new Date(Date.now() - 60_000);
     await asDefaultTenant(db, (t) =>
-       t
-      .insertInto('zv_revisions')
-      .values({
-        collection: COLLECTION,
-        record_id: survivorId,
-        action: 'update',
-        data: toJsonb({ id: survivorId, title: 'from-string-json' }),
-        created_at: past,
-      })
-      .execute());
+      t
+        .insertInto('zv_revisions')
+        .values({
+          collection: COLLECTION,
+          record_id: survivorId,
+          action: 'update',
+          data: toJsonb({ id: survivorId, title: 'from-string-json' }),
+          created_at: past,
+        })
+        .execute(),
+    );
 
     const res = await app.request(
       `/api/data/${COLLECTION}/${survivorId}?as_of=${encodeURIComponent(past.toISOString())}`,

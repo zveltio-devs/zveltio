@@ -76,18 +76,12 @@ d('data API-key writes (in-process)', () => {
         .execute()
         .catch(() => {});
       await asDefaultTenant(db, (t) =>
-         t
-        .deleteFrom('zv_api_keys')
-        .where('id', '=', id)
-        .execute())
-        .catch(() => {});
+        t.deleteFrom('zv_api_keys').where('id', '=', id).execute(),
+      ).catch(() => {});
     }
     await asDefaultTenant(db, (t) =>
-       t
-      .deleteFrom('zv_revisions')
-      .where('collection', '=', COLLECTION)
-      .execute())
-      .catch(() => {});
+      t.deleteFrom('zv_revisions').where('collection', '=', COLLECTION).execute(),
+    ).catch(() => {});
     await sql
       .raw(`DROP TABLE IF EXISTS "zvd_${COLLECTION}" CASCADE`)
       .execute(db)
@@ -108,20 +102,22 @@ d('data API-key writes (in-process)', () => {
     };
 
     const rev = await asDefaultTenant(db, (t) =>
-       t
-      .selectFrom('zv_revisions')
-      .select(['user_id', 'record_id'])
-      .where('collection', '=', COLLECTION)
-      .where('action', '=', 'create')
-      .executeTakeFirst());
+      t
+        .selectFrom('zv_revisions')
+        .select(['user_id', 'record_id'])
+        .where('collection', '=', COLLECTION)
+        .where('action', '=', 'create')
+        .executeTakeFirst(),
+    );
     expect(rev, 'no revision row was written').toBeDefined();
     if (id) expect(rev?.record_id).toBe(id);
     const issuer = await asDefaultTenant(db, (t) =>
-       t
-      .selectFrom('zv_api_keys')
-      .select('created_by')
-      .where('id', '=', keyIds[0] as string)
-      .executeTakeFirst());
+      t
+        .selectFrom('zv_api_keys')
+        .select('created_by')
+        .where('id', '=', keyIds[0] as string)
+        .executeTakeFirst(),
+    );
     expect(rev?.user_id).toBe(issuer?.created_by ?? null);
   });
 

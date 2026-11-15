@@ -77,8 +77,11 @@ d('data bulk update mixed refused (in-process)', () => {
     expect(body.errors.map((e) => e.index)).toEqual([1, 2]);
     expect(body.errors[0]!.id).toBe(missingId);
     // The valid row was not written either.
-    const row = await asDefaultTenant(db, sql<{ score: number }>`
-      SELECT score FROM ${sql.id(`zvd_${COLLECTION}`)} WHERE id = ${goodId}`);
+    const row = await asDefaultTenant(
+      db,
+      sql<{ score: number }>`
+      SELECT score FROM ${sql.id(`zvd_${COLLECTION}`)} WHERE id = ${goodId}`,
+    );
     expect(Number(row.rows[0]!.score)).toBe(1);
   });
 });

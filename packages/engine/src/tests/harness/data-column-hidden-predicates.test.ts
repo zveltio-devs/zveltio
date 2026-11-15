@@ -221,11 +221,12 @@ d('hidden columns cannot be read through filter, sort or search (in-process)', (
     ids.sort();
     for (const [i, id] of ids.entries()) {
       await asDefaultTenant(db, (t) =>
-         t
-        .updateTable(table as never)
-        .set({ created_at: new Date(Date.UTC(2003 - i, 0, 1)) } as never)
-        .where('id' as never, '=', id as never)
-        .execute());
+        t
+          .updateTable(table as never)
+          .set({ created_at: new Date(Date.UTC(2003 - i, 0, 1)) } as never)
+          .where('id' as never, '=', id as never)
+          .execute(),
+      );
     }
     const order = async () => {
       const res = await app.request(
@@ -253,10 +254,11 @@ d('hidden columns cannot be read through filter, sort or search (in-process)', (
       await db.deleteFrom('zvd_column_permissions').where('id', '=', perm.id).execute();
       await invalidateColumnPermCache(COLLECTION);
       await asDefaultTenant(db, (t) =>
-         t
-        .deleteFrom(table as never)
-        .where('id' as never, 'in', ids as never)
-        .execute());
+        t
+          .deleteFrom(table as never)
+          .where('id' as never, 'in', ids as never)
+          .execute(),
+      );
     }
   });
 

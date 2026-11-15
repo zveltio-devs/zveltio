@@ -209,9 +209,12 @@ d('collection triggers under every restricted writer role', () => {
 
   const row = async (id: string) =>
     (
-      await asDefaultTenant(db, sql<{ fts: boolean; updated_at: Date }>`
+      await asDefaultTenant(
+        db,
+        sql<{ fts: boolean; updated_at: Date }>`
         SELECT search_vector IS NOT NULL AS fts, updated_at FROM ${sql.table(TABLE)} WHERE id = ${id}
-      `)
+      `,
+      )
     ).rows[0];
 
   for (const name of [
@@ -230,10 +233,13 @@ d('collection triggers under every restricted writer role', () => {
         await w.update(id, 'gamma');
         expect((await row(id))!.updated_at.getTime()).toBeGreaterThan(before!.updated_at.getTime());
         await w.remove(id);
-        const tomb = await asDefaultTenant(db, sql<{ n: number }>`
+        const tomb = await asDefaultTenant(
+          db,
+          sql<{ n: number }>`
         SELECT count(*)::int AS n FROM zv_sync_tombstones
          WHERE collection = ${TABLE} AND row_id = ${id} AND tenant_id = ${TENANT}
-      `);
+      `,
+        );
         expect(tomb.rows[0]!.n).toBe(1);
       },
       60_000,

@@ -133,12 +133,15 @@ d('an action reaches any collection as its caller (ADR 0047)', () => {
   async function load(ext: ZveltioExtension, granted: string[] | null): Promise<void> {
     const parsed = ManifestSchema.parse({ name: ext.name, version: '1.0.0', ...manifest });
     await asDefaultTenant(db, sql`DELETE FROM zv_extension_registry WHERE name = ${ext.name}`);
-    await asDefaultTenant(db, sql`
+    await asDefaultTenant(
+      db,
+      sql`
       INSERT INTO zv_extension_registry
         (name, display_name, tenant_id, is_installed, is_enabled, manifest, granted_capabilities)
       VALUES (${ext.name}, ${ext.name}, NULL, true, true, ${toJsonb(parsed)},
               ${granted === null ? null : toJsonb(granted)})
-    `);
+    `,
+    );
     const ctx = {
       db,
       auth: getAuth(),
@@ -231,7 +234,10 @@ d('an action reaches any collection as its caller (ADR 0047)', () => {
   afterAll(async () => {
     invalidateActivationCache();
     if (!db) return;
-    await asDefaultTenant(db, sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${UNAPPROVED})`);
+    await asDefaultTenant(
+      db,
+      sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${UNAPPROVED})`,
+    );
     await sql`DELETE FROM zvd_rls_policies WHERE collection = ${C}`.execute(db).catch(() => {});
     await asDefaultTenant(db, sql`DELETE FROM zv_audit_log WHERE resource_id LIKE ${'anyc-%'}`);
     await dropTestCollection(db, C).catch(() => {});
