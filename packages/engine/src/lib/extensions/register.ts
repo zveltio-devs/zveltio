@@ -75,7 +75,10 @@ import type {
   ExtensionSchedule,
   ZveltioExtension,
 } from '@zveltio/sdk/extension';
-import { getWorkerHost as _getWorkerHost } from '../worker-extension-host.js';
+import {
+  getWorkerHost as _getWorkerHost,
+  getWorkerHostIfInitialized,
+} from '../worker-extension-host.js';
 import type { ExtensionManifest } from './manifest-schema.js';
 import {
   type DeclaredRoute,
@@ -762,6 +765,14 @@ async function registerExtensionRoutes(
           forwardCredentials,
           declaredForwardCredentials: isolation.forwardCredentials ?? {},
           declaredRoutes: isolation.routes ?? [],
+          // ADR 0056: the worker runs them; the engine mounts and decides them, as inline.
+          actions: [...actions.keys()],
+          mountActions: (sub) => {
+            const own = new Hono();
+            own.onError(problemOnError);
+            mountActions(own, extName, actions, restrictedCtx);
+            sub.route('/', own);
+          },
           collections: (c, call, args) => {
             if (!restrictedCtx.host) throw new Error(`${extName}: no route host`);
             return hostCall(restrictedCtx.host(c).collections, call as HostCall, args);
@@ -918,14 +929,21 @@ export async function finalizeExtensionLoad(
   /** Optional dependencies `resolveManifest` found not loaded or too old: absent to this one. */
   absentOptional: readonly string[] = [],
 ): Promise<void> {
-  // First, so a mismatch refuses the load before anything is granted for it.
+  const worker = manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true;
+  // First, so a mismatch refuses the load before anything is granted for it. A
+  // worker's are paired in the worker, and run there (ADR 0056).
   const actions = compileActions(
     extName,
     manifest,
     extension,
-    manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true,
+    worker
+      ? (name) => (input, host) => {
+          const workers = getWorkerHostIfInitialized();
+          if (!workers) throw new Error(`action ${extName}/${name}: no worker host`);
+          return workers.runAction(extName, name, input, host);
+        }
+      : undefined,
   );
-  const worker = manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true;
   // A worker-isolated module is not imported here: its worker pairs its routes.
   const declaredRoutes = worker ? [] : inlineRoutes(extName, manifest, extension);
   const jobs = compileJobs(

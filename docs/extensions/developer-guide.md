@@ -1473,6 +1473,11 @@ proxies SQL queries through its own pool.
   `queryAlter`, `entityAccess`, `adminDb`, `DDLManager`,
   `registerPublicRoute`, `onHealthCheck`, `broadcast`, `events.onBefore` — fail the load
   by name
+- **Actions** (ADR 0056): served as inline. The engine mounts
+  `POST /ext/<name>/actions/<action>` ahead of the worker's own routes and
+  makes every check there; the worker runs the function, and each `host` call
+  is answered by the host the engine built for that request — as its caller, in
+  its transaction. An `ActionRefusal` crosses as its status and code
 - **Transactions:** a route request is one database transaction, as
   inline: committed when the handler answers, rolled back when it throws,
   times out (30 s) or the worker dies; `db.transaction()` is a savepoint in

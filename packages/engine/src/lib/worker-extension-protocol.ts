@@ -40,6 +40,8 @@ export interface InitRequest {
   config?: unknown;
   /** Its manifest `routes` (ADR 0039), paired with the module's `routes` handlers and served. */
   routes?: { method: string; path: string; handler: string }[];
+  /** Its manifest `actions`, by name (ADR 0056): paired with the module's `actions`, run on `action:invoke`. */
+  actions?: string[];
   /** Its manifest `dependencies` + `optionalDependencies` (`ServiceDeps`), as entries. */
   mayCall?: Array<[string, boolean]>;
   /** The service registry as `[name, owner]`; `services:snapshot` keeps it current. */
@@ -232,6 +234,8 @@ export type HostCallOp =
   | 'waitForService'
   | 'unregisterService'
   | 'describeDenial'
+  /** An action's `host` (ADR 0056): `[member, ...its arguments]`, answered by the invocation's own. */
+  | 'action'
   /** A route's `host.collections` (ADR 0025): `[call, ...its arguments]`, as the job runner's. */
   | 'collections';
 
@@ -299,8 +303,12 @@ export interface ServiceRegisterResponse {
  * service's queries and calls name it as `requestId`.
  */
 export interface ServiceInvokeRequest {
-  /** `event:deliver`: an event the worker subscribed to with `ctx.events.on`, `name` its listener. */
-  type: 'service:invoke' | 'event:deliver';
+  /**
+   * `event:deliver`: an event the worker subscribed to with `ctx.events.on`, `name` its listener.
+   * `action:invoke`: the extension's action `name` (ADR 0056), `args` its validated input
+   * and the request's time zone; its `host` calls are `host:call` op `action`.
+   */
+  type: 'service:invoke' | 'event:deliver' | 'action:invoke';
   id: WorkerMessageId;
   name: string;
   args: unknown[];
@@ -317,6 +325,15 @@ export interface ServiceInvokeResponse {
   id: WorkerMessageId;
   result?: unknown;
   error?: string;
+  /**
+   * An action's `ActionRefusal`, carried as fields: the `Symbol.for` mark that
+   * makes it one does not cross. The host answers only a status the SDK allows.
+   */
+  refusal?: { status?: unknown; code?: unknown; message?: string };
+  /** The `host:call` whose refusal the action let through: the host rethrows its own error. */
+  hostError?: WorkerMessageId;
+  /** The SQLSTATE of an error the action did not catch, as on `RouteInvokeResponse`. */
+  errno?: string;
 }
 
 // ── Union ───────────────────────────────────────────────────────────

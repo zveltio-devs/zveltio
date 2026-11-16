@@ -67,10 +67,13 @@ import { Turns, transactionTurns } from '../db/trx-sequencer.js';
 import type { RawPool } from '../db/bun-sql-dialect.js';
 import {
   CREDENTIAL_HEADERS,
+  actionHostCall,
   activationMiddlewareFor,
+  crossedRefusal,
   extensionLoader,
   guardEventHandler,
 } from './extensions/index.js';
+import type { ActionHost } from '@zveltio/sdk/extension';
 import { compilePattern, extensionRequestRefused } from '../middleware/extension-auth-gate.js';
 import { ProblemException, problem, problemOnError } from './problem.js';
 import { ENGINE_EVENT_NAMESPACES, engineEvents } from './runtime/index.js';
@@ -186,6 +189,12 @@ interface InvokeScope {
    * caller's level; a route's are at the top.
    */
   within?: RunIn;
+  /**
+   * An action run (ADR 0056): the `ActionHost` the engine built for it, which
+   * answers its `host` calls, and the refusals it answered them with, by call
+   * id, so one the action lets through is rethrown as it was raised.
+   */
+  action?: { host: ActionHost; refusals: Map<string, ProblemException> };
 }
 
 type RunIn = <R>(fn: () => R) => R;
@@ -218,6 +227,13 @@ export interface WorkerCtxSource {
   collections?: (c: unknown, call: string, args: unknown[]) => Promise<unknown>;
   /** The manifest's `routes` (ADR 0039): the worker pairs them with its handlers and serves them. */
   declaredRoutes?: { method: string; path: string; handler: string }[];
+  /** The manifest's actions by name (ADR 0056): the worker pairs them with its implementations. */
+  actions?: string[];
+  /**
+   * Mount the engine's action route on the worker's sub-app, after its
+   * activation check and ahead of every route the worker registered, as inline.
+   */
+  mountActions?: (sub: Hono) => void;
 }
 
 /**
@@ -670,6 +686,7 @@ export class WorkerExtensionHost {
         },
         config: source.config,
         routes: source.declaredRoutes ?? [],
+        actions: source.actions ?? [],
         mayCall: [...managed.mayCall],
         services: serviceRegistry.entries(),
       });
@@ -937,8 +954,9 @@ export class WorkerExtensionHost {
     managed: ManagedWorker,
     msg: Extract<WorkerToHostMessage, { type: 'service:call' }>,
   ): Promise<void> {
+    let scope: InvokeScope = { tenantId: null };
     try {
-      const scope = requestScope(managed, msg.requestId, 'service call') ?? { tenantId: null };
+      scope = requestScope(managed, msg.requestId, 'service call') ?? scope;
       const { tenantId, actor } = scope;
       const name = msg.name;
       const ownerWorker = this.findServiceOwner(name);
@@ -1009,6 +1027,7 @@ export class WorkerExtensionHost {
         : await run(call);
       this.post(managed, { type: 'service:ok', id: msg.id, result });
     } catch (err) {
+      if (err instanceof ProblemException) scope.action?.refusals.set(msg.id, err);
       this.post(managed, {
         type: 'service:err',
         id: msg.id,
@@ -1029,8 +1048,9 @@ export class WorkerExtensionHost {
     managed: ManagedWorker,
     msg: Extract<WorkerToHostMessage, { type: 'host:call' }>,
   ): Promise<void> {
+    let scope: InvokeScope | undefined;
     try {
-      const scope = requestScope(managed, msg.requestId, msg.op);
+      scope = requestScope(managed, msg.requestId, msg.op);
       // In a joined request transaction, at the caller's place in its turns: a
       // query made for a call inside the worker's `db.transaction()` runs in it,
       // rather than wait for the scope that is waiting for this answer.
@@ -1103,11 +1123,18 @@ export class WorkerExtensionHost {
           result = await run(() => answer(route.c, String(a), msg.args.slice(1)));
           break;
         }
+        case 'action': {
+          const host = scope?.action?.host;
+          if (!host) throw new Error('an action host answers only in a run of one of its actions');
+          result = await run(() => actionHostCall(host, String(a), msg.args.slice(1)));
+          break;
+        }
         default:
           throw new Error(`unknown host call "${String(msg.op)}"`);
       }
       this.post(managed, { type: 'host:ok', id: msg.id, result });
     } catch (err) {
+      if (err instanceof ProblemException) scope?.action?.refusals.set(msg.id, err);
       this.post(managed, {
         type: 'host:err',
         id: msg.id,
@@ -1115,6 +1142,29 @@ export class WorkerExtensionHost {
         ...(err instanceof ProblemException ? { status: err.status } : {}),
       });
     }
+  }
+
+  /**
+   * Run `extName`'s action `name` in its worker (ADR 0056), as the request this
+   * is called in: its tenant, caller and transaction, as a worker service an
+   * inline route calls. `mountActions` made every check before this, and `host`
+   * is the one it built: the worker's `host` calls are answered by it.
+   */
+  async runAction(extName: string, name: string, input: unknown, host: ActionHost) {
+    const managed = this.workers.get(extName);
+    if (!managed || managed.respawning) throw dependencyDown(extName);
+    const scope = callerScope();
+    return this.invokeWorkerService(
+      managed,
+      name,
+      [input, host.timezone],
+      {
+        ...scope,
+        ...(inlineServiceTxn.getStore() ?? (await joinRequestTxn(scope))),
+        action: { host, refusals: new Map() },
+      },
+      'action:invoke',
+    );
   }
 
   /**
@@ -1181,7 +1231,7 @@ export class WorkerExtensionHost {
     name: string,
     args: unknown[],
     scope: InvokeScope,
-    type: 'service:invoke' | 'event:deliver' = 'service:invoke',
+    type: 'service:invoke' | 'event:deliver' | 'action:invoke' = 'service:invoke',
   ): Promise<unknown> {
     const invokeId = rpcId('inv-svc');
     // The caller's id as `handleHostCall`'s `who` resolves it: on a public route
@@ -1194,7 +1244,7 @@ export class WorkerExtensionHost {
     };
     target.invokeTenants.set(
       invokeId,
-      type === 'service:invoke'
+      type !== 'event:deliver'
         ? {
             ...scope,
             session: async () => {
@@ -1213,7 +1263,11 @@ export class WorkerExtensionHost {
           () => {
             if (invokeWaiters.has(invokeId)) {
               invokeWaiters.delete(invokeId);
-              reject(new Error(`service "${name}" call timeout`));
+              reject(
+                new Error(
+                  `${type === 'action:invoke' ? 'action' : 'service'} "${name}" call timeout`,
+                ),
+              );
             }
             // In a request, the request's hard timeout, as a worker route's (ADR
             // 0009 §3). Outside one (an event delivery, a call from a timer) there
@@ -1231,7 +1285,12 @@ export class WorkerExtensionHost {
         });
       });
       if (reply.type === 'service:invoke:err') {
-        throw new Error(reply.error ?? 'service call failed');
+        // An action's refusal as it was raised: the engine's own, or one it threw.
+        const raised = reply.hostError && scope.action?.refusals.get(reply.hostError);
+        if (raised) throw raised;
+        if (scope.action && reply.refusal) throw crossedRefusal(reply.refusal);
+        const err = new Error(reply.error ?? 'service call failed');
+        throw scope.action && reply.errno ? Object.assign(err, { errno: reply.errno }) : err;
       }
       return reply.result;
     } finally {
@@ -1322,6 +1381,7 @@ export class WorkerExtensionHost {
       }
       return activationMiddlewareFor(managed.name, db)(c, next);
     });
+    managed.source?.mountActions?.(sub);
     for (const r of managed.routes) {
       const method = r.method.toLowerCase();
       if (!['get', 'post', 'put', 'patch', 'delete'].includes(method)) continue;
