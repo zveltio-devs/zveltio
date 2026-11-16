@@ -72,6 +72,7 @@ import {
   crossedRefusal,
   extensionLoader,
   guardEventHandler,
+  refusalProblem,
 } from './extensions/index.js';
 import type { ActionHost } from '@zveltio/sdk/extension';
 import { compilePattern, extensionRequestRefused } from '../middleware/extension-auth-gate.js';
@@ -140,7 +141,19 @@ export function _resetWorkerHostForTests(): void {
 export interface WorkerHealth {
   name: string;
   isolation: 'worker';
-  status: 'running' | 'crashed' | 'starting';
+  /**
+   * `crashed`: between a crash and its respawn. `disabled`: it crashed
+   * `CRASH_LIMIT` times in `CRASH_WINDOW_MS` and is not respawned (ADR 0056);
+   * `disabledReason` says why.
+   */
+  status: 'running' | 'crashed' | 'starting' | 'disabled';
+  disabledReason?: string;
+  /** Crashes (exits, hangs, failed respawns) in the last `CRASH_WINDOW_MS`. */
+  recentCrashes: number;
+  /** Requests it may serve at once; one more is refused (ADR 0056). */
+  concurrencyLimit: number;
+  /** The key its signature verified against; null until signatures carry the tier (ADR 0056 s3). */
+  keyId: string | null;
   workerGeneration: number;
   enabledAt: string;
   lastCrashAt?: string;
@@ -234,6 +247,12 @@ export interface WorkerCtxSource {
    * activation check and ahead of every route the worker registered, as inline.
    */
   mountActions?: (sub: Hono) => void;
+  /**
+   * The id of the key its signature verified against, named in every log line
+   * about it (ADR 0056). Nothing sets it yet: signatures carry the tier from
+   * slice 3, and until then the line says `key=absent`.
+   */
+  keyId?: string;
 }
 
 /**
@@ -323,6 +342,19 @@ interface ManagedWorker {
   mayCall: ServiceDeps;
   /** Between a crash and the fresh spawn: in the map, but answering nothing. */
   respawning?: boolean;
+  /**
+   * Why it was disabled after `CRASH_LIMIT` crashes (ADR 0056): retired, never
+   * respawned, kept in the map so its routes answer this and a rebuild of the
+   * app does not start it again. An operator's disable and enable, or a
+   * restart, starts it afresh.
+   */
+  disabled?: string;
+  /**
+   * The requests in it now, each with the number of its calls in flight: a
+   * request's nested calls (an action calling one of its own) take one place
+   * of the concurrency limit, as they hold one connection.
+   */
+  active?: Map<object, number>;
   source?: WorkerCtxSource;
   /** Its `ctx.events.on` subscriptions on the engine bus, by listener key. */
   listeners?: Map<string, () => void>;
@@ -392,9 +424,35 @@ const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEARTBEAT_TIMEOUT_MS = 60_000;
 const MAX_RESPAWN_BACKOFF_MS = 30_000;
 
+/**
+ * ADR 0056: this many crashes — an exit, a missed heartbeat, a respawn that
+ * failed — within `CRASH_WINDOW_MS` and the extension is disabled, not
+ * respawned. Five in ten minutes is a crash loop (the backoff alone fits five in
+ * about half a minute); one crash an hour never adds up to it.
+ */
+const CRASH_LIMIT = 5;
+const CRASH_WINDOW_MS = 10 * 60_000;
+
+/**
+ * Requests one worker-isolated extension may serve at once (ADR 0056): a quarter
+ * of the pool, the share `hostTxnCap` gives one extension alone. Each holds a
+ * pooled connection — its request's — for as long as the extension takes, so
+ * past this a slow or hostile extension would starve the engine's own requests.
+ */
+export function boxConcurrencyLimit(poolMax: number): number {
+  return hostTxnCap(poolMax, 1);
+}
+
+/** How every log line about an extension names it: its name and its signing key (ADR 0056). */
+function boxTag(name: string, source?: WorkerCtxSource): string {
+  return `[ext:${name} key=${source?.keyId ?? 'absent'}]`;
+}
+
 export class WorkerExtensionHost {
   private readonly workers = new Map<string, ManagedWorker>();
   private respawnBackoff = new Map<string, number>();
+  /** Each extension's recent crash times, for `CRASH_LIMIT`; a stop forgets them. */
+  private crashTimes = new Map<string, number[]>();
 
   constructor(
     private app: Hono,
@@ -502,10 +560,13 @@ export class WorkerExtensionHost {
     managed.worker.terminate();
     this.workers.delete(extName);
     this.respawnBackoff.delete(extName);
+    this.crashTimes.delete(extName);
     // Disable stops the extension's runner unit, not only its runtime.
     if (extensionTransport() === 'runner') {
       await stopRunner(extName).catch((err) =>
-        console.error(`[worker:${extName}] stopping its runner: ${(err as Error).message}`),
+        console.error(
+          `${boxTag(extName, managed.source)} stopping its runner: ${(err as Error).message}`,
+        ),
       );
     }
   }
@@ -579,17 +640,29 @@ export class WorkerExtensionHost {
    */
   remount(extName: string): boolean {
     const managed = this.workers.get(extName);
-    if (!managed || managed.respawning) return false;
+    // A disabled one is kept, not restarted: its routes answer why.
+    if (!managed || (managed.respawning && !managed.disabled)) return false;
     managed.proxyUnmount = this.mountProxyRoutes(managed);
     return true;
   }
 
   /** Per-extension health snapshot — used by /api/admin/extensions/health. */
   getHealth(): WorkerHealth[] {
+    const now = Date.now();
+    const limit = boxConcurrencyLimit(activePoolMax());
     return [...this.workers.values()].map((m) => ({
       name: m.name,
       isolation: 'worker' as const,
-      status: m.stopped ? 'crashed' : ('running' as const),
+      status: m.disabled
+        ? ('disabled' as const)
+        : m.stopped || m.respawning
+          ? ('crashed' as const)
+          : ('running' as const),
+      disabledReason: m.disabled,
+      recentCrashes: (this.crashTimes.get(m.name) ?? []).filter((t) => now - t < CRASH_WINDOW_MS)
+        .length,
+      concurrencyLimit: limit,
+      keyId: m.source?.keyId ?? null,
       workerGeneration: m.workerGeneration,
       enabledAt: new Date(m.enabledAt).toISOString(),
       lastCrashAt: m.lastCrashAt ? new Date(m.lastCrashAt).toISOString() : undefined,
@@ -656,7 +729,7 @@ export class WorkerExtensionHost {
     worker.onmessage = (e) =>
       runOutsideTenantContext(() => this.handleWorkerMessage(managed, e.data));
     worker.onerror = (e) => {
-      console.error(`[worker:${extName}] error:`, e.message);
+      console.error(`${boxTag(extName, source)} error:`, e.message);
       if (failInit) failInit(transport === 'runner' ? runnerUnreachable(e) : new Error(e.message));
       else this.scheduleRespawn(managed, `onerror: ${e.message}`);
     };
@@ -709,14 +782,38 @@ export class WorkerExtensionHost {
    * underneath.
    */
   private scheduleRespawn(managed: ManagedWorker, reason: string): void {
-    if (managed.stopped) return;
+    if (managed.stopped || managed.disabled) return;
     if (this.workers.get(managed.name) !== managed) return;
-    managed.lastCrashAt = Date.now();
+    const now = Date.now();
+    managed.lastCrashAt = now;
     this.retire(managed);
+    const crashes = [
+      ...(this.crashTimes.get(managed.name) ?? []).filter((t) => now - t < CRASH_WINDOW_MS),
+      now,
+    ];
+    this.crashTimes.set(managed.name, crashes);
+    const tag = boxTag(managed.name, managed.source);
+    if (crashes.length >= CRASH_LIMIT) {
+      // Not respawned: a crash loop takes a connection, a runner process and the
+      // logs with it on every turn. Its routes and actions answer this until an
+      // operator disables and enables it again (or the engine restarts).
+      managed.disabled =
+        `disabled after ${crashes.length} crashes in ${CRASH_WINDOW_MS / 60_000} minutes ` +
+        `(last: ${reason}); disable and enable it again once it is fixed`;
+      console.error(`${tag} crash: ${reason} — ${managed.disabled}`);
+      if (extensionTransport() === 'runner') {
+        void stopRunner(managed.name).catch((err) =>
+          console.error(`${tag} stopping its runner: ${(err as Error).message}`),
+        );
+      }
+      return;
+    }
     const prevBackoff = this.respawnBackoff.get(managed.name) ?? 500;
     const backoff = Math.min(prevBackoff * 2, MAX_RESPAWN_BACKOFF_MS);
     this.respawnBackoff.set(managed.name, backoff);
-    console.warn(`🔄 Respawning worker "${managed.name}" in ${backoff}ms — reason: ${reason}`);
+    console.warn(
+      `${tag} crash ${crashes.length}/${CRASH_LIMIT}: ${reason} — respawning in ${backoff}ms`,
+    );
     // In the forward queue: a respawn already replacing the worker with the old
     // source would otherwise reject a forward change's replace and keep its map.
     setTimeout(() => this.enqueueForward(managed.name, respawn), backoff);
@@ -729,7 +826,7 @@ export class WorkerExtensionHost {
         this.respawnBackoff.set(managed.name, 500);
         console.log(`✓ Worker "${managed.name}" respawned (gen ${fresh.workerGeneration})`);
       } catch (err) {
-        console.error(`❌ Respawn failed for "${managed.name}":`, (err as Error).message);
+        console.error(`${tag} respawn failed: ${(err as Error).message}`);
         // Schedule another attempt with further backoff
         this.scheduleRespawn(managed, `respawn-failed: ${(err as Error).message}`);
       }
@@ -797,10 +894,10 @@ export class WorkerExtensionHost {
       if (managed.pendingPings.has(id)) {
         managed.pendingPings.delete(id);
         managed.lastHangAt = Date.now();
-        console.warn(
-          `⏱ Worker "${managed.name}" did not pong within ${HEARTBEAT_TIMEOUT_MS}ms — respawning`,
+        this.scheduleRespawn(
+          managed,
+          `hang: no answer to its heartbeat within ${HEARTBEAT_TIMEOUT_MS}ms`,
         );
-        this.scheduleRespawn(managed, 'heartbeat timeout');
       }
     }, HEARTBEAT_TIMEOUT_MS);
     managed.pendingPings.set(id, () => clearTimeout(timeout));
@@ -870,7 +967,7 @@ export class WorkerExtensionHost {
         break;
       }
       case 'log':
-        console[msg.level](`[worker:${managed.name}] ${msg.message}`);
+        console[msg.level](`${boxTag(managed.name, managed.source)} ${msg.message}`);
         break;
     }
   }
@@ -1152,19 +1249,32 @@ export class WorkerExtensionHost {
    */
   async runAction(extName: string, name: string, input: unknown, host: ActionHost) {
     const managed = this.workers.get(extName);
-    if (!managed || managed.respawning) throw dependencyDown(extName);
+    if (!managed || managed.respawning) throw boxDown(extName, managed?.disabled);
     const scope = callerScope();
-    return this.invokeWorkerService(
-      managed,
-      name,
-      [input, host.timezone],
-      {
-        ...scope,
-        ...(inlineServiceTxn.getStore() ?? (await joinRequestTxn(scope))),
-        action: { host, refusals: new Map() },
-      },
-      'action:invoke',
-    );
+    try {
+      return await this.invokeWorkerService(
+        managed,
+        name,
+        [input, host.timezone],
+        {
+          ...scope,
+          ...(inlineServiceTxn.getStore() ?? (await joinRequestTxn(scope))),
+          action: { host, refusals: new Map() },
+        },
+        'action:invoke',
+      );
+    } catch (err) {
+      // A refusal is the action's answer, and the box's own (busy, timed out,
+      // crashed) was logged where it arose; anything else is its failure, named.
+      const refused =
+        err instanceof ProblemException ? err : (refusalProblem(err) as ProblemException | null);
+      if (!refused || (refused.status >= 500 && !refused.code.startsWith('extension.'))) {
+        console.error(
+          `${boxTag(extName, managed.source)} action "${name}" failed: ${(err as Error)?.message}`,
+        );
+      }
+      throw err;
+    }
   }
 
   /**
@@ -1190,7 +1300,9 @@ export class WorkerExtensionHost {
         scope,
         'event:deliver',
       ).catch((err: Error) =>
-        console.error(`[worker:${managed.name}] listener for "${event}" failed: ${err.message}`),
+        console.error(
+          `${boxTag(managed.name, managed.source)} listener for "${event}" failed: ${err.message}`,
+        ),
       );
     };
     const listener = (payload: unknown) =>
@@ -1234,6 +1346,9 @@ export class WorkerExtensionHost {
     type: 'service:invoke' | 'event:deliver' | 'action:invoke' = 'service:invoke',
   ): Promise<unknown> {
     const invokeId = rpcId('inv-svc');
+    // In a request, a call into the box: counted, and refused past its limit.
+    // An event delivery holds no request's connection.
+    const leave = scope.txn ? this.admit(target, scope.txn) : () => {};
     // The caller's id as `handleHostCall`'s `who` resolves it: on a public route
     // the gate sets no user, and the route's own session names it.
     const callerId = async () => {
@@ -1258,17 +1373,22 @@ export class WorkerExtensionHost {
       const reply = await new Promise<
         Extract<WorkerToHostMessage, { type: 'service:invoke:ok' | 'service:invoke:err' }>
       >((resolve, reject) => {
-        invokeWaiters.set(invokeId, { expect: target.name, resolve, reject });
+        invokeWaiters.set(invokeId, {
+          expect: target.name,
+          resolve,
+          reject,
+          ...(type === 'action:invoke' ? { action: name } : {}),
+        });
         setTimeout(
           () => {
-            if (invokeWaiters.has(invokeId)) {
-              invokeWaiters.delete(invokeId);
-              reject(
-                new Error(
-                  `${type === 'action:invoke' ? 'action' : 'service'} "${name}" call timeout`,
-                ),
-              );
-            }
+            if (!invokeWaiters.has(invokeId)) return;
+            invokeWaiters.delete(invokeId);
+            const what = `${type === 'action:invoke' ? 'action' : type === 'event:deliver' ? 'listener' : 'service'} "${name}"`;
+            const err = this.timedOut(target, what);
+            // Its statement cancelled first, while the request still holds the
+            // connection: the caller's answer is what ends the request.
+            if (scope.txn?.joined) void cancelJoinedStatement(scope.txn).finally(() => reject(err));
+            else reject(err);
             // In a request, the request's hard timeout, as a worker route's (ADR
             // 0009 §3). Outside one (an event delivery, a call from a timer) there
             // is no request transaction to bound: the fixed ceiling, and a host
@@ -1294,6 +1414,7 @@ export class WorkerExtensionHost {
       }
       return reply.result;
     } finally {
+      leave();
       target.invokeTenants.delete(invokeId);
       // A scope the service left open outlives it: undone, so the caller's turn comes.
       if (scope.txn) await abandonScopes(scope.txn, target.name, invokeId);
@@ -1305,6 +1426,55 @@ export class WorkerExtensionHost {
           endHostTxn(target, id, 'rolled back: its invocation is over');
       }
     }
+  }
+
+  /**
+   * Admit a call into `managed` for the request `key` (its transaction): a
+   * request already in it passes, a new one past `boxConcurrencyLimit` is
+   * refused before the worker sees it, holding nothing (ADR 0056). Returns the
+   * call's release.
+   */
+  private admit(managed: ManagedWorker, key: object): () => void {
+    const active = (managed.active ??= new Map());
+    const held = active.get(key);
+    const limit = boxConcurrencyLimit(activePoolMax());
+    if (held === undefined && active.size >= limit) {
+      console.warn(
+        `${boxTag(managed.name, managed.source)} busy: ${active.size} requests in it, its limit; one more refused`,
+      );
+      const busy = problem(
+        'extension.busy',
+        503,
+        `extension "${managed.name}" is serving ${limit} requests, as many as it may at once; retry shortly`,
+      );
+      busy.retryAfter = 1;
+      throw busy;
+    }
+    active.set(key, (held ?? 0) + 1);
+    managed.inFlightRequests = active.size;
+    managed.totalRequests++;
+    let left = false;
+    return () => {
+      if (left) return;
+      left = true;
+      const n = (active.get(key) ?? 1) - 1;
+      if (n > 0) active.set(key, n);
+      else active.delete(key);
+      managed.inFlightRequests = active.size;
+    };
+  }
+
+  /** A call into `managed` that outlived the request's hard timeout: logged, and its 504. */
+  private timedOut(managed: ManagedWorker, what: string): ProblemException {
+    const ms = requestTxnTimeoutMs;
+    console.error(
+      `${boxTag(managed.name, managed.source)} timeout: ${what} did not answer within ${ms}ms`,
+    );
+    return problem(
+      'extension.timeout',
+      504,
+      `extension "${managed.name}": ${what} call timeout, no answer within ${ms} ms`,
+    );
   }
 
   private handleServiceRegister(
@@ -1396,7 +1566,9 @@ export class WorkerExtensionHost {
           error?: Error;
         }) => {
           const live = this.workers.get(managed.name);
-          if (!live) return new Response('Extension worker is not running', { status: 503 });
+          if (!live || live.respawning) {
+            return problemOnError(boxDown(managed.name, live?.disabled), c as unknown as Context);
+          }
           // Bytes, not text: a text decode replaced every invalid UTF-8 sequence,
           // so an image or PDF upload reached the handler corrupted.
           const body = await c.req.raw
@@ -1438,17 +1610,24 @@ export class WorkerExtensionHost {
           // A request with no tenant transaction still opens its own.
           const joined = await joinRequestTxn(scope);
           const txn = joined.txn ?? newRequestTxn();
+          let leave: () => void;
+          try {
+            leave = this.admit(live, txn);
+          } catch (err) {
+            await endRequestTxn(txn, false);
+            return problemOnError(err as Error, c as unknown as Context);
+          }
           live.invokeTenants.set(id, { ...scope, ...joined, txn });
-          live.inFlightRequests++;
-          live.totalRequests++;
           try {
             const resp = await new Promise<RouteInvokeResponse>((resolve, reject) => {
               live.pendingInvokes.set(id, resolve);
               const timer = setTimeout(() => {
-                if (live.pendingInvokes.has(id)) {
-                  live.pendingInvokes.delete(id);
-                  reject(new Error('worker route handler timeout (30s)'));
-                }
+                if (!live.pendingInvokes.has(id)) return;
+                live.pendingInvokes.delete(id);
+                const err = this.timedOut(live, `route ${r.method} ${r.path}`);
+                // As an action's (`invokeWorkerService`): its statement first.
+                if (txn.joined) void cancelJoinedStatement(txn).finally(() => reject(err));
+                else reject(err);
                 // The request's hard timeout, the same as its transaction's: a
                 // joined transaction is the tenant's, ended only by the answer.
               }, requestTxnTimeoutMs);
@@ -1481,6 +1660,9 @@ export class WorkerExtensionHost {
               return Response.json({ error: NOT_COMMITTED }, { status: 500 });
             }
             if (resp.type === 'route:err') {
+              console.error(
+                `${boxTag(live.name, live.source)} route ${r.method} ${r.path} failed: ${resp.error}`,
+              );
               // An uncaught SQLSTATE answers as an inline route's (22P02 → 400, 55P03 → 503).
               if (resp.errno) {
                 const err = Object.assign(new Error(resp.error), { errno: resp.errno });
@@ -1497,6 +1679,9 @@ export class WorkerExtensionHost {
             if (err instanceof FrameTooLargeError) {
               return Response.json({ error: 'Request body too large' }, { status: 413 });
             }
+            if (err instanceof ProblemException) {
+              return problemOnError(err, c as unknown as Context);
+            }
             return new Response((err as Error).message, { status: 500 });
           } finally {
             // Timed out, or the worker died: nothing it wrote is kept. Nor what
@@ -1506,7 +1691,7 @@ export class WorkerExtensionHost {
             if (!(await endRequestTxn(txn, false))) {
               c.error ??= new Error('the worker request was rolled back');
             }
-            live.inFlightRequests--;
+            leave();
             // The request is over, so the id can no longer name a tenant. Left
             // behind, this map grows for the lifetime of the process and a
             // worker could keep quoting a finished request's id to hold on to
@@ -1645,6 +1830,8 @@ const invokeWaiters = new Map<
       msg: Extract<WorkerToHostMessage, { type: 'service:invoke:ok' | 'service:invoke:err' }>,
     ) => void;
     reject: (err: Error) => void;
+    /** An action run: its own extension stopping is not a dependency's. */
+    action?: string;
   }
 >();
 
@@ -1682,7 +1869,15 @@ function failPendingInvokes(extName: string): void {
   for (const [id, waiter] of invokeWaiters) {
     if (waiter.expect !== extName) continue;
     invokeWaiters.delete(id);
-    waiter.reject(dependencyDown(extName));
+    waiter.reject(
+      waiter.action
+        ? problem(
+            'extension.unavailable',
+            503,
+            `extension "${extName}" stopped while running action "${waiter.action}"; nothing it wrote was kept`,
+          )
+        : dependencyDown(extName),
+    );
   }
 }
 
@@ -1708,6 +1903,48 @@ const DEPENDENCY_DOWN = 'extension.dependency_unavailable';
 /** 503, so the HTTP caller sees "try again", not a server fault. */
 function dependencyDown(extName: string): ProblemException {
   return problem(DEPENDENCY_DOWN, 503, `dependency "${extName}" is not running`);
+}
+
+/**
+ * A call into an extension that is not answering (ADR 0056): restarting after a
+ * crash (retry shortly), disabled after too many (`disabled`, the reason), or
+ * not running. Its own code, not a dependency's: the caller called it.
+ */
+function boxDown(extName: string, disabled?: string): ProblemException {
+  if (disabled) return problem('extension.disabled', 503, `extension "${extName}" is ${disabled}`);
+  const down = problem(
+    'extension.unavailable',
+    503,
+    `extension "${extName}" is not running (restarting after a crash, or stopped); retry shortly`,
+  );
+  down.retryAfter = 1;
+  return down;
+}
+
+/**
+ * Cancel the statement running now on a joined request transaction's
+ * connection (ADR 0056): a call into the box that timed out ends its request's
+ * work in the database at once — the transaction is then aborted, rolled back
+ * by its request, and every lock it held is released — not when the statement
+ * or the lock it waits for lets go (an engine statement has no
+ * `statement_timeout`). Only while that backend is still in this transaction,
+ * which its start time identifies: a cancel arriving after the request ended
+ * cannot reach the connection's next borrower.
+ */
+async function cancelJoinedStatement(txn: RequestTxn): Promise<void> {
+  const at = txn.backend;
+  if (!at) return;
+  const { getActiveBunPool } = await import('../db/bun-sql-dialect.js');
+  const cancel = getActiveBunPool()?.unsafe(
+    `SELECT pg_cancel_backend(pid) FROM pg_stat_activity
+      WHERE pid = $1 AND xact_start = $2::timestamptz`,
+    [at.pid, at.started],
+  );
+  // Bounded: a pool too busy to lend a connection must not hold the caller's
+  // answer; the guard above keeps a late one harmless.
+  await Promise.race([cancel, Bun.sleep(5_000)]).catch((err: Error) =>
+    console.error(`[worker-host] cancelling a timed-out request's statement: ${err.message}`),
+  );
 }
 
 function isDependencyDown(err: unknown): boolean {
@@ -2040,6 +2277,12 @@ async function openJoinedTxn(trx: Database): Promise<RequestTxn> {
       return n === undefined || 'count' in rows ? rows : Object.assign(rows, { count: Number(n) });
     },
   } as unknown as Reserved;
+  // Read once, when the first call joins: a timeout then cancels what runs on
+  // the connection (`cancelJoinedStatement`) without needing it.
+  const [backend] = (await joined.conn.unsafe(
+    'SELECT pg_backend_pid() AS pid, now()::text AS started',
+  )) as { pid: number; started: string }[];
+  joined.backend = backend;
   // Ends before the request's transaction does: what is still queued is refused,
   // so no statement of the worker's lands after it.
   if (!beforeRequestTransactionEnds(() => endRequestTxn(joined, true, 'its request is over'))) {
@@ -2180,6 +2423,11 @@ interface RequestTxn {
   scopes: Map<string, TxnScope>;
   /** Why statements are refused from now on. */
   over?: string;
+  /**
+   * Joined only: the backend holding the request's transaction, and when that
+   * transaction began — what `cancelJoinedStatement` signals, and checks first.
+   */
+  backend?: { pid: number; started: string };
   closing?: Promise<boolean>;
   timer?: ReturnType<typeof setTimeout>;
 }
