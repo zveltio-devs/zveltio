@@ -363,6 +363,8 @@ interface ManagedWorker {
   /** When a refusal past the limit was last logged. */
   busyLoggedAt?: number;
   source?: WorkerCtxSource;
+  /** A level-3 off-model refusal was logged for this process. */
+  refusalLogged?: boolean;
   /** Its `ctx.events.on` subscriptions on the engine bus, by listener key. */
   listeners?: Map<string, () => void>;
   proxyUnmount: () => void;
@@ -993,7 +995,13 @@ export class WorkerExtensionHost {
       const error =
         `${off} is refused: "${managed.name}" is signed by an operator key (level 3), which ` +
         `is declared model only — collections, actions, jobs, declared routes (ADR 0056)`;
-      console.error(`${boxTag(managed.name, managed.source)} ${error}`);
+      // Logged once per process: a bundle posting in a loop must not flood the log.
+      if (!managed.refusalLogged) {
+        managed.refusalLogged = true;
+        console.error(
+          `${boxTag(managed.name, managed.source)} ${error} (further refusals not logged)`,
+        );
+      }
       const type = {
         'db:query': 'db:err',
         'service:call': 'service:err',
