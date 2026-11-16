@@ -36,7 +36,9 @@ import { DDLManager } from './ddl-manager.js';
 import { broadcastSchemaChange, type SchemaChangeAction } from '../../routes/ws.js';
 import { realtimeBus, SCHEMA_CHANGED_EVENT } from '../runtime/index.js';
 import { getTenantDb, onAfterCommit, runOutsideTenantContext } from '../tenancy/index.js';
-import { scheduleSchemaWrite } from '../schema-artifact/dev-writer.js';
+import { recordSchemaMigration, scheduleSchemaWrite } from '../schema-artifact/dev-writer.js';
+import { auditLog } from '../audit.js';
+import type { FieldChange } from './field-changes.js';
 
 // pg-boss 12+ is ESM-only and exposes `PgBoss` as a NAMED export (not
 // default). Prior versions had a default export; the previous unwrap
@@ -54,6 +56,9 @@ const QUEUE_NAMES = {
   add_field: 'ddl.add_field',
   remove_field: 'ddl.remove_field',
   build_index: 'ddl.build_index',
+  // Schema work whose length grows with the table: a 202 and a job (DR-36).
+  alter_field: 'ddl.alter_field',
+  apply_schema: 'ddl.apply_schema',
 } as const;
 type DdlJobType = keyof typeof QUEUE_NAMES;
 
@@ -65,6 +70,8 @@ interface PublicJobShape {
   started_at: Date | null;
   completed_at: Date | null;
   error: string | null;
+  /** What the job's handler answered once it completed: the body its route used to answer. */
+  result: unknown;
   retry_count: number;
   max_retries: number;
   created_at: Date;
@@ -85,6 +92,15 @@ const DEFAULT_RETRY = {
   retryDelay: 5, // seconds — initial backoff
   retryBackoff: true, // exponential
 } as const;
+
+/**
+ * A retype or an apply runs once, for as long as it takes. A retype that failed
+ * on the rows fails the same way again, and a retry only delays the answer the
+ * caller is polling for; pg-boss fails a job whose handler outlives its expiry
+ * (15 minutes by default) while the work goes on, and a retype rewrites a table
+ * at about 10 s per million rows.
+ */
+const RUN_ONCE = { retryLimit: 0, expireInSeconds: 6 * 60 * 60 } as const;
 
 /**
  * Boot pg-boss against the existing Postgres connection. Creates the
@@ -236,11 +252,8 @@ export async function enqueueDDLJob(
   const queue = (QUEUE_NAMES as Record<string, string>)[type];
   if (!queue) throw new Error(`Unknown DDL job type: ${type}`);
 
-  const jobId = await _boss.send(queue, payload as object, {
-    retryLimit: DEFAULT_RETRY.retryLimit,
-    retryDelay: DEFAULT_RETRY.retryDelay,
-    retryBackoff: DEFAULT_RETRY.retryBackoff,
-  });
+  const once = type === 'alter_field' || type === 'apply_schema';
+  const jobId = await _boss.send(queue, payload as object, once ? RUN_ONCE : DEFAULT_RETRY);
   if (!jobId) throw new Error(`Failed to enqueue ${type}: pg-boss returned no id`);
 
   // In test mode, the integration suite expects the job to be processed
@@ -389,7 +402,11 @@ function mapJobToPublic(job: any, type: DdlJobType): PublicJobShape {
     status: stateMap[job.state] ?? 'pending',
     started_at: job.startedOn ? new Date(job.startedOn) : null,
     completed_at: job.completedOn ? new Date(job.completedOn) : null,
-    error: job.output?.message ?? (typeof job.output === 'string' ? job.output : null),
+    error:
+      job.state === 'completed'
+        ? null
+        : (job.output?.message ?? (typeof job.output === 'string' ? job.output : null)),
+    result: job.state === 'completed' ? (job.output ?? null) : null,
     // camelCase, because that is what pg-boss returns. Its SELECT aliases every
     // snake_case column — `retry_count as "retryCount"`, `retry_limit as
     // "retryLimit"`, `created_on as "createdOn"` (plans.js:298-309 in the
@@ -450,6 +467,51 @@ export async function runAddField(
   announceSchemaChange(collection, 'alter');
 }
 
+/**
+ * Change a field as `PATCH /api/collections/:name/fields/:field` asks, and
+ * record the migration: in the request, or in the `alter_field` job when it
+ * retypes. The caller writes the audit entry (`fieldChangeAudit`), where the
+ * audit gate can see it.
+ */
+export async function runAlterField(
+  db: Database,
+  collection: string,
+  fieldName: string,
+  change: FieldChange,
+  userId: string | undefined,
+) {
+  const { alterField } = await import('./field-changes.js');
+  const { refuseRequiredKey } = await import('./relations.js');
+  if (change.required === true) await refuseRequiredKey(db, collection, fieldName);
+  const result = await alterField(db, collection, fieldName, change);
+  // The type changes under the old name, then the field is renamed.
+  recordSchemaMigration(
+    ...(result.actions.some((a) => a.startsWith('type '))
+      ? [{ op: 'changeFieldType' as const, collection, field: fieldName, to: result.field.type }]
+      : []),
+    ...(result.field.name !== fieldName
+      ? [{ op: 'renameField' as const, collection, from: fieldName, to: result.field.name }]
+      : []),
+  );
+  return result;
+}
+
+/** The audit entry of a field change; the route and the job each write it. */
+export function fieldChangeAudit(
+  collection: string,
+  from: string,
+  result: { actions: string[]; field: { name: string } },
+  userId: string | undefined,
+) {
+  return {
+    type: 'settings.changed' as const,
+    userId,
+    resourceId: collection,
+    resourceType: 'collection_field',
+    metadata: { actions: result.actions, from, to: result.field.name },
+  };
+}
+
 // ── Per-type handlers ──────────────────────────────────────────────────────
 
 async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
@@ -507,6 +569,22 @@ async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
 
   await work<{ ddl: string }>(QUEUE_NAMES.build_index, ([job]) => buildIndexJob(db, job!.data));
 
+  // On the pool, like add_field: a key or an index the change asks for is
+  // built CONCURRENTLY. What each returns is the job's `result`.
+  await work<AlterFieldJob>(QUEUE_NAMES.alter_field, async ([job]) => {
+    const { collection, field, change, userId } = job!.data;
+    const result = await runAlterField(db, collection, field, change, userId);
+    await auditLog(db, fieldChangeAudit(collection, field, result, userId));
+    return { success: true, ...result };
+  });
+  await work<ApplySchemaJob>(QUEUE_NAMES.apply_schema, async ([job]) => {
+    const { applySchema } = await import('../schema-artifact/apply.js');
+    const { SCHEMA_FORMAT } = await import('../schema-artifact/export.js');
+    const { files, userId, allowDestructive } = job!.data;
+    const steps = await applySchema(db, files, userId, { allowDestructive });
+    return { format: SCHEMA_FORMAT, steps };
+  });
+
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   await work(QUEUE_NAMES.remove_field, async ([job]: any[]) => {
     const payload = job.data as { collection: string; fieldName: string };
@@ -541,6 +619,20 @@ async function skipForByod(trx: any, payload: any, _kind: string): Promise<boole
     .executeTakeFirst();
   return meta?.is_managed === false;
 }
+
+/** The `alter_field` job's payload: the route's path and body, and who asked. */
+export type AlterFieldJob = {
+  collection: string;
+  field: string;
+  change: FieldChange;
+  userId?: string;
+};
+/** The `apply_schema` job's payload: the files and options `POST /api/admin/schema/apply` got. */
+export type ApplySchemaJob = {
+  files: Record<string, unknown>;
+  userId?: string;
+  allowDestructive: boolean;
+};
 
 export type JobQueue = PgBossInst;
 const startListeners: ((boss: PgBossInst) => Promise<void>)[] = [];

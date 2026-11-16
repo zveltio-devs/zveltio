@@ -6,7 +6,7 @@ Create database tables without writing SQL using Zveltio's dynamic collection sy
 
 A **collection** is a database table managed through the API. You define the schema (fields), and Zveltio creates the table, generates CRUD endpoints, and keeps everything in sync — no migrations to write.
 
-> **Schema changes on live tables.** Adding a field alters the table in place (ADR 0041): PostgreSQL adds a column, with or without a constant default, as a catalog change, so even a large table blocks for milliseconds. A `unique` field's key is built with `CREATE UNIQUE INDEX CONCURRENTLY` and then attached, so the table keeps taking writes while it is built (longest write stall measured at a million rows: about 60 ms, against 400 ms when the index was built under the lock); rows that already repeat a value refuse the field, and the add leaves nothing behind. Changing a relation's `onDelete`/`onUpdate` re-creates its foreign key `NOT VALID` and checks the rows afterwards with `VALIDATE CONSTRAINT`, which readers and writers do not wait on; a check that fails puts the previous key back. A relation over a column that already exists (an o2m's `target_field`, a `uuid` field made a relation) gets its key the same way; rows that point at no parent, or a column that is not a `uuid`, refuse the relation and leave neither key nor relation behind. A field whose default is volatile (`gen_random_uuid()`, `uuid_generate_v4()`) makes PostgreSQL rewrite the table: about 14 s per million rows, during which the collection does not answer — add such a field outside busy hours, or add it without a default and fill it in batches. Changing a field's type (`PATCH /api/collections/:name/fields/:field` with `new_type`) also alters the column in place: a conversion PostgreSQL cannot do as a catalog change (number to text, text to number, and most others) rewrites the table under an exclusive lock, about 10 s per million rows, during which the collection does not answer reads or writes. The engine does not offer a batched or shadow-column retype (ADR 0041); retype a large table outside busy hours, or add a new field, fill it in batches, and drop the old one.
+> **Schema changes on live tables.** Adding a field alters the table in place (ADR 0041): PostgreSQL adds a column, with or without a constant default, as a catalog change, so even a large table blocks for milliseconds. A `unique` field's key is built with `CREATE UNIQUE INDEX CONCURRENTLY` and then attached, so the table keeps taking writes while it is built (longest write stall measured at a million rows: about 60 ms, against 400 ms when the index was built under the lock); rows that already repeat a value refuse the field, and the add leaves nothing behind. Changing a relation's `onDelete`/`onUpdate` re-creates its foreign key `NOT VALID` and checks the rows afterwards with `VALIDATE CONSTRAINT`, which readers and writers do not wait on; a check that fails puts the previous key back. A relation over a column that already exists (an o2m's `target_field`, a `uuid` field made a relation) gets its key the same way; rows that point at no parent, or a column that is not a `uuid`, refuse the relation and leave neither key nor relation behind. A field whose default is volatile (`gen_random_uuid()`, `uuid_generate_v4()`) makes PostgreSQL rewrite the table: about 14 s per million rows, during which the collection does not answer — add such a field outside busy hours, or add it without a default and fill it in batches. Changing a field's type (`PATCH /api/collections/:name/fields/:field` with `new_type`, a job: see below) also alters the column in place: a conversion PostgreSQL cannot do as a catalog change (number to text, text to number, and most others) rewrites the table under an exclusive lock, about 10 s per million rows, during which the collection does not answer reads or writes. The engine does not offer a batched or shadow-column retype (ADR 0041); retype a large table outside busy hours, or add a new field, fill it in batches, and drop the old one.
 
 ## Creating a Collection
 
@@ -24,6 +24,27 @@ POST /api/collections
 ```
 
 The response is `202 Accepted` with a `job_id`. Table creation is async — poll `GET /api/collections/:name` until `status: "ready"`.
+
+### Long schema changes are jobs
+
+Creating a collection, changing a field's type (`PATCH
+/api/collections/:name/fields/:field` with `new_type`) and `POST
+/api/admin/schema/apply` with a plan that has steps take time that grows with
+the table, so none of them runs inside the request: each answers `202` with a
+`job_id`. A change the engine refuses is refused first, with its 4xx, and
+nothing is queued. Poll `GET /api/collections/jobs/:job_id`:
+
+- `job.status` `pending` or `running`: poll again;
+- `completed`: `job.result` is what the route would have answered — `{ success,
+  field, actions }` for a field change, `{ format, steps }` for an apply;
+- `failed`: `job.error` says why. A failed field change changed nothing; a
+  failed apply keeps the steps before the one that failed, and the next apply
+  carries on from there.
+
+A field change or an apply runs once and is never retried, so polling is safe
+and a second request is a second change. A `PATCH` without `new_type`, and an apply whose plan is
+empty, answer `200` at once. `zveltio schema apply` and the Studio wait for
+the job themselves.
 
 The engine adds `id`, `created_at`, `updated_at`, `created_by`, `updated_by`
 and `tenant_id` to every table; no field may take those names. Nothing else is

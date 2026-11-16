@@ -336,3 +336,49 @@ describe('dataApi paths', () => {
     expect(url).toContain('/api/data/..%2Fusers/a%2Fb%3Fx');
   });
 });
+
+describe('collectionsApi.waitForJob — a retype answered 202 (DR-36)', () => {
+  /** Answers each poll with the next job state. */
+  function jobs(...states: unknown[]) {
+    const fetch = vi.fn(async () => {
+      const job = states.shift();
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ job }),
+        clone() {
+          return this;
+        },
+      } as unknown as Response;
+    });
+    globalThis.fetch = fetch;
+    return fetch;
+  }
+
+  it('polls until the job completes and returns its result', async () => {
+    vi.useFakeTimers();
+    try {
+      const { collectionsApi } = await import('./api.js');
+      const fetch = jobs(
+        { status: 'running' },
+        { status: 'completed', result: { actions: ['type text→integer'] } },
+      );
+      const done = collectionsApi.waitForJob<{ actions: string[] }>('job-1');
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(await done).toEqual({ actions: ['type text→integer'] });
+      expect(String((fetch.mock.calls[0] as unknown[])[0])).toContain(
+        '/api/collections/jobs/job-1',
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('throws the error of a job that failed', async () => {
+    const { collectionsApi } = await import('./api.js');
+    jobs({ status: 'failed', error: 'invalid input syntax for type integer' });
+    await expect(collectionsApi.waitForJob('job-2')).rejects.toThrow(
+      'invalid input syntax for type integer',
+    );
+  });
+});

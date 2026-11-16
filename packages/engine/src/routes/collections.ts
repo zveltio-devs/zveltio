@@ -14,8 +14,8 @@ import {
 // and admitted any delegated tenant admin.
 import { getCurrentDomainOrNull, requireInstanceAdmin } from '../lib/tenancy/index.js';
 import {
-  alterField,
   announceSchemaChange,
+  checkFieldChange,
   apiKeyMayWatchSchema,
   dropField,
   FieldChangeError,
@@ -26,6 +26,8 @@ import {
   enqueueDDLJob,
   getDDLJob,
   requestApiKey,
+  fieldChangeAudit,
+  runAlterField,
 } from '../lib/data/index.js';
 import { fieldTypeRegistry } from '../lib/data/index.js';
 import {
@@ -623,6 +625,9 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
   // PATCH /:name/fields/:field — Modify a field (rename / change type / toggle
   // required / unique / indexed / default).
   //
+  // With `new_type` it answers 202 with a `job_id` to poll at GET /jobs/:jobId,
+  // whose `result` is the body below; without, 200 with that body.
+  //
   // Body accepts any combination of:
   //   - new_name: string  → ALTER TABLE RENAME COLUMN + sync zvd_relations
   //   - new_type: string  → ALTER COLUMN TYPE + USING expr from
@@ -671,36 +676,40 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
       const body = c.req.valid('json');
       // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
       const user = c.get('user' as never) as any;
+      const collection = c.req.param('name');
+      const field = c.req.param('field');
+      const change = {
+        newName: body.new_name,
+        newType: body.new_type,
+        required: body.required,
+        unique: body.unique,
+        indexed: body.indexed,
+        defaultValue: body.default_value,
+      };
       try {
-        if (body.required === true) {
-          await refuseRequiredKey(db, c.req.param('name'), c.req.param('field'));
+        // A retype can rewrite the table, about 10 s per million rows: it is a
+        // job, answered 202 like a new collection (DR-36). Everything the
+        // engine would refuse is refused here first, with its status.
+        if (body.new_type !== undefined) {
+          if (body.required === true) await refuseRequiredKey(db, collection, field);
+          await checkFieldChange(db, collection, field, change);
+          const jobId = await enqueueDDLJob(db, 'alter_field', {
+            collection,
+            field,
+            change,
+            userId: user?.id,
+          });
+          return c.json(
+            {
+              success: true,
+              message: `Field '${field}' of '${collection}' is being changed`,
+              job_id: jobId,
+            },
+            202,
+          );
         }
-        const result = await alterField(db, c.req.param('name'), c.req.param('field'), {
-          newName: body.new_name,
-          newType: body.new_type,
-          required: body.required,
-          unique: body.unique,
-          indexed: body.indexed,
-          defaultValue: body.default_value,
-        });
-        // The type changes under the old name, then the field is renamed.
-        const collection = c.req.param('name');
-        const from = c.req.param('field');
-        recordSchemaMigration(
-          ...(result.actions.some((a) => a.startsWith('type '))
-            ? [{ op: 'changeFieldType' as const, collection, field: from, to: result.field.type }]
-            : []),
-          ...(result.field.name !== from
-            ? [{ op: 'renameField' as const, collection, from, to: result.field.name }]
-            : []),
-        );
-        await auditLog(db, {
-          type: 'settings.changed',
-          userId: user?.id,
-          resourceId: c.req.param('name'),
-          resourceType: 'collection_field',
-          metadata: { actions: result.actions, from: c.req.param('field'), to: result.field.name },
-        });
+        const result = await runAlterField(db, collection, field, change, user?.id);
+        await auditLog(db, fieldChangeAudit(collection, field, result, user?.id));
         return c.json({ success: true, ...result });
       } catch (error) {
         if (error instanceof FieldChangeError)

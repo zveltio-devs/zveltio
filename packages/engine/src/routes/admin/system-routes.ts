@@ -16,14 +16,14 @@ import { apiKeyUsable, escapeLike, memberKeyScopeRefusal } from '../../lib/data/
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import { invalidateColumnPermCache } from '../../lib/tenancy/index.js';
 import { fieldTypeRegistry } from '../../lib/data/index.js';
-import { DDLManager, readableRevisions } from '../../lib/data/index.js';
+import { DDLManager, enqueueDDLJob, readableRevisions } from '../../lib/data/index.js';
 import { getCache } from '../../lib/runtime/index.js';
 import { reqDb, tenantId } from '../../lib/route-db.js';
 import { auditLog } from '../../lib/audit.js';
 import { exportSchema, SCHEMA_FORMAT } from '../../lib/schema-artifact/export.js';
 import { SchemaFileError } from '../../lib/schema-artifact/plan.js';
 import {
-  applySchema,
+  checkSchemaApply,
   planInstanceSchema,
   SchemaApplyRefused,
 } from '../../lib/schema-artifact/apply.js';
@@ -449,20 +449,29 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
   });
 
   // POST /schema/apply — make this instance match the files in the body, for
-  // `zveltio schema apply`. Answers the steps it ran. A file that does not
-  // validate is a 400, and a plan with a step apply cannot run yet is a 409;
-  // in both cases nothing was changed.
+  // `zveltio schema apply`. The plan is checked here: a file that does not
+  // validate is a 400, and a plan with a step apply cannot run yet is a 409; in
+  // both cases nothing was changed. An empty plan answers 200 with no steps.
+  // Otherwise the apply is a job (DR-36): 202 with the planned `steps` and a
+  // `job_id` to poll at GET /api/collections/jobs/:jobId, whose `result` holds
+  // the steps it ran.
   app.post('/schema/apply', async (c) => {
     const body = (await c.req.json().catch(() => null)) as {
       files?: unknown;
       allowDestructive?: unknown;
     } | null;
     const user = c.get('user' as never) as { id?: string } | undefined;
+    const files = body?.files as Record<string, unknown>;
+    const allowDestructive = body?.allowDestructive === true;
     try {
-      const steps = await applySchema(db, body?.files as Record<string, unknown>, user?.id, {
-        allowDestructive: body?.allowDestructive === true,
+      const steps = await checkSchemaApply(db, files, { allowDestructive });
+      if (!steps.length) return c.json({ format: SCHEMA_FORMAT, steps });
+      const jobId = await enqueueDDLJob(db, 'apply_schema', {
+        files,
+        userId: user?.id,
+        allowDestructive,
       });
-      return c.json({ format: SCHEMA_FORMAT, steps });
+      return c.json({ format: SCHEMA_FORMAT, steps, job_id: jobId }, 202);
     } catch (err) {
       if (err instanceof SchemaFileError) return c.json({ error: err.message }, 400);
       if (err instanceof SchemaApplyRefused) {

@@ -900,3 +900,23 @@ export async function catalogState(db: Database, table: string): Promise<string[
   if (r.rows.length === 0) throw new Error(`catalogState: no table ${table}`);
   return r.rows.map((x) => `${x.s}|${x.l}`);
 }
+
+/**
+ * How a request that may answer 202 with a DDL job ended (DR-36): `completed`,
+ * or `failed: <error>`, once the job settles; a request answered otherwise
+ * gives its status (`'200'`, `'409'`). The response stays readable.
+ */
+export async function jobOutcome(app: Hono, res: Response, headers: HeadersInit): Promise<string> {
+  if (res.status !== 202) return String(res.status);
+  const { job_id } = (await res.clone().json()) as { job_id: string };
+  for (const deadline = Date.now() + 60_000; Date.now() < deadline; await Bun.sleep(100)) {
+    const job = (
+      (await (await app.request(`/api/collections/jobs/${job_id}`, { headers })).json()) as {
+        job: { status: string; error: string | null };
+      }
+    ).job;
+    if (job.status === 'completed') return 'completed';
+    if (job.status === 'failed') return `failed: ${job.error}`;
+  }
+  return `job ${job_id} still running after 60 s`;
+}

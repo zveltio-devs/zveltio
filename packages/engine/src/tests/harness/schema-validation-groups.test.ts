@@ -27,6 +27,7 @@ import {
   dropTestCollection,
   getTestApp,
   harnessAvailable,
+  jobOutcome,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -46,6 +47,8 @@ d('schema artifact: validation rule groups', () => {
       headers: { cookie, 'content-type': 'application/json' },
       body: JSON.stringify({ files }),
     });
+  // An apply with work answers 202 and runs as a job (DR-36); an empty plan 200.
+  const applied = async (files: unknown) => jobOutcome(app, await call('apply', files), { cookie });
   const pull = async () => {
     const res = await app.request('/api/admin/schema/export', { headers: { cookie } });
     return ((await res.json()) as { files: Record<string, string> }).files;
@@ -140,8 +143,7 @@ d('schema artifact: validation rule groups', () => {
     await sql`DELETE FROM zvd_validation_rule_groups WHERE collection = ${C}`.execute(db);
     await sql`DELETE FROM zv_validation_rules WHERE collection = ${C}`.execute(db);
 
-    const res = await call('apply', pulled);
-    expect(res.status).toBe(200);
+    expect(await applied(pulled)).toBe('completed');
     const now = await rules();
     expect(now.map((r) => r.rule_type)).toEqual(['minLength', 'pattern']);
     for (const r of now) expect(original).not.toContain(r.id);
@@ -160,7 +162,7 @@ d('schema artifact: validation rule groups', () => {
       g!.logic = 'AND';
       g!.rules = [{ rule: 'pattern', config: { pattern: '^RO[0-9]+$' } }];
     });
-    expect((await call('apply', and)).status).toBe(200);
+    expect(await applied(and)).toBe('completed');
     const g = await group();
     const pattern = (await rules()).find((r) => r.rule_type === 'pattern')!;
     expect(g?.logic).toBe('AND');
@@ -169,9 +171,9 @@ d('schema artifact: validation rule groups', () => {
     const none = edit(pulled, (col) => {
       col.validationGroups = [];
     });
-    expect((await call('apply', none)).status).toBe(200);
+    expect(await applied(none)).toBe('completed');
     expect(await group()).toBeUndefined();
-    expect((await call('apply', pulled)).status).toBe(200);
+    expect(await applied(pulled)).toBe('completed');
   });
 
   it('refuses a member no rule in the files answers, and changes nothing', async () => {
@@ -219,9 +221,9 @@ d('schema artifact: validation rule groups', () => {
     const and = edit(pulled, (col) => {
       (col.validationGroups as Record<string, unknown>[])[0]!.logic = 'AND';
     });
-    expect((await call('apply', and)).status).toBe(200);
+    expect(await applied(and)).toBe('completed');
     expect((await group())?.logic).toBe('AND');
-    expect((await call('apply', pulled)).status).toBe(200);
+    expect(await applied(pulled)).toBe('completed');
   });
 
   it('refuses a group name twice in one collection', async () => {

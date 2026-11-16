@@ -20,6 +20,7 @@ import {
   dropTestCollection,
   getTestApp,
   harnessAvailable,
+  jobOutcome,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -105,7 +106,7 @@ d('a collection file declares a unique key over several fields', () => {
     const files = await withFiles(parentFile, childFile());
     expect(await plan(files)).toContain(`+ ${CHILD} add unique index (project_id, member) true`);
     const applied = await call('POST', '/api/admin/schema/apply', { files });
-    expect(applied.status).toBe(200);
+    expect(await jobOutcome(app, applied, { cookie })).toBe('completed');
     expect(await keys()).toEqual(['UNIQUE (tenant_id, project_id, member)']);
 
     const p = (await (await call('POST', `/api/data/${PARENT}`, { title: 'p' })).json()) as {
@@ -133,12 +134,20 @@ d('a collection file declares a unique key over several fields', () => {
     expect(await plan(without)).toEqual([
       `- ${CHILD} remove unique index (project_id, member) true`,
     ]);
-    expect((await call('POST', '/api/admin/schema/apply', { files: without })).status).toBe(200);
+    expect(
+      await jobOutcome(app, await call('POST', '/api/admin/schema/apply', { files: without }), {
+        cookie,
+      }),
+    ).toBe('completed');
     expect(await keys()).toEqual([]);
 
     const back = await withFiles(parentFile, childFile());
     expect(await plan(back)).toEqual([`+ ${CHILD} add unique index (project_id, member) true`]);
-    expect((await call('POST', '/api/admin/schema/apply', { files: back })).status).toBe(200);
+    expect(
+      await jobOutcome(app, await call('POST', '/api/admin/schema/apply', { files: back }), {
+        cookie,
+      }),
+    ).toBe('completed');
     expect(await keys()).toEqual(['UNIQUE (tenant_id, project_id, member)']);
 
     const [{ conname }] = (
@@ -164,11 +173,11 @@ d('a collection file declares a unique key over several fields', () => {
         201,
       );
     }
+    // Found while the apply runs: the job fails with the reason (DR-36).
     const res = await call('POST', '/api/admin/schema/apply', {
       files: await withFiles(parentFile, childFile()),
     });
-    expect(res.status).toBe(400);
-    expect(((await res.json()) as { detail: string }).detail).toContain(
+    expect(await jobOutcome(app, res, { cookie })).toContain(
       'rows already repeat these values within a tenant',
     );
     const left = await asDefaultTenant(
@@ -229,7 +238,7 @@ d('a collection file declares a unique key over several fields', () => {
     };
     const files = await withFiles(parentFile, childFile({ indexes: undefined }), owner);
     const applied = await call('POST', '/api/admin/schema/apply', { files });
-    expect(applied.status, await applied.clone().text()).toBe(200);
+    expect(await jobOutcome(app, applied, { cookie })).toBe('completed');
     expect(await keys(OWNER)).toEqual(['UNIQUE (tenant_id, project_id)']);
     expect(
       await plan(await withFiles(parentFile, childFile({ indexes: undefined }), owner)),

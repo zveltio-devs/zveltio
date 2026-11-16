@@ -160,12 +160,17 @@ not give the runner — a network or memory limit per extension — is listed in
 
 The engine closes a connection that has sent no response bytes for **120
 seconds** (`idleTimeout` on `Bun.serve`). Most requests answer in
-milliseconds; the ones that can come near the bound are schema changes that run
-inside the request: retyping a field rewrites the table at about 10 seconds per
-million rows, and `POST /api/admin/schema/apply` runs every change of the plan
-in turn. A request cut at the bound loses its answer, not its work: the change
-goes on and commits, so check the schema before you retry it. Before rc.1 such
-work answers `202` with a job to poll instead.
+milliseconds. Schema work whose time grows with the table does not run inside
+the request: creating a collection, retyping a field (a table rewrite, about 10
+seconds per million rows) and `POST /api/admin/schema/apply` answer `202` with
+a job to poll at `GET /api/collections/jobs/:job_id`
+([collections.md](../engine/collections.md#long-schema-changes-are-jobs)).
+
+What still works inside the request and can come near the bound on a large
+table: adding a field with a volatile default (a rewrite, about 14 seconds per
+million rows), and making a field required, unique or indexed (a scan). A
+request cut at the bound loses its answer, not its work: the change goes on and
+commits, so check the schema before you retry it.
 
 A reverse proxy in front of the engine needs a read timeout at least as long
 (nginx `proxy_read_timeout 120s;` — its default is 60 s).

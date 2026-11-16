@@ -20,6 +20,7 @@ import {
   dropTestCollection,
   getTestApp,
   harnessAvailable,
+  jobOutcome,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -98,7 +99,7 @@ d('schema files carry revoked default grants', () => {
     expect((await policy('POST', COLL, 'read')).status).toBe(200);
     expect(await state(COLL, 'read')).toEqual({ held: true, revoked: false });
     expect(await steps(files)).toEqual([`- role tenant_member revoke default ${COLL} read`]);
-    expect((await apply(files)).status).toBe(200);
+    expect(await jobOutcome(app, await apply(files), { cookie: god })).toBe('completed');
     expect(await state(COLL, 'read')).toEqual({ held: false, revoked: true });
     expect(await pull()).toEqual(files);
 
@@ -107,7 +108,7 @@ d('schema files carry revoked default grants', () => {
     for (const r of roles.roles) if (r.name === 'tenant_member') delete r.revokedDefaults;
     const restored = { ...files, 'roles.json': serialize(roles) };
     expect(await steps(restored)).toEqual([`+ role tenant_member restore default ${COLL} read`]);
-    expect((await apply(restored)).status).toBe(200);
+    expect(await jobOutcome(app, await apply(restored), { cookie: god })).toBe('completed');
     expect(await state(COLL, 'read')).toEqual({ held: true, revoked: false });
     expect(await steps(restored)).toEqual([]);
   });
@@ -129,7 +130,7 @@ d('schema files carry revoked default grants', () => {
     expect(await DDLManager.tableExists(db, COLL)).toBe(false);
     expect(await state(EXT_RES, 'execute')).toEqual({ held: false, revoked: false });
 
-    expect((await apply(files)).status).toBe(200);
+    expect(await jobOutcome(app, await apply(files), { cookie: god })).toBe('completed');
     expect(await state(COLL, 'update')).toEqual({ held: false, revoked: true });
     expect(await state(COLL, 'read')).toEqual({ held: true, revoked: false });
     expect(await pull()).toEqual(files);
