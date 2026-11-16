@@ -67,10 +67,19 @@ Moving an extension between backends is configuration, never a rewrite.
 
 | Level | Who | Actions run | Jobs run |
 |---|---|---|---|
-| 0 First-party | Zveltio | inline | inline or job runner |
-| 1 Certified | a third party, reviewed and signed by Zveltio **per version** | inline | job runner |
+| 0 First-party | Zveltio | inline by default; isolated backend if the operator chooses | inline or job runner |
+| 1 Certified | a third party, reviewed and signed by Zveltio **per version** | isolated backend | job runner |
 | 2 Published | a third party on the registry, automated checks only | isolated backend | job runner |
-| 3 Private | an organisation's own extension, signed with a key the operator trusts | isolated backend (inline only if the operator opts in) | job runner |
+| 3 Private | an organisation's own extension, signed with a key the operator trusts | isolated backend, never inline | job runner |
+
+**Amended 2026-11-16 (owner).** Only first-party code runs inline. Levels 1–3
+run on the same runner: one boundary, no weaker path for anyone. A first-party
+extension uses the same surface as a third party, except a named list a gate
+enforces, so it can also run isolated when the operator has the memory. The
+isolated backend must fail alone: a per-action timeout that cancels the
+request transaction, a per-extension concurrency limit, disable after repeated
+crashes, and every failure logged with the extension's name and signing key.
+An operator key never confers level 0 or 1.
 
 An inline extension still reaches data only through `host.collections` with its
 declared capabilities. Inline removes the memory boundary, never the data
@@ -278,7 +287,8 @@ These are scripts to rerun; they are not in this repository.
 ## Decisions
 
 Owner, 2026-10-17.
-1. **Level 1 (certified) actions run inline**, with three conditions:
+1. **Level 1 (certified) actions run inline**, with three conditions
+   *(superseded 2026-11-16: level 1 runs on the isolated backend; see the trust ladder)*:
    - data is still reached only through `host.collections` with declared
      capabilities;
    - certification is per version;
