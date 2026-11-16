@@ -25,6 +25,7 @@ import {
   dropTestCollection,
   getTestApp,
   harnessAvailable,
+  jobOutcome,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -72,7 +73,7 @@ d('schema change under live traffic (DR-43)', () => {
 
   /**
    * Each client reads and writes its own record in a loop until `change`
-   * settles, then for a moment longer. Returns every non-2xx with its body.
+   * (and the job it may answer with) settles, then for a moment longer. Returns every non-2xx with its body.
    */
   const underTraffic = async (change: () => Response | Promise<Response>) => {
     let stop = false;
@@ -89,8 +90,8 @@ d('schema change under live traffic (DR-43)', () => {
     const clients = ids.map((id, i) => client(id, i % 2 === 0 ? member : god));
     // Every pooled backend prepares both statements before the change.
     await Bun.sleep(400);
-    const res = await change();
-    expect(res.status).toBeLessThan(300);
+    // A change answered 202 runs as a job: the traffic lasts until it settles.
+    expect(await jobOutcome(app, await change(), { cookie: god })).toMatch(/^(completed|2\d\d)$/);
     await Bun.sleep(400);
     stop = true;
     await Promise.all(clients);
