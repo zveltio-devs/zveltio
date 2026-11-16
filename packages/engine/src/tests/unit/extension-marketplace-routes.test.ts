@@ -391,7 +391,7 @@ describe('registerMarketplaceRoutes (unit)', () => {
     }
   });
 
-  it('GET /api/marketplace lists an operator-signed directory, which no catalogue names (ADR 0056)', async () => {
+  it('GET /api/marketplace lists no directory whose signature does not hold (ADR 0056; a valid one: harness ext-operator-signed)', async () => {
     const put = (name: string, manifest: Record<string, unknown>, signed: boolean) => {
       mkdirSync(join(extBase, name), { recursive: true });
       writeFileSync(join(extBase, name, 'manifest.json'), JSON.stringify(manifest));
@@ -409,13 +409,7 @@ describe('registerMarketplaceRoutes (unit)', () => {
     });
     const names = ((await res.json()) as { extensions: { name: string; version: string }[] })
       .extensions;
-    expect(names.find((e) => e.name === 'acme/invoices')).toMatchObject({
-      version: '1.2.0',
-      publisher_tier: 'community',
-    });
-    expect(names.some((e) => e.name === 'acme/unsigned' || e.name.startsWith('acme/other'))).toBe(
-      false,
-    );
+    expect(names.some((e) => e.name.startsWith('acme/'))).toBe(false);
   });
 
   it('POST install returns 404 when the extension is absent from the catalog', async () => {

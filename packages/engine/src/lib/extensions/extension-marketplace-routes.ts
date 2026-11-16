@@ -11,7 +11,7 @@ import { RETIRED_EXTENSIONS } from './load.js';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { type Dirent, existsSync, readdirSync, readFileSync } from 'node:fs';
-import { DIR_SIGNATURE_FILE, verifyExtensionDir } from '../security/extension-dir-signature.js';
+import { DIR_SIGNATURE_FILE, verifyExtensionDir } from '../security/index.js';
 import { join } from 'path';
 import type { Database } from '../../db/index.js';
 import { auth } from '../auth.js';
