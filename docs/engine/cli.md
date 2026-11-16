@@ -8,13 +8,17 @@ The CLI is included in the engine package. After cloning the repository:
 
 ```bash
 bun install
+bun run --cwd=packages/sdk build   # the CLI imports @zveltio/sdk/codegen from the built SDK
 bun run packages/cli/src/index.ts --help
 ```
+
+Without the SDK build, every command (`--help` too) fails with
+`Cannot find module '@zveltio/sdk/codegen'`.
 
 Or install globally:
 
 ```bash
-bun add -g zveltio
+bun add -g @zveltio/cli
 zveltio --help
 ```
 
@@ -97,12 +101,21 @@ zveltio rollback
 
 ### `zveltio create-god`
 
-Create the first super-admin (god) user interactively. Only needed once after initial setup.
+Create a recovery override account: a `god` user. It is a disaster-recovery tool,
+not the way a normal administrator is made, and it reaches the engine through two
+public routes that a default install keeps shut:
+
+1. The account is created through `POST /api/auth/sign-up/email`, which answers
+   `403 registration_disabled` unless self-registration is open. Start the engine
+   with `ZVELTIO_REGISTRATION_ENABLED=true` for this one step, and restart it
+   without the variable afterwards.
+2. The `god` role is granted through `POST /api/permissions/bootstrap`, which
+   needs `RECOVERY_TOKEN` (32+ characters) set on the engine and the same value
+   passed to the CLI. Without it the account is created but stays a `member`.
 
 ```bash
-zveltio create-god
-zveltio create-god --email admin@company.ro --name "Admin"
-zveltio create-god --url https://api.yourapp.com
+RECOVERY_TOKEN=<same value as the engine> zveltio create-god --email admin@company.ro --name "Admin"
+zveltio create-god --recovery-token <token> --url https://api.yourapp.com
 ```
 
 | Option | Default | Description |
@@ -110,8 +123,12 @@ zveltio create-god --url https://api.yourapp.com
 | `--url <url>` | `http://localhost:3000` | Engine URL |
 | `--email <email>` | *(prompted)* | Admin email |
 | `--name <name>` | *(prompted)* | Admin display name |
+| `--recovery-token <token>` | `RECOVERY_TOKEN` | The engine's recovery token |
 
-The god user bypasses all permission checks and cannot be locked out. Store credentials securely.
+The password is always prompted, so the command needs a terminal. The token is
+spent by the grant: rotate `RECOVERY_TOKEN` (or unset it) afterwards. The god user
+bypasses all permission checks. Day-to-day administrators are invited from Studio
+by the god account, which does not need self-registration.
 
 ---
 
@@ -220,6 +237,13 @@ Enable an installed extension (hot-loads if supported, otherwise requires restar
 zveltio extensions enable ai
 ```
 
+`enable`, `disable`, `update` and `install` are step-up actions: the account must
+have an enrolled second factor (an authenticator app or a passkey), on a local
+development instance too. An account without one is refused with
+`step_up_enrollment_required`. The CLI cannot enroll a factor: enroll it in Studio
+(account settings), then run `zveltio login` again, because turning two-factor on
+ends every other session, the CLI's included.
+
 ---
 
 ### `zveltio extensions disable <name>`
@@ -246,7 +270,7 @@ zveltio extensions update crm
 
 ### `zveltio extension create <name>`
 
-Scaffold a new extension with the correct directory structure.
+Scaffold a new extension: one declared collection, one action and one `zveltio.view/2` page.
 
 ```bash
 zveltio extension create my-feature
@@ -257,45 +281,68 @@ zveltio extension create my-feature --category compliance
 |--------|---------|-------------|
 | `--category <category>` | `custom` | Extension category |
 
-Creates the following structure:
+Creates:
 
 ```
 extensions/custom/my-feature/
 ├── manifest.json
-├── engine/
-│   ├── index.ts
-│   ├── routes.ts
-│   └── migrations/
-└── studio/
-    ├── package.json
-    └── src/
-        └── index.ts
+├── schema/collections/<collection>.json   the declared collection
+├── engine/index.ts                        the action
+├── studio/schemas/my-feature.json         the view/2 page
+├── studio/messages/en.json
+├── package.json                           only outside a Zveltio checkout: pins @zveltio/sdk
+├── .gitattributes
+└── .github/workflows/ci.yml
 ```
+
+Outside a checkout the scaffold pins `@zveltio/sdk` to the CLI's own version. A
+pre-release CLI can name an SDK version npm does not have yet; point the
+dependency at a local checkout (`"@zveltio/sdk": "file:../zveltio/packages/sdk"`)
+until it is published.
+
+See [extensions/authoring.md](../extensions/authoring.md) for what goes in each file.
 
 ---
 
-### `zveltio extension build`
+### `zveltio extension pack`
 
-Build the current extension into a `.zvext` bundle for marketplace publishing.
+Bundle `engine/index.ts` into `engine/index.js` and write the `engine` and
+`integrity` blocks into `manifest.json`.
 
 ```bash
-cd extensions/my-category/my-extension
-zveltio extension build
+cd extensions/custom/my-feature
+zveltio extension pack
 ```
+
+Without `--first-party` the bundle is marked `isolation: "worker"`. `extension build`
+is a deprecated alias for `pack`.
+
+---
+
+### `zveltio extension validate`
+
+Pre-publish checks: manifest schema, dependency allow-list, bundle quota.
 
 ---
 
 ### `zveltio extension publish`
 
-Publish an extension to the Zveltio marketplace.
+Validate, pack, archive, sign and upload an extension to the registry.
 
 ```bash
-zveltio extension publish --token your-marketplace-token
+zveltio extension publish --token <registry-token>
+zveltio extension publish --output ./dist   # local only: write .zvext + .sig, no upload
 ```
 
 | Option | Description |
 |--------|-------------|
-| `--token <token>` | Marketplace authentication token (from developer.zveltio.com) |
+| `--token <token>` | Registry token (env `ZVELTIO_REGISTRY_TOKEN`) |
+| `--registry-url <url>` | Registry base URL (env `ZVELTIO_REGISTRY_URL`) |
+| `--key-id <id>` | Signing key (default: the only key in `~/.zveltio/keys/`) |
+| `--output <dir>` | Local-only mode |
+| `--dry-run` | Validate, pack and build; no archive, signature or upload |
+
+Signing keys come from `zveltio keys generate`.
 
 ---
 
