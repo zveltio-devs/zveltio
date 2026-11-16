@@ -29,8 +29,16 @@ import { parseSignature, SignatureInvalidError, verifySignature } from './signat
 
 export const DIR_SIGNATURE_FILE = 'signature.json';
 
-/** The canonical listing an operator signature covers. Throws on a link or an unlistable name. */
-export function extensionDirListing(dir: string, name: string, tier: string): Uint8Array {
+/**
+ * The canonical listing an operator signature covers. Throws on a link or an
+ * unlistable name. `files`, when given, receives each listed path's sha256.
+ */
+export function extensionDirListing(
+  dir: string,
+  name: string,
+  tier: string,
+  files?: Map<string, string>,
+): Uint8Array {
   const lines: string[] = [];
   const walk = (rel: string): void => {
     for (const entry of readdirSync(join(dir, rel))) {
@@ -40,13 +48,14 @@ export function extensionDirListing(dir: string, name: string, tier: string): Ui
         throw new Error(`file name "${JSON.stringify(path)}" cannot be listed`);
       const st = lstatSync(join(dir, path));
       if (st.isDirectory()) walk(path);
-      else if (st.isFile())
-        lines.push(
-          `${createHash('sha256')
-            .update(readFileSync(join(dir, path)))
-            .digest('hex')} ${path}`,
-        );
-      else throw new Error(`"${path}" is not a regular file or directory (a link is never signed)`);
+      else if (st.isFile()) {
+        const hash = createHash('sha256')
+          .update(readFileSync(join(dir, path)))
+          .digest('hex');
+        files?.set(path, hash);
+        lines.push(`${hash} ${path}`);
+      } else
+        throw new Error(`"${path}" is not a regular file or directory (a link is never signed)`);
     }
   };
   walk('');
@@ -57,7 +66,8 @@ export function extensionDirListing(dir: string, name: string, tier: string): Ui
 }
 
 /**
- * The operator key that signed `extDir`, or null when it carries no signature.
+ * The operator key that signed `extDir` and the sha256 of each file it signed
+ * (by "/"-separated relative path), or null when it carries no signature.
  *
  * @throws SignatureInvalidError when a signature is there and does not hold:
  *         unknown key, a tier an operator key cannot confer, or content changed.
@@ -65,7 +75,7 @@ export function extensionDirListing(dir: string, name: string, tier: string): Ui
 export async function verifyExtensionDir(
   extName: string,
   extDir: string,
-): Promise<{ keyId: string } | null> {
+): Promise<{ keyId: string; files: ReadonlyMap<string, string> } | null> {
   const file = join(extDir, DIR_SIGNATURE_FILE);
   if (!existsSync(file)) return null;
   let raw: unknown;
@@ -95,8 +105,9 @@ export async function verifyExtensionDir(
     );
   }
   let listing: Uint8Array;
+  const files = new Map<string, string>();
   try {
-    listing = extensionDirListing(extDir, extName, tier);
+    listing = extensionDirListing(extDir, extName, tier, files);
   } catch (err) {
     throw new SignatureInvalidError(extName, (err as Error).message);
   }
@@ -110,5 +121,5 @@ export async function verifyExtensionDir(
         `was added or removed, or it was renamed): ${detail}`,
     );
   }
-  return { keyId: sig.keyId };
+  return { keyId: sig.keyId, files };
 }

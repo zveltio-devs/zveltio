@@ -19,8 +19,10 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { Hono } from 'hono';
 import { signBundle, type ZveltioKeypair } from '@zveltio/sdk/publish';
 import type { Database } from '../../db/index.js';
@@ -28,7 +30,10 @@ import * as extensionDownload from '../../lib/extensions/extension-download.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
 import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { extensionDirListing } from '../../lib/security/index.js';
+import { ensureWorkerRuntimeOnDisk } from '../../lib/ext-runner.js';
 import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extension-host.js';
+import type { InitResponse } from '../../lib/worker-extension-protocol.js';
+import { spawnProcessRunner } from '../../lib/worker-extension-transport.js';
 import {
   forgetInstalled,
   getTestApp,
@@ -62,7 +67,12 @@ d('an operator-signed extension (ADR 0056 s3)', () => {
   }
 
   /** A bundled worker extension whose register() logs, and whose top level marks an inline import. */
-  function write(name: string, engine: Record<string, unknown> = {}): string {
+  function write(
+    name: string,
+    engine: Record<string, unknown> = {},
+    /** Replaces the bundle's `register()` and what comes before the export. */
+    bundle?: { before?: string; register?: string },
+  ): string {
     names.push(name);
     const dir = join(base, name);
     mkdirSync(join(dir, 'engine'), { recursive: true });
@@ -77,7 +87,8 @@ d('an operator-signed extension (ADR 0056 s3)', () => {
     writeFileSync(
       join(dir, 'engine', 'index.js'),
       `globalThis.__imported_${STAMP} = (globalThis.__imported_${STAMP} ?? []).concat('${name}');\n` +
-        `export default { name: '${name}', async register() { console.warn('hello from ${name}'); } };\n`,
+        (bundle?.before ?? '') +
+        `export default { name: '${name}', ${bundle?.register ?? `async register() { console.warn('hello from ${name}'); }`} };\n`,
     );
     return dir;
   }
@@ -241,5 +252,128 @@ d('an operator-signed extension (ADR 0056 s3)', () => {
         .getHealth()
         .find((h) => h.name === name)?.keyId,
     ).toBeNull();
+  }, 60_000);
+
+  // ── Slice 4: level 3 is declared model only ──────────────────────────────
+
+  it('fails the load of a register() that uses its app or its ctx (s4)', async () => {
+    for (const [what, register] of [
+      ['app', `async register(app) { app.get('/x', (c) => c.text('x')); }`],
+      ['ctx', `async register(_app, ctx) { await ctx.db.query('select 1 as n'); }`],
+    ] as const) {
+      const name = `s3${STAMP}/reg-${what}`;
+      sign(write(name, {}, { register }));
+      expect(await load(name)).toMatch(
+        new RegExp(`register\\(\\) used ${what}\\.\\w+: .*declared model only`),
+      );
+      expect(running(name)).toBe(false);
+    }
+  }, 60_000);
+
+  it('refuses on the host what register()’s ctx would send, even as a forged frame (s4)', async () => {
+    const name = `s3${STAMP}/forged`;
+    // Written straight to the channel at import, past the runtime; the answers
+    // are read off the frames the runtime parses.
+    const before = `import { writeSync } from 'node:fs';
+const frame = (m) => { const b = new TextEncoder().encode(JSON.stringify(m)); const o = new Uint8Array(4 + b.length); new DataView(o.buffer).setUint32(0, b.length); o.set(b, 4); return o; };
+const parse = JSON.parse;
+JSON.parse = (t, r) => { const v = parse(t, r); if (v && String(v.id).startsWith('forged-')) console.warn('forged ' + v.id + ' ' + v.type + ' ' + (v.error ?? JSON.stringify(v.rows ?? v.result ?? null))); return v; };
+for (const m of [
+  { type: 'db:query', id: 'forged-db', sql: 'select 42 as n', params: [] },
+  { type: 'host:call', id: 'forged-host', op: 'getUserRoles', args: ['u'] },
+  { type: 'service:register', id: 'forged-reg', name: 'forged.svc' },
+  { type: 'service:call', id: 'forged-call', name: 'forged.svc', args: [] },
+]) writeSync(1, frame(m));
+`;
+    sign(write(name, {}, { before, register: 'async register() {}' }));
+    const warn = spyOn(console, 'warn');
+    const error = spyOn(console, 'error');
+    try {
+      expect(await load(name)).toBeUndefined();
+      const replies = () =>
+        warn.mock.calls.map((c) => String(c[0])).filter((l) => l.includes('] forged '));
+      for (let i = 0; i < 60 && replies().length < 4; i++) await Bun.sleep(50);
+      for (const id of ['forged-db', 'forged-host', 'forged-reg', 'forged-call']) {
+        expect(replies().find((l) => l.includes(` ${id} `))).toMatch(
+          /:err .* is refused: .*level 3.*declared model only/,
+        );
+      }
+      expect(
+        error.mock.calls.some((c) =>
+          String(c[0]).startsWith(`[ext:${name} key=${KEY}] ctx.db is refused`),
+        ),
+      ).toBe(true);
+    } finally {
+      warn.mockRestore();
+      error.mockRestore();
+    }
+  }, 60_000);
+
+  it('refuses raw SQL migrations: a level-3 extension declares its collections (s4)', async () => {
+    const name = `s3${STAMP}/migr`;
+    const dir = write(name);
+    mkdirSync(join(dir, 'engine', 'migrations'));
+    writeFileSync(join(dir, 'engine', 'migrations', '001_x.sql'), 'SELECT 1;\n');
+    sign(dir);
+    expect(await load(name)).toMatch(/declared model only: declare its collections/);
+    expect(running(name)).toBe(false);
+  }, 60_000);
+
+  it('verifies the signature again before a crash respawn imports the bundle (s4)', async () => {
+    const name = `s3${STAMP}/respawn`;
+    const dir = write(name);
+    sign(dir);
+    expect(await load(name)).toBeUndefined();
+    appendFileSync(join(dir, 'engine', 'index.js'), `console.warn('tampered ${name}');\n`);
+    const errors = spyOn(console, 'error');
+    const warn = spyOn(console, 'warn');
+    try {
+      const host = getWorkerHost(app) as unknown as {
+        workers: Map<string, { worker: { onerror: ((e: ErrorEvent) => void) | null } }>;
+      };
+      host.workers.get(name)?.worker.onerror?.({ message: 'test crash' } as ErrorEvent);
+      const failed = () =>
+        errors.mock.calls.some(
+          (c) =>
+            String(c[0]).startsWith(`[ext:${name} key=${KEY}] respawn failed`) &&
+            String(c[0]).includes('no longer matches what key'),
+        );
+      for (let i = 0; i < 100 && !failed(); i++) await Bun.sleep(50);
+      expect(failed()).toBe(true);
+      expect(warn.mock.calls.some((c) => String(c[0]).includes(`tampered ${name}`))).toBe(false);
+    } finally {
+      errors.mockRestore();
+      warn.mockRestore();
+      await getWorkerHost(app).stop(name);
+    }
+  }, 60_000);
+
+  it('imports only bytes that hash to the signed sha256, read once by the worker (s4)', async () => {
+    const name = `s3${STAMP}/bytes`;
+    const dir = write(name, {}, { register: 'async register() {}' });
+    const file = join(dir, 'engine', 'index.js');
+    const ch = spawnProcessRunner(ensureWorkerRuntimeOnDisk(), { NODE_ENV: 'test' });
+    const init = (bundleSha256: string) =>
+      new Promise<InitResponse>((resolve) => {
+        ch.onmessage = (e) => {
+          if (e.data.type === 'init:ok' || e.data.type === 'init:err') resolve(e.data);
+        };
+        ch.postMessage({
+          type: 'init',
+          id: `init-${bundleSha256.slice(0, 4)}`,
+          bundleUrl: pathToFileURL(file).href,
+          bundleSha256,
+          declaredOnly: true,
+          extName: name,
+          env: { extensionPath: dir },
+        });
+      });
+    try {
+      expect((await init('0'.repeat(64))).error).toMatch(/not what its signature lists/);
+      const sha = createHash('sha256').update(readFileSync(file)).digest('hex');
+      expect((await init(sha)).type).toBe('init:ok');
+    } finally {
+      ch.terminate();
+    }
   }, 60_000);
 });

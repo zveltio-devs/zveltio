@@ -61,6 +61,10 @@ describe('a catalogue override cannot make an extension first-party (ADR 0056)',
       const relabelled = await inline('acme/relabelled');
       expect(relabelled.ok).toBe(false);
       expect(relabelled.ok ? '' : relabelled.lastLoadError).toMatch(/community/);
+      // The way it does run, named in the refusal (ADR 0056 s4).
+      expect(relabelled.ok ? '' : relabelled.lastLoadError).toMatch(
+        /sign it with a key on OPERATOR_PUBLIC_KEYS_JSON .*level 3 — docs\/extensions\/signatures\.md#your-own-extensions-level-3/,
+      );
       expect((await inline('acme/default-official')).ok).toBe(false);
       expect((await inline('crm')).ok).toBe(true);
     } finally {

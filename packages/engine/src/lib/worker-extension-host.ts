@@ -40,7 +40,7 @@
 import type { Context, Hono } from 'hono';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { pathToFileURL } from 'node:url';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 import { ensureWorkerRuntimeOnDisk, startRunner, stopRunner } from './ext-runner.js';
 import type {
   HostToWorkerMessage,
@@ -65,6 +65,8 @@ import {
   serviceRegistry,
 } from './service-registry.js';
 import { activePoolMax, getDb, type Database } from '../db/index.js';
+import { auditLog } from './audit.js';
+import { verifyExtensionDir } from './security/index.js';
 import { sqlState } from '../db/bun-sql-quirks.js';
 import { CompiledQuery } from 'kysely';
 import { Turns, transactionTurns } from '../db/trx-sequencer.js';
@@ -453,6 +455,53 @@ function boxTag(name: string, source?: WorkerCtxSource): string {
   return `[ext:${name} key=${source?.keyId ?? 'absent'}]`;
 }
 
+/**
+ * ADR 0056 d1: an operator-signed extension's signature is verified again at
+ * every spawn (first start, crash respawn, restart) before its bundle is
+ * imported, and the bundle's signed sha256 goes to the worker, which imports
+ * only bytes that hash to it. Undefined for an unsigned one.
+ */
+async function signedBundleSha256(
+  extName: string,
+  extDir: string,
+  bundleEntry: string,
+  source: WorkerCtxSource,
+): Promise<string | undefined> {
+  if (source.keyId === undefined) return undefined;
+  const signed = await verifyExtensionDir(extName, extDir);
+  if (signed?.keyId !== source.keyId) {
+    throw new Error(
+      `"${extName}" was loaded signed by operator key "${source.keyId}" and now ` +
+        `${signed ? `carries key "${signed.keyId}"` : 'carries no signature'}; load it again`,
+    );
+  }
+  const sha = signed.files.get(posix.normalize(bundleEntry));
+  if (!sha) {
+    throw new Error(`"${extName}": its bundle ${bundleEntry} is not a file its signature covers`);
+  }
+  return sha;
+}
+
+/**
+ * ADR 0056 d1: level 3 is declared model only. Over the bridge that leaves an
+ * action's `host` and a declared route's `host.collections`; what `register()`'s
+ * ctx would send (`ctx.db`, `ctx.services`, `ctx.events`, `checkPermission`, …)
+ * is refused here, whatever the worker's own runtime let through.
+ */
+function offModel(msg: WorkerToHostMessage): string | null {
+  switch (msg.type) {
+    case 'db:query':
+      return 'ctx.db';
+    case 'service:call':
+    case 'service:register':
+      return 'ctx.services';
+    case 'host:call':
+      return msg.op === 'action' || msg.op === 'collections' ? null : `ctx (${msg.op})`;
+    default:
+      return null;
+  }
+}
+
 export class WorkerExtensionHost {
   private readonly workers = new Map<string, ManagedWorker>();
   private respawnBackoff = new Map<string, number>();
@@ -699,6 +748,7 @@ export class WorkerExtensionHost {
     source: WorkerCtxSource,
   ): Promise<ManagedWorker> {
     const bundleUrl = pathToFileURL(join(extDir, bundleEntry)).href;
+    const bundleSha256 = await signedBundleSha256(extName, extDir, bundleEntry, source);
     const transport = extensionTransport();
     const worker = await this.open(extName);
     const managed: ManagedWorker = {
@@ -758,6 +808,7 @@ export class WorkerExtensionHost {
         type: 'init',
         id: initId,
         bundleUrl,
+        ...(bundleSha256 ? { bundleSha256, declaredOnly: true as const } : {}),
         extName,
         env: {
           NODE_ENV: process.env.NODE_ENV ?? 'production',
@@ -777,7 +828,10 @@ export class WorkerExtensionHost {
       managed.loadError = init.error;
       throw new Error(`worker "${extName}" init failed: ${init.error}`);
     }
-    managed.routes = init.routes ?? [];
+    // Level 3 serves its declared routes, whatever the worker says it registered.
+    managed.routes = bundleSha256
+      ? (source.declaredRoutes ?? []).map(({ method, path }) => ({ method, path }))
+      : (init.routes ?? []);
     return managed;
   }
 
@@ -807,6 +861,25 @@ export class WorkerExtensionHost {
         `disabled after ${crashes.length} crashes in ${CRASH_WINDOW_MS / 60_000} minutes ` +
         `(last: ${reason}); disable and enable it again once it is fixed`;
       console.error(`${tag} crash: ${reason} — ${managed.disabled}`);
+      // Kept, unlike the in-memory disable (amendment 2026-11-16 §1).
+      try {
+        const db = getDb();
+        void runOutsideTenantContext(() =>
+          auditLog(db, {
+            type: 'extension.crash_disabled',
+            tenantId: null,
+            resourceId: managed.name,
+            resourceType: 'extension',
+            metadata: {
+              reason: managed.disabled,
+              keyId: managed.source?.keyId ?? null,
+              actor: 'system',
+            },
+          }),
+        ).catch((err: Error) => console.error(`${tag} audit: ${err.message}`));
+      } catch {
+        /* no database (unit tests): nothing to record in */
+      }
       if (extensionTransport() === 'runner') {
         void stopRunner(managed.name).catch((err) =>
           console.error(`${tag} stopping its runner: ${(err as Error).message}`),
@@ -915,6 +988,25 @@ export class WorkerExtensionHost {
   }
 
   private handleWorkerMessage(managed: ManagedWorker, msg: WorkerToHostMessage): void {
+    const off = managed.source?.keyId === undefined ? null : offModel(msg);
+    if (off) {
+      const error =
+        `${off} is refused: "${managed.name}" is signed by an operator key (level 3), which ` +
+        `is declared model only — collections, actions, jobs, declared routes (ADR 0056)`;
+      console.error(`${boxTag(managed.name, managed.source)} ${error}`);
+      const type = {
+        'db:query': 'db:err',
+        'service:call': 'service:err',
+        'service:register': 'service:register:err',
+        'host:call': 'host:err',
+      } as const;
+      this.post(managed, {
+        type: type[msg.type as keyof typeof type],
+        id: (msg as { id: string }).id,
+        error,
+      } as HostToWorkerMessage);
+      return;
+    }
     switch (msg.type) {
       case 'init:ok':
       case 'init:err': {

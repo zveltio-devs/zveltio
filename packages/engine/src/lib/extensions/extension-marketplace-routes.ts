@@ -420,6 +420,14 @@ export function registerMarketplaceRoutes(
       }
     };
 
+    // ADR 0056: a worker its crashes disabled is loaded but serves nothing; the list says why.
+    const { getWorkerHostIfInitialized } = await import('../worker-extension-host.js');
+    const crashDisabled = new Map(
+      (getWorkerHostIfInitialized()?.getHealth() ?? [])
+        .filter((h) => h.status === 'disabled')
+        .map((h) => [h.name, h.disabledReason ?? 'disabled after repeated crashes']),
+    );
+
     const extensions = catalog.map((entry) => {
       const dbEntry = dbMap.get(entry.name);
       const runtimeActive = self.isActive(entry.name);
@@ -470,7 +478,7 @@ export function registerMarketplaceRoutes(
         })(),
         is_installed: dbEntry?.is_installed ?? runtimeActive,
         is_enabled: dbEntry?.is_enabled ?? runtimeActive,
-        is_running: runtimeActive,
+        is_running: runtimeActive && !crashDisabled.has(entry.name),
         files_on_disk: filesOnDisk,
         installed_version,
         catalog_version: entry.version,
@@ -486,7 +494,11 @@ export function registerMarketplaceRoutes(
         enabled_at: dbEntry?.enabled_at ?? null,
         // Persisted load failure (null = clean). Lets the marketplace show a
         // red badge + reason for an enabled-but-not-running extension.
-        last_load_error: dbEntry?.last_load_error ?? self.lastLoadError.get(entry.name) ?? null,
+        last_load_error:
+          crashDisabled.get(entry.name) ??
+          dbEntry?.last_load_error ??
+          self.lastLoadError.get(entry.name) ??
+          null,
         last_load_at: dbEntry?.last_load_at ?? null,
         // Capability consent. `pending_capabilities` non-empty means the
         // extension asks for more than was approved and is running WITHOUT the

@@ -21,6 +21,7 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { fileURLToPath } from 'node:url';
 import { type Context, Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { sqlState } from '../db/bun-sql-quirks.js';
@@ -309,6 +310,39 @@ function refuseFetch(): void {
     Promise.reject(new Error(NO_EGRESS_MESSAGE))) as unknown as typeof fetch;
 }
 
+/**
+ * ADR 0056 d1: an operator-signed bundle is imported from the bytes read here,
+ * and only when they hash to what its signature lists — never from the path,
+ * which could change between the engine's check and this import.
+ */
+async function verifiedBundle(url: string, sha256: string): Promise<string> {
+  const bytes = await Bun.file(fileURLToPath(url)).bytes();
+  const got = new Bun.CryptoHasher('sha256').update(bytes).digest('hex');
+  if (got !== sha256) {
+    throw new Error(`its bundle is not what its signature lists (sha256 ${got}, signed ${sha256})`);
+  }
+  return URL.createObjectURL(new Blob([bytes], { type: 'text/javascript' }));
+}
+
+/**
+ * Level 3 (ADR 0056 d1): `register()` is handed an app and a ctx that refuse
+ * every use, so whatever it would register fails the load, with the reason.
+ */
+function refusing(extName: string, what: 'app' | 'ctx'): never {
+  return new Proxy(
+    {},
+    {
+      get(_target, key) {
+        throw new Error(
+          `register() used ${what}.${String(key)}: "${extName}" is signed by an operator key ` +
+            '(level 3), which is declared model only — collections, actions, jobs, declared ' +
+            'routes (ADR 0056). Move it into a declared action, job or route.',
+        );
+      },
+    },
+  ) as never;
+}
+
 async function handleInit(msg: Extract<HostToWorkerMessage, { type: 'init' }>): Promise<void> {
   try {
     // NODE_ENV on the real `process`, not a `{ env }` object swapped in for it.
@@ -319,7 +353,9 @@ async function handleInit(msg: Extract<HostToWorkerMessage, { type: 'init' }>): 
     if (msg.env.NODE_ENV) process.env.NODE_ENV = msg.env.NODE_ENV;
     for (const [name, owner] of msg.services ?? []) serviceOwners.set(name, owner);
     refuseFetch();
-    const module = await import(msg.bundleUrl);
+    const module = await import(
+      msg.bundleSha256 ? await verifiedBundle(msg.bundleUrl, msg.bundleSha256) : msg.bundleUrl
+    );
     const extension = module.default;
     if (!extension || typeof extension.register !== 'function') {
       send({
@@ -385,7 +421,11 @@ async function handleInit(msg: Extract<HostToWorkerMessage, { type: 'init' }>): 
         throw new Error(`action "${name}" is implemented but not declared in the manifest`);
       }
     }
-    await extension.register(app, ctx);
+    if (msg.declaredOnly) {
+      await extension.register(refusing(msg.extName, 'app'), refusing(msg.extName, 'ctx'));
+    } else {
+      await extension.register(app, ctx);
+    }
     await settled();
     shadowApp = app;
     send({

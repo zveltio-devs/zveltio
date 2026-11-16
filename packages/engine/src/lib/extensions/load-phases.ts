@@ -427,7 +427,10 @@ export async function enforcePublisherTier(
         `Extension "${extName}" ${what} but does ` +
         `not run in worker isolation (engine.isolation: "worker", bundled). Per ` +
         `marketplace-policy.md §2, ${tier} extensions must run in ` +
-        `worker isolation. Republish with isolation: "worker" (bundled).`;
+        `worker isolation. Republish with isolation: "worker" (bundled). Your own ` +
+        `extension: pack it with isolation "worker", sign it with a key on ` +
+        `OPERATOR_PUBLIC_KEYS_JSON (\`zveltio extension sign\`) and it loads at level 3 — ` +
+        `docs/extensions/signatures.md#your-own-extensions-level-3.`;
       return {
         ok: false,
         logLevel: 'error',

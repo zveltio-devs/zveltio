@@ -361,6 +361,36 @@ describe('registerMarketplaceRoutes (unit)', () => {
     expect(row?.config).toEqual({ flag: true });
   });
 
+  it('GET /api/marketplace shows a worker its crashes disabled as not running, with why (ADR 0056)', async () => {
+    writeExtOnDisk(extBase, CATALOG_ENTRY.name);
+    db.when(/from "zv_extension_registry"/i, [
+      { name: CATALOG_ENTRY.name, is_installed: true, is_enabled: true, tenant_id: null },
+    ]);
+    isActiveMock.mockImplementation(() => true);
+    const { getWorkerHost, _resetWorkerHostForTests } = await import(
+      '../../lib/worker-extension-host.js'
+    );
+    const why = 'disabled after 5 crashes in 10 minutes (last: exit)';
+    const health = spyOn(getWorkerHost(new Hono()), 'getHealth').mockReturnValue([
+      { name: CATALOG_ENTRY.name, status: 'disabled', disabledReason: why } as never,
+    ]);
+    try {
+      const res = await mountRoutes(db, extBase).request('/api/marketplace', {
+        headers: adminHeaders,
+      });
+      const body = (await res.json()) as {
+        extensions: Array<{ name: string; is_running: boolean; last_load_error: string | null }>;
+      };
+      expect(body.extensions.find((e) => e.name === CATALOG_ENTRY.name)).toMatchObject({
+        is_running: false,
+        last_load_error: why,
+      });
+    } finally {
+      health.mockRestore();
+      _resetWorkerHostForTests();
+    }
+  });
+
   it('POST install returns 404 when the extension is absent from the catalog', async () => {
     const app = mountRoutes(db, extBase);
     const res = await app.request(`/api/marketplace/ghost-ext/install`, {

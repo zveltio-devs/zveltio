@@ -19,7 +19,7 @@
  * still a follow-up; local-mode covers CI + manual upload + air-gapped use.
  */
 
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { join, basename, dirname, resolve } from 'path';
 import { tmpdir } from 'os';
 import { signBundle, sha256Hex } from '@zveltio/sdk/publish';
@@ -115,7 +115,16 @@ async function createArchive(dir: string, outFile: string): Promise<void> {
   for (const ex of excludes) {
     args.push('--exclude', ex);
   }
-  args.push('.');
+  // The root's entries by name rather than `.`, leaving out the operator's own
+  // `signature.json` (ADR 0056): it signs this directory for one engine, and
+  // the registry signs what it serves. A tar `--exclude` pattern could also
+  // drop a file of that name deeper down (a schema file).
+  args.push(
+    ...readdirSync(dir)
+      .filter((e) => e !== 'signature.json')
+      .sort()
+      .map((e) => `./${e}`),
+  );
   // Spawn with `cwd = dir` instead of `-C` so the archive is rooted at the
   // extension folder regardless of where the CLI was invoked from.
   const proc = Bun.spawn(['tar', ...args], { cwd: dir, stdout: 'inherit', stderr: 'inherit' });
@@ -403,4 +412,4 @@ export async function extensionPublishCommand(opts: ExtensionPublishOptions = {}
 }
 
 // ── Internal for tests ───────────────────────────────────────────────────────
-export const _internalForTests = { artifactBaseName, readManifest };
+export const _internalForTests = { artifactBaseName, createArchive, readManifest };
