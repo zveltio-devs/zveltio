@@ -7,7 +7,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hbyc_${Date.now()}`;
@@ -56,9 +61,12 @@ d('bytea and char through the data API', () => {
     const res = await post({ bin: 'AAH+/w==' });
     expect([200, 201]).toContain(res.status);
     const { id } = (await res.json()) as { id: string };
-    const raw = await sql<{ n: number }>`
+    const raw = await asDefaultTenant(
+      db,
+      sql<{ n: number }>`
       SELECT octet_length(bin) AS n FROM ${sql.table(`zvd_${COLLECTION}`)} WHERE id = ${id}
-    `.execute(db);
+    `,
+    );
     expect(Number(raw.rows[0]?.n)).toBe(4);
     const read = await app.request(`/api/data/${COLLECTION}/${id}`, { headers: { cookie } });
     const body = (await read.json()) as { bin?: unknown; data?: { bin?: unknown } };
