@@ -175,6 +175,13 @@ judge against nothing. Transition rules sit outside rule groups.
    `isFirstParty` matches name prefixes (`extension-sandbox.ts:158`). It is
    unproven whether a sideloaded `storage/x` gets first-party treatment; it is
    tracked as a separate finding.
+   *Status 2026-11-16 (ADR 0056 slice 3):* level 3 is done — a directory signed
+   with a key on `OPERATOR_PUBLIC_KEYS_JSON` (separate from the registry keys)
+   is verified at every load, runs on the runner and never inline, and confers
+   nothing above level 3 ([signatures](../extensions/signatures.md#your-own-extensions-level-3)).
+   A `catalog.json` override no longer makes a name first-party. Still by name:
+   levels 0–2 come from the bundled catalogue or the registry's answer, until
+   the registry signs the tier with each archive.
 2. **Profiles**, chosen by the operator in env and never in the UI:
    - **`development`:** anything goes, unsigned allowed; refused under
      `NODE_ENV=production`.

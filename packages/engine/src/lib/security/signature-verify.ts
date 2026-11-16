@@ -105,9 +105,11 @@ export async function verifySignature(
   archive: Uint8Array,
   signature: ExtensionSignature,
   extensionName: string,
+  /** The key the caller resolved from its own list; the registry list when omitted. */
+  trusted?: RegistryKey,
 ): Promise<void> {
   // 1. Resolve key.
-  const key: RegistryKey | null = findKeyById(signature.keyId);
+  const key: RegistryKey | null = trusted ?? findKeyById(signature.keyId);
   if (!key) {
     throw new SignatureInvalidError(
       extensionName,

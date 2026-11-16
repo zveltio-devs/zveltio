@@ -340,6 +340,8 @@ export function _setInlineForTests(on: boolean): boolean {
 export async function enforcePublisherTier(
   extName: string,
   manifest: ExtensionManifest | null,
+  /** The operator key its directory signature verified against (ADR 0056 d1), if any. */
+  operatorKeyId: string | null = null,
 ): Promise<PhaseResult<void>> {
   // marketplace-policy.md §2 enforcement: publisher tier governs
   // whether an extension may run inline. The registry catalog
@@ -366,7 +368,18 @@ export async function enforcePublisherTier(
   // extension. A worker-isolated one never has its tier looked up here, so it
   // is never proven first-party — refused, whatever the catalog would say, and
   // under the test override too.
-  if (manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true) {
+  const worker = manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true;
+  // ADR 0056 d1: an operator key confers level 3, which runs on the runner and
+  // never inline — whatever the catalogue says of the name, and under the test
+  // override too.
+  if (operatorKeyId !== null && !worker) {
+    const msg =
+      `Extension "${extName}" is signed by operator key "${operatorKeyId}" (level 3, private), ` +
+      `which runs on the extension runner, never inline. Pack it with engine.isolation ` +
+      `"worker" and engine.bundled true, then sign it again.`;
+    return { ok: false, logLevel: 'error', logArgs: [`❌ ${msg}`], lastLoadError: msg };
+  }
+  if (worker) {
     return refuseAnyCollection(extName, manifest, 'runs in worker isolation') ?? ok;
   }
   if (inlineForTests) return ok;

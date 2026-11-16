@@ -252,9 +252,8 @@ export interface WorkerCtxSource {
    */
   mountActions?: (sub: Hono) => void;
   /**
-   * The id of the key its signature verified against, named in every log line
-   * about it (ADR 0056). Nothing sets it yet: signatures carry the tier from
-   * slice 3, and until then the line says `key=absent`.
+   * The id of the operator key its directory signature verified against, named
+   * in every log line about it (ADR 0056). `key=absent` for an unsigned one.
    */
   keyId?: string;
 }

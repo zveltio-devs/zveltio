@@ -6,6 +6,7 @@ export * from './url-validator.js';
 export * from './api-key-hash.js';
 export * from './signature-verify.js';
 export * from './registry-keys.js';
+export * from './extension-dir-signature.js';
 export * from './sso-session.js';
 export * from './keyring.js';
 export * from './csv.js';

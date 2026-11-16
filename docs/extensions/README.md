@@ -184,6 +184,13 @@ Signing uses Ed25519; installs verify signatures by default.
 `REQUIRE_EXTENSION_SIGNATURES=false` exists only for unsigned private mirrors,
 and extra signers go in `REGISTRY_PUBLIC_KEYS_JSON`.
 
+**Your own extension, without the registry:** pack it, sign it with your key
+(`zveltio extension sign`), install it with `zveltio install <name> --path`, and
+list the key in the engine's `OPERATOR_PUBLIC_KEYS_JSON`. It loads at level 3:
+verified at every load, on the extension runner, never inline. Relabelling it
+`first-party` in a `catalog.json` override does not work. See
+[signatures.md](signatures.md#your-own-extensions-level-3).
+
 **The same bytes at the same version are refused.** A fix does not reach
 installations without a version bump — and a bumped version does not reach them
 without a repack, because the runtime loads the bundle.

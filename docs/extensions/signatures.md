@@ -18,6 +18,50 @@ enforcing signatures would have blocked every install rather than securing one.
 
 ---
 
+## Your own extensions (level 3)
+
+An extension your organisation writes for its own instance does not go through
+the registry. You sign it with your own key, and the engine trusts that key
+because you listed it (ADR 0056 d1):
+
+```bash
+zveltio keys generate --id my-org-2026
+zveltio extension pack --dir ./acme-invoices          # isolation: "worker", bundled
+zveltio extension sign --dir ./acme-invoices --key-id my-org-2026
+zveltio install acme/invoices --path ./acme-invoices  # verifies, copies to EXTENSIONS_DIR
+zveltio keys export my-org-2026                       # → OPERATOR_PUBLIC_KEYS_JSON on the engine
+```
+
+- **What is signed.** `signature.json` at the directory's root is the envelope
+  above plus `"tier": "private"`. Its `bundleSha256` is the sha256 of a listing
+  of the directory: a `zveltio-extension-dir/1` header, the name the engine
+  loads it as, the tier, then `<sha256> <path>` for every regular file but
+  `signature.json`, sorted. A symbolic link is refused.
+- **Verified at every load**, not once at install, against
+  `OPERATOR_PUBLIC_KEYS_JSON` only. A byte changed, a file added or removed, the
+  directory renamed, or the tier rewritten after signing: the load is refused.
+  A key the list does not name is refused too: a signed directory is never
+  loaded as if it were unsigned.
+- **Level 3, never more.** A signature claiming `first-party` or `certified`
+  is refused: an operator key cannot confer level 0 or 1. The extension runs on
+  the extension runner, as community code does (production refuses any other
+  transport), never inline; a signed manifest that does not declare
+  `engine.isolation: "worker"` with a bundle is refused, whatever the catalogue
+  says of its name. Health (`/api/admin/extensions/health`) and every log line
+  about it name the key: `[ext:acme/invoices key=my-org-2026]`.
+- **Not a catalogue entry.** Listing your extension in a `catalog.json`
+  override does not make it first-party: only the bundled catalogue and the
+  registry name first-party extensions.
+
+The two key lists stay apart: a key in `REGISTRY_PUBLIC_KEYS_JSON` verifies
+registry archives and is never consulted for a directory, and a key in
+`OPERATOR_PUBLIC_KEYS_JSON` is never consulted for an archive.
+
+Not yet: first-party and registry tiers are still read from the catalogue by
+name (bundled or registry), not from a signature the engine checks at load. That
+needs the registry to sign the tier with each archive; until then a directory
+that takes a first-party extension's name on disk is treated as that extension.
+
 ## Why signatures matter (threat model)
 
 Extensions run **in-process as engine code** (unless `engine.isolation: "worker"`,
