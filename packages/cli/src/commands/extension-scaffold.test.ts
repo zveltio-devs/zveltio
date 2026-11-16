@@ -56,6 +56,8 @@ describe('extension create — the declared model', () => {
     expect(manifest.actions[0].permission.resource).toBe('inventory_items');
     const engine = readFileSync(join(root(), 'engine', 'index.ts'), 'utf8');
     expect(engine).toContain('async markDone(input, host)');
+    // The engine refuses actions on any other mount strategy (actions.ts).
+    expect(engine).toContain("mountStrategy: 'subapp'");
     expect(engine).toContain('host.collections.update(');
     expect(engine).not.toContain('ctx.db');
     expect(engine).not.toContain('app.get(');
