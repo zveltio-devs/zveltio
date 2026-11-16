@@ -40,7 +40,7 @@ B0 (engine as on master), all three:
 - **sms**: refused at load. `worker "sms" init failed: undefined is not an object (evaluating 'ctx.config.vars')` — worker ctx has no `config`. Every /ext/sms route 404.
 - **crm**: loads (24 routes) but `register()` logs `CRM adopt 'contacts|organizations|transactions' failed: undefined is not an object (evaluating 'ddl.tableExists')` (no `ctx.DDLManager`: Studio metadata adoption silently skipped). Every route 500: `TypeError: undefined is not an object (evaluating 'auth.api')` (no `ctx.auth`).
 - **finance/invoicing**: loads (43 routes), every route 500, same `auth.api` TypeError.
-- Behind those, every handler would fail next on `sql\`…\`.execute(ctx.db)` / `db.selectFrom` (worker `ctx.db` is `{ query(sql, …params) }`, not Kysely), `ctx.checkPermission` (absent), `ctx.events` (absent).
+- Behind those, every handler would fail next on ``sql`…`.execute(ctx.db)`` / `db.selectFrom` (worker `ctx.db` is `{ query(sql, …params) }`, not Kysely), `ctx.checkPermission` (absent), `ctx.events` (absent).
 - `ctx.services.get(name)` has a different contract in the worker: it CALLS the service (`get(name, args)` → Promise) instead of returning the impl. invoicing does `const crmLookup = services.get('crm.contacts.lookup'); if (crmLookup) await crmLookup(id)` → `crmLookup is not a function`, plus a dangling call.
 - Worker errors reach the engine log as `[worker:crm] {}` (Error objects do not survive the log frame).
 
