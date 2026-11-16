@@ -89,7 +89,7 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
         return null;
       },
     },
-    typescript: { inputType: 'number', outputType: 'number' },
+    typescript: { inputType: 'number | string', outputType: 'string' },
   });
 
   registry.register({
@@ -359,7 +359,7 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
         return null;
       },
     },
-    typescript: { inputType: 'number', outputType: 'number' },
+    typescript: { inputType: 'number | string', outputType: 'string' },
   });
 
   registry.register({
@@ -674,7 +674,7 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
       filterOperators: ['eq', 'neq', 'lt', 'lte', 'gt', 'gte', 'is_null', 'is_not_null'],
       deserialize: (v) => exactNumber(v, false),
     },
-    typescript: { inputType: 'number', outputType: 'number' },
+    typescript: { inputType: 'number | string', outputType: 'string' },
   });
 
   registry.register({
