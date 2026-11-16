@@ -124,31 +124,25 @@ function artifacts(): Array<{ label: string; file: string }> {
     }
   };
 
-  // Extensions live at BOTH depths — `<group>/<name>` and, for six of them,
-  // `<name>` at the top. Walking only `<group>/<name>` is not a style choice, it
-  // is a blind spot: the first version of this gate did exactly that, reported
-  // "45 artifacts, all current", and had never looked at `ai`, `billing`, `crm`,
-  // `forms`, `search` or `sms` — all six still shipping the vulnerable hono the
-  // gate exists to catch. A `*/*/` glob in the repack loop had missed the same
-  // six minutes earlier, which is how a gate and the work it checks can share
-  // one wrong assumption and agree with each other.
-  //
-  // A `manifest.json` at the directory root is what distinguishes an extension
-  // from a group.
-  for (const entry of readdirSync(EXT_ROOT)) {
-    if (entry.startsWith('.')) continue;
-    const dir = join(EXT_ROOT, entry);
-    if (!statSync(dir).isDirectory()) continue;
-    if (existsSync(join(dir, 'manifest.json'))) {
-      collect(dir, entry);
-      continue;
-    }
-    for (const name of readdirSync(dir)) {
-      const sub = join(dir, name);
+  // Extensions live at ANY depth: `<name>`, `<group>/<name>`, and
+  // `compliance/ro/<name>` three levels down. A walk with a fixed depth is a
+  // blind spot, twice over: the first version walked only `<group>/<name>` and
+  // missed six top-level extensions still shipping a vulnerable hono; the second
+  // walked two levels and missed `compliance/ro/*` (efactura stayed on hono
+  // 4.13.17 through a security bump, #1727). A `manifest.json` at the directory
+  // root is what makes a directory an extension; anything else is a group and
+  // is walked.
+  const walk = (dir: string, label: string) => {
+    for (const entry of readdirSync(dir)) {
+      if (entry.startsWith('.') || entry === 'node_modules') continue;
+      const sub = join(dir, entry);
       if (!statSync(sub).isDirectory()) continue;
-      collect(sub, `${entry}/${name}`);
+      const subLabel = label ? `${label}/${entry}` : entry;
+      if (existsSync(join(sub, 'manifest.json'))) collect(sub, subLabel);
+      else walk(sub, subLabel);
     }
-  }
+  };
+  walk(EXT_ROOT, '');
   return found;
 }
 
@@ -248,7 +242,7 @@ if (stale.length > 0) {
       `  Then bump each repacked extension's manifest version — the registry refuses\n` +
       `  the same version with different bytes.\n\n` +
       `  Verify the artifact, not the command's output:\n` +
-      `    grep -ohE "hono@[0-9.]+" */*/engine/index.js | sort -u\n`,
+      `    grep -rohE "hono@[0-9.]+" --include=index.js . | sort -u\n`,
   );
   process.exit(1);
 }
