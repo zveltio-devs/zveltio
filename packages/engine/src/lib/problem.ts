@@ -193,6 +193,25 @@ export function problemOnError(err: Error, c: Context): Response {
     });
   }
 
+  // Postgres 22001 (string_data_right_truncation: a value longer than a
+  // `char(n)`/`varchar(n)`) and 22003 (numeric_value_out_of_range: an integer
+  // past `bigint`, a decimal past its precision). The value the client sent
+  // does not fit the column: 422, not a 500.
+  if (state === '22001' || state === '22003') {
+    return toResponse({
+      type: 'about:blank',
+      title: statusTitle(422),
+      status: 422,
+      code: state === '22001' ? 'value_too_long' : 'value_out_of_range',
+      detail:
+        state === '22001'
+          ? 'A value is longer than its field allows.'
+          : 'A number is outside the range its field allows.',
+      instance,
+      traceId,
+    });
+  }
+
   // A write the database refused column by column — an extension's `ctx.db`,
   // any path past the data API's own filter. The caller's fault, not ours.
   const guarded = columnGuardRefusal(err);

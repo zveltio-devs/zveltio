@@ -774,8 +774,17 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
     description: 'Binary data stored directly in the database. Useful for thumbnails, PDFs.',
     category: 'advanced',
     db: { columnType: 'bytea' },
+    // Base64 both ways. The driver bound a string as its own bytes (a base64
+    // value came back as its ASCII) and a read answered the Buffer's JSON
+    // shape, `{"type":"Buffer","data":[...]}`, so nothing round-tripped.
     api: {
       filterOperators: ['is_null', 'is_not_null'],
+      validate: (v) =>
+        typeof v === 'string' && (v.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(v))
+          ? 'Must be base64'
+          : null,
+      deserialize: (v) => (typeof v === 'string' ? Buffer.from(v, 'base64') : v),
+      serialize: (v) => (v instanceof Uint8Array ? Buffer.from(v).toString('base64') : v),
     },
     typescript: { inputType: 'string', outputType: 'string' },
   });
