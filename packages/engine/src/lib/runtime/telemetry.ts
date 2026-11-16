@@ -124,7 +124,7 @@ export function getDomainMetricsLines(): string[] {
     ...cacheMisses.toPrometheusLines('cache_misses_total', 'Query-cache misses'),
     ...webhookDeliveries.toPrometheusLines(
       'webhook_deliveries_total',
-      'Webhook deliveries by status',
+      'Webhook deliveries by status (skipped: the webhook role cannot read the record)',
     ),
     ...webhookDeliveryDuration.toPrometheusLines(
       'webhook_delivery_duration_seconds',
