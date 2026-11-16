@@ -325,12 +325,17 @@ export function healthRoutes(db: Database, auth?: any): Hono {
       {
         name: 'extensions',
         critical: false,
-        run: () => {
+        run: async () => {
           const active = extensionLoader.getActive();
           const failed = [...extensionLoader.lastLoadError.entries()].map(([name, error]) => ({
             name,
             error,
           }));
+          // And one disabled after repeated crashes (ADR 0056).
+          const { getWorkerHostIfInitialized } = await import('../lib/worker-extension-host.js');
+          for (const w of getWorkerHostIfInitialized()?.getHealth() ?? []) {
+            if (w.disabledReason) failed.push({ name: w.name, error: w.disabledReason });
+          }
           return { ok: failed.length === 0, detail: { active: active.length, failed } };
         },
       },

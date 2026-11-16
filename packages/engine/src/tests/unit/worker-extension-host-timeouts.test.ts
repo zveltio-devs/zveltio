@@ -89,7 +89,7 @@ describe('WorkerExtensionHost — invoke timeouts', () => {
     expect(err?.error).toContain('call timeout');
   });
 
-  it('returns 500 when a proxied route invoke times out', async () => {
+  it('returns 504 when a proxied route invoke times out', async () => {
     jest.useRealTimers();
     const app = new Hono();
     const host = new WorkerExtensionHost(app);
@@ -137,8 +137,12 @@ describe('WorkerExtensionHost — invoke timeouts', () => {
         headers: { 'Content-Type': 'application/json' },
         body: '{}',
       });
-      expect(res.status).toBe(500);
-      expect(await res.text()).toContain('worker route handler timeout (30s)');
+      expect(res.status).toBe(504);
+      expect(await res.json()).toMatchObject({
+        code: 'extension.timeout',
+        detail:
+          'extension "route-timeout": route POST /echo call timeout, no answer within 30000 ms',
+      });
       expect(managed.pendingInvokes.size).toBe(0);
     } finally {
       globalThis.setTimeout = origSetTimeout;

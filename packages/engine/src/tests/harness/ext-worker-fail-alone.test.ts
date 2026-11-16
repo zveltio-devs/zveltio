@@ -43,6 +43,7 @@ import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import {
   asDefaultTenant,
   asEveryTenant,
+  createGodSession,
   createMemberSession,
   dropTestCollection,
   forgetRuleObjects,
@@ -383,6 +384,16 @@ d('a worker-isolated extension fails alone (ADR 0056 s2)', () => {
       expect(host.remount(CRASHY)).toBe(true);
       host.rebindApp(app);
       expect(health(CRASHY).status).toBe('disabled');
+      // The operator's health check names it, with why.
+      const god = await createGodSession(engine, db, { factor: false });
+      const deep = await engine.request('/api/health/extensions', { headers: { cookie: god } });
+      expect(deep.status).toBe(503);
+      const { detail } = (await deep.json()) as {
+        detail: { failed: { name: string; error: string }[] };
+      };
+      expect(detail.failed.find((f) => f.name === CRASHY)?.error).toContain(
+        'disabled after 5 crashes',
+      );
       expect(
         errors.mock.calls.some(
           (c) =>

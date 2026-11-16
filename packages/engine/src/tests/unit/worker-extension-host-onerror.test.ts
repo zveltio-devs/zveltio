@@ -53,7 +53,9 @@ describe('WorkerExtensionHost — worker onerror', () => {
       ).toBe(true);
       expect(respawnFn).toBeDefined();
       respawnFn?.();
-      expect(warn.mock.calls.some((c) => String(c[0]).includes('Respawning worker'))).toBe(true);
+      expect(
+        warn.mock.calls.some((c) => String(c[0]).includes('[ext:crash-ext key=absent] crash 1/5')),
+      ).toBe(true);
     } finally {
       warn.mockRestore();
       errSpy.mockRestore();

@@ -659,6 +659,28 @@ d('jobs of a worker-isolated extension run in the Deno runner', () => {
     }
   }, 40_000);
 
+  it('leaves a slot to other extensions: one takes every slot but one', async () => {
+    _setRunnerConcurrencyForTests(2);
+    try {
+      const first = await send('slow', { ms: 3000, label: 'share-first' });
+      await until(
+        () => state(first),
+        (s) => s === 'active',
+      );
+      // A slot is free, but it is not this extension's to take (ADR 0056).
+      const second = await send('slow', { ms: 0, label: 'share-second' });
+      await Bun.sleep(2500);
+      expect(await state(first)).toBe('active');
+      expect(await state(second)).toBe('created');
+      await until(
+        () => state(second),
+        (s) => s === 'completed',
+      );
+    } finally {
+      _setRunnerConcurrencyForTests(4);
+    }
+  }, 40_000);
+
   it('an unload kills a running job: a failed attempt, retried', async () => {
     const id = await send('slow', { ms: 15000, label: 'unloaded' }, 1);
     await until(
