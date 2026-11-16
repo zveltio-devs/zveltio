@@ -197,16 +197,24 @@ Install an extension from the marketplace or a local path. The marketplace flow 
 # Install from marketplace
 zveltio install ai
 
-# Install from local directory
-zveltio install my-extension --path ./extensions/my-extension
+# Install your own signed extension from a local directory
+zveltio install acme/invoices --path ./acme-invoices
 
 # Force overwrite existing
-zveltio install my-extension --path ./extensions/my-extension --force
+zveltio install acme/invoices --path ./acme-invoices --force
 ```
+
+`--path` copies the directory to `<EXTENSIONS_DIR>/<name>` (`./extensions` when
+`EXTENSIONS_DIR` is unset), where `<name>` is the manifest's, `category/name` or
+a single segment, and must match the one given. The directory must be signed
+(`zveltio extension sign`); the signature is verified before the copy and again
+on the copy, against `OPERATOR_PUBLIC_KEYS_JSON` when this shell has it, else
+your own key in `~/.zveltio/keys`. The engine verifies it once more at every
+load, against its own `OPERATOR_PUBLIC_KEYS_JSON`.
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--path <path>` | — | Install from local directory (offline) |
+| `--path <path>` | — | Install a signed directory of your own (offline) |
 | `--url <url>` | `http://localhost:3000` | Engine URL |
 | `--force` | — | Overwrite existing extension |
 | `--totp <code>` | — | Authenticator code for the first confirmation (asked for otherwise) |
@@ -318,6 +326,24 @@ zveltio extension pack
 
 Without `--first-party` the bundle is marked `isolation: "worker"`. `extension build`
 is a deprecated alias for `pack`.
+
+---
+
+### `zveltio extension sign`
+
+Sign an extension directory with your own key, so an engine that trusts the key
+loads it at level 3, private: on the extension runner, never inline (ADR 0056).
+Pack it first (`isolation: "worker"`, bundled) and sign again after any change.
+
+```bash
+zveltio keys generate --id my-org-2026
+zveltio extension sign --dir ./acme-invoices --key-id my-org-2026
+zveltio keys export my-org-2026   # the entry for the engine's OPERATOR_PUBLIC_KEYS_JSON
+```
+
+It writes `signature.json` at the directory's root: an Ed25519 signature over
+every file in the directory, its name and the tier `private`. See
+[signatures](../extensions/signatures.md#your-own-extensions-level-3).
 
 ---
 
