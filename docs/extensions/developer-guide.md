@@ -2849,12 +2849,12 @@ making them context-switch.
 
 #### Do (legacy)n't
 
-- **Don't use raw `sql\`...\``** unless you absolutely must. Kysely is type-safe;
+- **Don't use raw ``sql`...` ``** unless you absolutely must. Kysely is type-safe;
   raw SQL is not, and it bypasses query-alter hooks.
 - **Don't reach engine tables.** `ctx.db` checks every statement it runs as
   compiled — a Kysely builder from any entry point (`with()` and
   `selectNoFrom()` included) with any `sql` fragment inside it, raw SQL
-  (`sql\`…\`.execute(ctx.db)`, `ctx.db.executeQuery(…)`), and the handle
+  (``sql`…`.execute(ctx.db)``, `ctx.db.executeQuery(…)`), and the handle
   `ctx.db.transaction()` passes its callback. The refusal comes when the query
   executes, not when it is built. A statement may name only
   collections (`zvd_*`), your own `zv_<name>_*` namespace, and tables your
