@@ -22,7 +22,12 @@ import { type CreateSsoSessionOptions, createBetterAuthSession } from '../../lib
 import { initPermissions } from '../../lib/tenancy/index.js';
 import { initTenantManager } from '../../lib/tenancy/tenant-manager.js';
 import { _setCacheForTests, getCache, initCache } from '../../lib/runtime/index.js';
-import { createMemberSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createMemberSession,
+  getTestApp,
+  getTestAppBesideLiveEngine,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 import { identityAs } from '../../testing/identity-as.js';
 
 const VALKEY_URL = process.env.TEST_VALKEY_URL;
@@ -51,7 +56,7 @@ describe.skipIf(!VALKEY_URL || !harnessAvailable())('createBetterAuthSession (li
   };
 
   beforeAll(async () => {
-    await getTestApp();
+    await getTestAppBesideLiveEngine();
     // Earlier files in this process (crud, webhooks, api-keys, permissions)
     // replace the global pool with initDatabase() and destroy it, and the
     // helper reads getDb(): take a live one, and bind the enforcer to it.

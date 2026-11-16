@@ -19,7 +19,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import Redis from 'ioredis';
 import { sql } from 'kysely';
-import { getTestApp } from '../../testing/app-harness.js';
+import { getTestAppBesideLiveEngine } from '../../testing/app-harness.js';
 import { initCache, getCache } from '../../lib/runtime/index.js';
 import { getEnforcer, getUserRoles, runWithDomain } from '../../lib/tenancy/index.js';
 import { __cacheNamespace, initPermissions } from '../../lib/tenancy/permissions.js';
@@ -41,7 +41,7 @@ describe.skipIf(!VALKEY_URL || !DB_URL)('roles cache is bound to its key', () =>
   const key = (tenant: string) => `roles:${__cacheNamespace()}:${tenant}:${USER}`;
 
   beforeAll(async () => {
-    ({ db } = await getTestApp());
+    ({ db } = await getTestAppBesideLiveEngine());
     // Other files in this process (permissions, tenant-rbac) bind the global
     // enforcer to their own connection and destroy it afterwards; rebind it here.
     await initPermissions(db);

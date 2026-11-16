@@ -17,7 +17,7 @@ import type { Database } from '../../db/index.js';
 import { _internalForTests, getAuth, initAuth, revokeAllUserSessions } from '../../lib/auth.js';
 import { stillAuthenticated } from '../../lib/data/index.js';
 import { getCache, initCache } from '../../lib/runtime/index.js';
-import { createMemberSession, getTestApp } from '../../testing/app-harness.js';
+import { createMemberSession, getTestAppBesideLiveEngine } from '../../testing/app-harness.js';
 
 // CI exports TEST_VALKEY_URL; with VALKEY_URL alone these skipped there.
 const VALKEY_URL = process.env.TEST_VALKEY_URL ?? process.env.VALKEY_URL;
@@ -30,7 +30,7 @@ describe.skipIf(!VALKEY_URL || !DB_URL)('realtime principal recheck (live Valkey
   let savedAuth: ReturnType<typeof getAuth> | null = null;
 
   beforeAll(async () => {
-    ({ app, db } = await getTestApp());
+    ({ app, db } = await getTestAppBesideLiveEngine());
     savedAuth = getAuth();
     savedValkey = process.env.VALKEY_URL;
     process.env.VALKEY_URL = VALKEY_URL;
