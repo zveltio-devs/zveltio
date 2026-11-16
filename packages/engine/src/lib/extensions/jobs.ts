@@ -160,6 +160,11 @@ export function _setRunnerConcurrencyForTests(n: number): void {
 /** A claimed run's time beyond its `timeoutSeconds`: the tenant check, the transaction, the audit. */
 const RUNNER_EXPIRE_MARGIN_S = 60;
 let runnerBusy = 0;
+/**
+ * Runs of each extension now. One extension takes every slot but one (ADR 0056),
+ * so another's jobs always find a slot however many the first enqueued.
+ */
+const runnerBusyByExt = new Map<string, number>();
 let pumping = false;
 let pumpTimer: ReturnType<typeof setInterval> | null = null;
 let denoWarned = false;
@@ -362,6 +367,7 @@ async function pumpRunner(): Promise<void> {
       claimed = false;
       for (const [q, { extName, job }] of runnerQueues) {
         if (runnerBusy >= RUNNER_CONCURRENCY) break;
+        if ((runnerBusyByExt.get(extName) ?? 0) >= Math.max(1, RUNNER_CONCURRENCY - 1)) continue;
         if (!answers.has(extName)) answers.set(extName, runnerAnswers(extName));
         if (!(await answers.get(extName))) {
           if (!runnerDownWarned.has(extName)) {
@@ -375,6 +381,7 @@ async function pumpRunner(): Promise<void> {
         if (!j) continue;
         claimed = true;
         runnerBusy++;
+        runnerBusyByExt.set(extName, (runnerBusyByExt.get(extName) ?? 0) + 1);
         void runOutsideTenantContext(() => runJob(extName, job, j.id, j.data))
           .then(
             () => boss.complete(q, j.id),
@@ -383,6 +390,9 @@ async function pumpRunner(): Promise<void> {
           .catch((err: Error) => warn(extName, err))
           .finally(() => {
             runnerBusy--;
+            const n = (runnerBusyByExt.get(extName) ?? 1) - 1;
+            if (n > 0) runnerBusyByExt.set(extName, n);
+            else runnerBusyByExt.delete(extName);
             void pumpRunner();
           });
       }

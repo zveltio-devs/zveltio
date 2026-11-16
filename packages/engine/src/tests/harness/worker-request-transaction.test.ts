@@ -380,7 +380,13 @@ d('one transaction per request across the worker bridge', () => {
 
       it('the hard timeout rolls back and releases the connection mid-request', () => {
         // Released while the handler still runs; its answer cannot claim the rows.
-        expect(out[t]?.timeout).toEqual({ heldMidRequest: 0, status: 500, rows: 0 });
+        // 504 (ADR 0056); `joined`'s fixture rethrows the rollback with no
+        // `onError`, where `tenantMiddleware` keeps the route's answer.
+        expect(out[t]?.timeout).toEqual({
+          heldMidRequest: 0,
+          status: t === 'process' ? 504 : 500,
+          rows: 0,
+        });
       });
 
       it('a worker killed mid-request rolls back and gives the connection back', () => {

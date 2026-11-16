@@ -63,7 +63,7 @@ describe('WorkerExtensionHost — respawn failure', () => {
 
       expect(
         errSpy.mock.calls.some((c) =>
-          String(c[0]).includes('Respawn failed for "respawn-fail-ext"'),
+          String(c[0]).includes('[ext:respawn-fail-ext key=absent] respawn failed'),
         ),
       ).toBe(true);
       expect(warnSpy.mock.calls.some((c) => String(c[0]).includes('respawn-failed'))).toBe(true);

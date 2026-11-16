@@ -48,12 +48,14 @@ describe('WorkerExtensionHost — worker onerror', () => {
       const managed = host.workers.get('crash-ext')!;
       managed.worker.onerror?.({ message: 'wasm trap' } as ErrorEvent);
 
-      expect(errSpy.mock.calls.some((c) => String(c[0]).includes('[worker:crash-ext] error'))).toBe(
-        true,
-      );
+      expect(
+        errSpy.mock.calls.some((c) => String(c[0]).includes('[ext:crash-ext key=absent] error')),
+      ).toBe(true);
       expect(respawnFn).toBeDefined();
       respawnFn?.();
-      expect(warn.mock.calls.some((c) => String(c[0]).includes('Respawning worker'))).toBe(true);
+      expect(
+        warn.mock.calls.some((c) => String(c[0]).includes('[ext:crash-ext key=absent] crash 1/5')),
+      ).toBe(true);
     } finally {
       warn.mockRestore();
       errSpy.mockRestore();
