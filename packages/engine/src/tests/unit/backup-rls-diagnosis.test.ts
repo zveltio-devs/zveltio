@@ -44,7 +44,7 @@ describe('an RLS-blocked pg_dump explains itself', () => {
 
   it('warns off --enable-row-security, the fix that would silently lose tenants', () => {
     expect(explained).toContain('--enable-row-security');
-    expect(explained).toContain('silently omit every other tenant');
+    expect(explained).toContain('silently omit every tenant');
   });
 
   it('names the actual remedy', () => {

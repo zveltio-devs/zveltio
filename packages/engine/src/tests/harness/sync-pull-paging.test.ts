@@ -13,6 +13,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import {
+  asDefaultTenant,
   createGodSession,
   getTestApp,
   harnessAvailable,
@@ -54,19 +55,21 @@ d('sync pull pages without losing rows', () => {
       } as never);
     }
     // One statement: every row carries the same `updated_at`.
-    await sql
-      .raw(
+    await asDefaultTenant(
+      db,
+      sql.raw(
         `INSERT INTO "zvd_${TIED}" (title, updated_at)
          SELECT 'r' || g, now() - interval '1 hour' FROM generate_series(1, ${ROWS}) g`,
-      )
-      .execute(db);
-    await sql
-      .raw(
+      ),
+    );
+    await asDefaultTenant(
+      db,
+      sql.raw(
         `INSERT INTO "zvd_${OLD}" (title, updated_at)
          SELECT 'r' || g, now() - interval '60 days' + g * interval '1 millisecond'
          FROM generate_series(1, ${ROWS}) g`,
-      )
-      .execute(db);
+      ),
+    );
   });
 
   afterAll(async () => {

@@ -28,12 +28,13 @@ import { sessionPrefetch } from '../../middleware/session-prefetch.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import {
+  asDefaultTenant,
   createGodSession,
   createMemberSession,
   dropTestCollection,
+  forgetRuleObjects,
   getTestApp,
   harnessAvailable,
-  forgetRuleObjects,
   ruleObjects,
 } from '../../testing/app-harness.js';
 import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
@@ -74,9 +75,12 @@ d('an API key runs an extension action with $ext:<name> execute', () => {
     });
   const rowsLabelled = async (label: string) =>
     (
-      await sql<{ created_by: string | null }>`
+      await asDefaultTenant(
+        db,
+        sql<{ created_by: string | null }>`
         SELECT created_by FROM ${sql.table(`zvd_${C}`)} WHERE label = ${label}
-      `.execute(db)
+      `,
+      )
     ).rows;
   const execute = { collection: `$ext:${EXT}`, actions: ['execute'] };
   const writeC = { collection: C, actions: ['read', 'create'] };
@@ -93,8 +97,9 @@ d('an API key runs an extension action with $ext:<name> execute', () => {
       fields: [{ name: 'label', type: 'text', required: false, unique: false, indexed: false }],
     } as never);
     for (let i = 0; i < 100; i++) {
-      const seen = await sql<{ t: string | null }>`SELECT to_regclass(${`zvd_${C}`}) AS t`.execute(
+      const seen = await asDefaultTenant(
         db,
+        sql<{ t: string | null }>`SELECT to_regclass(${`zvd_${C}`}) AS t`,
       );
       if (seen.rows[0]?.t) break;
       await Bun.sleep(100);
@@ -177,7 +182,7 @@ d('an API key runs an extension action with $ext:<name> execute', () => {
     for (const id of keys) await sql`DELETE FROM zv_api_keys WHERE id = ${id}`.execute(db);
     await sql`DELETE FROM zv_extension_registry WHERE name = ${EXT}`.execute(db);
     await sql`DELETE FROM zvd_permissions WHERE v2 = ${RES}`.execute(db);
-    await sql`DELETE FROM zv_revisions WHERE collection = ${C}`.execute(db);
+    await asDefaultTenant(db, sql`DELETE FROM zv_revisions WHERE collection = ${C}`);
     await dropTestCollection(db, C);
   });
 

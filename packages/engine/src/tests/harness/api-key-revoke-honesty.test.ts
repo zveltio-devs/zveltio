@@ -16,7 +16,12 @@ import { beforeAll, afterAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asEveryTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -35,7 +40,7 @@ d('revoking an API key reports what it did (in-process)', () => {
     for (const id of made) {
       await sql`DELETE FROM zv_api_keys WHERE id = ${id}`.execute(db);
     }
-    await sql`DELETE FROM zv_audit_log WHERE resource_type = 'api_key'`.execute(db);
+    await asEveryTenant(db, sql`DELETE FROM zv_audit_log WHERE resource_type = 'api_key'`);
   });
 
   async function mint(name: string): Promise<string> {
@@ -62,16 +67,22 @@ d('revoking an API key reports what it did (in-process)', () => {
   );
 
   it('writes no audit entry for a revocation that did not happen', async () => {
-    const before = await sql<{ n: number }>`
+    const before = await asEveryTenant(
+      db,
+      sql<{ n: number }>`
       SELECT count(*)::int AS n FROM zv_audit_log WHERE event_type = 'api_key.revoked'
-    `.execute(db);
+    `,
+    );
     await app.request(`/api/admin/api-keys/${crypto.randomUUID()}`, {
       method: 'DELETE',
       headers: { cookie },
     });
-    const after = await sql<{ n: number }>`
+    const after = await asEveryTenant(
+      db,
+      sql<{ n: number }>`
       SELECT count(*)::int AS n FROM zv_audit_log WHERE event_type = 'api_key.revoked'
-    `.execute(db);
+    `,
+    );
     expect(after.rows[0]!.n).toBe(before.rows[0]!.n);
   });
 
@@ -90,10 +101,13 @@ d('revoking an API key reports what it did (in-process)', () => {
     `.execute(db);
     expect(row.rows[0]?.is_active).toBe(false);
 
-    const audited = await sql<{ n: number }>`
+    const audited = await asEveryTenant(
+      db,
+      sql<{ n: number }>`
       SELECT count(*)::int AS n FROM zv_audit_log
        WHERE event_type = 'api_key.revoked' AND resource_id = ${id}
-    `.execute(db);
+    `,
+    );
     expect(audited.rows[0]!.n).toBe(1);
   });
 

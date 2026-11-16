@@ -10,7 +10,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { S3Driver } from '../../lib/storage/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asEveryTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const hasS3 = Boolean(process.env.S3_ENDPOINT);
 const d = harnessAvailable() && hasS3 ? describe : describe.skip;
@@ -36,7 +41,7 @@ d('storage S3 upload round-trip (in-process)', () => {
 
   afterAll(async () => {
     if (db && fileId)
-      await sql`DELETE FROM zv_media_files WHERE id = ${fileId}`.execute(db).catch(() => {});
+      await asEveryTenant(db, sql`DELETE FROM zv_media_files WHERE id = ${fileId}`).catch(() => {});
   });
 
   it('uploads a file to S3 (POST /upload)', async () => {

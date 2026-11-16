@@ -19,6 +19,7 @@ import {
   type UniqueKeyReconcileResult,
 } from '../../lib/data/index.js';
 import {
+  asDefaultTenant,
   asTenant,
   createGodSession,
   dropTestCollection,
@@ -223,9 +224,12 @@ d('a unique field is unique per tenant', () => {
       const broken = `zvd_${BROKEN}`;
       await sql`ALTER TABLE ${sql.id(broken)} ADD UNIQUE (code)`.execute(db);
       for (const code of ['a', 'b']) {
-        await sql`
+        await asDefaultTenant(
+          db,
+          sql`
           INSERT INTO ${sql.id(broken)} (code, tenant_id) VALUES (${code}, ${TENANT_A}::uuid)
-        `.execute(db);
+        `,
+        );
       }
       const died = await sql`
         CREATE UNIQUE INDEX CONCURRENTLY ${sql.id(`${broken}_tenant_id_code_key`)}
@@ -280,7 +284,7 @@ d('a unique field is unique per tenant', () => {
     });
 
     it('a second instance skips while one holds the lock', async () => {
-      await db.transaction().execute(async (other) => {
+      await asDefaultTenant(db, async (other) => {
         await sql`SELECT pg_advisory_xact_lock(hashtext('zveltio:unique-key-reconcile'))`.execute(
           other,
         );
@@ -373,7 +377,7 @@ d('a unique field is unique per tenant', () => {
         const ready = new Promise<void>((r) => {
           inserted = r;
         });
-        const writer = db.transaction().execute(async (trx) => {
+        const writer = asDefaultTenant(db, async (trx) => {
           await sql`INSERT INTO ${sql.id(slow)} (code, tenant_id) VALUES ('w', ${TENANT_A}::uuid)`.execute(
             trx,
           );

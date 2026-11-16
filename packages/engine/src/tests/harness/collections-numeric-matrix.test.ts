@@ -7,7 +7,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hnum_${Date.now()}`;
@@ -54,11 +59,14 @@ d('collections numeric field matrix (in-process)', () => {
     expect(res.status).toBe(202);
     expect(await DDLManager.tableExists(db, COLLECTION)).toBe(true);
 
-    const cols = await sql<{ column_name: string }>`
+    const cols = await asDefaultTenant(
+      db,
+      sql<{ column_name: string }>`
       SELECT column_name FROM information_schema.columns
       WHERE table_name = ${`zvd_${COLLECTION}`}
         AND column_name IN ('qty', 'ratio', 'price', 'cost', 'sku')
-    `.execute(db);
+    `,
+    );
     expect(cols.rows.length).toBe(5);
   });
 });

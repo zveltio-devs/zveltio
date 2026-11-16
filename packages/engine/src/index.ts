@@ -1265,6 +1265,9 @@ async function bootstrap() {
 
   // 1b. Schema compatibility check — exits if schema is incompatible
   await checkSchemaCompatibility(db);
+  // The tenant fallback (DR-03), before anything else opens a connection that
+  // inherits the database's setting; the pool recycle below renews the rest.
+  await applyFailClosedTenantSetting(db);
   // Migration 048 leaves the case-insensitive email index unbuilt over existing twins.
   const { emailCaseUniquenessProblem } = await import('./lib/identity.js');
   const emailProblem = await emailCaseUniquenessProblem(db);
@@ -1484,7 +1487,6 @@ async function bootstrap() {
   // ENFORCED through the zveltio_rls role. Two contradictory sentences at boot
   // do not make an operator careful; they make both easy to ignore.
   await warnIfDbRoleBypassesRls(db, rlsMode);
-  await applyFailClosedTenantSetting(db);
   // The contract half of migration 048, which only an operator can time. See
   // lib/data/import-logs-contract.ts — no-op unless ZVELTIO_IMPORT_LOGS_CONTRACT=1.
   try {

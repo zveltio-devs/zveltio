@@ -21,6 +21,7 @@ import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { engineEvents } from '../../lib/runtime/index.js';
 import {
+  asDefaultTenant,
   createGodSession,
   createMemberSession,
   dropTestCollection,
@@ -64,9 +65,12 @@ d('sync push writes revisions and fires afterWrite (in-process)', () => {
   };
   const revisions = async (id: string) =>
     (
-      await sql<{ action: string; data: Record<string, unknown>; delta: unknown }>`
+      await asDefaultTenant(
+        db,
+        sql<{ action: string; data: Record<string, unknown>; delta: unknown }>`
         SELECT action, data, delta FROM zv_revisions
-         WHERE collection = ${COLL} AND record_id = ${id} ORDER BY created_at`.execute(db)
+         WHERE collection = ${COLL} AND record_id = ${id} ORDER BY created_at`,
+      )
     ).rows;
   const eventsFor = (id: string) => events.filter((e) => e.id === id);
 
@@ -106,9 +110,10 @@ d('sync push writes revisions and fires afterWrite (in-process)', () => {
   afterAll(async () => {
     for (const off of offs) off();
     if (!db) return;
-    await sql`DELETE FROM zv_revisions WHERE collection IN (${COLL}, ${`zvd_${COLL}`})`
-      .execute(db)
-      .catch(() => {});
+    await asDefaultTenant(
+      db,
+      sql`DELETE FROM zv_revisions WHERE collection IN (${COLL}, ${`zvd_${COLL}`})`,
+    ).catch(() => {});
     await dropTestCollection(db, COLL).catch(() => {});
   });
 

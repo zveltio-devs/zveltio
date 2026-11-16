@@ -16,7 +16,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { toJsonb } from '../../lib/jsonb.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asDefaultTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const T = `zz_jsonb_${Date.now()}`;
@@ -39,9 +39,12 @@ d('toJsonb — what actually lands in a jsonb column', () => {
 
   const store = async (k: string, expr: unknown) => {
     await sql`INSERT INTO ${sql.id(T)} (k, v) VALUES (${k}, ${expr})`.execute(db);
-    const r = await sql<{ t: string | null }>`
+    const r = await asDefaultTenant(
+      db,
+      sql<{ t: string | null }>`
       SELECT jsonb_typeof(v) AS t FROM ${sql.id(T)} WHERE k = ${k}
-    `.execute(db);
+    `,
+    );
     return r.rows[0]!.t;
   };
 
@@ -63,9 +66,12 @@ d('toJsonb — what actually lands in a jsonb column', () => {
       { collection: 'c', actions: ['read'] },
     ])})`.execute(db);
 
-    const hit = await sql<{ ok: boolean }>`
+    const hit = await asDefaultTenant(
+      db,
+      sql<{ ok: boolean }>`
       SELECT (v @> '[{"collection":"c"}]'::jsonb) AS ok FROM ${sql.id(T)} WHERE k = 'scopes'
-    `.execute(db);
+    `,
+    );
     expect(hit.rows[0]!.ok).toBe(true);
   });
 
@@ -84,9 +90,12 @@ d('toJsonb — what actually lands in a jsonb column', () => {
     // driver renders it as a Postgres array literal (each element's JSON), so
     // `[{a:1}]` is stored as the string `{"{\"a\":1}"}`, not as an array.
     expect(await store('w-raw-array', arr)).toBe('string');
-    const raw = await sql<{ v: string }>`
+    const raw = await asDefaultTenant(
+      db,
+      sql<{ v: string }>`
       SELECT v #>> '{}' AS v FROM ${sql.id(T)} WHERE k = 'w-raw-array'
-    `.execute(db);
+    `,
+    );
     expect(raw.rows[0]!.v).toBe('{"{\\"a\\":1}"}');
   });
 });

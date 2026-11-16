@@ -15,11 +15,12 @@ import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { invalidateRlsCache } from '../../lib/tenancy/rls.js';
 import {
+  asDefaultTenant,
   createGodSession,
   createMemberSession,
+  forgetRuleObjects,
   getTestApp,
   harnessAvailable,
-  forgetRuleObjects,
   insertPastRowRules,
   ruleObjects,
 } from '../../testing/app-harness.js';
@@ -43,7 +44,7 @@ d('data bulk RLS (in-process)', () => {
   // so the test reads with the exemption the engine publishes for god.
   const titleOf = async (id: string) =>
     (
-      await db.transaction().execute(async (trx) => {
+      await asDefaultTenant(db, async (trx) => {
         await sql`SELECT set_config('zveltio.rls_bypass', 'on', true)`.execute(trx);
         return sql<{ title: string }>`
           SELECT title FROM ${sql.id(`zvd_${COLLECTION}`)} WHERE id = ${id}

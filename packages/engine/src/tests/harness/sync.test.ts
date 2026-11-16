@@ -11,6 +11,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import {
+  asDefaultTenant,
   createGodSession,
   getTestApp,
   harnessAvailable,
@@ -54,10 +55,7 @@ d('sync routes (in-process)', () => {
 
   afterAll(async () => {
     if (!db) return;
-    await sql
-      .raw(`DELETE FROM "zvd_${COLLECTION}"`)
-      .execute(db)
-      .catch(() => {});
+    await asDefaultTenant(db, sql.raw(`DELETE FROM "zvd_${COLLECTION}"`)).catch(() => {});
     await sql
       .raw(`DROP TABLE IF EXISTS "zvd_${COLLECTION}" CASCADE`)
       .execute(db)
@@ -128,9 +126,10 @@ d('sync routes (in-process)', () => {
     );
     expect(res.status).toBe(200);
 
-    const rows = (await sql
-      .raw(`SELECT secret FROM "zvd_${COLLECTION}" WHERE id = '${recordId}'`)
-      .execute(db)) as { rows: { secret: string }[] };
+    const rows = (await asDefaultTenant(
+      db,
+      sql.raw(`SELECT secret FROM "zvd_${COLLECTION}" WHERE id = '${recordId}'`),
+    )) as { rows: { secret: string }[] };
     expect(rows.rows.length).toBe(1);
     const stored = rows.rows[0]!.secret;
     expect(stored).not.toBe(plaintext);
@@ -159,11 +158,9 @@ d('sync routes (in-process)', () => {
 
     // afterWrite is fire-and-forget, as it is in the bulk handler.
     await new Promise((r) => setTimeout(r, 250));
-    const revs = await db
-      .selectFrom('zv_revisions')
-      .select('action')
-      .where('record_id', '=', recordId)
-      .execute();
+    const revs = await asDefaultTenant(db, (t) =>
+      t.selectFrom('zv_revisions').select('action').where('record_id', '=', recordId).execute(),
+    );
     expect(revs.length).toBeGreaterThan(0);
     expect(revs[0]!.action).toBe('create');
   });
@@ -190,18 +187,19 @@ d('sync routes (in-process)', () => {
     const second = (await (await push('SECOND')).json()) as { results: { status: string }[] };
     expect(second.results[0]?.status).toBe('conflict');
 
-    const rows = await sql<{ title: string }>`
+    const rows = await asDefaultTenant(
+      db,
+      sql<{ title: string }>`
       SELECT title FROM ${sql.id(`zvd_${COLLECTION}`)} WHERE id = ${recordId}
-    `.execute(db);
+    `,
+    );
     expect(rows.rows[0]?.title).toBe('first');
 
     // And no revision for the write that did not happen.
     await new Promise((r) => setTimeout(r, 250));
-    const revs = await db
-      .selectFrom('zv_revisions')
-      .select('action')
-      .where('record_id', '=', recordId)
-      .execute();
+    const revs = await asDefaultTenant(db, (t) =>
+      t.selectFrom('zv_revisions').select('action').where('record_id', '=', recordId).execute(),
+    );
     expect(revs.length).toBe(1);
   });
 
@@ -251,9 +249,10 @@ d('sync routes (in-process)', () => {
 
     // Stored encrypted — the push path's job, asserted so a failure here is
     // unambiguous about which half broke.
-    const stored = (await sql
-      .raw(`SELECT api_key FROM "zvd_${COLLECTION}" WHERE id = '${recordId}'`)
-      .execute(db)) as { rows: { api_key: string }[] };
+    const stored = (await asDefaultTenant(
+      db,
+      sql.raw(`SELECT api_key FROM "zvd_${COLLECTION}" WHERE id = '${recordId}'`),
+    )) as { rows: { api_key: string }[] };
     expect(stored.rows[0]!.api_key.startsWith('enc:v1:')).toBe(true);
 
     const res = await syncPull(app, cookie, { collections: [COLLECTION] });

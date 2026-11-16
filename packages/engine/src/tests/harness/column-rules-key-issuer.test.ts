@@ -28,7 +28,12 @@ import {
 import { putColumnPermission, withTenantIsolation } from '../../lib/tenancy/index.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
-import { dropTestCollection, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  dropTestCollection,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
@@ -78,9 +83,12 @@ d('a key meets its issuer column rules in the database (migration 095)', () => {
       fields: [field('title'), field('secret')],
     } as never);
     recordId = (
-      await sql<{ id: string }>`
+      await asDefaultTenant(
+        db,
+        sql<{ id: string }>`
         INSERT INTO ${sql.table(TABLE)} (tenant_id, title, secret)
-        VALUES (${DEFAULT_TENANT_ID}::uuid, 'seed', 'classified') RETURNING id`.execute(db)
+        VALUES (${DEFAULT_TENANT_ID}::uuid, 'seed', 'classified') RETURNING id`,
+      )
     ).rows[0]!.id;
 
     // A member (the role column rules are keyed on) granted this collection
@@ -121,9 +129,9 @@ d('a key meets its issuer column rules in the database (migration 095)', () => {
     await sql`DELETE FROM zvd_column_permissions WHERE collection_name = ${COLLECTION}`
       .execute(db)
       .catch(() => {});
-    await sql`DELETE FROM zv_revisions WHERE collection = ${COLLECTION}`
-      .execute(db)
-      .catch(() => {});
+    await asDefaultTenant(db, sql`DELETE FROM zv_revisions WHERE collection = ${COLLECTION}`).catch(
+      () => {},
+    );
     await sql`DELETE FROM "user" WHERE id = ${issuer}`.execute(db).catch(() => {});
     await dropTestCollection(db, COLLECTION).catch(() => {});
   });
@@ -174,11 +182,14 @@ d('a key meets its issuer column rules in the database (migration 095)', () => {
   });
 
   it('the revision view strips the column from history', async () => {
-    await sql`
+    await asDefaultTenant(
+      db,
+      sql`
       INSERT INTO zv_revisions (tenant_id, collection, record_id, action, data, delta, user_id)
       VALUES (${DEFAULT_TENANT_ID}::uuid, ${COLLECTION}, ${recordId}, 'update',
               '{"title":"seed","secret":"classified"}'::jsonb, '{"secret":"classified"}'::jsonb, ${issuer})
-    `.execute(db);
+    `,
+    );
     const r = await asKey((trx) =>
       sql<{ d: string | null; x: string | null }>`
         SELECT data->>'secret' AS d, delta->>'secret' AS x FROM zvv__revisions

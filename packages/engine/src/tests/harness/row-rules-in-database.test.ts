@@ -22,7 +22,7 @@ import {
   withTenantIsolation,
 } from '../../lib/tenancy/index.js';
 import { createRlsPolicy, deleteRlsPolicy, updateRlsPolicy } from '../../lib/tenancy/rls.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asDefaultTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
@@ -112,15 +112,16 @@ d('row rules are enforced by the database (in-process)', () => {
       )
       .execute(db);
     await sql.raw(`GRANT SELECT, INSERT, UPDATE, DELETE ON ${TABLE} TO zveltio_rls`).execute(db);
-    await sql
-      .raw(`
+    await asDefaultTenant(
+      db,
+      sql.raw(`
       INSERT INTO ${TABLE} (tenant_id, title, created_by, bucket, code) VALUES
         ('${tenant}', 'alice-1', '${ALICE}', 'alpha', 5),
         ('${tenant}', 'alice-2', '${ALICE}', 'beta',  7),
         ('${tenant}', 'bob-1',   '${BOB}',   'alpha', 5),
         ('${tenant}', 'orphan',  NULL,       NULL,    NULL)
-    `)
-      .execute(db);
+    `),
+    );
 
     await sql`
       INSERT INTO zvd_collections (name, display_name) VALUES (${COLL}, ${COLL})

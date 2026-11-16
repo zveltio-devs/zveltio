@@ -18,6 +18,7 @@ import {
   invalidateUserPermCache,
 } from '../../lib/tenancy/index.js';
 import {
+  asEveryTenant,
   createMemberSession,
   createSteppedUpGod,
   getTestApp,
@@ -113,10 +114,13 @@ d('admin factor reset', () => {
     const me = await req('/api/me', { headers: { cookie: target.cookie } });
     expect(me.status).toBe(401);
 
-    const audit = await sql<{ user_id: string; metadata: Record<string, unknown> }>`
+    const audit = await asEveryTenant(
+      db,
+      sql<{ user_id: string; metadata: Record<string, unknown> }>`
       SELECT user_id, metadata FROM zv_audit_log
        WHERE event_type = 'auth.factor_changed' AND resource_id = ${target.userId}
-         AND metadata->>'change' = 'admin.reset'`.execute(db);
+         AND metadata->>'change' = 'admin.reset'`,
+    );
     expect(audit.rows).toHaveLength(1);
     expect(audit.rows[0]?.user_id).toBe(godId);
     expect(audit.rows[0]?.metadata).toMatchObject({

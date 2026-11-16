@@ -30,7 +30,7 @@ import {
   getCurrentTenantTrx,
   withTenantIsolation,
 } from '../../lib/tenancy/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asDefaultTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hextwrite_${Date.now()}`;
@@ -103,9 +103,10 @@ d('extension writes run through the field pipeline', () => {
         .execute(),
     );
 
-    const rows = (await sql
-      .raw(`SELECT secret, api_key, label FROM "${TABLE}" WHERE id = '${id}'`)
-      .execute(db)) as { rows: { secret: string; api_key: string; label: string }[] };
+    const rows = (await asDefaultTenant(
+      db,
+      sql.raw(`SELECT secret, api_key, label FROM "${TABLE}" WHERE id = '${id}'`),
+    )) as { rows: { secret: string; api_key: string; label: string }[] };
     const row = rows.rows[0]!;
 
     // Both used to be the literal values.
@@ -129,9 +130,10 @@ d('extension writes run through the field pipeline', () => {
         .execute();
     });
 
-    const rows = (await sql
-      .raw(`SELECT secret, api_key FROM "${TABLE}" WHERE id = '${id}'`)
-      .execute(db)) as { rows: { secret: string; api_key: string }[] };
+    const rows = (await asDefaultTenant(
+      db,
+      sql.raw(`SELECT secret, api_key FROM "${TABLE}" WHERE id = '${id}'`),
+    )) as { rows: { secret: string; api_key: string }[] };
     expect(await Bun.password.verify(PLAINTEXT_PW, rows.rows[0]!.secret)).toBe(true);
     expect(rows.rows[0]!.api_key.startsWith('enc:v1:')).toBe(true);
   });
@@ -150,9 +152,10 @@ d('extension writes run through the field pipeline', () => {
         .execute();
     });
 
-    const rows = (await sql
-      .raw(`SELECT api_key FROM "${TABLE}" WHERE id = '${id}'`)
-      .execute(db)) as { rows: { api_key: string }[] };
+    const rows = (await asDefaultTenant(
+      db,
+      sql.raw(`SELECT api_key FROM "${TABLE}" WHERE id = '${id}'`),
+    )) as { rows: { api_key: string }[] };
     expect(rows.rows[0]!.api_key.startsWith('enc:v1:')).toBe(true);
   });
 
@@ -165,9 +168,10 @@ d('extension writes run through the field pipeline', () => {
         .execute(),
     ).rejects.toThrow(/invalid data/i);
 
-    const rows = (await sql
-      .raw(`SELECT id FROM "${TABLE}" WHERE label = 'short-pw'`)
-      .execute(db)) as { rows: unknown[] };
+    const rows = (await asDefaultTenant(
+      db,
+      sql.raw(`SELECT id FROM "${TABLE}" WHERE label = 'short-pw'`),
+    )) as { rows: unknown[] };
     expect(rows.rows.length).toBe(0);
   });
 
@@ -186,9 +190,10 @@ d('extension writes run through the field pipeline', () => {
     } finally {
       spy.mockRestore();
     }
-    const rows = (await sql
-      .raw(`SELECT api_key FROM "${TABLE}" WHERE id = '${id}'`)
-      .execute(db)) as { rows: unknown[] };
+    const rows = (await asDefaultTenant(
+      db,
+      sql.raw(`SELECT api_key FROM "${TABLE}" WHERE id = '${id}'`),
+    )) as { rows: unknown[] };
     expect(rows.rows).toEqual([]);
   });
 
@@ -203,9 +208,10 @@ d('extension writes run through the field pipeline', () => {
       .insertInto('zv_probe_ext_notes')
       .values({ id, body: 'plain' })
       .execute();
-    const rows = (await sql
-      .raw(`SELECT body FROM zv_probe_ext_notes WHERE id = '${id}'`)
-      .execute(db)) as { rows: { body: string }[] };
+    const rows = (await asDefaultTenant(
+      db,
+      sql.raw(`SELECT body FROM zv_probe_ext_notes WHERE id = '${id}'`),
+    )) as { rows: { body: string }[] };
     expect(rows.rows[0]!.body).toBe('plain');
     await sql
       .raw('DROP TABLE IF EXISTS zv_probe_ext_notes')

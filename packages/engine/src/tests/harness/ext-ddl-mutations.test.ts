@@ -27,6 +27,8 @@ import { _setRlsRoleAvailableForTests } from '../../lib/tenancy/tenant-manager.j
 import { withTenantIsolation } from '../../lib/tenancy/index.js';
 import {
   ALL_COLLECTIONS_ACTOR,
+  asDefaultTenant,
+  asTenant,
   dropTestCollection,
   getTestApp,
   harnessAvailable,
@@ -51,7 +53,9 @@ d("ctx.DDLManager's mutations inside a request", () => {
     made.push(name);
     await DDLManager.createCollection(db, { name, fields } as never);
     await applyTenantRLS(db, `zvd_${name}`);
-    await sql`INSERT INTO ${sql.id(`zvd_${name}`)} DEFAULT VALUES`.execute(db);
+    await asTenant(db, TENANT, (t) =>
+      sql`INSERT INTO ${sql.id(`zvd_${name}`)} DEFAULT VALUES`.execute(t),
+    );
   };
   /** The tenant middleware's request transaction, in `mode`. */
   const inRequest = async (mode: Mode, fn: () => Promise<void>) => {
@@ -192,8 +196,11 @@ d("ctx.DDLManager's mutations inside a request", () => {
       const name = `ddlmut_drop_${mode[0]}${TAG}`;
       await existing(name, [{ name: 'title', type: 'text' }]);
       await inRequest(mode, () => ddl.dropCollection(ext, name));
-      const left = await sql<{ t: string | null }>`
-        SELECT to_regclass(${`public.zvd_${name}`})::text AS t`.execute(db);
+      const left = await asDefaultTenant(
+        db,
+        sql<{ t: string | null }>`
+        SELECT to_regclass(${`public.zvd_${name}`})::text AS t`,
+      );
       expect(left.rows[0]!.t).toBeNull();
       expect(await meta(name)).toBeUndefined();
     }, 60_000);

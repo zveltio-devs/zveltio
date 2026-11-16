@@ -20,7 +20,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { getActiveBunPool, recycleActivePool } from '../../db/bun-sql-dialect.js';
 import { databaseDriver } from '../../db/pg-dialect.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asDefaultTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 // `Bun.SQL` names its prepared statements and caches their plans per pooled
 // connection; `pg` (ZVELTIO_DB_DRIVER=pg) sends unnamed ones, so there is no
@@ -71,7 +71,10 @@ d('a pooled plan does not survive a migration', () => {
 
     // And the engine still works through it — the check that would have caught
     // `DISCARD ALL`, whose damage only shows on the NEXT query.
-    const rows = await sql<{ id: number }>`SELECT * FROM ${sql.id(T)} WHERE id = ${1}`.execute(db);
+    const rows = await asDefaultTenant(
+      db,
+      sql<{ id: number }>`SELECT * FROM ${sql.id(T)} WHERE id = ${1}`,
+    );
     expect(rows.rows.length).toBe(1);
   }, 30_000);
 

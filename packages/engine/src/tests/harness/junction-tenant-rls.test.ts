@@ -17,6 +17,7 @@ import { parseMigrationFile, splitSqlStatements } from '../../db/migrations/inde
 import { DDLManager } from '../../lib/data/index.js';
 import { reconcileTenantRLS, withTenantIsolation } from '../../lib/tenancy/index.js';
 import {
+  asDefaultTenant,
   asTenant,
   connectedAsSuperuser,
   createGodSession,
@@ -68,10 +69,13 @@ d('m2m junction tables under tenant RLS', () => {
     });
     expect([200, 201, 202]).toContain(res.status);
     for (let i = 0; i < 150; i++) {
-      const seen = await sql<{ n: number }>`
+      const seen = await asDefaultTenant(
+        db,
+        sql<{ n: number }>`
         SELECT count(*)::int AS n FROM pg_policies
          WHERE schemaname = 'public' AND tablename = ${`zvd_${name}`} AND policyname = 'tenant_isolation'
-      `.execute(db);
+      `,
+      );
       if (seen.rows[0]!.n > 0) break;
       await Bun.sleep(100);
     }
@@ -123,7 +127,7 @@ d('m2m junction tables under tenant RLS', () => {
 
   it('another tenant cannot delete them', async () => {
     await withTenantIsolation(OTHER, (trx) => sql`DELETE FROM ${sql.id(J)}`.execute(trx));
-    expect(await count(db, J)).toBe(1);
+    expect(await withTenantIsolation(ROOT, (trx) => count(trx, J))).toBe(1);
   });
 
   it('a link written under a tenant lands in that tenant', async () => {
@@ -178,13 +182,14 @@ d('m2m junction tables under tenant RLS', () => {
         )
         .execute(db);
       // Source decides; with no source, the target; with neither, the default tenant.
-      await sql
-        .raw(
+      await asDefaultTenant(
+        db,
+        sql.raw(
           `INSERT INTO "${LEGACY}" ("${TGT}_id", "${SRC}_id") VALUES ` +
             `('${ids.tRoot}', '${ids.sOther}'), ('${ids.tOther}', '${ids.sRoot}'), ` +
             `(NULL, '${ids.sOther}'), (NULL, NULL)`,
-        )
-        .execute(db);
+        ),
+      );
     });
 
     const backfilled = async (trx: Database) =>
@@ -204,28 +209,25 @@ d('m2m junction tables under tenant RLS', () => {
       const rollback = new Error('rollback');
       let got: string[] = [];
       const superuser = await connectedAsSuperuser(db);
-      await db
-        .transaction()
-        .execute(async (trx) => {
-          if (superuser) {
-            for (const t of [`zvd_${SRC}`, `zvd_${TGT}`, LEGACY]) {
-              await sql`ALTER TABLE ${sql.id(t)} OWNER TO zveltio_rls`.execute(trx);
-            }
-            await sql.raw('SET LOCAL ROLE zveltio_rls').execute(trx);
+      await asDefaultTenant(db, async (trx) => {
+        if (superuser) {
+          for (const t of [`zvd_${SRC}`, `zvd_${TGT}`, LEGACY]) {
+            await sql`ALTER TABLE ${sql.id(t)} OWNER TO zveltio_rls`.execute(trx);
           }
-          await runUp(trx);
-          await runUp(trx);
-          got = await backfilled(trx);
-          throw rollback;
-        })
-        .catch((err) => {
-          if (err !== rollback) throw err;
-        });
+          await sql.raw('SET LOCAL ROLE zveltio_rls').execute(trx);
+        }
+        await runUp(trx);
+        await runUp(trx);
+        got = await backfilled(trx);
+        throw rollback;
+      }).catch((err) => {
+        if (err !== rollback) throw err;
+      });
       expect(got.sort()).toEqual(expected());
     }, 60_000);
 
     it('then the boot reconcile isolates it', async () => {
-      await db.transaction().execute(async (trx) => {
+      await asDefaultTenant(db, async (trx) => {
         await runUp(trx);
         await runUp(trx);
       });

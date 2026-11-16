@@ -16,7 +16,12 @@ import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { engineEvents } from '../../lib/runtime/index.js';
 import { getCurrentTenantTrx } from '../../lib/tenancy/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hevt_${Date.now()}`;
@@ -73,9 +78,12 @@ d('a failing record listener inside the request transaction', () => {
     // Else the assertions below would pass without the savepoint ever running.
     expect(ranInTrx).toBe(true);
     expect(res.status).toBe(201);
-    const rows = await sql<{ label: string }>`
+    const rows = await asDefaultTenant(
+      db,
+      sql<{ label: string }>`
       SELECT label FROM ${sql.table(`zvd_${COLLECTION}`)} ORDER BY label
-    `.execute(db);
+    `,
+    );
     expect(rows.rows.map((r) => r.label)).toEqual(['from-request']);
   });
 });

@@ -48,13 +48,14 @@ import { tenantMiddleware } from '../../middleware/tenant.js';
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import { toJsonb } from '../../lib/jsonb.js';
 import {
+  asDefaultTenant,
   asEveryTenant,
   asTenant,
   createMemberSession,
   dropTestCollection,
+  forgetRuleObjects,
   getTestApp,
   harnessAvailable,
-  forgetRuleObjects,
   ruleObjects,
 } from '../../testing/app-harness.js';
 
@@ -243,10 +244,13 @@ d('a job reaches only the stored files its user hands it (ADR 0032)', () => {
     asEveryTenant(db, (trx) =>
       trx.selectFrom('zv_media_files').selectAll().where('id', '=', id).executeTakeFirst(),
     );
+  // A write is checked against the own firm (DR-03): the file's, from every firm's reach.
   const setFile = (id: string, set: { visibility?: 'personal'; deleted_at?: Date }) =>
-    asEveryTenant(db, (trx) =>
-      trx.updateTable('zv_media_files').set(set).where('id', '=', id).execute(),
-    );
+    asEveryTenant(db, async (trx) => {
+      await sql`SELECT set_config('zveltio.current_tenant', tenant_id::text, true)
+                  FROM zv_media_files WHERE id = ${id}`.execute(trx);
+      return trx.updateTable('zv_media_files').set(set).where('id', '=', id).execute();
+    });
   const jobId = async (res: Response) => {
     expect(res.status).toBe(200);
     return ((await res.json()) as { result: string }).result;
@@ -262,8 +266,9 @@ d('a job reaches only the stored files its user hands it (ADR 0032)', () => {
       fields: [{ name: 'label', type: 'text', required: false, unique: false, indexed: false }],
     } as never);
     for (let i = 0; i < 100; i++) {
-      const seen = await sql<{ t: string | null }>`SELECT to_regclass(${`zvd_${C}`}) AS t`.execute(
+      const seen = await asDefaultTenant(
         db,
+        sql<{ t: string | null }>`SELECT to_regclass(${`zvd_${C}`}) AS t`,
       );
       if (seen.rows[0]?.t) break;
       await Bun.sleep(100);
@@ -279,11 +284,14 @@ d('a job reaches only the stored files its user hands it (ADR 0032)', () => {
     ] as const) {
       const raw = generateApiKey();
       const all = [{ collection: `$ext:${EXT}`, actions: ['execute'] }, ...scopes];
-      const r = await sql<{ id: string }>`
-        INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, created_by, is_active, tenant_id)
-        VALUES (${`jobfiles-${k}-${STAMP}`}, ${await hashApiKey(raw)}, ${raw.slice(0, 12)},
-                ${JSON.stringify(all)}::jsonb, ${author.userId}, true, ${DEFAULT_TENANT_ID})
-        RETURNING id`.execute(db);
+      const hash = await hashApiKey(raw);
+      const r = await asTenant(db, DEFAULT_TENANT_ID, (t) =>
+        sql<{ id: string }>`
+          INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, created_by, is_active, tenant_id)
+          VALUES (${`jobfiles-${k}-${STAMP}`}, ${hash}, ${raw.slice(0, 12)},
+                  ${JSON.stringify(all)}::jsonb, ${author.userId}, true, ${DEFAULT_TENANT_ID})
+          RETURNING id`.execute(t),
+      );
       keys[k] = raw;
       keys[`${k}Id`] = r.rows[0]!.id;
     }
@@ -407,7 +415,9 @@ d('a job reaches only the stored files its user hands it (ADR 0032)', () => {
     await asEveryTenant(db, (trx) =>
       trx.deleteFrom('zv_media_files').where('created_by', 'in', users).execute(),
     );
-    await sql`DELETE FROM zv_api_keys WHERE name LIKE ${`jobfiles-%-${STAMP}`}`.execute(db);
+    await asEveryTenant(db, (t) =>
+      sql`DELETE FROM zv_api_keys WHERE name LIKE ${`jobfiles-%-${STAMP}`}`.execute(t),
+    );
     await sql`DELETE FROM pgboss.job WHERE name LIKE ${'ext.jobfiles-%'}`.execute(db);
     await sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${DEP}, ${NOFILES})`.execute(
       db,
@@ -829,8 +839,10 @@ export default {
       const used = async () =>
         Number(
           (
-            await sql<{ n: string }>`SELECT zveltio_media_used_bytes(${DEFAULT_TENANT_ID}::uuid,
-                                     ${author.userId}::text) AS n`.execute(db)
+            await asTenant(db, DEFAULT_TENANT_ID, (t) =>
+              sql<{ n: string }>`SELECT zveltio_media_used_bytes(${DEFAULT_TENANT_ID}::uuid,
+                                       ${author.userId}::text) AS n`.execute(t),
+            )
           ).rows[0]?.n,
         );
       const before = await used();

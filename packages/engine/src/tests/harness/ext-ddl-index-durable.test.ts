@@ -25,6 +25,7 @@ import { applyTenantRLS } from '../../lib/tenancy/index.js';
 import { withTenantIsolation } from '../../lib/tenancy/index.js';
 import {
   ALL_COLLECTIONS_ACTOR,
+  asDefaultTenant,
   dropTestCollection,
   getTestApp,
   harnessAvailable,
@@ -48,7 +49,7 @@ d('deferred index builds of ctx.DDLManager', () => {
       fields: [{ name: 'qty', type: 'integer' }],
     } as never);
     await applyTenantRLS(db, `zvd_${name}`);
-    await sql`INSERT INTO ${sql.id(`zvd_${name}`)} DEFAULT VALUES`.execute(db);
+    await asDefaultTenant(db, sql`INSERT INTO ${sql.id(`zvd_${name}`)} DEFAULT VALUES`);
   };
   const inRequest = (fn: () => Promise<void>) =>
     withTenantIsolation(TENANT, fn, { identity: ALL_COLLECTIONS_ACTOR });
@@ -92,8 +93,11 @@ d('deferred index builds of ctx.DDLManager', () => {
     await inRequest(async () => {
       await ddl.addField(ext, name, { name: 'note', type: 'text', indexed: true } as never);
       // Recorded before the request ends, outside it: a crash from here on loses nothing.
-      const queued = await sql<{ n: number }>`SELECT count(*)::int AS n FROM pgboss.job
-        WHERE name = 'ddl.build_index' AND singleton_key = ${`idx_zvd_${name}_note`}`.execute(db);
+      const queued = await asDefaultTenant(
+        db,
+        sql<{ n: number }>`SELECT count(*)::int AS n FROM pgboss.job
+        WHERE name = 'ddl.build_index' AND singleton_key = ${`idx_zvd_${name}_note`}`,
+      );
       expect(queued.rows[0]!.n).toBe(1);
       throw new Error('request fails after the schema change');
     }).catch((err: Error) => expect(err.message).toBe('request fails after the schema change'));
@@ -107,7 +111,7 @@ d('deferred index builds of ctx.DDLManager', () => {
     // What a CONCURRENTLY build that died half-way leaves behind: the name, not
     // valid. Made by one that fails, rather than forged in pg_index, which only
     // a superuser may write and the documented owner role is not.
-    await sql.raw(`INSERT INTO zvd_${name} (qty) VALUES (1), (1)`).execute(db);
+    await asDefaultTenant(db, sql.raw(`INSERT INTO zvd_${name} (qty) VALUES (1), (1)`));
     await sql
       .raw(`CREATE UNIQUE INDEX CONCURRENTLY ${index} ON zvd_${name} (qty)`)
       .execute(db)
@@ -138,7 +142,7 @@ d('deferred index builds of ctx.DDLManager', () => {
     const isLocked = new Promise<void>((r) => {
       locked = r;
     });
-    const holder = db.transaction().execute(async (trx) => {
+    const holder = asDefaultTenant(db, async (trx) => {
       await sql.raw(`LOCK TABLE zvd_${name} IN ACCESS SHARE MODE`).execute(trx);
       locked();
       await held;
@@ -175,8 +179,11 @@ d('deferred index builds of ctx.DDLManager', () => {
     // A retry would meet its own lock again: no retry hint, and no 2 s lock_timeout first.
     expect(res.headers.get('retry-after')).toBeNull();
     expect(Date.now() - started).toBeLessThan(1500);
-    const cols = await sql<{ n: number }>`SELECT count(*)::int AS n FROM pg_attribute
-      WHERE attrelid = ${`public.zvd_${name}`}::regclass AND attname = 'late'`.execute(db);
+    const cols = await asDefaultTenant(
+      db,
+      sql<{ n: number }>`SELECT count(*)::int AS n FROM pg_attribute
+      WHERE attrelid = ${`public.zvd_${name}`}::regclass AND attname = 'late'`,
+    );
     expect(cols.rows[0]!.n).toBe(0);
   }, 60_000);
 });

@@ -38,7 +38,12 @@ import {
 } from '../../lib/tenancy/index.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
-import { dropTestCollection, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  dropTestCollection,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
@@ -139,9 +144,12 @@ d("a key's row rules are its own AND its issuer's", () => {
     await sql`INSERT INTO "user" (id, name, email)
               VALUES (${issuer}, 'Harness issuer', ${`${issuer}@test.local`})`.execute(db);
     for (const [title, bucket, owner] of ROWS) {
-      await sql`INSERT INTO ${sql.table(TABLE)} (tenant_id, title, bucket, owner)
+      await asDefaultTenant(
+        db,
+        sql`INSERT INTO ${sql.table(TABLE)} (tenant_id, title, bucket, owner)
                 VALUES (${DEFAULT_TENANT_ID}::uuid, ${title}, ${bucket},
-                        ${owner === 'issuer' ? issuer : owner})`.execute(db);
+                        ${owner === 'issuer' ? issuer : owner})`,
+      );
     }
     const e = await getEnforcer();
     await e.addPolicy(ROLE, '*', COLLECTION, 'read');

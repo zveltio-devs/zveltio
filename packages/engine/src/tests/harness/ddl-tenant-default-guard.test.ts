@@ -42,6 +42,11 @@ d('ddl tenant_id default tolerates an empty GUC (in-process)', () => {
     const tenantId = await db.transaction().execute(async (trx) => {
       // Reproduce the pooled-connection state: GUC present but empty.
       await sql`SET LOCAL zveltio.current_tenant = ''`.execute(trx);
+      // The default tenant is where a contextless row goes only where the
+      // operator opted out of the closed default (ZVELTIO_FAIL_CLOSED_TENANT=0
+      // stores 'off', DR-03); elsewhere the policy refuses it before the
+      // DEFAULT matters. The opt-out is the case this pins.
+      await sql`SET LOCAL zveltio.fail_closed_tenant = 'off'`.execute(trx);
       const r = await sql<{ tenant_id: string }>`
         INSERT INTO ${sql.raw(`"zvd_${COL}"`)} (title) VALUES ('empty-guc')
         RETURNING tenant_id::text AS tenant_id

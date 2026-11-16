@@ -20,7 +20,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -78,9 +83,12 @@ d('per-field encryption at rest (in-process)', () => {
     expect(recordId).toBeDefined();
 
     // Read the raw column directly — it must be encrypted, never the plaintext.
-    const raw = await sql<{ secret: string | null }>`
+    const raw = await asDefaultTenant(
+      db,
+      sql<{ secret: string | null }>`
       SELECT secret FROM ${sql.id(`zvd_${COLLECTION}`)} WHERE id = ${recordId}
-    `.execute(db);
+    `,
+    );
     const stored = raw.rows[0]?.secret ?? '';
     expect(stored).toStartWith('enc:v1:');
     expect(stored).not.toContain(SECRET);

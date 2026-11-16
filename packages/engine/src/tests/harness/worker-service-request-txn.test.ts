@@ -40,7 +40,7 @@ import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extens
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import { sessionPrefetch } from '../../middleware/session-prefetch.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asDefaultTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const SFX = String(Date.now()).slice(-7);
@@ -414,8 +414,11 @@ d('a service call in a worker request runs in the request transaction', () => {
   };
   const rows = async (name: string, prefix: string) =>
     (
-      await sql<{ who: string }>`SELECT who FROM ${sql.table(table(name))}
-                                 WHERE who LIKE ${`${prefix}%`} ORDER BY who`.execute(db)
+      await asDefaultTenant(
+        db,
+        sql<{ who: string }>`SELECT who FROM ${sql.table(table(name))}
+                                 WHERE who LIKE ${`${prefix}%`} ORDER BY who`,
+      )
     ).rows.map((r) => r.who);
 
   const getInline = async (path: string) => {

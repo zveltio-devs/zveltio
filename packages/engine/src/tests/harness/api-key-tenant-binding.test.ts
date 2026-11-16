@@ -19,7 +19,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
-import { createKeyCreator, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createKeyCreator,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -60,7 +65,9 @@ d('API keys are bound to their tenant', () => {
     await sql`DELETE FROM zv_api_keys WHERE name IN (${`foreign-${STAMP}`}, ${`root-${STAMP}`})`
       .execute(db)
       .catch(() => {});
-    await sql`DELETE FROM zv_edge_functions WHERE id = ${FN_ID}::uuid`.execute(db).catch(() => {});
+    await asDefaultTenant(db, sql`DELETE FROM zv_edge_functions WHERE id = ${FN_ID}::uuid`).catch(
+      () => {},
+    );
     await sql`DELETE FROM zv_tenants WHERE id = ${OTHER_TENANT}::uuid`.execute(db).catch(() => {});
   });
 
@@ -126,13 +133,16 @@ d('API keys are bound to their tenant', () => {
     // `reqDb` filtered nothing either. The foreign key authenticated, and the
     // function lookup then resolved in the REQUEST's tenant: another tenant's
     // key ran this tenant's code, with its env_vars.
-    await sql`
+    await asDefaultTenant(
+      db,
+      sql`
       INSERT INTO zv_edge_functions
         (id, tenant_id, name, display_name, code, http_method, path, is_active, timeout_ms)
       VALUES (${FN_ID}::uuid, ${ROOT_TENANT}::uuid, ${FN_NAME}, 'Root fn',
         'async function handler(){return {status:200,body:{ok:true}}}', 'POST',
         ${`/api/fn/${FN_NAME}`}, true, 30000)
-    `.execute(db);
+    `,
+    );
 
     const res = await app.request(`/api/fn/${FN_NAME}`, {
       method: 'POST',

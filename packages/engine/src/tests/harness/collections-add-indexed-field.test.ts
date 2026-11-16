@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asDefaultTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hidx_${Date.now()}`;
@@ -47,11 +47,14 @@ d('DDLManager add indexed field (in-process)', () => {
       indexed: true,
     } as never);
 
-    const idx = await sql<{ indexname: string }>`
+    const idx = await asDefaultTenant(
+      db,
+      sql<{ indexname: string }>`
       SELECT indexname FROM pg_indexes
       WHERE tablename = ${`zvd_${COLLECTION}`}
         AND indexdef LIKE ${'%priority%'}
-    `.execute(db);
+    `,
+    );
     expect(idx.rows.length).toBeGreaterThanOrEqual(1);
 
     const row = await DDLManager.getCollection(db, COLLECTION);

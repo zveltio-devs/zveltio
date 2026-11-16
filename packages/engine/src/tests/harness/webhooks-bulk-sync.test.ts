@@ -19,7 +19,12 @@ import { _setBossForTests } from '../../lib/data/ddl-queue.js';
 import { DDLManager, type JobQueue, jobQueue } from '../../lib/data/index.js';
 import { WEBHOOK_QUEUE, type WebhookJob } from '../../lib/webhooks.js';
 import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = `whbs_${Date.now()}`;
@@ -39,11 +44,14 @@ d('bulk and sync webhook events (ADR 0035 slice 3)', () => {
       name: C,
       fields: [{ name: 'title', type: 'text', required: true, unique: false, indexed: false }],
     } as never);
-    const row = await sql<{ id: string }>`
+    const row = await asDefaultTenant(
+      db,
+      sql<{ id: string }>`
       INSERT INTO zvd_webhooks (tenant_id, name, url, events, collections, retry_attempts)
       VALUES (${DEFAULT_TENANT_ID}::uuid, ${STAMP}, 'https://93.184.216.34/whbs',
               ARRAY['*']::text[], ARRAY[${C}]::text[], 1)
-      RETURNING id::text AS id`.execute(db);
+      RETURNING id::text AS id`,
+    );
     hook = row.rows[0]!.id;
   }, 60_000);
 
@@ -52,7 +60,7 @@ d('bulk and sync webhook events (ADR 0035 slice 3)', () => {
     await sql`DELETE FROM pgboss.job WHERE name = ${WEBHOOK_QUEUE} AND data->>'webhookId' = ${hook}`
       .execute(db)
       .catch(() => {});
-    await sql`DELETE FROM zvd_webhooks WHERE id = ${hook}::uuid`.execute(db);
+    await asDefaultTenant(db, sql`DELETE FROM zvd_webhooks WHERE id = ${hook}::uuid`);
     await sql.raw(`DROP TABLE IF EXISTS "zvd_${C}" CASCADE`).execute(db);
     await sql`DELETE FROM zvd_collections WHERE name = ${C}`.execute(db);
   });
@@ -76,9 +84,12 @@ d('bulk and sync webhook events (ADR 0035 slice 3)', () => {
 
   const titles = async (prefix: string) =>
     (
-      await sql<{ title: string }>`
+      await asDefaultTenant(
+        db,
+        sql<{ title: string }>`
         SELECT title FROM ${sql.table(`zvd_${C}`)} WHERE title LIKE ${`${prefix}%`}
-         ORDER BY title`.execute(db)
+         ORDER BY title`,
+      )
     ).rows.map((r) => r.title);
 
   /** Run `fn` with pg-boss replaced by `boss`; the real one is put back. */

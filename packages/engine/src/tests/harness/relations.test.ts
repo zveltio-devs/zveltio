@@ -7,7 +7,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const SRC = `hrel_src_${Date.now()}`;
@@ -72,10 +77,13 @@ d('relations routes (in-process)', () => {
     relationId = body.relation!.id;
     expect(relationId).toBeDefined();
 
-    const cols = await sql<{ column_name: string }>`
+    const cols = await asDefaultTenant(
+      db,
+      sql<{ column_name: string }>`
       SELECT column_name FROM information_schema.columns
       WHERE table_name = ${`zvd_${SRC}`} AND column_name = 'customer_id'
-    `.execute(db);
+    `,
+    );
     expect(cols.rows.length).toBe(1);
   });
 
@@ -92,10 +100,13 @@ d('relations routes (in-process)', () => {
       headers: { cookie },
     });
     expect(res.status).toBe(200);
-    const cols = await sql<{ column_name: string }>`
+    const cols = await asDefaultTenant(
+      db,
+      sql<{ column_name: string }>`
       SELECT column_name FROM information_schema.columns
       WHERE table_name = ${`zvd_${SRC}`} AND column_name = 'customer_id'
-    `.execute(db);
+    `,
+    );
     expect(cols.rows.length).toBe(0);
   });
 });

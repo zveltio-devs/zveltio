@@ -36,6 +36,7 @@ import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extens
 import { withTenantIsolation } from '../../lib/tenancy/index.js';
 import {
   ALL_COLLECTIONS_ACTOR,
+  asDefaultTenant,
   connectedAsSuperuser,
   createGodSession,
   forgetInstalled,
@@ -199,7 +200,7 @@ d('collection triggers under every restricted writer role', () => {
     _resetWorkerHostForTests();
     if (base) rmSync(base, { recursive: true, force: true });
     await sql`DROP TABLE IF EXISTS ${sql.table(TABLE)} CASCADE`.execute(db);
-    await sql`DELETE FROM zv_sync_tombstones WHERE collection = ${TABLE}`.execute(db);
+    await asDefaultTenant(db, sql`DELETE FROM zv_sync_tombstones WHERE collection = ${TABLE}`);
     await db.deleteFrom('zvd_collections').where('name', '=', COLLECTION).execute();
     // Roles are cluster-wide and outlive the test database.
     for (const ext of [INLINE, WORKER]) await revokeExtensionDbRoles(db, ext, true);
@@ -208,9 +209,12 @@ d('collection triggers under every restricted writer role', () => {
 
   const row = async (id: string) =>
     (
-      await sql<{ fts: boolean; updated_at: Date }>`
+      await asDefaultTenant(
+        db,
+        sql<{ fts: boolean; updated_at: Date }>`
         SELECT search_vector IS NOT NULL AS fts, updated_at FROM ${sql.table(TABLE)} WHERE id = ${id}
-      `.execute(db)
+      `,
+      )
     ).rows[0];
 
   for (const name of [
@@ -229,10 +233,13 @@ d('collection triggers under every restricted writer role', () => {
         await w.update(id, 'gamma');
         expect((await row(id))!.updated_at.getTime()).toBeGreaterThan(before!.updated_at.getTime());
         await w.remove(id);
-        const tomb = await sql<{ n: number }>`
+        const tomb = await asDefaultTenant(
+          db,
+          sql<{ n: number }>`
         SELECT count(*)::int AS n FROM zv_sync_tombstones
          WHERE collection = ${TABLE} AND row_id = ${id} AND tenant_id = ${TENANT}
-      `.execute(db);
+      `,
+        );
         expect(tomb.rows[0]!.n).toBe(1);
       },
       60_000,

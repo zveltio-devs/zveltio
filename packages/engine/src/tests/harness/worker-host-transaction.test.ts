@@ -22,7 +22,7 @@ import {
   _resetWorkerHostForTests,
   getWorkerHost,
 } from '../../lib/worker-extension-host.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asDefaultTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const SFX = String(Date.now()).slice(-7);
@@ -134,16 +134,20 @@ d('db.transaction() outside a request: a host-owned transaction', () => {
 
   const rows = async (where: string) =>
     (
-      await sql<{
-        who: string;
-      }>`SELECT who FROM ${sql.table(tbl('rows'))} WHERE ${sql.raw(where)} ORDER BY id`.execute(db)
+      await asDefaultTenant(
+        db,
+        sql<{
+          who: string;
+        }>`SELECT who FROM ${sql.table(tbl('rows'))} WHERE ${sql.raw(where)} ORDER BY id`,
+      )
     ).rows.map((r) => r.who);
   const logged = async (tag: string) => {
     const r = (
-      await sql<{
-        body: string;
-      }>`SELECT body FROM ${sql.table(tbl('log'))} WHERE tag = ${tag} ORDER BY id DESC LIMIT 1`.execute(
+      await asDefaultTenant(
         db,
+        sql<{
+          body: string;
+        }>`SELECT body FROM ${sql.table(tbl('log'))} WHERE tag = ${tag} ORDER BY id DESC LIMIT 1`,
       )
     ).rows[0];
     return r ? JSON.parse(r.body) : undefined;

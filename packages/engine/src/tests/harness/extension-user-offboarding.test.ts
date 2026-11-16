@@ -25,6 +25,7 @@ import { createBetterAuthSession } from '../../lib/users.js';
 import { ACCESS_RULES_CHANGED_EVENT, realtimeBus } from '../../lib/runtime/index.js';
 import { getEnforcer } from '../../lib/tenancy/index.js';
 import {
+  asEveryTenant,
   createGodSession,
   createMemberSession,
   getTestApp,
@@ -90,9 +91,12 @@ d('extension offboarding through ctx.internals', () => {
     const grants = await sql`SELECT 1 FROM zvd_permissions WHERE v0 = ${userId}`.execute(db);
     expect(grants.rows).toHaveLength(0);
     expect(await e.getRolesForUser(userId, '*')).toEqual([]);
-    const audit = await sql<{ user_id: string | null; metadata: Record<string, unknown> }>`
+    const audit = await asEveryTenant(
+      db,
+      sql<{ user_id: string | null; metadata: Record<string, unknown> }>`
       SELECT user_id, metadata FROM zv_audit_log
-       WHERE event_type = 'user.deleted' AND resource_id = ${userId}`.execute(db);
+       WHERE event_type = 'user.deleted' AND resource_id = ${userId}`,
+    );
     expect(audit.rows).toEqual([
       {
         user_id: null,
@@ -111,7 +115,10 @@ d('extension offboarding through ctx.internals', () => {
       );
       expect(deleted).toBe(false);
       expect(await e.getFilteredPolicy(0, ghost)).toEqual([[ghost, '*', 'data', 'read']]);
-      const audit = await sql`SELECT 1 FROM zv_audit_log WHERE resource_id = ${ghost}`.execute(db);
+      const audit = await asEveryTenant(
+        db,
+        sql`SELECT 1 FROM zv_audit_log WHERE resource_id = ${ghost}`,
+      );
       expect(audit.rows).toHaveLength(0);
     } finally {
       await e.deleteUser(ghost);

@@ -20,7 +20,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hapikeyw_${Date.now()}`;
@@ -70,17 +75,13 @@ d('data API-key writes (in-process)', () => {
         .where('api_key_id', '=', id)
         .execute()
         .catch(() => {});
-      await db
-        .deleteFrom('zv_api_keys')
-        .where('id', '=', id)
-        .execute()
-        .catch(() => {});
+      await asDefaultTenant(db, (t) =>
+        t.deleteFrom('zv_api_keys').where('id', '=', id).execute(),
+      ).catch(() => {});
     }
-    await db
-      .deleteFrom('zv_revisions')
-      .where('collection', '=', COLLECTION)
-      .execute()
-      .catch(() => {});
+    await asDefaultTenant(db, (t) =>
+      t.deleteFrom('zv_revisions').where('collection', '=', COLLECTION).execute(),
+    ).catch(() => {});
     await sql
       .raw(`DROP TABLE IF EXISTS "zvd_${COLLECTION}" CASCADE`)
       .execute(db)
@@ -100,19 +101,23 @@ d('data API-key writes (in-process)', () => {
       id: '',
     };
 
-    const rev = await db
-      .selectFrom('zv_revisions')
-      .select(['user_id', 'record_id'])
-      .where('collection', '=', COLLECTION)
-      .where('action', '=', 'create')
-      .executeTakeFirst();
+    const rev = await asDefaultTenant(db, (t) =>
+      t
+        .selectFrom('zv_revisions')
+        .select(['user_id', 'record_id'])
+        .where('collection', '=', COLLECTION)
+        .where('action', '=', 'create')
+        .executeTakeFirst(),
+    );
     expect(rev, 'no revision row was written').toBeDefined();
     if (id) expect(rev?.record_id).toBe(id);
-    const issuer = await db
-      .selectFrom('zv_api_keys')
-      .select('created_by')
-      .where('id', '=', keyIds[0] as string)
-      .executeTakeFirst();
+    const issuer = await asDefaultTenant(db, (t) =>
+      t
+        .selectFrom('zv_api_keys')
+        .select('created_by')
+        .where('id', '=', keyIds[0] as string)
+        .executeTakeFirst(),
+    );
     expect(rev?.user_id).toBe(issuer?.created_by ?? null);
   });
 

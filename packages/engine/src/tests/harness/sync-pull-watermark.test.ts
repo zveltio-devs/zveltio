@@ -14,7 +14,12 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { syncWatermarkUs } from '../../routes/sync.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const NAME = `hsyncwm_${Date.now()}`;
@@ -58,15 +63,15 @@ d('sync pull holds its position behind in-flight transactions', () => {
 
   it('a row committed after the pull still arrives', async () => {
     const collections = [`zvd_${NAME}`];
-    await insert(db, 'before');
+    await asDefaultTenant(db, (t) => insert(t, 'before'));
 
     let first: PullBody | null = null;
-    await db.transaction().execute(async (trx) => {
+    await asDefaultTenant(db, async (trx) => {
       // `updated_at` = this transaction's start.
       await insert(trx, 'in-flight');
       await Bun.sleep(5);
       // Committed, and newer than the in-flight row.
-      await insert(db, 'after');
+      await asDefaultTenant(db, (t) => insert(t, 'after'));
       first = await pull({ collections });
     });
     const f = first as unknown as PullBody;
@@ -93,9 +98,12 @@ d('sync pull holds its position behind in-flight transactions', () => {
       }),
     });
     expect(res.status).toBe(200);
-    const { rows } = await sql<{ old: boolean }>`
+    const { rows } = await asDefaultTenant(
+      db,
+      sql<{ old: boolean }>`
       SELECT updated_at < now() - interval '1 day' AS old
-      FROM ${sql.table(`zvd_${NAME}`)} WHERE title = 'backdated'`.execute(db);
+      FROM ${sql.table(`zvd_${NAME}`)} WHERE title = 'backdated'`,
+    );
     expect(rows).toEqual([{ old: false }]);
   });
 

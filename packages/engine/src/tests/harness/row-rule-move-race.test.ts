@@ -18,7 +18,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { applyRowRulePolicy } from '../../lib/tenancy/index.js';
 import { createRlsPolicy, deleteRlsPolicy, updateRlsPolicy } from '../../lib/tenancy/rls.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asDefaultTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const t = harnessAvailable() ? it : it.skip;
 const STAMP = `${Date.now()}`;
@@ -30,10 +30,11 @@ const ids: string[] = [];
 /** The `zv_row_rules` predicate on a collection's table, or null when it has none. */
 const policyOn = async (coll: string): Promise<string | null> =>
   (
-    await sql<{ qual: string }>`
-      SELECT qual FROM pg_policies
-       WHERE schemaname = 'public' AND tablename = ${`zvd_${coll}`} AND policyname = 'zv_row_rules'`.execute(
+    await asDefaultTenant(
       db,
+      sql<{ qual: string }>`
+      SELECT qual FROM pg_policies
+       WHERE schemaname = 'public' AND tablename = ${`zvd_${coll}`} AND policyname = 'zv_row_rules'`,
     )
   ).rows[0]?.qual ?? null;
 

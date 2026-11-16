@@ -9,7 +9,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  asEveryTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -157,13 +163,18 @@ d('notifications API (in-process)', () => {
       );
       expect(reg.status).toBe(200);
 
-      const rows = await sql<{ user_id: string }>`
+      const rows = await asDefaultTenant(
+        db,
+        sql<{ user_id: string }>`
         SELECT user_id FROM zvd_push_tokens WHERE token = ${token}
-      `.execute(db);
+      `,
+      );
       expect(rows.rows).toHaveLength(1); // moved, not duplicated
       expect(rows.rows[0]?.user_id).toBe(userId);
     } finally {
-      await sql`DELETE FROM zvd_push_tokens WHERE token = ${token}`.execute(db).catch(() => {});
+      await asEveryTenant(db, sql`DELETE FROM zvd_push_tokens WHERE token = ${token}`).catch(
+        () => {},
+      );
       await sql`DELETE FROM "user" WHERE id = ${other}`.execute(db).catch(() => {});
     }
   });

@@ -14,8 +14,9 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import {
-  createKeyCreator,
+  asDefaultTenant,
   createGodSession,
+  createKeyCreator,
   getTestApp,
   harnessAvailable,
 } from '../../testing/app-harness.js';
@@ -43,19 +44,21 @@ d('public edge function invoke (in-process)', () => {
     // Seeded straight into the table: the subject here is `/api/fn`, not the
     // administration routes (edge-function-admin.test.ts), so the fixture is
     // set up by the shortest honest route.
-    const row = await db
-      .insertInto('zv_edge_functions')
-      .values({
-        name: FN,
-        display_name: 'Public Harness Fn',
-        code: CODE,
-        http_method: 'POST',
-        // NOT NULL, and derived from the name by the CRUD route this no longer
-        // goes through — so it has to be spelled out here.
-        path: `/api/fn/${FN}`,
-      } as never)
-      .returning('id')
-      .executeTakeFirstOrThrow();
+    const row = await asDefaultTenant(db, (t) =>
+      t
+        .insertInto('zv_edge_functions')
+        .values({
+          name: FN,
+          display_name: 'Public Harness Fn',
+          code: CODE,
+          http_method: 'POST',
+          // NOT NULL, and derived from the name by the CRUD route this no longer
+          // goes through — so it has to be spelled out here.
+          path: `/api/fn/${FN}`,
+        } as never)
+        .returning('id')
+        .executeTakeFirstOrThrow(),
+    );
     fnId = (row as { id: string }).id;
     for (const [name, k] of Object.entries(KEYS)) {
       await sql`
@@ -70,16 +73,12 @@ d('public edge function invoke (in-process)', () => {
   afterAll(async () => {
     if (db) await sql`DELETE FROM zv_api_keys WHERE name LIKE ${`${FN}-%`}`.execute(db);
     if (!db || !fnId) return;
-    await db
-      .deleteFrom('zv_edge_function_logs')
-      .where('function_id', '=', fnId)
-      .execute()
-      .catch(() => {});
-    await db
-      .deleteFrom('zv_edge_functions')
-      .where('id', '=', fnId)
-      .execute()
-      .catch(() => {});
+    await asDefaultTenant(db, (t) =>
+      t.deleteFrom('zv_edge_function_logs').where('function_id', '=', fnId).execute(),
+    ).catch(() => {});
+    await asDefaultTenant(db, (t) =>
+      t.deleteFrom('zv_edge_functions').where('id', '=', fnId).execute(),
+    ).catch(() => {});
   });
 
   it('POST /api/fn/:name invokes with session auth', async () => {

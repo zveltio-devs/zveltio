@@ -21,6 +21,7 @@ import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { broadcastEvent, websocketHandler } from '../../routes/ws.js';
 import {
+  asDefaultTenant,
   createMemberSession,
   getTestApp,
   harnessAvailable,
@@ -82,12 +83,13 @@ d('WebSocket fan-out applies the same authorisation as SSE', () => {
     MEMBER.id = member.userId;
     Object.assign(MEMBER_WS, await wsUpgradeData(app, { cookie: member.cookie }));
     // A row policy of the ordinary shape: a member sees only its own rows.
-    await sql
-      .raw(
+    await asDefaultTenant(
+      db,
+      sql.raw(
         `INSERT INTO zvd_rls_policies (collection, role, filter_field, filter_op, filter_value_source, is_enabled)
          VALUES ('${COLLECTION}', 'member', 'owner', 'eq', 'user_id', TRUE)`,
-      )
-      .execute(db);
+      ),
+    );
   });
 
   afterAll(async () => {
@@ -95,10 +97,10 @@ d('WebSocket fan-out applies the same authorisation as SSE', () => {
     // All of them, through the handler: a socket left open is re-checked by the
     // sweep every later policy change starts, for the rest of the process.
     for (const ws of opened.splice(0)) websocketHandler.close(ws);
-    await sql
-      .raw(`DELETE FROM zvd_rls_policies WHERE collection = '${COLLECTION}'`)
-      .execute(db)
-      .catch(() => {});
+    await asDefaultTenant(
+      db,
+      sql.raw(`DELETE FROM zvd_rls_policies WHERE collection = '${COLLECTION}'`),
+    ).catch(() => {});
     await db
       .deleteFrom('zvd_column_permissions')
       .where('collection_name', '=', COLLECTION)
@@ -118,11 +120,12 @@ d('WebSocket fan-out applies the same authorisation as SSE', () => {
   it('GET /api/data redacts the column (the behaviour being matched)', async () => {
     // Owned by the member: the `member` row rule holds on REST as on the socket,
     // so an unowned row is not listed at all and the column is never reached.
-    await sql
-      .raw(
+    await asDefaultTenant(
+      db,
+      sql.raw(
         `INSERT INTO "zvd_${COLLECTION}" (title, salary, owner) VALUES ('a','SECRET-WS','${member.userId}')`,
-      )
-      .execute(db);
+      ),
+    );
     const res = await app.request(`/api/data/${COLLECTION}`, {
       headers: { cookie: member.cookie },
     });

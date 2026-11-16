@@ -18,7 +18,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asEveryTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const TMP = mkdtempSync(join(tmpdir(), 'zv-download-only-'));
 const d = harnessAvailable() ? describe : describe.skip;
@@ -88,9 +93,9 @@ d('stored files outside the inline types are served only as downloads (in-proces
 
   afterAll(async () => {
     if (db && ids.length) {
-      await sql`DELETE FROM zv_media_files WHERE id = ANY(${ids}::uuid[])`
-        .execute(db)
-        .catch(() => {});
+      await asEveryTenant(db, sql`DELETE FROM zv_media_files WHERE id = ANY(${ids}::uuid[])`).catch(
+        () => {},
+      );
     }
     rmSync(TMP, { recursive: true, force: true });
   });

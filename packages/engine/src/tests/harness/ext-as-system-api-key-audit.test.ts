@@ -26,6 +26,7 @@ import { sessionPrefetch } from '../../middleware/session-prefetch.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import {
+  asEveryTenant,
   createGodSession,
   dropTestCollection,
   getTestApp,
@@ -132,9 +133,12 @@ d('asSystem names the API key that asked for it', () => {
     });
     expect(res.status, await res.clone().text()).toBe(200);
     await _settleAuditWrites();
-    const rows = await sql<{ user_id: string | null; api_key: string | null }>`
+    const rows = await asEveryTenant(
+      db,
+      sql<{ user_id: string | null; api_key: string | null }>`
       SELECT user_id, metadata->>'api_key' AS api_key FROM zv_audit_log
-       WHERE event_type = 'extension.as_system' AND metadata->>'reason' = ${REASON}`.execute(db);
+       WHERE event_type = 'extension.as_system' AND metadata->>'reason' = ${REASON}`,
+    );
     expect(rows.rows).toEqual([{ user_id: null, api_key: `apikey:${keyId}` }]);
   });
 });

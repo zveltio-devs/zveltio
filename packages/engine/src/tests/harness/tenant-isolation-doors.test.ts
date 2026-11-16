@@ -33,6 +33,7 @@ import {
 } from '../../lib/tenancy/index.js';
 import { _wsPermCacheForTests, websocketHandler } from '../../routes/ws.js';
 import {
+  asDefaultTenant,
   asEveryTenant,
   asTenant,
   createGodSession,
@@ -278,10 +279,13 @@ d('tenant isolation, door by door', () => {
     });
     expect([200, 201, 202]).toContain(res.status);
     for (let i = 0; i < 200; i++) {
-      const seen = await sql<{ n: number }>`
+      const seen = await asDefaultTenant(
+        db,
+        sql<{ n: number }>`
         SELECT count(*)::int AS n FROM pg_policies
          WHERE schemaname = 'public' AND tablename = ${`zvd_${name}`} AND policyname = 'tenant_isolation'
-      `.execute(db);
+      `,
+      );
       if (seen.rows[0]!.n > 0) return;
       await Bun.sleep(50);
     }
@@ -434,9 +438,10 @@ d('tenant isolation, door by door', () => {
       sql`DELETE FROM zv_media_files WHERE original_name = ${`doors-up-${TAG}.txt`}`.execute(trx),
     ).catch(() => {});
     await sql`DELETE FROM zv_api_keys WHERE name = ${`doors-${TAG}`}`.execute(db).catch(() => {});
-    await sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${`doors_fn_${TAG}`}`
-      .execute(db)
-      .catch(() => {});
+    await asEveryTenant(
+      db,
+      sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${`doors_fn_${TAG}`}`,
+    ).catch(() => {});
     await sql
       .raw(`DROP FUNCTION IF EXISTS doors_fn_${TAG}()`)
       .execute(db)

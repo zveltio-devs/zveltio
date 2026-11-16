@@ -23,7 +23,7 @@ import { problem, problemOnError } from '../../lib/problem.js';
 import { onAfterCommit } from '../../lib/tenancy/index.js';
 import { requestLogMiddleware } from '../../middleware/request-log.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asDefaultTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hthrow_${Date.now()}`;
@@ -79,7 +79,10 @@ d('a handler that throws rolls the request transaction back', () => {
 
   const titles = async () =>
     (
-      await sql<{ title: string }>`SELECT title FROM ${sql.table(TABLE)} ORDER BY title`.execute(db)
+      await asDefaultTenant(
+        db,
+        sql<{ title: string }>`SELECT title FROM ${sql.table(TABLE)} ORDER BY title`,
+      )
     ).rows.map((r) => r.title);
 
   const loggedStatus = async (path: string) => {

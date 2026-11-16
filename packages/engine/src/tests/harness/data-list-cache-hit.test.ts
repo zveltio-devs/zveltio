@@ -10,7 +10,12 @@ import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { _setCacheForTests } from '../../lib/runtime/cache.js';
 import { FakeRedis } from '../../testing/fake-redis.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hcache_${Date.now()}`;
@@ -75,9 +80,10 @@ d('data list query-cache hit (in-process)', () => {
       records: unknown[];
     };
     // Behind the API's back: nothing invalidates the cached page.
-    await sql
-      .raw(`INSERT INTO "zvd_${COLLECTION}" (label, score) VALUES ('behind-the-cache', 2)`)
-      .execute(db);
+    await asDefaultTenant(
+      db,
+      sql.raw(`INSERT INTO "zvd_${COLLECTION}" (label, score) VALUES ('behind-the-cache', 2)`),
+    );
     const again = (await (await app.request(url, { headers: { cookie } })).json()) as {
       records: unknown[];
     };

@@ -11,7 +11,12 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { entityAccessRegistry } from '../../lib/tenancy/entity-access.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hbulkent_${Date.now()}`;
@@ -86,14 +91,20 @@ d('bulk entity-access enforcement (in-process)', () => {
     ).toBe(true);
 
     // the denied row was NOT modified
-    const locked = await sql<{ title: string }>`
+    const locked = await asDefaultTenant(
+      db,
+      sql<{ title: string }>`
       SELECT title FROM ${sql.id(tableName)} WHERE id = ${lockedId}
-    `.execute(db);
+    `,
+    );
     expect(locked.rows[0]?.title).toBe('locked-u');
     // ...and neither was the allowed one.
-    const open = await sql<{ title: string }>`
+    const open = await asDefaultTenant(
+      db,
+      sql<{ title: string }>`
       SELECT title FROM ${sql.id(tableName)} WHERE id = ${openId}
-    `.execute(db);
+    `,
+    );
     expect(open.rows[0]?.title).toBe('open-u');
   });
 
@@ -118,9 +129,12 @@ d('bulk entity-access enforcement (in-process)', () => {
     expect(body.errors).toEqual([{ index: 1, id: lockedId, errors: ['Forbidden'] }]);
 
     // both rows still exist
-    const still = await sql<{ n: number }>`
+    const still = await asDefaultTenant(
+      db,
+      sql<{ n: number }>`
       SELECT count(*)::int AS n FROM ${sql.id(tableName)} WHERE id IN (${openId}, ${lockedId})
-    `.execute(db);
+    `,
+    );
     expect(still.rows[0]!.n).toBe(2);
   });
 });

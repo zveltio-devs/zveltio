@@ -37,6 +37,8 @@ import {
   withTenantIsolation,
 } from '../../lib/tenancy/index.js';
 import {
+  asDefaultTenant,
+  asEveryTenant,
   createGodSession,
   createMemberSession,
   getTestApp,
@@ -94,7 +96,7 @@ d('validation rule groups are instance-wide', () => {
 
   const runMigration = async (half: 'up' | 'down', file = MIGRATION) => {
     const parsed = parseMigrationFile(await Bun.file(file).text());
-    await db.transaction().execute(async (trx) => {
+    await asDefaultTenant(db, async (trx) => {
       for (const stmt of splitSqlStatements(parsed[half] ?? '')) await sql.raw(stmt).execute(trx);
     });
   };
@@ -211,8 +213,11 @@ d('validation rule groups are instance-wide', () => {
     await runMigration('up', ADOPT);
     await ensureRlsEnforcementRole(db);
     await sql`DELETE FROM zv_migrations WHERE name LIKE ${`ext:${PROBE}:%`}`.execute(db);
-    await sql`DELETE FROM zv_audit_log WHERE resource_type = 'validation_rule_group'
-                AND metadata->>'collection' IN (${C1}, ${C2})`.execute(db);
+    await asEveryTenant(
+      db,
+      sql`DELETE FROM zv_audit_log WHERE resource_type = 'validation_rule_group'
+                AND metadata->>'collection' IN (${C1}, ${C2})`,
+    );
     await sql`DELETE FROM zv_extension_registry WHERE name = ${PROBE}`.execute(db);
     await sql`DELETE FROM zvd_permissions WHERE v0 = ${firmAdmin.userId}`.execute(db);
     await sql`DELETE FROM zv_tenant_users WHERE tenant_id = ${FIRM.id}::uuid`.execute(db);
@@ -243,7 +248,7 @@ d('validation rule groups are instance-wide', () => {
       ['solo', C2, FIRM.id, '2026-01-01'],
     ];
     const ids = new Map<string, string>();
-    await db.transaction().execute(async (trx) => {
+    await asDefaultTenant(db, async (trx) => {
       await sql`ALTER TABLE zvd_validation_rule_groups NO FORCE ROW LEVEL SECURITY`.execute(trx);
       for (const [name, collection, tenant, at] of seed) {
         const r = await sql<{ id: string }>`
@@ -310,10 +315,13 @@ d('validation rule groups are instance-wide', () => {
     expect((await groups(C2)).map((g) => g.name)).toEqual(['solo']);
 
     await _settleAuditWrites();
-    const trail = await sql<{ event_type: string; tenant_id: string | null }>`
+    const trail = await asEveryTenant(
+      db,
+      sql<{ event_type: string; tenant_id: string | null }>`
       SELECT event_type, tenant_id FROM zv_audit_log
        WHERE resource_type = 'validation_rule_group' AND resource_id = ${row.id}
-       ORDER BY created_at, id`.execute(db);
+       ORDER BY created_at, id`,
+    );
     expect(trail.rows).toEqual([
       { event_type: 'validation_rule_group.created', tenant_id: null },
       { event_type: 'validation_rule_group.deleted', tenant_id: null },
@@ -348,7 +356,7 @@ d('validation rule groups are instance-wide', () => {
     expect((await call('POST', '/groups', god, group([own]))).status).toBe(200);
 
     // The field's rules and its groups go together: rename, then drop.
-    await db.transaction().execute(async (trx) => {
+    await asDefaultTenant(db, async (trx) => {
       for (const [t, col, f] of FIELD_RULE_TABLES) {
         await sql`UPDATE ${sql.id(t)} SET ${sql.id(f)} = 'kod'
                    WHERE ${sql.id(col)} = ${C2} AND ${sql.id(f)} = 'sku'`.execute(trx);
@@ -356,11 +364,14 @@ d('validation rule groups are instance-wide', () => {
     });
     const onField = async (field: string) =>
       (
-        await sql<{ name: string }>`SELECT name FROM ${sql.id(T)}
-           WHERE collection = ${C2} AND field_name = ${field}`.execute(db)
+        await asDefaultTenant(
+          db,
+          sql<{ name: string }>`SELECT name FROM ${sql.id(T)}
+           WHERE collection = ${C2} AND field_name = ${field}`,
+        )
       ).rows.map((g) => g.name);
     expect(await onField('kod')).toEqual(['members']);
-    await db.transaction().execute((trx) => DDLManager.dropFieldRules(trx, C2, 'kod'));
+    await asDefaultTenant(db, (trx) => DDLManager.dropFieldRules(trx, C2, 'kod'));
     expect(await onField('kod')).toEqual([]);
     await sql`DELETE FROM zv_validation_rules WHERE collection = ${C2}`.execute(db);
   });
@@ -378,8 +389,13 @@ d('validation rule groups are instance-wide', () => {
     await runMigration('down');
     expect(await hasColumn('tenant_id')).toBe(true);
     expect((await rls()).forced).toBe(true);
-    const tenants = await sql<{ t: string | null }>`
-      SELECT DISTINCT tenant_id::text AS t FROM zvd_validation_rule_groups`.execute(db);
+    // Policed again: read as the tenant the rows went back to.
+    const tenants = await asDefaultTenant(
+      db,
+      sql<{
+        t: string | null;
+      }>`SELECT DISTINCT tenant_id::text AS t FROM zvd_validation_rule_groups`,
+    );
     expect(tenants.rows).toEqual([{ t: DEFAULT_TENANT_ID }]);
     await runMigration('up');
     expect(await groups()).toHaveLength(3);
@@ -390,7 +406,7 @@ d('validation rule groups are instance-wide', () => {
     await runMigration('down');
     // A second firm's group of a name the default tenant already holds: the
     // unique index 111 creates would refuse it, and the boot with it.
-    await db.transaction().execute(async (trx) => {
+    await asDefaultTenant(db, async (trx) => {
       await sql`ALTER TABLE zvd_validation_rule_groups NO FORCE ROW LEVEL SECURITY`.execute(trx);
       await sql`INSERT INTO zvd_validation_rule_groups (name, collection, field_name, tenant_id, created_by)
                 VALUES ('dup', ${C1}, 'code', ${OTHER_FIRM}::uuid, 'seed')`.execute(trx);

@@ -28,6 +28,7 @@ import { sql } from 'kysely';
 import type { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
 import {
+  asEveryTenant,
   createGodSession,
   createMemberSession,
   getTestApp,
@@ -229,9 +230,12 @@ d('per-tenant rate limit', () => {
     expect(list.rate_limits.map((r) => r.key_prefix)).toContain(`tenant:write:${f.id}`);
     expect(list.tiers).toContain('api');
 
-    const audited = await sql<{ n: number }>`
+    const audited = await asEveryTenant(
+      db,
+      sql<{ n: number }>`
       SELECT count(*)::int AS n FROM zv_audit_log
-       WHERE resource_type = 'rate_limit' AND resource_id = ${`tenant:write:${f.id}`}`.execute(db);
+       WHERE resource_type = 'rate_limit' AND resource_id = ${`tenant:write:${f.id}`}`,
+    );
     expect(audited.rows[0]?.n).toBe(1);
 
     // A delegated tenant admin must not raise their own tenant's limit.

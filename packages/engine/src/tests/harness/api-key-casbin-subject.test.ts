@@ -22,6 +22,7 @@ import {
   isTenantAdmin,
 } from '../../lib/tenancy/permissions.js';
 import {
+  asDefaultTenant,
   createGodSession,
   dropTestCollection,
   getTestApp,
@@ -71,14 +72,20 @@ d('an API key is not a Casbin subject', () => {
       ],
     } as never);
     const parentId = (
-      await sql<{ id: string }>`
+      await asDefaultTenant(
+        db,
+        sql<{ id: string }>`
         INSERT INTO ${sql.table(`zvd_${PARENT}`)} (tenant_id, title)
-        VALUES (${DEFAULT_TENANT_ID}::uuid, 'secret parent') RETURNING id`.execute(db)
+        VALUES (${DEFAULT_TENANT_ID}::uuid, 'secret parent') RETURNING id`,
+      )
     ).rows[0]!.id;
     childId = (
-      await sql<{ id: string }>`
+      await asDefaultTenant(
+        db,
+        sql<{ id: string }>`
         INSERT INTO ${sql.table(`zvd_${CHILD}`)} (tenant_id, title, parent)
-        VALUES (${DEFAULT_TENANT_ID}::uuid, 'c', ${parentId}::uuid) RETURNING id`.execute(db)
+        VALUES (${DEFAULT_TENANT_ID}::uuid, 'c', ${parentId}::uuid) RETURNING id`,
+      )
     ).rows[0]!.id;
 
     issuer = `harness-keysubj-${crypto.randomUUID()}`;

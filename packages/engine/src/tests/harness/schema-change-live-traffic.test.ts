@@ -19,6 +19,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import {
+  asDefaultTenant,
   createGodSession,
   createMemberSession,
   dropTestCollection,
@@ -107,10 +108,13 @@ d('schema change under live traffic (DR-43)', () => {
     const failures = await underTraffic(() =>
       call('PATCH', `/api/collections/${COLLECTION}/fields/score`, god, { new_type: 'text' }),
     );
-    const cols = await sql<{ udt_name: string }>`
+    const cols = await asDefaultTenant(
+      db,
+      sql<{ udt_name: string }>`
       SELECT udt_name FROM information_schema.columns
        WHERE table_schema = 'public' AND table_name = ${`zvd_${COLLECTION}`}
-         AND column_name = 'score'`.execute(db);
+         AND column_name = 'score'`,
+    );
     expect(cols.rows[0]?.udt_name).toBe('text');
     expect(failures).toEqual([]);
   }, 30_000);

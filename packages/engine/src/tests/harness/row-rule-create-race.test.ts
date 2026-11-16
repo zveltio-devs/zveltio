@@ -20,7 +20,7 @@ import { DDLManager } from '../../lib/data/index.js';
 import { announcingDDLManager } from '../../lib/extensions/register.js';
 import { type RlsIdentity, withTenantIsolation } from '../../lib/tenancy/index.js';
 import { createRlsPolicy, deleteRlsPolicy, initRls } from '../../lib/tenancy/rls.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asDefaultTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const ts = Date.now();
@@ -108,12 +108,13 @@ d('a row rule racing a collection create', () => {
     );
 
   const seed = (name: string) =>
-    sql
-      .raw(
+    asDefaultTenant(
+      db,
+      sql.raw(
         `INSERT INTO zvd_${name} (tenant_id, "${OWNER}") VALUES ` +
           `('${tenant}', '${ALICE}'), ('${tenant}', '${BOB}')`,
-      )
-      .execute(db);
+      ),
+    );
 
   /**
    * Write `collection`'s rule paused at `pauseAt` (after it looked for tables),

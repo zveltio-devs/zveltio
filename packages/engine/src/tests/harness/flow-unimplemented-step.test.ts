@@ -28,7 +28,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { executeFlow } from '../../lib/flows/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asDefaultTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -37,11 +37,14 @@ d('unimplemented flow step (in-process)', () => {
   const flowIds: string[] = [];
 
   async function makeFlow(stepType: string): Promise<string> {
-    const { rows } = await sql<{ id: string }>`
+    const { rows } = await asDefaultTenant(
+      db,
+      sql<{ id: string }>`
       INSERT INTO zv_flows (name, trigger_type, is_active)
       VALUES (${`c6-${stepType}-${Date.now()}`}, 'manual', true)
       RETURNING id
-    `.execute(db);
+    `,
+    );
     const id = rows[0]!.id;
     flowIds.push(id);
     await sql`
@@ -73,7 +76,7 @@ d('unimplemented flow step (in-process)', () => {
     for (const id of flowIds) {
       await sql`DELETE FROM zv_flow_runs WHERE flow_id = ${id}`.execute(db).catch(() => {});
       await sql`DELETE FROM zv_flow_steps WHERE flow_id = ${id}`.execute(db).catch(() => {});
-      await sql`DELETE FROM zv_flows WHERE id = ${id}`.execute(db).catch(() => {});
+      await asDefaultTenant(db, sql`DELETE FROM zv_flows WHERE id = ${id}`).catch(() => {});
     }
   });
 

@@ -15,7 +15,7 @@ import { DDLManager } from '../../lib/data/ddl-manager.js';
 import { createRestrictedDb } from '../../lib/extensions/extension-context.js';
 import { introspectSchema } from '../../lib/introspection.js';
 import { DEFAULT_TENANT_ID, withTenantIsolation } from '../../lib/tenancy/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asDefaultTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
@@ -97,8 +97,11 @@ d('introspectSchema inside a tenant transaction', () => {
 
     await DDLManager.dropInTransaction(db, FRESH, {});
     expect(await DDLManager.tableExists(db, FRESH)).toBe(false);
-    const source = await sql<{ name: string }>`
-      SELECT name FROM ${sql.id(SCHEMA, FRESH)} WHERE id = ${id}`.execute(db);
+    const source = await asDefaultTenant(
+      db,
+      sql<{ name: string }>`
+      SELECT name FROM ${sql.id(SCHEMA, FRESH)} WHERE id = ${id}`,
+    );
     expect(source.rows).toEqual([{ name: 'x' }]);
   });
 });

@@ -286,7 +286,7 @@ export function runOutsideTenantContext<T>(fn: () => T): T {
 /**
  * Stands in for the pool where an unscoped query must not run. Every use throws,
  * so an extension's `ctx.db` cannot fall through to the pool — which answers for
- * the default firm, or for every firm on a superuser. `then` stays undefined so
+ * no firm (DR-03), or for every firm on a superuser. `then` stays undefined so
  * the handle is not mistaken for a promise.
  */
 const UNSCOPED_REFUSED = new Proxy({} as Database, {
@@ -318,16 +318,21 @@ export function runAsTenantWithoutTransaction<T>(tenantId: string, fn: () => T):
 }
 
 /**
- * `pool`, unless this context refuses unscoped queries: one marked so (above),
- * or one that names a firm other than the root one and holds no transaction — a
- * `TXN_SKIP_PREFIXES` route, or the outer context an `onAfterCommit` job runs
- * in. There the pool answers for the root firm, so an insert made for firm B
- * took the column default and landed in root.
+ * `pool` outside every tenant context, and inside a transaction; refused in a
+ * context that names a firm and holds no transaction — a `TXN_SKIP_PREFIXES`
+ * route, the outer context an `onAfterCommit` job runs in, or one marked so
+ * (above). There an insert made for firm B once took the column default and
+ * landed in root.
+ *
+ * The root firm too (DR-03): the pool answered for it only while no tenant
+ * meant the root tenant. It now means none, so the pool would read nothing and
+ * a write would fail on the policy, with a message that names neither the cause
+ * nor the remedy this one does.
  */
 export function poolOrRefusal(pool: Database): Database {
   const s = store.getStore();
   if (!s || s.trx) return pool;
-  return s.refuseUnscoped || s.domain !== DEFAULT_TENANT_ID ? UNSCOPED_REFUSED : pool;
+  return UNSCOPED_REFUSED;
 }
 
 /**

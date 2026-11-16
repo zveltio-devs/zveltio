@@ -34,6 +34,8 @@ import { tenantMiddleware } from '../../middleware/tenant.js';
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import { toJsonb } from '../../lib/jsonb.js';
 import {
+  asDefaultTenant,
+  asEveryTenant,
   createGodSession,
   createMemberSession,
   dropTestCollection,
@@ -172,7 +174,7 @@ d('an action reaches any collection as its caller (ADR 0047)', () => {
   };
   const createdBy = async (label: string) =>
     (
-      await db.transaction().execute(async (trx) => {
+      await asDefaultTenant(db, async (trx) => {
         await sql`SELECT set_config('zveltio.rls_bypass', 'on', true)`.execute(trx);
         return sql<{ created_by: string | null }>`
           SELECT created_by FROM ${sql.table(`zvd_${C}`)} WHERE label = ${label}`.execute(trx);
@@ -232,7 +234,7 @@ d('an action reaches any collection as its caller (ADR 0047)', () => {
     if (!db) return;
     await sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${UNAPPROVED})`.execute(db);
     await sql`DELETE FROM zvd_rls_policies WHERE collection = ${C}`.execute(db).catch(() => {});
-    await sql`DELETE FROM zv_audit_log WHERE resource_id LIKE ${'anyc-%'}`.execute(db);
+    await asEveryTenant(db, sql`DELETE FROM zv_audit_log WHERE resource_id LIKE ${'anyc-%'}`);
     await dropTestCollection(db, C).catch(() => {});
     await forgetRuleObjects(db, RES);
   });

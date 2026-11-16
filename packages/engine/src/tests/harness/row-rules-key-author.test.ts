@@ -38,6 +38,7 @@ import {
 } from '../../lib/tenancy/index.js';
 import { getEnforcer, invalidateUserPermCache } from '../../lib/tenancy/permissions.js';
 import {
+  asDefaultTenant,
   createMemberSession,
   dropTestCollection,
   getTestApp,
@@ -168,10 +169,13 @@ d('a key is its author to a row rule (ADR 0028)', () => {
       ['a2', a, 'draft'],
       ['b1', b, 'published'],
     ] as const) {
-      const r = await sql<{ id: string }>`
+      const r = await asDefaultTenant(
+        db,
+        sql<{ id: string }>`
         INSERT INTO ${sql.table(TABLE)} (tenant_id, title, owner_email, created_by, status)
         VALUES (${DEFAULT_TENANT_ID}::uuid, ${title}, ${owner.email}, ${owner.userId}, ${status})
-        RETURNING id`.execute(db);
+        RETURNING id`,
+      );
       rowId[title] = String(r.rows[0]!.id);
     }
     await onlyRule('created_by', 'user_id');

@@ -101,14 +101,14 @@ d('zv_revisions and zv_import_logs under tenant RLS', () => {
                WHERE collection = '${STAMP}'
             $$`)
       .execute(db);
-    await sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${FN}`.execute(db);
+    await asEveryTenant(db, sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${FN}`);
     await sql`INSERT INTO zvd_rpc_functions (function_name, required_role, is_enabled)
               VALUES (${FN}, 'member', true)`.execute(db);
   }, 60_000);
 
   afterAll(async () => {
     if (!db) return;
-    await sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${FN}`.execute(db);
+    await asEveryTenant(db, sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${FN}`);
     await sql.raw(`DROP FUNCTION IF EXISTS "${FN}"()`).execute(db);
     await asEveryTenant(db, (trx) =>
       sql`DELETE FROM zv_revisions WHERE collection = ${STAMP}`.execute(trx),

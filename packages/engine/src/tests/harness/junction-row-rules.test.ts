@@ -15,7 +15,7 @@ import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { type RlsIdentity, withTenantIsolation } from '../../lib/tenancy/index.js';
 import { createRlsPolicy, deleteRlsPolicy } from '../../lib/tenancy/rls.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asDefaultTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const ts = Date.now();
@@ -74,14 +74,15 @@ d('a new junction carries the row rules already written for it', () => {
 
   it('createJunctionTable: the member sees only the links the rule leaves her', async () => {
     await DDLManager.createJunctionTable(db, SRC, DST);
-    await sql
-      .raw(
+    await asDefaultTenant(
+      db,
+      sql.raw(
         `INSERT INTO "zvd_${SRC}" (id, tenant_id) VALUES ('${KEPT}', '${tenant}'), ('${OTHER}', '${tenant}');` +
           `INSERT INTO "zvd_${DST}" (id, tenant_id) VALUES ('${LINK}', '${tenant}');` +
           `INSERT INTO "zvd_${JNC}" (tenant_id, "${SRC}_id", "${DST}_id") VALUES ` +
           `('${tenant}', '${KEPT}', '${LINK}'), ('${tenant}', '${OTHER}', '${LINK}')`,
-      )
-      .execute(db);
+      ),
+    );
     const seen = await withTenantIsolation(
       tenant,
       async (trx) =>

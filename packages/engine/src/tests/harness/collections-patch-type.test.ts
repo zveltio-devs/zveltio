@@ -7,7 +7,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hptype_${Date.now()}`;
@@ -52,11 +57,14 @@ d('collections field type change (in-process)', () => {
     const contact = fields.find((f: { name: string }) => f.name === 'contact');
     expect(contact?.type).toBe('email');
 
-    const cols = await sql<{ udt_name: string }>`
+    const cols = await asDefaultTenant(
+      db,
+      sql<{ udt_name: string }>`
       SELECT udt_name FROM information_schema.columns
       WHERE table_schema = 'public' AND table_name = ${`zvd_${COLLECTION}`}
         AND column_name = 'contact'
-    `.execute(db);
+    `,
+    );
     expect(cols.rows[0]?.udt_name).toBe('text');
   });
 

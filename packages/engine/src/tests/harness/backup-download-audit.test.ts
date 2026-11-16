@@ -16,7 +16,12 @@ import { beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asEveryTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -47,10 +52,13 @@ d('GET /api/backup/:id/download', () => {
     expect(res.headers.get('content-disposition')).toContain(filename);
     expect(await res.text()).toBe(body);
 
-    const audit = await sql<{ n: string }>`
+    const audit = await asEveryTenant(
+      db,
+      sql<{ n: string }>`
       SELECT COUNT(*)::text AS n FROM zv_audit_log
       WHERE event_type = 'backup.downloaded' AND resource_id = ${id}
-    `.execute(db);
+    `,
+    );
     expect(Number(audit.rows[0].n)).toBe(1);
   });
 });

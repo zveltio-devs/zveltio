@@ -36,6 +36,7 @@ import { WEBHOOK_QUEUE } from '../../lib/webhooks.js';
 import { syncRoutes } from '../../routes/sync.js';
 import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
 import {
+  asDefaultTenant,
   createGodSession,
   drainFlowJobs,
   getTestApp,
@@ -61,8 +62,11 @@ d('a data API write needs its tenant transaction (ADR 0035)', () => {
 
   const committed = async (title: string) =>
     (
-      await sql<{ n: number }>`
-        SELECT count(*)::int AS n FROM ${sql.table(`zvd_${C}`)} WHERE title = ${title}`.execute(db)
+      await asDefaultTenant(
+        db,
+        sql<{ n: number }>`
+        SELECT count(*)::int AS n FROM ${sql.table(`zvd_${C}`)} WHERE title = ${title}`,
+      )
     ).rows[0]!.n > 0;
   const jobs = async (title: string) =>
     (
@@ -89,17 +93,23 @@ d('a data API write needs its tenant transaction (ADR 0035)', () => {
       fields: [{ name: 'title', type: 'text', required: true, unique: false, indexed: false }],
     } as never);
     hook = (
-      await sql<{ id: string }>`
+      await asDefaultTenant(
+        db,
+        sql<{ id: string }>`
         INSERT INTO zvd_webhooks (tenant_id, name, url, events, collections, retry_attempts)
         VALUES (${DEFAULT_TENANT_ID}::uuid, ${STAMP}, 'https://93.184.216.34/wtrx',
                 ARRAY['*']::text[], ARRAY[${C}]::text[], 1)
-        RETURNING id::text AS id`.execute(db)
+        RETURNING id::text AS id`,
+      )
     ).rows[0]!.id;
     flow = (
-      await sql<{ id: string }>`
+      await asDefaultTenant(
+        db,
+        sql<{ id: string }>`
         INSERT INTO zv_flows (name, trigger_type, trigger_config, is_active)
         VALUES (${STAMP}, 'on_create', ${JSON.stringify({ collection: C })}::jsonb, true)
-        RETURNING id::text AS id`.execute(db)
+        RETURNING id::text AS id`,
+      )
     ).rows[0]!.id;
     const bus = realtimeBus();
     const publish = bus.publish.bind(bus);
@@ -125,11 +135,11 @@ d('a data API write needs its tenant transaction (ADR 0035)', () => {
     unlisten();
     if (!db) return;
     await sql`DELETE FROM zv_flow_runs WHERE flow_id = ${flow}::uuid`.execute(db).catch(() => {});
-    await sql`DELETE FROM zv_flows WHERE id = ${flow}::uuid`.execute(db).catch(() => {});
+    await asDefaultTenant(db, sql`DELETE FROM zv_flows WHERE id = ${flow}::uuid`).catch(() => {});
     await sql`DELETE FROM pgboss.job WHERE name = ${WEBHOOK_QUEUE} AND data->>'webhookId' = ${hook}`
       .execute(db)
       .catch(() => {});
-    await sql`DELETE FROM zvd_webhooks WHERE id = ${hook}::uuid`.execute(db);
+    await asDefaultTenant(db, sql`DELETE FROM zvd_webhooks WHERE id = ${hook}::uuid`);
     await sql.raw(`DROP TABLE IF EXISTS "zvd_${C}" CASCADE`).execute(db);
     await sql`DELETE FROM zvd_collections WHERE name = ${C}`.execute(db);
   });

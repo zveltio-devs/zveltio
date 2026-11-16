@@ -26,6 +26,7 @@ import {
 import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
 import { asEngineRole } from '../../lib/role-window.js';
 import {
+  asDefaultTenant,
   createGodSession,
   drainWebhookJobs,
   getTestApp,
@@ -61,11 +62,14 @@ d('webhooks on pg-boss (ADR 0035)', () => {
         fields: [{ name: 'title', type: 'text', required: true, unique: false, indexed: false }],
       } as never);
     }
-    const row = await sql<{ id: string }>`
+    const row = await asDefaultTenant(
+      db,
+      sql<{ id: string }>`
       INSERT INTO zvd_webhooks (tenant_id, name, url, events, collections, retry_attempts, secret)
       VALUES (${DEFAULT_TENANT_ID}::uuid, ${STAMP}, 'https://93.184.216.34/whpb',
               ARRAY['*']::text[], ARRAY[${C}]::text[], 1, ${await maybeEncrypt(SECRET, true)})
-      RETURNING id::text AS id`.execute(db);
+      RETURNING id::text AS id`,
+    );
     hook = row.rows[0]!.id;
 
     originalFetch = globalThis.fetch;
@@ -88,8 +92,11 @@ d('webhooks on pg-boss (ADR 0035)', () => {
     await sql`DELETE FROM pgboss.job WHERE name = ${WEBHOOK_QUEUE} AND data->>'webhookId' = ${hook}`
       .execute(db)
       .catch(() => {});
-    await sql`DELETE FROM zvd_webhook_deliveries WHERE webhook_id = ${hook}::uuid`.execute(db);
-    await sql`DELETE FROM zvd_webhooks WHERE id = ${hook}::uuid`.execute(db);
+    await asDefaultTenant(
+      db,
+      sql`DELETE FROM zvd_webhook_deliveries WHERE webhook_id = ${hook}::uuid`,
+    );
+    await asDefaultTenant(db, sql`DELETE FROM zvd_webhooks WHERE id = ${hook}::uuid`);
     for (const name of [C, QUIET]) {
       await sql.raw(`DROP TABLE IF EXISTS "zvd_${name}" CASCADE`).execute(db);
       await sql`DELETE FROM zvd_collections WHERE name = ${name}`.execute(db);
@@ -115,23 +122,29 @@ d('webhooks on pg-boss (ADR 0035)', () => {
 
   const deliveriesOf = async (eventId: string) =>
     (
-      await sql<{
-        attempt: number;
-        max_attempts: number;
-        delivered: boolean;
-        status: number | null;
-      }>`
+      await asDefaultTenant(
+        db,
+        sql<{
+          attempt: number;
+          max_attempts: number;
+          delivered: boolean;
+          status: number | null;
+        }>`
         SELECT attempt, max_attempts, delivered_at IS NOT NULL AS delivered, status
           FROM zvd_webhook_deliveries
-         WHERE webhook_id = ${hook}::uuid AND event_id = ${eventId}::uuid`.execute(db)
+         WHERE webhook_id = ${hook}::uuid AND event_id = ${eventId}::uuid`,
+      )
     ).rows;
 
   const drain = () => drainWebhookJobs(db);
 
   const count = async (title: string) =>
     (
-      await sql<{ n: number }>`
-        SELECT count(*)::int AS n FROM ${sql.table(`zvd_${C}`)} WHERE title = ${title}`.execute(db)
+      await asDefaultTenant(
+        db,
+        sql<{ n: number }>`
+        SELECT count(*)::int AS n FROM ${sql.table(`zvd_${C}`)} WHERE title = ${title}`,
+      )
     ).rows[0]!.n;
 
   const dlq = async (eventId: string) => {

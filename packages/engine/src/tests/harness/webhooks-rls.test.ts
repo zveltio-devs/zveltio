@@ -116,7 +116,7 @@ d('zvd_webhooks under tenant RLS', () => {
                 JOIN zvd_webhooks w ON w.id = d.webhook_id AND w.name = '${STAMP}-seed'
             $$`)
       .execute(db);
-    await sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${FN}`.execute(db);
+    await asEveryTenant(db, sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${FN}`);
     await sql`INSERT INTO zvd_rpc_functions (function_name, required_role, is_enabled)
               VALUES (${FN}, 'member', true)`.execute(db);
     for (const tenant of [ROOT, OTHER]) {
@@ -140,7 +140,7 @@ d('zvd_webhooks under tenant RLS', () => {
     WebhookManager.init(db);
     await plain?.destroy().catch(() => undefined);
     if (!db) return;
-    await sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${FN}`.execute(db);
+    await asEveryTenant(db, sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${FN}`);
     await sql.raw(`DROP FUNCTION IF EXISTS "${FN}"()`).execute(db);
     await asEveryTenant(db, (trx) =>
       sql`DELETE FROM zvd_webhooks WHERE name LIKE ${`${STAMP}%`}`.execute(trx),

@@ -8,7 +8,12 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { entityAccessRegistry } from '../../lib/tenancy/entity-access.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hbulkfbd_${Date.now()}`;
@@ -79,9 +84,12 @@ d('bulk delete forbidden-only 422 (in-process)', () => {
       { index: 1, id: id2, errors: ['Forbidden'] },
     ]);
 
-    const still = await sql<{ n: number }>`
+    const still = await asDefaultTenant(
+      db,
+      sql<{ n: number }>`
       SELECT count(*)::int AS n FROM ${sql.id(tableName)}
-    `.execute(db);
+    `,
+    );
     expect(still.rows[0]!.n).toBe(2);
   });
 });

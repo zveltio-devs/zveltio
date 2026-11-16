@@ -6,7 +6,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asEveryTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hcolperm_${Date.now()}`;
@@ -127,7 +132,10 @@ d('admin config routes (in-process)', () => {
       headers: { cookie },
     });
     expect(res.status).toBe(404);
-    const audit = await sql`SELECT 1 FROM zv_audit_log WHERE resource_id = ${missing}`.execute(db);
+    const audit = await asEveryTenant(
+      db,
+      sql`SELECT 1 FROM zv_audit_log WHERE resource_id = ${missing}`,
+    );
     expect(audit.rows).toHaveLength(0);
   });
 

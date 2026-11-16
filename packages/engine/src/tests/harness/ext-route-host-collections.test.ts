@@ -406,10 +406,13 @@ d('a route reaches its collections through host.collections (ADR 0025)', () => {
   it('the asSystem call is audited when it settles', async () => {
     await get(EXT, `/pub/sys/${row}`);
     await _settleAuditWrites();
-    const rows = await sql<{ outcome: string }>`
+    const rows = await asEveryTenant(
+      db,
+      sql<{ outcome: string }>`
       SELECT metadata->>'outcome' AS outcome FROM zv_audit_log
        WHERE event_type = 'extension.as_system' AND resource_id = ${S}
-         AND metadata->>'extension' = ${`ext:${EXT}`}`.execute(db);
+         AND metadata->>'extension' = ${`ext:${EXT}`}`,
+    );
     expect(rows.rows.length).toBeGreaterThan(0);
     expect(rows.rows.every((r) => r.outcome === 'ok')).toBe(true);
   });

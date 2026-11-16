@@ -19,12 +19,13 @@ import { DDLManager } from '../../lib/data/index.js';
 import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
 import { runOutsideTenantContext, withTenantIsolation } from '../../lib/tenancy/index.js';
 import {
+  asDefaultTenant,
   createGodSession,
   createMemberSession,
   dropTestCollection,
+  forgetRuleObjects,
   getTestApp,
   harnessAvailable,
-  forgetRuleObjects,
   ruleObjects,
 } from '../../testing/app-harness.js';
 
@@ -71,9 +72,12 @@ d('column rules reach the database with their commit (L37)', () => {
 
   const insertRow = async (table: string, values: string) =>
     (
-      await sql<{ id: string }>`
+      await asDefaultTenant(
+        db,
+        sql<{ id: string }>`
         INSERT INTO ${sql.table(table)} (tenant_id, ${sql.raw(values)})
-        VALUES (${DEFAULT_TENANT_ID}::uuid, 'seed') RETURNING id::text AS id`.execute(db)
+        VALUES (${DEFAULT_TENANT_ID}::uuid, 'seed') RETURNING id::text AS id`,
+      )
     ).rows[0]!.id;
 
   beforeAll(async () => {

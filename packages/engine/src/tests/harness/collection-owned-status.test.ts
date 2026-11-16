@@ -16,6 +16,7 @@ import type { Database } from '../../db/index.js';
 import { parseMigrationFile, splitSqlStatements } from '../../db/migrations/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import {
+  asDefaultTenant,
   createGodSession,
   dropTestCollection,
   getTestApp,
@@ -83,9 +84,12 @@ d('a collection owns its status column', () => {
       json('PATCH', { status: 'completed' }),
     );
     expect(patched.status).toBe(200);
-    const stored = await sql<{ status: string }>`
+    const stored = await asDefaultTenant(
+      db,
+      sql<{ status: string }>`
       SELECT status FROM ${sql.table(`zvd_${ADOPTED}`)} WHERE id = ${rec.id}
-    `.execute(db);
+    `,
+    );
     expect(stored.rows[0]?.status).toBe('completed');
 
     const listed = await app.request(`/api/data/${ADOPTED}?status[eq]=completed`, {

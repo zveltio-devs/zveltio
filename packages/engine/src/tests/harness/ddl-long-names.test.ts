@@ -13,7 +13,12 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { applyTenantRLS } from '../../lib/tenancy/index.js';
-import { dropTestCollection, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  dropTestCollection,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const SFX = String(Date.now()).slice(-6);
@@ -36,9 +41,12 @@ d('generated names past 63 bytes (in-process)', () => {
   let db: Database;
 
   const indexes = async (c: string) => {
-    const r = await sql<{ n: number }>`
+    const r = await asDefaultTenant(
+      db,
+      sql<{ n: number }>`
       SELECT count(*)::int AS n FROM pg_indexes WHERE tablename = ${`zvd_${c}`}
-    `.execute(db);
+    `,
+    );
     return r.rows[0]?.n ?? 0;
   };
 

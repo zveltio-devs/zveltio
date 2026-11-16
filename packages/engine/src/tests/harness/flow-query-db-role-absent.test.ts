@@ -18,23 +18,25 @@
 import { expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import { _internalForTests, executeFlow } from '../../lib/flows/flow-executor.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asDefaultTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 it.skipIf(!harnessAvailable())(
   'query_db still runs when the reader role does not exist',
   async () => {
     const { db } = await getTestApp();
     const flowId = crypto.randomUUID();
-    await db
-      .insertInto('zv_flows' as never)
-      .values({
-        id: flowId,
-        name: 'absent reader role probe',
-        trigger_type: 'manual',
-        trigger_config: JSON.stringify({}),
-        is_active: true,
-      } as never)
-      .execute();
+    await asDefaultTenant(db, (t) =>
+      t
+        .insertInto('zv_flows' as never)
+        .values({
+          id: flowId,
+          name: 'absent reader role probe',
+          trigger_type: 'manual',
+          trigger_config: JSON.stringify({}),
+          is_active: true,
+        } as never)
+        .execute(),
+    );
     await sql`
       INSERT INTO zv_flow_steps (flow_id, step_order, name, type, config)
       VALUES (${flowId}, 1, 'probe step', 'query_db',
@@ -51,7 +53,7 @@ it.skipIf(!harnessAvailable())(
       expect(run.status).toBe('success');
     } finally {
       restore();
-      await db.deleteFrom('zv_flows').where('id', '=', flowId).execute();
+      await asDefaultTenant(db, (t) => t.deleteFrom('zv_flows').where('id', '=', flowId).execute());
     }
   },
   30_000,

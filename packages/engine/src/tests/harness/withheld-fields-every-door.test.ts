@@ -18,6 +18,7 @@ import { engineEvents, realtimeBus } from '../../lib/runtime/index.js';
 import { _sseConnectionsForTests } from '../../routes/realtime.js';
 import { websocketHandler } from '../../routes/ws.js';
 import {
+  asDefaultTenant,
   createGodSession,
   createMemberSession,
   drainFlowJobs,
@@ -143,11 +144,14 @@ d('password and encrypted fields leave through no door (in-process)', () => {
 
     // A data flow (its trigger record is kept in zv_flow_runs.trigger_data),
     // a `record.*` listener (search, AI embeddings) and the cross-instance bus.
-    const flow = await sql<{ id: string }>`
+    const flow = await asDefaultTenant(
+      db,
+      sql<{ id: string }>`
       INSERT INTO zv_flows (name, trigger_type, trigger_config, is_active)
       VALUES (${`withheld-flow-${Date.now()}`}, 'on_create',
               ${JSON.stringify({ collection: COLLECTION })}::jsonb, true)
-      RETURNING id::text AS id`.execute(db);
+      RETURNING id::text AS id`,
+    );
     flowId = flow.rows[0]!.id;
     unsubscribe = engineEvents.on('record.created', (p) => {
       if (p.collection === COLLECTION) events.push(p);
@@ -183,10 +187,13 @@ d('password and encrypted fields leave through no door (in-process)', () => {
     await reader?.cancel().catch(() => {});
     if (!db) return;
     if (webhookId) {
-      await sql`DELETE FROM zvd_webhook_deliveries WHERE webhook_id = ${webhookId}`
-        .execute(db)
-        .catch(() => {});
-      await sql`DELETE FROM zvd_webhooks WHERE id = ${webhookId}`.execute(db).catch(() => {});
+      await asDefaultTenant(
+        db,
+        sql`DELETE FROM zvd_webhook_deliveries WHERE webhook_id = ${webhookId}`,
+      ).catch(() => {});
+      await asDefaultTenant(db, sql`DELETE FROM zvd_webhooks WHERE id = ${webhookId}`).catch(
+        () => {},
+      );
     }
     await db
       .deleteFrom('zv_revisions')
@@ -197,7 +204,9 @@ d('password and encrypted fields leave through no door (in-process)', () => {
       await sql`DELETE FROM zv_flow_runs WHERE flow_id = ${flowId}::uuid`
         .execute(db)
         .catch(() => {});
-      await sql`DELETE FROM zv_flows WHERE id = ${flowId}::uuid`.execute(db).catch(() => {});
+      await asDefaultTenant(db, sql`DELETE FROM zv_flows WHERE id = ${flowId}::uuid`).catch(
+        () => {},
+      );
     }
     await dropTestCollection(db, COLLECTION).catch(() => {});
   });
@@ -223,16 +232,22 @@ d('password and encrypted fields leave through no door (in-process)', () => {
   });
 
   it('stores the hash and the ciphertext, which is the premise', async () => {
-    const row = await sql<{ pw: string; secret: string; tok: string }>`
-      SELECT pw, secret, tok FROM ${sql.table(TABLE)} WHERE id = ${recordId}::uuid`.execute(db);
+    const row = await asDefaultTenant(
+      db,
+      sql<{ pw: string; secret: string; tok: string }>`
+      SELECT pw, secret, tok FROM ${sql.table(TABLE)} WHERE id = ${recordId}::uuid`,
+    );
     expect(row.rows[0]!.pw.startsWith('$argon2')).toBe(true);
     expect(row.rows[0]!.secret.startsWith('enc:v1:')).toBe(true);
     expect(row.rows[0]!.tok.startsWith('enc:v1:')).toBe(true);
   });
 
   it('the stored revision row keeps no secret', async () => {
-    const revs = await sql<{ data: unknown }>`
-      SELECT data FROM zv_revisions WHERE collection = ${COLLECTION}`.execute(db);
+    const revs = await asDefaultTenant(
+      db,
+      sql<{ data: unknown }>`
+      SELECT data FROM zv_revisions WHERE collection = ${COLLECTION}`,
+    );
     expect(revs.rows.length).toBeGreaterThan(0);
     for (const r of revs.rows) expect(JSON.stringify(r.data)).not.toContain('"tok"');
   });
@@ -243,8 +258,11 @@ d('password and encrypted fields leave through no door (in-process)', () => {
   it('the read gate hides the password column and shapes the stored row', async () => {
     const scope = await readScope(db, COLLECTION, { id: memberId } as never, 'session');
     expect(scope.readable('pw')).toBe(false);
-    const stored = await sql<Record<string, unknown>>`
-      SELECT * FROM ${sql.table(TABLE)} WHERE id = ${recordId}::uuid`.execute(db);
+    const stored = await asDefaultTenant(
+      db,
+      sql<Record<string, unknown>>`
+      SELECT * FROM ${sql.table(TABLE)} WHERE id = ${recordId}::uuid`,
+    );
     expectWithheld(scope.shape(stored.rows[0]!));
   });
 
@@ -295,8 +313,11 @@ d('password and encrypted fields leave through no door (in-process)', () => {
   });
 
   it('a revert restores the encrypted value and leaves the password alone', async () => {
-    const before = await sql<{ pw: string }>`
-      SELECT pw FROM ${sql.table(TABLE)} WHERE id = ${recordId}::uuid`.execute(db);
+    const before = await asDefaultTenant(
+      db,
+      sql<{ pw: string }>`
+      SELECT pw FROM ${sql.table(TABLE)} WHERE id = ${recordId}::uuid`,
+    );
     const patched = await app.request(`/api/data/${COLLECTION}/${recordId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', cookie: god },
@@ -313,8 +334,11 @@ d('password and encrypted fields leave through no door (in-process)', () => {
     });
     expect(reverted.status).toBe(200);
     expectWithheld(await reverted.json(), 'decrypted');
-    const after = await sql<{ pw: string; secret: string }>`
-      SELECT pw, secret FROM ${sql.table(TABLE)} WHERE id = ${recordId}::uuid`.execute(db);
+    const after = await asDefaultTenant(
+      db,
+      sql<{ pw: string; secret: string }>`
+      SELECT pw, secret FROM ${sql.table(TABLE)} WHERE id = ${recordId}::uuid`,
+    );
     expect(after.rows[0]!.pw).toBe(before.rows[0]!.pw);
     expect(after.rows[0]!.secret.startsWith('enc:v1:')).toBe(true);
     const live = await app.request(`/api/data/${COLLECTION}/${recordId}`, {
@@ -325,8 +349,11 @@ d('password and encrypted fields leave through no door (in-process)', () => {
 
   it('the webhook payload carries neither', async () => {
     await drainWebhookJobs(db);
-    const rows = await sql<{ payload: unknown }>`
-      SELECT payload FROM zvd_webhook_deliveries WHERE webhook_id = ${webhookId}`.execute(db);
+    const rows = await asDefaultTenant(
+      db,
+      sql<{ payload: unknown }>`
+      SELECT payload FROM zvd_webhook_deliveries WHERE webhook_id = ${webhookId}`,
+    );
     expect(rows.rows.length).toBeGreaterThan(0);
     for (const r of rows.rows) expectWithheld(r.payload);
   });

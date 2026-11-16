@@ -101,9 +101,9 @@ wrong here: the statement removes the boundary between tenants on that table. It
 would fix your backups by switching off the thing the backups exist to protect.
 
 **Do not add `--enable-row-security` either.** pg_dump would then dump only the
-rows the role can see — with no tenant context, the default tenant's. You would
-get a backup that succeeds, weighs roughly what you expect, and silently
-contains none of your other tenants. A backup that lies is worse than one that
+rows the role can see — with no tenant context, none (the default tenant's, if
+you opted out with `ZVELTIO_FAIL_CLOSED_TENANT=0`). You would get a backup that
+succeeds and silently contains none of your tenants, or none but the default. A backup that lies is worse than one that
 fails.
 
 Back up as a role that RLS does not bind, kept separate from the engine's role

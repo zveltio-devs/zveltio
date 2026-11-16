@@ -13,11 +13,16 @@
  * guard.
  */
 
-import { beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -28,9 +33,12 @@ d('PATCH /api/webhooks/:id — the masked secret', () => {
   let id: string;
 
   async function storedSecret(): Promise<string | null> {
-    const r = await sql<{ secret: string | null }>`
+    const r = await asDefaultTenant(
+      db,
+      sql<{ secret: string | null }>`
       SELECT secret FROM zvd_webhooks WHERE id = ${id}
-    `.execute(db);
+    `,
+    );
     return r.rows[0]?.secret ?? null;
   }
 
@@ -49,6 +57,11 @@ d('PATCH /api/webhooks/:id — the masked secret', () => {
     });
     expect(res.status).toBe(201);
     id = ((await res.json()) as { webhook: { id: string } }).webhook.id;
+  });
+
+  // A webhook on every collection, left behind, fans every later write out to it.
+  afterAll(async () => {
+    if (id) await asDefaultTenant(db, sql`DELETE FROM zvd_webhooks WHERE id = ${id}`);
   });
 
   it('keeps the stored secret when the mask is sent back', async () => {

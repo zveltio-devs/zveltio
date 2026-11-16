@@ -11,6 +11,7 @@ import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { serialize } from '../../lib/schema-artifact/export.js';
 import {
+  asDefaultTenant,
   createGodSession,
   dropTestCollection,
   getTestApp,
@@ -40,9 +41,10 @@ d('schema apply migrations', () => {
 
   const columns = async () =>
     (
-      await sql<{ column_name: string }>`
-        SELECT column_name FROM information_schema.columns WHERE table_name = ${`zvd_${COL}`}`.execute(
+      await asDefaultTenant(
         db,
+        sql<{ column_name: string }>`
+        SELECT column_name FROM information_schema.columns WHERE table_name = ${`zvd_${COL}`}`,
       )
     ).rows.map((r) => r.column_name);
 
@@ -68,7 +70,10 @@ d('schema apply migrations', () => {
         { name: 'note', type: 'text' },
       ],
     } as never);
-    await sql`INSERT INTO ${sql.id(`zvd_${COL}`)} (title, note) VALUES ('kept', 'n')`.execute(db);
+    await asDefaultTenant(
+      db,
+      sql`INSERT INTO ${sql.id(`zvd_${COL}`)} (title, note) VALUES ('kept', 'n')`,
+    );
     await sql`INSERT INTO zv_roles (name) VALUES (${ROLE})`.execute(db);
   });
 
@@ -96,9 +101,12 @@ d('schema apply migrations', () => {
     };
     const res = await call('apply', files);
     expect(res.status).toBe(200);
-    const rows = await sql<{
-      headline: string;
-    }>`SELECT headline FROM ${sql.id(`zvd_${COL}`)}`.execute(db);
+    const rows = await asDefaultTenant(
+      db,
+      sql<{
+        headline: string;
+      }>`SELECT headline FROM ${sql.id(`zvd_${COL}`)}`,
+    );
     expect(rows.rows.map((r) => r.headline)).toEqual(['kept']);
     // Recorded once: the same files plan nothing.
     const plan = await call('plan', files);

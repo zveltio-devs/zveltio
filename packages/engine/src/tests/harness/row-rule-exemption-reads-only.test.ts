@@ -25,6 +25,8 @@ import {
   invalidateUserPermCache,
 } from '../../lib/tenancy/index.js';
 import {
+  asEveryTenant,
+  asTenant,
   createGodSession,
   createMemberSession,
   dropTestCollection,
@@ -80,7 +82,7 @@ d('the row-rule exemption covers reads only (ADR 0037)', () => {
   /** A row as the database holds it, read past every rule. */
   const stored = async (coll: string, id: string) =>
     (
-      await db.transaction().execute(async (trx) => {
+      await asEveryTenant(db, async (trx) => {
         await sql`SELECT set_config('zveltio.rls_bypass', 'on', true)`.execute(trx);
         return sql<{ title: string }>`
           SELECT title FROM ${sql.id(`zvd_${coll}`)} WHERE id = ${id}`.execute(trx);
@@ -131,11 +133,14 @@ d('the row-rule exemption covers reads only (ADR 0037)', () => {
 
     const mint = async (issuer: string, bypass: boolean, colls: string[]) => {
       const raw = generateApiKey();
-      await sql`
-        INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, is_active, rls_bypass, tenant_id, created_by)
-        VALUES (${`hex-${STAMP}`}, ${await hashApiKey(raw)}, ${raw.slice(0, 12)},
-                ${JSON.stringify(colls.map((collection) => ({ collection, actions: ['*'] })))}::jsonb,
-                true, ${bypass}, ${DEFAULT_TENANT_ID}::uuid, ${issuer})`.execute(db);
+      const hash = await hashApiKey(raw);
+      await asTenant(db, DEFAULT_TENANT_ID, (t) =>
+        sql`
+          INSERT INTO zv_api_keys (name, key_hash, key_prefix, scopes, is_active, rls_bypass, tenant_id, created_by)
+          VALUES (${`hex-${STAMP}`}, ${hash}, ${raw.slice(0, 12)},
+                  ${JSON.stringify(colls.map((collection) => ({ collection, actions: ['*'] })))}::jsonb,
+                  true, ${bypass}, ${DEFAULT_TENANT_ID}::uuid, ${issuer})`.execute(t),
+      );
       return raw;
     };
     // A key with `rls_bypass`, issued by the god: a row rule resolves it to them.
@@ -149,7 +154,9 @@ d('the row-rule exemption covers reads only (ADR 0037)', () => {
 
   afterAll(async () => {
     if (!db) return;
-    await sql`DELETE FROM zv_api_keys WHERE name = ${`hex-${STAMP}`}`.execute(db).catch(() => {});
+    await asEveryTenant(db, (t) =>
+      sql`DELETE FROM zv_api_keys WHERE name = ${`hex-${STAMP}`}`.execute(t),
+    ).catch(() => {});
     if (godId) {
       await (await getEnforcer()).addRoleForUser(godId, 'member', '*').catch(() => {});
       await invalidateUserPermCache(godId);
@@ -202,9 +209,11 @@ d('the row-rule exemption covers reads only (ADR 0037)', () => {
 
     it("is refused on a revisions revert of another user's row", async () => {
       const rev = (
-        await sql<{ id: string }>`
-          SELECT id FROM zv_revisions WHERE collection = ${OWN} AND record_id = ${aliceRow}
-           ORDER BY created_at LIMIT 1`.execute(db)
+        await asEveryTenant(db, (t) =>
+          sql<{ id: string }>`
+            SELECT id FROM zv_revisions WHERE collection = ${OWN} AND record_id = ${aliceRow}
+             ORDER BY created_at LIMIT 1`.execute(t),
+        )
       ).rows[0]!.id;
       const res = await call('POST', `/api/revisions/${rev}/revert`, god);
       expect(res.status).toBe(403);

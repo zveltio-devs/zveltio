@@ -21,6 +21,7 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import {
+  asDefaultTenant,
   createGodSession,
   getTestApp,
   harnessAvailable,
@@ -87,13 +88,14 @@ d('sync pull uses the (tenant_id, updated_at, id) index', () => {
     expect([200, 201, 202]).toContain(res.status);
     // Rows spread over the past month, all older than any cursor below. A pair
     // ties on `updated_at` so the keyset's second column is exercised.
-    await sql
-      .raw(
+    await asDefaultTenant(
+      db,
+      sql.raw(
         `INSERT INTO "${TABLE}" (title, updated_at)
          SELECT 'r' || g, now() - interval '30 days' + (g / 2) * interval '10 seconds'
          FROM generate_series(1, ${ROWS}) g`,
-      )
-      .execute(db);
+      ),
+    );
     await sql.raw(`ANALYZE "${TABLE}"`).execute(db);
   }, 60_000);
 
@@ -157,10 +159,13 @@ d('sync pull uses the (tenant_id, updated_at, id) index', () => {
 
   it('a client behind the newest rows still gets exactly them, in keyset order', async () => {
     // The position of the 4 000th row in keyset order; the client owes the rest.
-    const order = await sql<{ id: string; us: string }>`
+    const order = await asDefaultTenant(
+      db,
+      sql<{ id: string; us: string }>`
       SELECT id::text AS id, (extract(epoch FROM updated_at) * 1000000)::bigint::text AS us
         FROM ${sql.table(TABLE)} ORDER BY updated_at, id::text COLLATE "C"
-    `.execute(db);
+    `,
+    );
     const at = order.rows[3999]!;
     const del = `${(Date.now() - 60_000) * 1000}`;
     const body = await pull({

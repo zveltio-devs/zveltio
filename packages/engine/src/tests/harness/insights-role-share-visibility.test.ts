@@ -21,6 +21,7 @@ import type { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
 import { getEnforcer, getUserRoles, invalidateUserPermCache } from '../../lib/tenancy/index.js';
 import {
+  asEveryTenant,
   createGodSession,
   createMemberSession,
   getTestApp,
@@ -169,9 +170,10 @@ d2('a demoted owner cannot rewrite a saved query', () => {
 
   afterAll(async () => {
     if (db && savedId) {
-      await sql`DELETE FROM zvd_insight_saved_queries WHERE id = ${savedId}::uuid`
-        .execute(db)
-        .catch(() => {});
+      await asEveryTenant(
+        db,
+        sql`DELETE FROM zvd_insight_saved_queries WHERE id = ${savedId}::uuid`,
+      ).catch(() => {});
     }
   });
 

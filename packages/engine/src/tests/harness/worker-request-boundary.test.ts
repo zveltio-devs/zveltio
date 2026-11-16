@@ -39,6 +39,7 @@ import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import { sessionPrefetch } from '../../middleware/session-prefetch.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
 import {
+  asDefaultTenant,
   createMemberSession,
   dropTestCollection,
   getTestApp,
@@ -163,9 +164,10 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
       ],
     } as never);
     await applyTenantRLS(db, TABLE);
-    await sql`INSERT INTO ${sql.table(TABLE)} (title, tenant_id)
-              VALUES ('a', ${DEFAULT_TENANT_ID}::uuid), ('b', ${DEFAULT_TENANT_ID}::uuid)`.execute(
+    await asDefaultTenant(
       db,
+      sql`INSERT INTO ${sql.table(TABLE)} (title, tenant_id)
+              VALUES ('a', ${DEFAULT_TENANT_ID}::uuid), ('b', ${DEFAULT_TENANT_ID}::uuid)`,
     );
     colPermId = await writeColumnRules(db, async (trx) => {
       const row = await trx
@@ -186,8 +188,11 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
       fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
     } as never);
     await applyTenantRLS(db, `zvd_${DENIED}`);
-    await sql`INSERT INTO ${sql.table(`zvd_${DENIED}`)} (title, tenant_id)
-              VALUES ('x', ${DEFAULT_TENANT_ID}::uuid)`.execute(db);
+    await asDefaultTenant(
+      db,
+      sql`INSERT INTO ${sql.table(`zvd_${DENIED}`)} (title, tenant_id)
+              VALUES ('x', ${DEFAULT_TENANT_ID}::uuid)`,
+    );
     const member = await createMemberSession(engine, db, {
       grants: [{ collection: COLL, actions: ['read', 'create', 'update', 'delete'] }],
     });
@@ -246,7 +251,7 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
     const asMember = { cookie: member.cookie };
     viaData.denied = (await engine.request(`/api/data/${DENIED}`, { headers: asMember })).status;
     const [first] = (
-      await sql<{ id: string }>`SELECT id FROM ${sql.table(TABLE)} LIMIT 1`.execute(db)
+      await asDefaultTenant(db, sql<{ id: string }>`SELECT id FROM ${sql.table(TABLE)} LIMIT 1`)
     ).rows;
     viaData.scribble = (
       await engine.request(`/api/data/${COLL}/${first?.id}`, {
@@ -272,21 +277,28 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
               WHERE tenant_id = ${DEFAULT_TENANT_ID}::uuid AND user_id = ${memberId}`.execute(db);
     // Each mode on the same two rows, so one mode's leak cannot hide the next one's.
     for (const mode of MODES) {
-      await sql`DELETE FROM ${sql.table(TABLE)}`.execute(db);
-      await sql`INSERT INTO ${sql.table(TABLE)} (title, tenant_id)
-                VALUES ('a', ${DEFAULT_TENANT_ID}::uuid), ('b', ${DEFAULT_TENANT_ID}::uuid)`.execute(
+      await asDefaultTenant(db, sql`DELETE FROM ${sql.table(TABLE)}`);
+      await asDefaultTenant(
         db,
+        sql`INSERT INTO ${sql.table(TABLE)} (title, tenant_id)
+                VALUES ('a', ${DEFAULT_TENANT_ID}::uuid), ('b', ${DEFAULT_TENANT_ID}::uuid)`,
       );
       out[mode]!.rowsLapsed = await call(mode, '/rows', asMember);
       out[mode]!.touchLapsed = await call(mode, '/touch', asMember, 'POST');
       out[mode]!.addLapsed = await call(mode, '/add', asMember, 'POST');
       out[mode]!.added = (
-        await sql<{ n: number }>`SELECT count(*)::int AS n FROM ${sql.table(TABLE)}
-                                 WHERE title = 'added'`.execute(db)
+        await asDefaultTenant(
+          db,
+          sql<{ n: number }>`SELECT count(*)::int AS n FROM ${sql.table(TABLE)}
+                                 WHERE title = 'added'`,
+        )
       ).rows[0]?.n;
       out[mode]!.left = (
-        await sql<{ n: number }>`SELECT count(*)::int AS n FROM ${sql.table(TABLE)}
-                                 WHERE title IN ('a', 'b')`.execute(db)
+        await asDefaultTenant(
+          db,
+          sql<{ n: number }>`SELECT count(*)::int AS n FROM ${sql.table(TABLE)}
+                                 WHERE title IN ('a', 'b')`,
+        )
       ).rows[0]?.n;
     }
   }, 180_000);

@@ -27,6 +27,7 @@ import { toJsonb } from '../../lib/jsonb.js';
 import { invalidateColumnPermCache } from '../../lib/tenancy/column-permissions.js';
 import { _sseConnectionsForTests, broadcastDataEvent } from '../../routes/realtime.js';
 import {
+  asDefaultTenant,
   createGodSession,
   createMemberSession,
   dropTestCollection,
@@ -219,11 +220,13 @@ d('hidden columns cannot be read through filter, sort or search (in-process)', (
     // The smallest id is the newest row, so creation order and id order disagree.
     ids.sort();
     for (const [i, id] of ids.entries()) {
-      await db
-        .updateTable(table as never)
-        .set({ created_at: new Date(Date.UTC(2003 - i, 0, 1)) } as never)
-        .where('id' as never, '=', id as never)
-        .execute();
+      await asDefaultTenant(db, (t) =>
+        t
+          .updateTable(table as never)
+          .set({ created_at: new Date(Date.UTC(2003 - i, 0, 1)) } as never)
+          .where('id' as never, '=', id as never)
+          .execute(),
+      );
     }
     const order = async () => {
       const res = await app.request(
@@ -250,10 +253,12 @@ d('hidden columns cannot be read through filter, sort or search (in-process)', (
     } finally {
       await db.deleteFrom('zvd_column_permissions').where('id', '=', perm.id).execute();
       await invalidateColumnPermCache(COLLECTION);
-      await db
-        .deleteFrom(table as never)
-        .where('id' as never, 'in', ids as never)
-        .execute();
+      await asDefaultTenant(db, (t) =>
+        t
+          .deleteFrom(table as never)
+          .where('id' as never, 'in', ids as never)
+          .execute(),
+      );
     }
   });
 

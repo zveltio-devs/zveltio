@@ -26,7 +26,12 @@ import {
 import { authenticate, validateApiKey } from '../../lib/data/auth.js';
 import { describeWriteRefusal, isRlsRefusal } from '../../lib/data/write-pipeline.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
-import { createKeyCreator, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createKeyCreator,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
@@ -64,13 +69,14 @@ d('API keys and writes meet the same rules (in-process)', () => {
       )
       .execute(db);
     await sql.raw(`GRANT SELECT, INSERT, UPDATE ON ${TABLE} TO zveltio_rls`).execute(db);
-    await sql
-      .raw(`
+    await asDefaultTenant(
+      db,
+      sql.raw(`
       INSERT INTO ${TABLE} (tenant_id, title, created_by) VALUES
         ('${tenant}', 'mine',    'issuer-k1'),
         ('${tenant}', 'someone', 'user-9')
-    `)
-      .execute(db);
+    `),
+    );
 
     await sql`
       INSERT INTO zvd_collections (name, display_name) VALUES (${COLL}, ${COLL})

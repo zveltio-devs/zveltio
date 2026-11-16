@@ -59,8 +59,9 @@ export function explainDumpFailure(stderr: string): string {
     'switching off the isolation the backup exists to protect.\n' +
     '\n' +
     'DO NOT add `--enable-row-security` either: pg_dump would then dump only the\n' +
-    "rows this role can see, which with no tenant context is the default tenant's.\n" +
-    'The backup would succeed and silently omit every other tenant.\n' +
+    'rows this role can see, which with no tenant context is none at all (or the\n' +
+    "default tenant's, with ZVELTIO_FAIL_CLOSED_TENANT=0). The backup would\n" +
+    'succeed and silently omit every tenant, or every other one.\n' +
     '\n' +
     'Back up as a role that RLS does not bind — one created with BYPASSRLS, kept\n' +
     "apart from the engine's own role and used for nothing else. See\n" +

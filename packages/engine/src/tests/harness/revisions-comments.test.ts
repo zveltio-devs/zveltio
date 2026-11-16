@@ -9,6 +9,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import {
+  asEveryTenant,
   createGodSession,
   dropTestCollection,
   getTestApp,
@@ -46,9 +47,9 @@ d('revisions + comments (in-process)', () => {
 
   afterAll(async () => {
     if (!db) return;
-    await sql`DELETE FROM zv_record_comments WHERE record_id = ${RECORD}`
-      .execute(db)
-      .catch(() => {});
+    await asEveryTenant(db, sql`DELETE FROM zv_record_comments WHERE record_id = ${RECORD}`).catch(
+      () => {},
+    );
     await dropTestCollection(db, COLLECTION).catch(() => {});
   });
 

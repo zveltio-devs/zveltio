@@ -21,6 +21,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import {
+  asDefaultTenant,
   createGodSession,
   dropTestCollection,
   getTestApp,
@@ -52,7 +53,7 @@ d('data list count mode (in-process)', () => {
       fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
     } as never);
     for (let i = 0; i < ROWS; i++) {
-      await sql.raw(`INSERT INTO "${TABLE}" (title) VALUES ('row ${i}')`).execute(db);
+      await asDefaultTenant(db, sql.raw(`INSERT INTO "${TABLE}" (title) VALUES ('row ${i}')`));
     }
   });
 

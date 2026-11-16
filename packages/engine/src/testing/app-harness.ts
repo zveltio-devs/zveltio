@@ -121,8 +121,9 @@ export async function getTestApp(): Promise<{ app: Hono; db: Database }> {
  *
  * The documented install runs the engine as a NOSUPERUSER NOBYPASSRLS owner
  * (`scripts/bootstrap-db-role.sh`), and FORCE RLS binds that connection too: on
- * the bare pool, with no tenant set, a policed table takes and shows only the
- * default tenant's rows. A fixture for another firm written there is refused —
+ * the bare pool, with no tenant set, a policed table takes and shows no rows
+ * (DR-03; the default tenant's with ZVELTIO_FAIL_CLOSED_TENANT=0). A fixture
+ * written there is refused —
  * on a superuser it was silently accepted, which is how 300 harness tests came
  * to depend on a privilege production does not have (L32). Stays the owner.
  */
@@ -138,16 +139,34 @@ export function asTenant<T>(
 }
 
 /**
+ * One test statement as the default tenant: what a statement with no tenant
+ * context reached before DR-03, and what it reaches nothing of now. For a test's
+ * OWN fixtures, checks and cleanup on the bare pool; an engine path under test
+ * never gets its tenant from here.
+ */
+export function asDefaultTenant<R>(
+  db: Database,
+  q: { execute(executor: Database): Promise<R> } | ((trx: Database) => Promise<R>),
+): Promise<R> {
+  return asTenant(db, DEFAULT_TENANT_ID, (trx) =>
+    typeof q === 'function' ? q(trx) : q.execute(trx),
+  );
+}
+
+/**
  * Run `fn` in a transaction that READS (and so deletes) every firm's rows, for a
  * test's own checks and cleanup — the reach `withEveryTenant` gives the engine's
  * background work, staying the owner. Writes still need `asTenant`, and so does
  * a row whose `tenant_id` has no `zv_tenants` row: every firm is the firms that
  * exist.
  */
-export function asEveryTenant<T>(db: Database, fn: (trx: Database) => Promise<T>): Promise<T> {
+export function asEveryTenant<T>(
+  db: Database,
+  fn: ((trx: Database) => Promise<T>) | { execute(executor: Database): Promise<T> },
+): Promise<T> {
   return db.transaction().execute(async (trx) => {
     await publishEveryTenant(trx);
-    return fn(trx);
+    return typeof fn === 'function' ? fn(trx) : fn.execute(trx);
   });
 }
 
@@ -515,7 +534,8 @@ export async function insertPastRowRules(
   const cols = Object.keys(row);
   return db.transaction().execute(async (trx) => {
     await sql`SELECT set_config('zveltio.rls_bypass', 'on', true),
-                     set_config('zveltio.actor', 'off', true)`.execute(trx);
+                     set_config('zveltio.actor', 'off', true),
+                     set_config('zveltio.current_tenant', ${DEFAULT_TENANT_ID}, true)`.execute(trx);
     const r = await sql<{ id: string }>`
       INSERT INTO ${sql.table(`zvd_${collection}`)} (${sql.join(cols.map((c) => sql.ref(c)))})
       VALUES (${sql.join(cols.map((c) => row[c]))}) RETURNING id`.execute(trx);

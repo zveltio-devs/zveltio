@@ -18,6 +18,7 @@ import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import { DEFAULT_TENANT_ID, withTenantIsolation } from '../../lib/tenancy/index.js';
 import { deleteUser } from '../../lib/users.js';
 import {
+  asDefaultTenant,
   asTenant,
   connectedAsSuperuser,
   getTestApp,
@@ -105,7 +106,7 @@ d('identity tables under tenant RLS (065)', () => {
     await sql`DELETE FROM zv_api_keys WHERE name LIKE ${`${TAG}%`}`.execute(db);
     await sql`DELETE FROM zv_invitations WHERE email LIKE ${`${TAG}%`}`.execute(db);
     await sql`DELETE FROM zv_media_shares WHERE created_by = ${USER}`.execute(db);
-    await sql`DELETE FROM zv_media_folders WHERE name = ${TAG}`.execute(db);
+    await asDefaultTenant(db, sql`DELETE FROM zv_media_folders WHERE name = ${TAG}`);
     await sql`DELETE FROM zv_tenant_users WHERE user_id IN (${USER}, ${LEAVER})`.execute(db);
     await sql`DELETE FROM "user" WHERE id IN (${USER}, ${LEAVER})`.execute(db);
     await sql`DELETE FROM zv_tenants WHERE id IN (${CHILD}::uuid, ${PARENT}::uuid)`.execute(db);
@@ -181,8 +182,11 @@ d('identity tables under tenant RLS (065)', () => {
             VALUES (${`${TAG}-none@test.local`}, 'member', ${`${TAG}-none`}, now())`.execute(db),
       ),
     ).toBe('23502');
-    const folder = await sql<{ id: string }>`
-      SELECT id::text AS id FROM zv_media_folders WHERE name = ${TAG} LIMIT 1`.execute(db);
+    const folder = await asDefaultTenant(
+      db,
+      sql<{ id: string }>`
+      SELECT id::text AS id FROM zv_media_folders WHERE name = ${TAG} LIMIT 1`,
+    );
     expect(
       await refused(
         sql`INSERT INTO zv_media_shares (folder_id, token, created_by)

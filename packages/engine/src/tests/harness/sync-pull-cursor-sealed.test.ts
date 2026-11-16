@@ -12,6 +12,7 @@ import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { entityAccessRegistry } from '../../lib/tenancy/entity-access.js';
 import {
+  asDefaultTenant,
   createGodSession,
   getTestApp,
   harnessAvailable,
@@ -51,10 +52,13 @@ d('sync pull cursor is sealed', () => {
       fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
     } as never);
     // The newest row is the last one a pull reads, and the one hidden.
-    const r = await sql<{ id: string }>`
+    const r = await asDefaultTenant(
+      db,
+      sql<{ id: string }>`
       INSERT INTO ${sql.table(TABLE)} (title, updated_at)
       VALUES ('show', now() - interval '2 hours'), ('hide', now() - interval '1 hour')
-      RETURNING id, title`.execute(db);
+      RETURNING id, title`,
+    );
     hidden = (r.rows as Array<{ id: string; title: string }>).find((x) => x.title === 'hide')!.id;
     // A row written before 1970 (an import, a worker's raw SQL): its position
     // in epoch microseconds is negative.
@@ -62,8 +66,11 @@ d('sync pull cursor is sealed', () => {
       name: OLD,
       fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
     } as never);
-    await sql`INSERT INTO ${sql.table(OLD_TABLE)} (title, updated_at)
-              VALUES ('old', '1960-01-01T00:00:00Z')`.execute(db);
+    await asDefaultTenant(
+      db,
+      sql`INSERT INTO ${sql.table(OLD_TABLE)} (title, updated_at)
+              VALUES ('old', '1960-01-01T00:00:00Z')`,
+    );
     entityAccessRegistry.scope(OWNER).register({
       table: TABLE,
       check: (record, _user, op) =>

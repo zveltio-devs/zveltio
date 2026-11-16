@@ -1865,9 +1865,10 @@ Key facts:
   transaction, so the `zveltio.current_tenant` GUC is set and FORCE row-level
   security isolates your rows automatically. You no longer need `ctx.reqDb(c)`
   for isolation — `ctx.db` is safe by default in a request handler. Outside any
-  tenant context (boot, migrations) it falls back to the global pool. Where a
-  tenant other than the root one is in scope but no transaction is open, it
-  throws instead: wrap that work in `ctx.internals.withTenantIsolation`. `reqDb(c)`
+  tenant context (boot, migrations) it falls back to the global pool, which
+  answers no tenant's rows (DR-03). Where a tenant is in scope but no
+  transaction is open — the root one too — it throws instead: wrap that work in
+  `ctx.internals.withTenantIsolation`. `reqDb(c)`
   remains as an explicit equivalent for handlers that already pass `c`.
 - **Cross-tenant access is opt-in via `ctx.adminDb`.** For legitimately global
   work (platform-wide reporting, backup) declare the **`db:admin`** permission
@@ -2424,8 +2425,9 @@ Timing options (pick ONE per schedule):
 
 Tenancy — `perTenant: true`:
 - Without it the handler runs **once, with no tenant**: `ctx.db` falls back to
-  the pool with no tenant set, and a table under tenant RLS answers for the root
-  tenant only. Fine for work that touches no tenant data.
+  the pool with no tenant set, and a table under tenant RLS answers nothing and
+  refuses writes (the root tenant's rows only where the operator opted out with
+  `ZVELTIO_FAIL_CLOSED_TENANT=0`). Fine for work that touches no tenant data.
 - With it the handler runs once per **active** tenant where the extension is
   active, each inside that tenant's transaction, so `ctx.db` (and permission
   checks) answer for that tenant. A tenant that turned the extension off is

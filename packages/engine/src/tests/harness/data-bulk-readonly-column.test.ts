@@ -12,11 +12,12 @@ import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { invalidateColumnPermCache } from '../../lib/tenancy/column-permissions.js';
 import {
+  asDefaultTenant,
   createGodSession,
   createMemberSession,
+  forgetRuleObjects,
   getTestApp,
   harnessAvailable,
-  forgetRuleObjects,
   ruleObjects,
 } from '../../testing/app-harness.js';
 
@@ -98,13 +99,19 @@ d('bulk read-only column enforcement (in-process)', () => {
     expect(blockedErr?.errors.join(' ').toLowerCase()).toContain('read-only');
 
     // The read-only value never reached the table.
-    const leaked = await sql<{ n: number }>`
+    const leaked = await asDefaultTenant(
+      db,
+      sql<{ n: number }>`
       SELECT count(*)::int AS n FROM ${sql.id(`zvd_${COLLECTION}`)} WHERE secret = 'leak'
-    `.execute(db);
+    `,
+    );
     expect(leaked.rows[0]!.n).toBe(0);
-    const stored = await sql<{ n: number }>`
+    const stored = await asDefaultTenant(
+      db,
+      sql<{ n: number }>`
       SELECT count(*)::int AS n FROM ${sql.id(`zvd_${COLLECTION}`)} WHERE title = 'ok-row'
-    `.execute(db);
+    `,
+    );
     expect(stored.rows[0]!.n).toBe(0);
   });
 
@@ -126,9 +133,12 @@ d('bulk read-only column enforcement (in-process)', () => {
     const body = (await res.json()) as { errors: Array<{ id: string; errors: string[] }> };
     expect(body.errors[0]?.errors.join(' ').toLowerCase()).toContain('read-only');
 
-    const leaked = await sql<{ n: number }>`
+    const leaked = await asDefaultTenant(
+      db,
+      sql<{ n: number }>`
       SELECT count(*)::int AS n FROM ${sql.id(`zvd_${COLLECTION}`)} WHERE secret = 'leak2'
-    `.execute(db);
+    `,
+    );
     expect(leaked.rows[0]!.n).toBe(0);
   });
 });

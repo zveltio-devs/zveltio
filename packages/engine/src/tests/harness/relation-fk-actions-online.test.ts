@@ -24,6 +24,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import {
+  asDefaultTenant,
   asTenant,
   createGodSession,
   dropTestCollection,
@@ -91,7 +92,7 @@ d('a relation action change re-creates its key without the table lock', () => {
     const gate = new Promise<void>((r) => {
       release = r;
     });
-    const done = db.transaction().execute(async (trx) => {
+    const done = asDefaultTenant(db, async (trx) => {
       await sql.raw(`LOCK TABLE "${CT}" IN ${lock} MODE`).execute(trx);
       await gate;
     });

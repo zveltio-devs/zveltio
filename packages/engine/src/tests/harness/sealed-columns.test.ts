@@ -27,13 +27,14 @@ import {
   withTenantIsolation,
 } from '../../lib/tenancy/index.js';
 import {
+  asDefaultTenant,
   asTenant,
   createGodSession,
   createMemberSession,
   dropTestCollection,
+  forgetRuleObjects,
   getTestApp,
   harnessAvailable,
-  forgetRuleObjects,
   ruleObjects,
   syncPull,
 } from '../../testing/app-harness.js';
@@ -198,10 +199,11 @@ d('sealed columns in the database (L37 layer 2, migration 073)', () => {
 
   it('stores the hash, and no revision keeps a copy of it', async () => {
     expect(await storedHash(recordId)).toMatch(/^\$argon2id\$/);
-    const leaked = await sql<{ n: number }>`
-      SELECT count(*)::int AS n FROM zv_revisions
-       WHERE collection = ${COLLECTION} AND (data ? 'pw' OR coalesce(delta ? 'pw', false))`.execute(
+    const leaked = await asDefaultTenant(
       db,
+      sql<{ n: number }>`
+      SELECT count(*)::int AS n FROM zv_revisions
+       WHERE collection = ${COLLECTION} AND (data ? 'pw' OR coalesce(delta ? 'pw', false))`,
     );
     expect(leaked.rows[0]?.n).toBe(0);
   });

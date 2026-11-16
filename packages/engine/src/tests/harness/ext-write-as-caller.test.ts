@@ -32,6 +32,7 @@ import { sessionPrefetch } from '../../middleware/session-prefetch.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import {
+  asDefaultTenant,
   createGodSession,
   createMemberSession,
   dropTestCollection,
@@ -94,15 +95,21 @@ d('an extension writes records as the request caller, and only as them', () => {
     });
   const authorOf = async (label: string) =>
     (
-      await sql<{ id: string; created_by: string | null }>`
+      await asDefaultTenant(
+        db,
+        sql<{ id: string; created_by: string | null }>`
         SELECT id, created_by FROM ${sql.table(`zvd_${C}`)} WHERE label = ${label}
-      `.execute(db)
+      `,
+      )
     ).rows[0];
   const revisionAuthor = async (id: string) =>
     (
-      await sql<{ user_id: string | null }>`
+      await asDefaultTenant(
+        db,
+        sql<{ user_id: string | null }>`
         SELECT user_id FROM zv_revisions WHERE collection = ${C} AND record_id = ${id}
-      `.execute(db)
+      `,
+      )
     ).rows.map((r) => r.user_id);
 
   beforeAll(async () => {
@@ -116,8 +123,9 @@ d('an extension writes records as the request caller, and only as them', () => {
       fields: [{ name: 'label', type: 'text', required: false, unique: false, indexed: false }],
     } as never);
     for (let i = 0; i < 100; i++) {
-      const seen = await sql<{ t: string | null }>`SELECT to_regclass(${`zvd_${C}`}) AS t`.execute(
+      const seen = await asDefaultTenant(
         db,
+        sql<{ t: string | null }>`SELECT to_regclass(${`zvd_${C}`}) AS t`,
       );
       if (seen.rows[0]?.t) break;
       await Bun.sleep(100);
@@ -252,7 +260,7 @@ d('an extension writes records as the request caller, and only as them', () => {
     if (!db) return;
     for (const id of keys) await sql`DELETE FROM zv_api_keys WHERE id = ${id}`.execute(db);
     await sql`DELETE FROM zv_extension_registry WHERE name IN (${WRITER}, ${NOCAP})`.execute(db);
-    await sql`DELETE FROM zv_revisions WHERE collection = ${C}`.execute(db);
+    await asDefaultTenant(db, sql`DELETE FROM zv_revisions WHERE collection = ${C}`);
     await dropTestCollection(db, C);
   });
 

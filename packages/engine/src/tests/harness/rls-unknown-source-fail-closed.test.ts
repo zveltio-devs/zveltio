@@ -21,7 +21,12 @@ import { DDLManager } from '../../lib/data/index.js';
 import { dispatchToWs } from '../../lib/runtime/realtime-bus.js';
 import { _sseConnectionsForTests } from '../../routes/realtime.js';
 import { broadcastEvent, websocketHandler, _wsPermCacheForTests } from '../../routes/ws.js';
-import { createMemberSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createMemberSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `rlsunknown_${Date.now()}`;
@@ -44,10 +49,13 @@ d('a row rule with an unknown value source fails closed', () => {
       role: 'member',
       grants: [{ collection: COLLECTION, actions: ['read', 'list'] }],
     });
-    await sql`
+    await asDefaultTenant(
+      db,
+      sql`
       INSERT INTO ${sql.table(`zvd_${COLLECTION}`)} (title, owner)
       VALUES ('mine', ${member.userId}), ('theirs', 'someone-else')
-    `.execute(db);
+    `,
+    );
     // The legacy typo, straight into the table and then through the rebuild the
     // routes use, so the database policy is the one the engine would generate.
     await sql`

@@ -15,6 +15,7 @@ import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { runGarbageCollector } from '../../lib/runtime/index.js';
 import {
+  asDefaultTenant,
   asEveryTenant,
   asTenant,
   connectedAsSuperuser,
@@ -93,7 +94,7 @@ d('sync pull returns deletes', () => {
   });
 
   it('a row deleted through the API reaches a client as a delete', async () => {
-    const id = await insert(db, 'doomed');
+    const id = await asDefaultTenant(db, (t) => insert(t, 'doomed'));
     const cursors = await caughtUp();
     const res = await app.request(`/api/data/${NAME}/${id}`, {
       method: 'DELETE',
@@ -108,13 +109,14 @@ d('sync pull returns deletes', () => {
   it('pages through deletes and inserts sharing one timestamp, each exactly once', async () => {
     const DEL = 600;
     const INS = 900;
-    await sql
-      .raw(`INSERT INTO "${TABLE}" (title) SELECT 'old' || g FROM generate_series(1, ${DEL}) g`)
-      .execute(db);
+    await asDefaultTenant(
+      db,
+      sql.raw(`INSERT INTO "${TABLE}" (title) SELECT 'old' || g FROM generate_series(1, ${DEL}) g`),
+    );
     const cursors0 = await caughtUp();
     // One transaction: every tombstone and every new row carries the same now(),
     // so only the id orders them and the page boundary falls inside the tie.
-    await db.transaction().execute(async (trx) => {
+    await asDefaultTenant(db, async (trx) => {
       await sql.raw(`DELETE FROM "${TABLE}" WHERE title LIKE 'old%'`).execute(trx);
       await sql
         .raw(`INSERT INTO "${TABLE}" (title) SELECT 'new' || g FROM generate_series(1, ${INS}) g`)
@@ -140,17 +142,17 @@ d('sync pull returns deletes', () => {
   });
 
   it('a delete committed after the pull still arrives', async () => {
-    const x = await insert(db, 'x');
-    const y = await insert(db, 'y');
+    const x = await asDefaultTenant(db, (t) => insert(t, 'x'));
+    const y = await asDefaultTenant(db, (t) => insert(t, 'y'));
     const cursors = await caughtUp();
 
     let first: PullBody | null = null;
-    await db.transaction().execute(async (trx) => {
+    await asDefaultTenant(db, async (trx) => {
       // The tombstone carries this transaction's start.
       await sql`DELETE FROM ${sql.table(TABLE)} WHERE id = ${x}::uuid`.execute(trx);
       await Bun.sleep(5);
       // Committed, and newer: a position past it would skip x's tombstone.
-      await sql`DELETE FROM ${sql.table(TABLE)} WHERE id = ${y}::uuid`.execute(db);
+      await asDefaultTenant(db, sql`DELETE FROM ${sql.table(TABLE)} WHERE id = ${y}::uuid`);
       first = await pull({ cursors });
     });
     const f = first as unknown as PullBody;
@@ -166,7 +168,7 @@ d('sync pull returns deletes', () => {
     const member = await createMemberSession(app, db, {
       grants: [{ collection: NAME, actions: ['read'] }],
     });
-    const mine = await insert(db, 'mine');
+    const mine = await asDefaultTenant(db, (t) => insert(t, 'mine'));
     // The table is under tenant RLS from its create: another firm's row is
     // written as that firm, and both are deleted with every firm in reach.
     const theirs = await asTenant(db, OTHER_TENANT, (trx) => insert(trx, 'theirs'));
@@ -225,7 +227,7 @@ d('sync pull returns deletes', () => {
   });
 
   it('a position older than the retention answers resync and restarts the collection', async () => {
-    const keep = await insert(db, 'kept');
+    const keep = await asDefaultTenant(db, (t) => insert(t, 'kept'));
     const old = (Date.now() - 40 * 86_400_000) * 1000;
     const stale = `d${old}:${old}:00000000-0000-0000-0000-000000000000`;
     const body = await pull({ cursors: { [TABLE]: await syncCursor(TABLE, stale) } });

@@ -19,7 +19,12 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { applyColumnGuard, DDLManager, sealColumns } from '../../lib/data/index.js';
 import { applyRowRulePolicy } from '../../lib/tenancy/index.js';
-import { dropTestCollection, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  dropTestCollection,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hlockwait_${Date.now()}`;
@@ -39,7 +44,7 @@ d('column guard / masking view / row-rule rebuild: a lock wait is bounded', () =
     const lockTaken = new Promise<void>((r) => {
       locked = r;
     });
-    const holder = db.transaction().execute(async (trx) => {
+    const holder = asDefaultTenant(db, async (trx) => {
       await sql.raw(hold).execute(trx);
       locked();
       await held;
@@ -116,7 +121,7 @@ d('column guard / masking view / row-rule rebuild: a lock wait is bounded', () =
   }, 30_000);
 
   it("leaves a caller's transaction with the lock_timeout it had", async () => {
-    await db.transaction().execute(async (trx) => {
+    await asDefaultTenant(db, async (trx) => {
       const show = async () =>
         (await sql<{ v: string }>`SELECT current_setting('lock_timeout') AS v`.execute(trx)).rows[0]
           .v;

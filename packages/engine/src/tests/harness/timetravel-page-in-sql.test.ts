@@ -37,7 +37,12 @@ import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { invalidateRlsCache, rlsJsonConditions } from '../../lib/tenancy/index.js';
 import { getEnforcer, invalidateUserPermCache } from '../../lib/tenancy/permissions.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
@@ -261,16 +266,21 @@ d('time travel pages in SQL (in-process)', () => {
       const tenant = (await sql<{ id: string }>`SELECT id FROM zv_tenants LIMIT 1`.execute(db))
         .rows[0]!.id;
       // A genuine JSON number, written directly.
-      await sql`
+      await asDefaultTenant(
+        db,
+        sql`
         INSERT INTO zv_revisions (collection, record_id, action, data, created_at, tenant_id)
         VALUES (${COLLECTION}, ${NUMERIC}, 'create',
                 jsonb_build_object('label', 'num', 'bucket', 'gamma', 'code', 5),
                 now(), ${tenant}::uuid)
-      `.execute(db);
+      `,
+      );
     });
 
     afterAll(async () => {
-      await sql`DELETE FROM zv_revisions WHERE record_id = ${NUMERIC}`.execute(db).catch(() => {});
+      await asDefaultTenant(db, sql`DELETE FROM zv_revisions WHERE record_id = ${NUMERIC}`).catch(
+        () => {},
+      );
     });
 
     it('eq matches a row whose value is the NUMBER 5 when the policy says "5"', async () => {
@@ -333,14 +343,19 @@ d('time travel pages in SQL (in-process)', () => {
       const tenant = (await sql<{ id: string }>`SELECT id FROM zv_tenants LIMIT 1`.execute(db))
         .rows[0]!.id;
       const doc = JSON.stringify({ label: 'str', bucket: 'alpha', code: '5' });
-      await sql`
+      await asDefaultTenant(
+        db,
+        sql`
         INSERT INTO zv_revisions (collection, record_id, action, data, created_at, tenant_id)
         VALUES (${COLLECTION}, ${STRINGY}, 'create', to_jsonb(${doc}::text), now(), ${tenant}::uuid)
-      `.execute(db);
+      `,
+      );
     });
 
     afterAll(async () => {
-      await sql`DELETE FROM zv_revisions WHERE record_id = ${STRINGY}`.execute(db).catch(() => {});
+      await asDefaultTenant(db, sql`DELETE FROM zv_revisions WHERE record_id = ${STRINGY}`).catch(
+        () => {},
+      );
     });
 
     it('is seen by a policy that matches what it holds', async () => {
@@ -379,7 +394,9 @@ d('time travel pages in SQL (in-process)', () => {
       // must return exactly the page even though the history holds far more.
       const tenant = (await sql<{ id: string }>`SELECT id FROM zv_tenants LIMIT 1`.execute(db))
         .rows[0]!.id;
-      const bounded = await sql<{ record_id: string }>`
+      const bounded = await asDefaultTenant(
+        db,
+        sql<{ record_id: string }>`
         WITH latest AS (
           SELECT DISTINCT ON (record_id) record_id, action, data
             FROM zv_revisions
@@ -389,7 +406,8 @@ d('time travel pages in SQL (in-process)', () => {
         )
         SELECT record_id FROM latest WHERE action <> 'delete'
          ORDER BY record_id LIMIT 2 OFFSET 0
-      `.execute(db);
+      `,
+      );
       expect(bounded.rows).toHaveLength(2);
     });
   });

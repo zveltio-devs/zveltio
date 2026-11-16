@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { runGarbageCollector } from '../../lib/runtime/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asDefaultTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -21,16 +21,19 @@ d('runGarbageCollector — abandoned flow runs', () => {
 
   beforeAll(async () => {
     ({ db } = await getTestApp());
-    const flow = await sql<{ id: string }>`
+    const flow = await asDefaultTenant(
+      db,
+      sql<{ id: string }>`
       INSERT INTO zv_flows (name, trigger_type, trigger_config, is_active)
       VALUES (${`gc-abandoned-${Date.now()}`}, 'manual', '{}'::jsonb, true)
       RETURNING id::text AS id
-    `.execute(db);
+    `,
+    );
     flowId = flow.rows[0]!.id;
   });
 
   afterAll(async () => {
-    if (db) await sql`DELETE FROM zv_flows WHERE id = ${flowId}`.execute(db);
+    if (db) await asDefaultTenant(db, sql`DELETE FROM zv_flows WHERE id = ${flowId}`);
   });
 
   async function insertRun(status: string, startedHoursAgo: number): Promise<string> {

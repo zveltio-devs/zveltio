@@ -13,7 +13,12 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { engineEvents } from '../../lib/runtime/event-bus.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hbulkaon_${Date.now()}`;
@@ -62,10 +67,12 @@ d('bulk write is all or nothing (ADR 0044, in-process)', () => {
     await sql`DELETE FROM pgboss.job WHERE data->>'webhookId' = ${webhookId}`
       .execute(db)
       .catch(() => {});
-    await sql`DELETE FROM zvd_webhooks WHERE id = ${webhookId}::uuid`.execute(db).catch(() => {});
-    await sql`DELETE FROM zv_revisions WHERE collection = ${COLLECTION}`
-      .execute(db)
-      .catch(() => {});
+    await asDefaultTenant(db, sql`DELETE FROM zvd_webhooks WHERE id = ${webhookId}::uuid`).catch(
+      () => {},
+    );
+    await asDefaultTenant(db, sql`DELETE FROM zv_revisions WHERE collection = ${COLLECTION}`).catch(
+      () => {},
+    );
     await sql.raw(`DROP TABLE IF EXISTS "zvd_${COLLECTION}" CASCADE`).execute(db);
     await db.deleteFrom('zvd_collections').where('name', '=', COLLECTION).execute();
   });
@@ -83,15 +90,18 @@ d('bulk write is all or nothing (ADR 0044, in-process)', () => {
   /** Rows, revisions, webhook jobs and record events the collection has so far. */
   async function footprint() {
     const n = async (q: ReturnType<typeof sql<{ n: string }>>) =>
-      Number((await q.execute(db)).rows[0]!.n);
+      Number((await asDefaultTenant(db, q)).rows[0]!.n);
     return {
       rows: await n(
         sql<{ n: string }>`SELECT count(*)::text AS n FROM ${sql.table(`zvd_${COLLECTION}`)}`,
       ),
       labels: (
-        await sql<{ label: string; score: number | null }>`SELECT label, score FROM ${sql.table(
-          `zvd_${COLLECTION}`,
-        )} ORDER BY label`.execute(db)
+        await asDefaultTenant(
+          db,
+          sql<{ label: string; score: number | null }>`SELECT label, score FROM ${sql.table(
+            `zvd_${COLLECTION}`,
+          )} ORDER BY label`,
+        )
       ).rows,
       revisions: await n(
         sql<{

@@ -26,7 +26,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { parseMigrationFile } from '../../db/migrations/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  asEveryTenant,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = Date.now();
@@ -105,9 +110,9 @@ d('migration 012 prunes only role grants no membership supports', () => {
     await sql`DELETE FROM zvd_permissions WHERE v2 = ${TENANT} OR v0 IN (${DEMOTED}, ${REMOVED}, ${MANAGER}, ${GODLIKE})`
       .execute(db)
       .catch(() => {});
-    await sql`DELETE FROM zvd_permissions_pruned_012 WHERE v2 = ${TENANT}`
-      .execute(db)
-      .catch(() => {});
+    await asEveryTenant(db, sql`DELETE FROM zvd_permissions_pruned_012 WHERE v2 = ${TENANT}`).catch(
+      () => {},
+    );
     await sql`DELETE FROM zv_tenant_users WHERE tenant_id = ${TENANT}::uuid`
       .execute(db)
       .catch(() => {});
@@ -142,10 +147,13 @@ d('migration 012 prunes only role grants no membership supports', () => {
   });
 
   it('records every pruned row so the deletion is reversible', async () => {
-    const r = await sql<{ v0: string; v1: string; membership: string | null }>`
+    const r = await asDefaultTenant(
+      db,
+      sql<{ v0: string; v1: string; membership: string | null }>`
       SELECT v0, v1, membership FROM zvd_permissions_pruned_012
        WHERE v2 = ${TENANT} ORDER BY v0, v1
-    `.execute(db);
+    `,
+    );
     expect(r.rows).toEqual([
       { v0: DEMOTED, v1: 'tenant_owner', membership: 'member' },
       { v0: REMOVED, v1: 'tenant_admin', membership: null },
@@ -157,9 +165,12 @@ d('migration 012 prunes only role grants no membership supports', () => {
     await sql.raw(up).execute(db);
     expect(await grants(db, DEMOTED)).toEqual(['tenant_member']);
     expect(await grants(db, MANAGER)).toEqual(['tenant_manager']);
-    const n = await sql<{ c: string }>`
+    const n = await asDefaultTenant(
+      db,
+      sql<{ c: string }>`
       SELECT count(*) AS c FROM zvd_permissions_pruned_012 WHERE v2 = ${TENANT}
-    `.execute(db);
+    `,
+    );
     expect(n.rows[0]?.c).toBe('3');
   });
 });

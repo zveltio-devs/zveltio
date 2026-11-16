@@ -20,10 +20,11 @@ import { DDLManager } from '../../lib/data/index.js';
 import { getEnforcer, invalidateUserPermCache } from '../../lib/tenancy/permissions.js';
 import { invalidateRlsCache } from '../../lib/tenancy/rls.js';
 import {
+  asDefaultTenant,
   createGodSession,
+  forgetRuleObjects,
   getTestApp,
   harnessAvailable,
-  forgetRuleObjects,
   ruleObjects,
 } from '../../testing/app-harness.js';
 
@@ -217,7 +218,7 @@ d('data list RLS in/not_in (in-process)', () => {
   // Past the row rule: on the collection's own table it is a Postgres policy
   // too, so the test reads with the exemption the engine publishes for god.
   const betaRow = () =>
-    db.transaction().execute(async (trx) => {
+    asDefaultTenant(db, async (trx) => {
       await sql`SELECT set_config('zveltio.rls_bypass', 'on', true)`.execute(trx);
       return sql<{ id: string }>`
         SELECT id FROM ${sql.id(`zvd_${COLLECTION}`)} WHERE title = 'beta'

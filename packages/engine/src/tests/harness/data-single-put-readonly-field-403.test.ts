@@ -12,11 +12,12 @@ import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { invalidateColumnPermCache } from '../../lib/tenancy/column-permissions.js';
 import {
+  asDefaultTenant,
   createGodSession,
   createMemberSession,
+  forgetRuleObjects,
   getTestApp,
   harnessAvailable,
-  forgetRuleObjects,
   ruleObjects,
 } from '../../testing/app-harness.js';
 
@@ -104,9 +105,12 @@ d('data single PUT read-only field 403 (in-process)', () => {
     expect(msg.toLowerCase()).toContain('read-only');
 
     // Defense in depth: the read-only column must NOT have been written.
-    const row = await sql<{ secret: string | null }>`
+    const row = await asDefaultTenant(
+      db,
+      sql<{ secret: string | null }>`
       SELECT secret FROM ${sql.id(`zvd_${COLLECTION}`)} WHERE id = ${recordId}
-    `.execute(db);
+    `,
+    );
     expect(row.rows[0]?.secret ?? null).toBeNull();
   });
 

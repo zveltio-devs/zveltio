@@ -16,6 +16,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import {
+  asEveryTenant,
   asKeyIssuer,
   asTenant,
   createMemberSession,
@@ -116,15 +117,16 @@ d('rpc with an API key', () => {
     );
     for (const name of [ADMIN_FN, OFF_FN, UNLISTED, CREATE_FN])
       await fn(name, `() RETURNS text LANGUAGE sql STABLE AS $$ SELECT 'ok'::text $$`);
-    await sql`DELETE FROM zvd_rpc_functions WHERE function_name LIKE 'harness_rpc_key_%'`.execute(
+    await asEveryTenant(
       db,
+      sql`DELETE FROM zvd_rpc_functions WHERE function_name LIKE 'harness_rpc_key_%'`,
     );
     await sql`
       INSERT INTO zvd_rpc_functions (function_name, required_role, is_enabled) VALUES
         (${WHOAMI}, 'member', true), (${ROWS}, 'member', true),
         (${ADMIN_FN}, 'admin', true), (${OFF_FN}, 'member', false)
     `.execute(db);
-    await sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${CREATE_FN}`.execute(db);
+    await asEveryTenant(db, sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${CREATE_FN}`);
     await sql`INSERT INTO zvd_rpc_functions (function_name, required_role, is_enabled)
               VALUES (${CREATE_FN}, 'member', true)`.execute(db);
     for (const [name, k] of Object.entries(KEYS)) {
@@ -148,14 +150,15 @@ d('rpc with an API key', () => {
 
   afterAll(async () => {
     if (!db) return;
-    await sql`DELETE FROM zvd_rpc_functions WHERE function_name LIKE 'harness_rpc_key_%'`.execute(
+    await asEveryTenant(
       db,
+      sql`DELETE FROM zvd_rpc_functions WHERE function_name LIKE 'harness_rpc_key_%'`,
     );
-    await sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${CREATE_FN}`.execute(db);
+    await asEveryTenant(db, sql`DELETE FROM zvd_rpc_functions WHERE function_name = ${CREATE_FN}`);
     for (const name of [WHOAMI, ADMIN_FN, OFF_FN, UNLISTED, CREATE_FN])
       await sql.raw(`DROP FUNCTION IF EXISTS "${name}"()`).execute(db);
     await sql.raw(`DROP FUNCTION IF EXISTS "${ROWS}"(text)`).execute(db);
-    await sql`DELETE FROM zv_record_comments WHERE collection = ${STAMP}`.execute(db);
+    await asEveryTenant(db, sql`DELETE FROM zv_record_comments WHERE collection = ${STAMP}`);
     await sql`DELETE FROM zv_api_keys WHERE name LIKE ${`${STAMP}-%`}`.execute(db);
     await sql`DELETE FROM zv_tenant_users WHERE tenant_id = ${TENANT}::uuid`.execute(db);
     await sql`DELETE FROM zv_tenants WHERE id = ${TENANT}::uuid`.execute(db);

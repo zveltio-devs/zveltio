@@ -14,24 +14,27 @@
  */
 import { expect, it } from 'bun:test';
 import { _internalForTests, flowScheduler } from '../../lib/flows/flow-scheduler.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
+import { asDefaultTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 it.skipIf(!harnessAvailable())(
   'a second replica cannot claim a flow that is mid-execution',
   async () => {
     const { db } = await getTestApp();
     const id = crypto.randomUUID();
-    await db
-      .insertInto('zv_flows' as never)
-      .values({
-        id,
-        name: 'fencing probe',
-        trigger_type: 'cron',
-        trigger_config: JSON.stringify({ cron: '0 3 * * *' }),
-        is_active: true,
-        next_run_at: new Date(Date.now() - 60_000),
-      } as never)
-      .execute();
+    await asDefaultTenant(db, (t) =>
+      t
+        .insertInto('zv_flows' as never)
+        .values({
+          id,
+          name: 'fencing probe',
+          trigger_type: 'cron',
+          trigger_config: JSON.stringify({ cron: '0 3 * * *' }),
+          is_active: true,
+          next_run_at: new Date(Date.now() - 60_000),
+        } as never)
+        .execute(),
+    );
 
     // A separate connection is the whole point: two transactions on ONE
     // connection see each other's locks as their own and the probe would pass
@@ -42,11 +45,16 @@ it.skipIf(!harnessAvailable())(
     const claimable: number[] = [];
 
     _internalForTests.setExecuteFlowForTests((async () => {
-      const rows = await replicaB`
-        SELECT id FROM zv_flows
-        WHERE is_active = true AND trigger_type = 'cron'
-          AND (next_run_at IS NULL OR next_run_at <= now())
-        FOR UPDATE SKIP LOCKED`;
+      // As the flow's firm: with no tenant the replica would see no flow at all
+      // (DR-03), and the probe would pass with the defect in place.
+      const rows = await replicaB.begin(async (tx) => {
+        await tx`SELECT set_config('zveltio.current_tenant', ${DEFAULT_TENANT_ID}, true)`;
+        return tx`
+          SELECT id FROM zv_flows
+          WHERE is_active = true AND trigger_type = 'cron'
+            AND (next_run_at IS NULL OR next_run_at <= now())
+          FOR UPDATE SKIP LOCKED`;
+      });
       claimable.push(rows.length);
       return { status: 'success', runId: 'fencing-probe' };
     }) as never);
@@ -59,7 +67,7 @@ it.skipIf(!harnessAvailable())(
     } finally {
       await replicaB.end();
       _internalForTests.setExecuteFlowForTests(null);
-      await db.deleteFrom('zv_flows').where('id', '=', id).execute();
+      await asDefaultTenant(db, (t) => t.deleteFrom('zv_flows').where('id', '=', id).execute());
     }
   },
   30_000,

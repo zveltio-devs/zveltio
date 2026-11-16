@@ -31,6 +31,7 @@ import {
   withTenantIsolation,
 } from '../../lib/tenancy/index.js';
 import {
+  asDefaultTenant,
   createGodSession,
   createMemberSession,
   dropTestCollection,
@@ -58,19 +59,28 @@ d('writes by a principal that cannot read the collection', () => {
     });
   const seed = async (title: string) =>
     (
-      await sql<{ id: string }>`INSERT INTO ${sql.table(TABLE)} (title, tenant_id)
-        VALUES (${title}, ${TENANT}::uuid) RETURNING id`.execute(db)
+      await asDefaultTenant(
+        db,
+        sql<{ id: string }>`INSERT INTO ${sql.table(TABLE)} (title, tenant_id)
+        VALUES (${title}, ${TENANT}::uuid) RETURNING id`,
+      )
     ).rows[0]!.id;
   const row = async (id: string) =>
     (
-      await sql<{
-        title: string;
-      }>`SELECT title FROM ${sql.table(TABLE)} WHERE id = ${id}::uuid`.execute(db)
+      await asDefaultTenant(
+        db,
+        sql<{
+          title: string;
+        }>`SELECT title FROM ${sql.table(TABLE)} WHERE id = ${id}::uuid`,
+      )
     ).rows[0];
   const revision = async (id: string, action: string) =>
     (
-      await sql<{ data: Record<string, unknown> }>`SELECT data FROM zv_revisions
-        WHERE collection = ${COLL} AND record_id = ${id} AND action = ${action}`.execute(db)
+      await asDefaultTenant(
+        db,
+        sql<{ data: Record<string, unknown> }>`SELECT data FROM zv_revisions
+        WHERE collection = ${COLL} AND record_id = ${id} AND action = ${action}`,
+      )
     ).rows[0];
 
   beforeAll(async () => {
@@ -103,7 +113,9 @@ d('writes by a principal that cannot read the collection', () => {
         .catch(() => {});
       await sql`DELETE FROM zv_api_keys WHERE id = ${id}`.execute(db).catch(() => {});
     }
-    await sql`DELETE FROM zv_revisions WHERE collection = ${COLL}`.execute(db).catch(() => {});
+    await asDefaultTenant(db, sql`DELETE FROM zv_revisions WHERE collection = ${COLL}`).catch(
+      () => {},
+    );
     await dropTestCollection(db, COLL).catch(() => {});
   });
 
@@ -344,8 +356,11 @@ d('writes by a principal that cannot read the collection', () => {
         { title },
       );
       expect({ actions, status: res.status }).toEqual({ actions, status: 403 });
-      const n = await sql<{ n: number }>`SELECT count(*)::int AS n FROM ${sql.table(TABLE)}
-        WHERE title = ${title}`.execute(db);
+      const n = await asDefaultTenant(
+        db,
+        sql<{ n: number }>`SELECT count(*)::int AS n FROM ${sql.table(TABLE)}
+        WHERE title = ${title}`,
+      );
       expect(n.rows[0]!.n).toBe(0);
     }
   });
@@ -407,9 +422,10 @@ d('writes by a principal that cannot read the collection', () => {
       sql`DELETE FROM ${sql.table(TABLE)} WHERE id = ${victim}::uuid`.execute(trx),
     );
 
-    const landed = await sql<{ title: string }>`SELECT title FROM ${sql.table(TABLE)}
-      WHERE title LIKE 'lapsed-%' AND title <> 'lapsed-victim' OR id = ${created}::uuid`.execute(
+    const landed = await asDefaultTenant(
       db,
+      sql<{ title: string }>`SELECT title FROM ${sql.table(TABLE)}
+      WHERE title LIKE 'lapsed-%' AND title <> 'lapsed-victim' OR id = ${created}::uuid`,
     );
     expect({
       rawInsert,

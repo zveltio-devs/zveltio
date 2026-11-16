@@ -15,7 +15,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -53,9 +58,10 @@ d('saved queries (in-process)', () => {
 
   afterAll(async () => {
     if (db) {
-      await sql`DELETE FROM zv_saved_queries WHERE collection = ${COLLECTION}`
-        .execute(db)
-        .catch(() => {});
+      await asDefaultTenant(
+        db,
+        sql`DELETE FROM zv_saved_queries WHERE collection = ${COLLECTION}`,
+      ).catch(() => {});
       await sql
         .raw(`DROP TABLE IF EXISTS "zvd_${COLLECTION}" CASCADE`)
         .execute(db)
@@ -195,9 +201,12 @@ d('saved queries (in-process)', () => {
     queryId = id!;
     // Stored as the object it is, not a JSON string of it: `::jsonb` on a
     // stringified value kept a jsonb STRING, so `config->'filters'` was NULL.
-    const kind = await sql<{ t: string }>`
+    const kind = await asDefaultTenant(
+      db,
+      sql<{ t: string }>`
       SELECT jsonb_typeof(config) AS t FROM zv_saved_queries WHERE id = ${queryId}::uuid
-    `.execute(db);
+    `,
+    );
     expect(kind.rows[0]?.t).toBe('object');
   });
 
@@ -224,9 +233,12 @@ d('saved queries (in-process)', () => {
     // The PUT built its update object one key at a time and stringified
     // `config` into it — a jsonb string again, which the gate could not see
     // because the object was not a literal in `.set(…)`.
-    const kind = await sql<{ t: string }>`
+    const kind = await asDefaultTenant(
+      db,
+      sql<{ t: string }>`
       SELECT jsonb_typeof(config) AS t FROM zv_saved_queries WHERE id = ${queryId}::uuid
-    `.execute(db);
+    `,
+    );
     expect(kind.rows[0]?.t).toBe('object');
   });
 

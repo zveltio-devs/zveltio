@@ -8,7 +8,12 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager, queryAlterRegistry } from '../../lib/data/index.js';
 import { entityAccessRegistry } from '../../lib/tenancy/entity-access.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const PARENT = `hexp_p_${Date.now()}`;
@@ -125,7 +130,10 @@ d('data list expand (in-process)', () => {
     entityAccessRegistry.registerAs(OWNER, `zvd_${PARENT}`, () => 'deny');
     expect(await expandedParent('?expand=parent')).toBeUndefined();
     const childId = (
-      await sql<{ id: string }>`SELECT id FROM ${sql.id(`zvd_${CHILD}`)} LIMIT 1`.execute(db)
+      await asDefaultTenant(
+        db,
+        sql<{ id: string }>`SELECT id FROM ${sql.id(`zvd_${CHILD}`)} LIMIT 1`,
+      )
     ).rows[0]!.id;
     expect(await expandedParent(`/${childId}?expand=parent`)).toBeUndefined();
   });

@@ -33,6 +33,7 @@ import { ensureDeno } from '../../lib/extensions/deno.js';
 import { DDLManager, jobQueue } from '../../lib/data/index.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/index.js';
 import {
+  asDefaultTenant,
   asEveryTenant,
   asTenant,
   dropTestCollection,
@@ -184,8 +185,11 @@ d('jobs of a worker-isolated extension run in the Deno runner', () => {
       } as never);
     }
     for (let i = 0; i < 100; i++) {
-      const seen = await sql<{ a: string | null; b: string | null }>`
-        SELECT to_regclass(${`zvd_${C}`}) AS a, to_regclass(${`zvd_${SECRET}`}) AS b`.execute(db);
+      const seen = await asDefaultTenant(
+        db,
+        sql<{ a: string | null; b: string | null }>`
+        SELECT to_regclass(${`zvd_${C}`}) AS a, to_regclass(${`zvd_${SECRET}`}) AS b`,
+      );
       if (seen.rows[0]?.a && seen.rows[0]?.b) break;
       await Bun.sleep(100);
     }

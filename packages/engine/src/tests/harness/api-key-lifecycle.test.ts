@@ -19,6 +19,7 @@ import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/index.js';
 import {
+  asEveryTenant,
   asKeyIssuer,
   createMemberSession,
   createSteppedUpGod,
@@ -62,10 +63,13 @@ d('API keys end with the lockout events (ADR 0010 item 5)', () => {
 
   const revokedAudit = async (userId: string) =>
     (
-      await sql<{ metadata: { count: number } }>`
+      await asEveryTenant(
+        db,
+        sql<{ metadata: { count: number } }>`
         SELECT metadata FROM zv_audit_log
          WHERE event_type = 'api_key.revoked' AND resource_type = 'user'
-           AND resource_id = ${userId}`.execute(db)
+           AND resource_id = ${userId}`,
+      )
     ).rows.map((r) => r.metadata.count);
 
   beforeAll(async () => {

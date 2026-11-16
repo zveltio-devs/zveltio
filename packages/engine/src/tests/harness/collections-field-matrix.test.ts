@@ -10,7 +10,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const COLLECTION = `hmtx_${Date.now()}`;
@@ -68,14 +73,17 @@ d('collections field-type matrix (in-process)', () => {
     const meta = await DDLManager.getCollection(db, COLLECTION);
     expect(meta?.has_trgm).toBe(true);
 
-    const cols = await sql<{ column_name: string }>`
+    const cols = await asDefaultTenant(
+      db,
+      sql<{ column_name: string }>`
       SELECT column_name FROM information_schema.columns
       WHERE table_name = ${`zvd_${COLLECTION}`}
         AND column_name IN (
           'contact', 'website', 'phone', 'labels', 'due', 'scheduled',
           'active', 'qty', 'meta', 'slug_field', 'search_vector', 'search_text'
         )
-    `.execute(db);
+    `,
+    );
     expect(cols.rows.length).toBeGreaterThanOrEqual(10);
   });
 });

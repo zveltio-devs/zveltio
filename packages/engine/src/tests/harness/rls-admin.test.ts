@@ -9,6 +9,8 @@ import type { Database } from '../../db/index.js';
 import { _settleAuditWrites } from '../../lib/audit.js';
 import { DDLManager } from '../../lib/data/index.js';
 import {
+  asDefaultTenant,
+  asEveryTenant,
   createGodSession,
   createMemberSession,
   getTestApp,
@@ -158,9 +160,10 @@ d('admin RLS routes (in-process)', () => {
       expect(res.status).toBe(200);
     };
     await setMemberRule(false);
-    await sql
-      .raw(`INSERT INTO "zvd_${COLLECTION}" (title, created_by) VALUES ('not-mine', NULL)`)
-      .execute(db);
+    await asDefaultTenant(
+      db,
+      sql.raw(`INSERT INTO "zvd_${COLLECTION}" (title, created_by) VALUES ('not-mine', NULL)`),
+    );
     const titles = async () => {
       const res = await app.request(`/api/data/${COLLECTION}`, {
         headers: { cookie: member.cookie },
@@ -204,11 +207,14 @@ d('admin RLS routes (in-process)', () => {
 
     // Who may read which rows is a permission; each change leaves a row.
     await _settleAuditWrites();
-    const rows = await sql<{ event_type: string }>`
+    const rows = await asEveryTenant(
+      db,
+      sql<{ event_type: string }>`
       SELECT event_type FROM zv_audit_log
       WHERE resource_type = 'rls_rule' AND resource_id = ${id}
       ORDER BY created_at
-    `.execute(db);
+    `,
+    );
     // Distinct: the tests above PATCH this policy more than once.
     expect([...new Set(rows.rows.map((r) => r.event_type))]).toEqual([
       'rls_rule.created',

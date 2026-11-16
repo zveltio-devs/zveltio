@@ -16,6 +16,7 @@ import type { Database } from '../../db/index.js';
 import { getEnforcer } from '../../lib/tenancy/index.js';
 import { deleteTenantlessUsers } from '../../lib/users.js';
 import {
+  asEveryTenant,
   createGodSession,
   createMemberSession,
   forgetRuleObjects,
@@ -184,13 +185,19 @@ d('tenant purge — delete_users', () => {
     expect(inU.rows[0]?.n).toBe(1);
     expect(await e.getFilteredGroupingPolicy(0, also.userId, '', U.id)).toHaveLength(1);
 
-    const audit = await sql<{ m: { deleted_users: string[] } }>`
+    const audit = await asEveryTenant(
+      db,
+      sql<{ m: { deleted_users: string[] } }>`
       SELECT metadata AS m FROM zv_audit_log
-       WHERE event_type = 'tenant.purged' AND resource_id = ${T.id}`.execute(db);
+       WHERE event_type = 'tenant.purged' AND resource_id = ${T.id}`,
+    );
     expect(audit.rows[0]?.m.deleted_users).toEqual([only.userId]);
-    const userAudit = await sql<{ m: { reason: string; tenant_id: string } }>`
+    const userAudit = await asEveryTenant(
+      db,
+      sql<{ m: { reason: string; tenant_id: string } }>`
       SELECT metadata AS m FROM zv_audit_log
-       WHERE event_type = 'user.deleted' AND resource_id = ${only.userId}`.execute(db);
+       WHERE event_type = 'user.deleted' AND resource_id = ${only.userId}`,
+    );
     expect(userAudit.rows[0]?.m).toMatchObject({ reason: 'tenant_purge', tenant_id: T.id });
   }, 60_000);
 

@@ -16,7 +16,12 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  asDefaultTenant,
+  createGodSession,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = `cfs_${Date.now()}`;
@@ -77,8 +82,11 @@ d('a failed COMMIT reaches the client', () => {
     expect(res.status).toBe(500);
     const body = (await res.json()) as { status?: number };
     expect(body.status).toBe(500);
-    const kept = await sql<{ n: number }>`
-      SELECT count(*)::int AS n FROM ${sql.table(TABLE)}`.execute(db);
+    const kept = await asDefaultTenant(
+      db,
+      sql<{ n: number }>`
+      SELECT count(*)::int AS n FROM ${sql.table(TABLE)}`,
+    );
     expect(kept.rows[0]!.n).toBe(0); // the rollback is real
 
     // The control commits, and its log row proves the logger is live here.

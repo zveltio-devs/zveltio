@@ -16,7 +16,7 @@ import { grantExtensionDbRole, revokeExtensionDbRoles } from '../../lib/extensio
 import { createRestrictedDb } from '../../lib/extensions/extension-context.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import { getCurrentTenantTrx } from '../../lib/tenancy/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asDefaultTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const TENANT = '00000000-0000-0000-0000-000000000001';
@@ -31,8 +31,9 @@ d("an extension's joined transaction", () => {
   const extDb = () => createRestrictedDb(() => getCurrentTenantTrx() ?? db, 'probe');
   const nameOf = async () =>
     (
-      await sql<{ name: string }>`SELECT name FROM ${sql.table(ROWS)} WHERE id = ${userId}`.execute(
+      await asDefaultTenant(
         db,
+        sql<{ name: string }>`SELECT name FROM ${sql.table(ROWS)} WHERE id = ${userId}`,
       )
     ).rows[0]!.name;
 
@@ -69,8 +70,11 @@ d("an extension's joined transaction", () => {
     });
 
     expect(await nameOf()).toBe('Before');
-    const v = await sql<{ ok: boolean }>`
-      SELECT "emailVerified" AS ok FROM ${sql.table(ROWS)} WHERE id = ${userId}`.execute(db);
+    const v = await asDefaultTenant(
+      db,
+      sql<{ ok: boolean }>`
+      SELECT "emailVerified" AS ok FROM ${sql.table(ROWS)} WHERE id = ${userId}`,
+    );
     expect(v.rows[0]!.ok).toBe(true);
   });
 

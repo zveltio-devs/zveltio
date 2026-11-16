@@ -36,14 +36,15 @@ import { createRestrictedDb } from '../../lib/extensions/extension-context.js';
 import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { toJsonb } from '../../lib/jsonb.js';
 import {
+  asDefaultTenant,
   asEveryTenant,
   createKeyCreator,
   createMemberSession,
   createSteppedUpGod,
   dropTestCollection,
+  forgetRuleObjects,
   getTestApp,
   harnessAvailable,
-  forgetRuleObjects,
   ruleObjects,
 } from '../../testing/app-harness.js';
 
@@ -150,9 +151,10 @@ d('writtenBy: "actions" — only the owning extension’s actions and jobs write
   const codeOf = async (res: Response) => ((await res.json()) as { code?: string }).code;
   const row = async (table: string, id: string) =>
     (
-      await sql<
-        Record<string, unknown>
-      >`SELECT * FROM ${sql.table(`zvd_${table}`)} WHERE id = ${id}`.execute(db)
+      await asDefaultTenant(
+        db,
+        sql<Record<string, unknown>>`SELECT * FROM ${sql.table(`zvd_${table}`)} WHERE id = ${id}`,
+      )
     ).rows[0];
   const idOf = async (res: Response) => {
     const b = (await res.json()) as { id?: string; result?: { id?: string } };
@@ -565,7 +567,12 @@ d('writtenBy: "actions" — only the owning extension’s actions and jobs write
   it('a called action that fails leaves none of its writes, even when its caller catches the failure (ADR 0014)', async () => {
     const label = `half-${STAMP}`;
     const rows = async () =>
-      (await sql`SELECT id FROM ${sql.table(`zvd_${W}`)} WHERE label = ${label}`.execute(db)).rows;
+      (
+        await asDefaultTenant(
+          db,
+          sql`SELECT id FROM ${sql.table(`zvd_${W}`)} WHERE label = ${label}`,
+        )
+      ).rows;
     expect((await act(EXT, 'halfDone', { label })).status).toBe(500);
     expect(await rows()).toHaveLength(0);
     // The owner refused this row; its dependent must not keep it by catching.
