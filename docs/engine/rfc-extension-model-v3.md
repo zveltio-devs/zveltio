@@ -182,6 +182,10 @@ judge against nothing. Transition rules sit outside rule groups.
    A `catalog.json` override no longer makes a name first-party. Still by name:
    levels 0–2 come from the bundled catalogue or the registry's answer, until
    the registry signs the tier with each archive.
+   *Slice 4:* level 3 is declared model only — no `register()` surface, no
+   `ctx.db` or other `ctx` request over the runner bridge, no SQL migrations —
+   re-verified before every respawn, and listed and enabled through the
+   marketplace without a catalogue entry.
 2. **Profiles**, chosen by the operator in env and never in the UI:
    - **`development`:** anything goes, unsigned allowed; refused under
      `NODE_ENV=production`.

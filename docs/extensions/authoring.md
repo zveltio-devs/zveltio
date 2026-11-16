@@ -249,6 +249,19 @@ export default defineExtension(['data:write', 'data:system'], {
   request's statement is cancelled and rolled back; past its concurrency limit
   a call answers 503 `extension.busy`; five crashes in ten minutes disable the
   extension ([developer guide](developer-guide.md), "Fails alone").
+- A worker-isolated extension's jobs run in the Deno job runner, from
+  `engine/jobs.ts`, which default-exports them by name
+  (`export default { sendReceipt }`); `extension pack` bundles it to
+  `engine/jobs.js` and records `integrity.jobsSha256`. Jobs in the module's own
+  `jobs` refuse the load. A job that declares egress runs there too, from the
+  same file, whatever the extension's isolation.
+- A job acts as the extension, beyond its caller: an extension with jobs lists
+  `data:system` in `permissions` (and in `defineExtension`), or `host.enqueue`
+  refuses with 500.
+- An extension signed with an operator key (level 3, ADR 0056) is declared
+  model only: collections, actions, jobs and declared routes; its `register()`
+  may use neither its app nor its `ctx`, and raw SQL migrations are refused
+  ([signatures](signatures.md#your-own-extensions-level-3)).
 - `host.actions.run(extension, action, input)` runs an action of an extension
   this one depends on (ADR 0014), so its invariant stays in the owner's code
   instead of a copy in another bundle. The calling action lists it in `calls`

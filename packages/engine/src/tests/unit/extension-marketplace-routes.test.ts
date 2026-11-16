@@ -361,6 +361,57 @@ describe('registerMarketplaceRoutes (unit)', () => {
     expect(row?.config).toEqual({ flag: true });
   });
 
+  it('GET /api/marketplace shows a worker its crashes disabled as not running, with why (ADR 0056)', async () => {
+    writeExtOnDisk(extBase, CATALOG_ENTRY.name);
+    db.when(/from "zv_extension_registry"/i, [
+      { name: CATALOG_ENTRY.name, is_installed: true, is_enabled: true, tenant_id: null },
+    ]);
+    isActiveMock.mockImplementation(() => true);
+    const { getWorkerHost, _resetWorkerHostForTests } = await import(
+      '../../lib/worker-extension-host.js'
+    );
+    const why = 'disabled after 5 crashes in 10 minutes (last: exit)';
+    const health = spyOn(getWorkerHost(new Hono()), 'getHealth').mockReturnValue([
+      { name: CATALOG_ENTRY.name, status: 'disabled', disabledReason: why } as never,
+    ]);
+    try {
+      const res = await mountRoutes(db, extBase).request('/api/marketplace', {
+        headers: adminHeaders,
+      });
+      const body = (await res.json()) as {
+        extensions: Array<{ name: string; is_running: boolean; last_load_error: string | null }>;
+      };
+      expect(body.extensions.find((e) => e.name === CATALOG_ENTRY.name)).toMatchObject({
+        is_running: false,
+        last_load_error: why,
+      });
+    } finally {
+      health.mockRestore();
+      _resetWorkerHostForTests();
+    }
+  });
+
+  it('GET /api/marketplace lists no directory whose signature does not hold (ADR 0056; a valid one: harness ext-operator-signed)', async () => {
+    const put = (name: string, manifest: Record<string, unknown>, signed: boolean) => {
+      mkdirSync(join(extBase, name), { recursive: true });
+      writeFileSync(join(extBase, name, 'manifest.json'), JSON.stringify(manifest));
+      if (signed) writeFileSync(join(extBase, name, 'signature.json'), '{"tier":"private"}');
+    };
+    put(
+      'acme/invoices',
+      { name: 'acme/invoices', version: '1.2.0', permissions: ['data:write'] },
+      true,
+    );
+    put('acme/unsigned', { name: 'acme/unsigned', version: '1.0.0' }, false);
+    put('acme/renamed', { name: 'acme/other', version: '1.0.0' }, true);
+    const res = await mountRoutes(db, extBase).request('/api/marketplace', {
+      headers: adminHeaders,
+    });
+    const names = ((await res.json()) as { extensions: { name: string; version: string }[] })
+      .extensions;
+    expect(names.some((e) => e.name.startsWith('acme/'))).toBe(false);
+  });
+
   it('POST install returns 404 when the extension is absent from the catalog', async () => {
     const app = mountRoutes(db, extBase);
     const res = await app.request(`/api/marketplace/ghost-ext/install`, {

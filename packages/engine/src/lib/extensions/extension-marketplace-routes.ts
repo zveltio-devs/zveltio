@@ -10,7 +10,8 @@
 import { RETIRED_EXTENSIONS } from './load.js';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
-import { readFileSync } from 'node:fs';
+import { type Dirent, existsSync, readdirSync, readFileSync } from 'node:fs';
+import { DIR_SIGNATURE_FILE, verifyExtensionDir } from '../security/index.js';
 import { join } from 'path';
 import type { Database } from '../../db/index.js';
 import { auth } from '../auth.js';
@@ -47,7 +48,7 @@ import {
   clientIp,
 } from './extension-license.js';
 import { withExtensionLock, isPathInsideBase } from './extension-utils.js';
-import { resolvePublisherTier } from './extension-catalog.js';
+import { type ExtensionCatalogEntry, resolvePublisherTier } from './extension-catalog.js';
 import { DownMissingError, OwnedCollectionsReferencedError } from './extension-errors.js';
 import { revokeExtensionDbRoles } from './ext-db-role.js';
 import { auditLog } from '../audit.js';
@@ -78,6 +79,64 @@ import { checkRevoked, revocationCheckRequired, revocationMessage } from './revo
 import { announceExtensionLifecycle } from '../runtime/index.js';
 import type { ExtensionLoader } from './extension-loader.js';
 
+/**
+ * ADR 0056 d1: an operator's own extension, copied into EXTENSIONS_DIR by
+ * `zveltio install --path`, is in no catalogue, so it could be neither listed
+ * nor enabled. Each directory there carrying a `signature.json` is an entry,
+ * from its manifest, listed only when its signature holds against the operator
+ * key list. The load an enable starts verifies it again.
+ */
+export async function operatorSignedEntries(
+  base: string,
+  listed: ReadonlySet<string>,
+): Promise<ExtensionCatalogEntry[]> {
+  const out: ExtensionCatalogEntry[] = [];
+  // Any depth (`crm`, `communications/mail`, `compliance/ro/efactura`): an
+  // extension is a directory with a manifest; nothing below one is searched.
+  const walk = async (rel: string, depth: number): Promise<void> => {
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(join(base, rel), { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const d of entries) {
+      if (!d.isDirectory() || d.name.startsWith('.') || d.name.startsWith('_')) continue;
+      if (d.name === 'node_modules') continue;
+      const name = rel ? `${rel}/${d.name}` : d.name;
+      const dir = join(base, name);
+      if (!existsSync(join(dir, 'manifest.json'))) {
+        if (depth < 4) await walk(name, depth + 1);
+        continue;
+      }
+      if (listed.has(name) || !existsSync(join(dir, DIR_SIGNATURE_FILE))) continue;
+      try {
+        // Listed only when its signature holds, so the name, version and
+        // permissions shown (and the version revocation is checked against)
+        // are the ones the operator signed. The load verifies it again.
+        if (!(await verifyExtensionDir(name, dir))) continue;
+        const m = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'));
+        if (m?.name !== name) continue;
+        out.push({
+          name,
+          displayName: typeof m.displayName === 'string' ? m.displayName : name,
+          description: typeof m.description === 'string' ? m.description : '',
+          category: typeof m.category === 'string' ? m.category : 'custom',
+          version: typeof m.version === 'string' ? m.version : '0.0.0',
+          author: typeof m.author === 'string' ? m.author : '',
+          tags: [],
+          permissions: Array.isArray(m.permissions) ? m.permissions : [],
+          is_official: false,
+        });
+      } catch (err) {
+        console.warn(`[marketplace] ${name} not listed: ${(err as Error).message}`);
+      }
+    }
+  };
+  await walk('', 1);
+  return out;
+}
+
 export function registerMarketplaceRoutes(
   self: ExtensionLoader,
   app: Hono,
@@ -92,7 +151,13 @@ export function registerMarketplaceRoutes(
     fetchRegistryChangelog?: typeof fetchRegistryChangelog;
   } = { fetchRegistryCatalog, downloadExtension },
 ): void {
-  const { fetchRegistryCatalog: fetchCatalog, downloadExtension: doDownload } = deps;
+  const { downloadExtension: doDownload } = deps;
+  // An operator's own extensions are in no catalogue; listed all the same (ADR 0056 d1).
+  const fetchCatalog: typeof fetchRegistryCatalog = async (...args) => {
+    const catalog = await deps.fetchRegistryCatalog(...args);
+    const listed = new Set(catalog.map((e) => e.name));
+    return [...catalog, ...(await operatorSignedEntries(resolveExtensionsBase(), listed))];
+  };
   const fetchChangelog = deps.fetchRegistryChangelog ?? fetchRegistryChangelog;
   const spendStepUp = deps.requireStepUp ?? requireStepUp;
   // Admin-only guard
@@ -420,6 +485,14 @@ export function registerMarketplaceRoutes(
       }
     };
 
+    // ADR 0056: a worker its crashes disabled is loaded but serves nothing; the list says why.
+    const { getWorkerHostIfInitialized } = await import('../worker-extension-host.js');
+    const crashDisabled = new Map(
+      (getWorkerHostIfInitialized()?.getHealth() ?? [])
+        .filter((h) => h.status === 'disabled')
+        .map((h) => [h.name, h.disabledReason ?? 'disabled after repeated crashes']),
+    );
+
     const extensions = catalog.map((entry) => {
       const dbEntry = dbMap.get(entry.name);
       const runtimeActive = self.isActive(entry.name);
@@ -470,7 +543,7 @@ export function registerMarketplaceRoutes(
         })(),
         is_installed: dbEntry?.is_installed ?? runtimeActive,
         is_enabled: dbEntry?.is_enabled ?? runtimeActive,
-        is_running: runtimeActive,
+        is_running: runtimeActive && !crashDisabled.has(entry.name),
         files_on_disk: filesOnDisk,
         installed_version,
         catalog_version: entry.version,
@@ -486,7 +559,11 @@ export function registerMarketplaceRoutes(
         enabled_at: dbEntry?.enabled_at ?? null,
         // Persisted load failure (null = clean). Lets the marketplace show a
         // red badge + reason for an enabled-but-not-running extension.
-        last_load_error: dbEntry?.last_load_error ?? self.lastLoadError.get(entry.name) ?? null,
+        last_load_error:
+          crashDisabled.get(entry.name) ??
+          dbEntry?.last_load_error ??
+          self.lastLoadError.get(entry.name) ??
+          null,
         last_load_at: dbEntry?.last_load_at ?? null,
         // Capability consent. `pending_capabilities` non-empty means the
         // extension asks for more than was approved and is running WITHOUT the

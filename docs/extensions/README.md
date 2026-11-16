@@ -186,8 +186,11 @@ and extra signers go in `REGISTRY_PUBLIC_KEYS_JSON`.
 
 **Your own extension, without the registry:** pack it, sign it with your key
 (`zveltio extension sign`), install it with `zveltio install <name> --path`, and
-list the key in the engine's `OPERATOR_PUBLIC_KEYS_JSON`. It loads at level 3:
-verified at every load, on the extension runner, never inline. Relabelling it
+list the key in the engine's `OPERATOR_PUBLIC_KEYS_JSON`, then enable it
+(`zveltio extensions enable <name>`; the marketplace lists it). It loads at
+level 3: verified at every load, on the extension runner, never inline, and
+declared model only — collections, actions, jobs, declared routes; no
+`register()` code, no `ctx.db`, no SQL migrations. Relabelling it
 `first-party` in a `catalog.json` override does not work. See
 [signatures.md](signatures.md#your-own-extensions-level-3).
 

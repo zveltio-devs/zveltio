@@ -721,7 +721,10 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
           '  Add `"isolation": "worker"` to the engine block in manifest.json, ' +
             'then re-pack. If you are a first-party publisher, pass ' +
             '--first-party or set ZVELTIO_REGISTRY_TOKEN so the tier can be confirmed. ' +
-            'See docs/extensions/marketplace-policy.md §2.',
+            'Your own extension for your own engine: keep "worker" and sign it with an ' +
+            'operator key (`zveltio extension sign`) to load it at level 3 — see ' +
+            'docs/extensions/signatures.md#your-own-extensions-level-3 and ' +
+            'docs/extensions/marketplace-policy.md §2.',
         ),
       );
       if (opts.silentExit) throw new Error('Validation failed: community inline isolation');

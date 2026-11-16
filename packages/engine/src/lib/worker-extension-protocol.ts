@@ -29,6 +29,16 @@ export interface InitRequest {
   type: 'init';
   id: WorkerMessageId;
   bundleUrl: string;
+  /**
+   * An operator-signed bundle's sha256 as its signature lists it (ADR 0056 d1):
+   * the worker imports the bytes it read only if they hash to this.
+   */
+  bundleSha256?: string;
+  /**
+   * Level 3 (ADR 0056 d1): declared model only. `register()` is handed an app and
+   * a ctx that refuse every use, so one that registers anything fails the load.
+   */
+  declaredOnly?: true;
   extName: string;
   // Constants the worker needs to render full responses. NEVER include
   // DATABASE_URL or other credentials here — that's the whole point.

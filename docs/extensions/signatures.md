@@ -30,15 +30,43 @@ zveltio extension pack --dir ./acme-invoices          # isolation: "worker", bun
 zveltio extension sign --dir ./acme-invoices --key-id my-org-2026
 zveltio install acme/invoices --path ./acme-invoices  # verifies, copies to EXTENSIONS_DIR
 zveltio keys export my-org-2026                       # → OPERATOR_PUBLIC_KEYS_JSON on the engine
+# restart the engine with that variable set, then, as the instance administrator:
+zveltio extensions enable acme/invoices               # needs a second factor (step-up)
 ```
+
+The marketplace lists every directory in `EXTENSIONS_DIR` that carries a
+`signature.json` (from its manifest; the signature itself is checked when it
+loads), so it is enabled like any other extension: `zveltio extensions enable`,
+Studio's marketplace, or `POST /api/marketplace/<name>/enable` with a step-up
+token. Enabling it is what makes it act for the tenants; a name listed only in
+`ZVELTIO_EXTENSIONS` is loaded but active for none. Its actions and collections
+then follow the engine's grants: by default `tenant_member` holds them, and a
+new account has only `member` until it is given that role
+(`POST /api/permissions/roles`) or another that holds the grants.
+
+**Declared model only.** A level-3 extension has collections (declared in
+`schema/collections/`), actions, jobs and declared routes (ADR 0039), and
+nothing else (ADR 0056 d1):
+
+- its `register()` is handed an app and a `ctx` that refuse every use: a
+  `register()` that adds a route, reads `ctx.db` or touches any other `ctx`
+  member fails the load, naming the member. Keep it `async register() {}`;
+- the engine refuses, at the call, everything a `register()` ctx would send it
+  (`ctx.db`, `ctx.services`, `ctx.events`, `checkPermission`, …), whatever the
+  extension's process sends, and serves only its declared routes;
+- `engine/migrations/*.sql` is refused at load: declare the collections;
+- its jobs are default-exported from `engine/jobs.ts`, as every worker-isolated
+  extension's ([authoring](authoring.md#actions-and-jobs--extension-api-v1)).
 
 - **What is signed.** `signature.json` at the directory's root is the envelope
   above plus `"tier": "private"`. Its `bundleSha256` is the sha256 of a listing
   of the directory: a `zveltio-extension-dir/1` header, the name the engine
   loads it as, the tier, then `<sha256> <path>` for every regular file but
   `signature.json`, sorted. A symbolic link is refused.
-- **Verified at every load**, not once at install, against
-  `OPERATOR_PUBLIC_KEYS_JSON` only. A byte changed, a file added or removed, the
+- **Verified at every load**, not once at install, and again before every
+  respawn of its process, against
+  `OPERATOR_PUBLIC_KEYS_JSON` only. The process imports only the bundle bytes
+  that hash to what the signature lists. A byte changed, a file added or removed, the
   directory renamed, or the tier rewritten after signing: the load is refused.
   A key the list does not name is refused too: a signed directory is never
   loaded as if it were unsigned.
@@ -51,7 +79,9 @@ zveltio keys export my-org-2026                       # → OPERATOR_PUBLIC_KEYS
   about it name the key: `[ext:acme/invoices key=my-org-2026]`.
 - **Not a catalogue entry.** Listing your extension in a `catalog.json`
   override does not make it first-party: only the bundled catalogue and the
-  registry name first-party extensions.
+  registry name first-party extensions. Nor does it need one to be listed.
+- **Not published.** `zveltio extension publish` leaves the root
+  `signature.json` out of the archive: the registry signs what it serves.
 
 The two key lists stay apart: a key in `REGISTRY_PUBLIC_KEYS_JSON` verifies
 registry archives and is never consulted for a directory, and a key in

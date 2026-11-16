@@ -229,6 +229,7 @@ d('a worker-isolated extension fails alone (ADR 0056 s2)', () => {
     await sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${CRASHY})`.execute(db);
     await sql`DELETE FROM zvd_permissions WHERE v2 = ${RES}`.execute(db);
     await asEveryTenant(db, sql`DELETE FROM zv_audit_log WHERE resource_id LIKE ${`${EXT}:%`}`);
+    await asEveryTenant(db, sql`DELETE FROM zv_audit_log WHERE resource_id = ${CRASHY}`);
     await asDefaultTenant(db, sql`DELETE FROM zv_revisions WHERE collection = ${C}`);
     await dropTestCollection(db, C);
   });
@@ -394,6 +395,21 @@ d('a worker-isolated extension fails alone (ADR 0056 s2)', () => {
       expect(detail.failed.find((f) => f.name === CRASHY)?.error).toContain(
         'disabled after 5 crashes',
       );
+      // Kept as an audit row, unlike the in-memory disable (ADR 0056, amendment §1).
+      let audit: { metadata: { reason?: string; actor?: string } } | undefined;
+      for (let i = 0; i < 40 && !audit; i++) {
+        audit = (
+          await asEveryTenant(
+            db,
+            sql<{ metadata: { reason?: string; actor?: string } }>`
+              SELECT metadata FROM zv_audit_log
+              WHERE event_type = 'extension.crash_disabled' AND resource_id = ${CRASHY}`,
+          )
+        ).rows[0];
+        if (!audit) await Bun.sleep(50);
+      }
+      expect(audit?.metadata.actor).toBe('system');
+      expect(audit?.metadata.reason).toContain('disabled after 5 crashes');
       expect(
         errors.mock.calls.some(
           (c) =>

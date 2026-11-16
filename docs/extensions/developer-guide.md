@@ -1445,9 +1445,9 @@ Set in manifest: omit `engine.isolation` (default is `inline`).
 
 ### Tier 2 — `worker` (opt-in, since alpha.121)
 
-The extension runs in a separate `Bun.Worker` thread. V8 heap is
-isolated; the host postMessage-forwards each route invocation and
-proxies SQL queries through its own pool.
+The extension runs in a process of its own — on the extension runner in
+production, a child of the engine elsewhere. The host forwards each route
+invocation over a channel and runs its SQL through its own pool.
 
 - **Performance:** ★★★★ — +0.5–2 ms per route hit (one IPC hop),
   +5–20 ms per chatty DB workload (one IPC hop per query)
@@ -1455,9 +1455,9 @@ proxies SQL queries through its own pool.
   doesn't take the engine down. alpha.122 added auto-respawn with
   exponential backoff + heartbeat-based hang detection; five crashes in ten
   minutes disable it (ADR 0056)
-- **Memory isolation:** ⚠️ partial — separate V8 isolate, **shared
-  OS process**. RSS is not measurable per-extension. There are NO
-  per-extension memory limits.
+- **Memory isolation:** ⚠️ partial — a separate process, bounded by the
+  runner's limits (`RLIMIT_AS` caps virtual memory, not RSS; the cgroup is what
+  protects the engine). The engine does not measure its RSS.
 - **DB credentials:** ✅ — worker never sees `DATABASE_URL`. Every
   query crosses the IPC boundary; the host gatekeeps execution
 - **The same `ctx`:** `db` (Kysely, plus the raw `db.query()`), `auth`,
@@ -1508,8 +1508,12 @@ proxies SQL queries through its own pool.
     engine) once it is fixed. A call whose worker died under it answers
     `503 extension.unavailable`.
   - *Logs.* Every error, timeout, refusal past the limit and crash is logged as
-    `[ext:<name> key=<signing key id>]`; the key id reads `absent` until
-    signatures carry the tier (ADR 0056 slice 3).
+    `[ext:<name> key=<signing key id>]`: the operator key its signature verified
+    against, `absent` for an unsigned one.
+  - *Record.* The disable writes an `extension.crash_disabled` audit row, and
+    the marketplace list (`GET /api/marketplace`, `zveltio extensions list`)
+    shows it not running, with the reason as its `last_load_error`. It is not
+    kept as disabled: a restart starts it again.
 - **Limitations:** no streaming responses (body buffered as text),
   worker-published services routed via the host registry bridge
 - **Use for:** third-party / community extensions where the

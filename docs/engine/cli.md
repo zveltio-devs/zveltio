@@ -210,7 +210,10 @@ a single segment, and must match the one given. The directory must be signed
 (`zveltio extension sign`); the signature is verified before the copy and again
 on the copy, against `OPERATOR_PUBLIC_KEYS_JSON` when this shell has it, else
 your own key in `~/.zveltio/keys`. The engine verifies it once more at every
-load, against its own `OPERATOR_PUBLIC_KEYS_JSON`.
+load, against its own `OPERATOR_PUBLIC_KEYS_JSON`. Then enable it with
+`zveltio extensions enable <name>`: the marketplace lists a signed directory in
+`EXTENSIONS_DIR` though no catalogue names it, and listing it in
+`ZVELTIO_EXTENSIONS` instead loads it active for no tenant.
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -342,7 +345,10 @@ zveltio keys export my-org-2026   # the entry for the engine's OPERATOR_PUBLIC_K
 ```
 
 It writes `signature.json` at the directory's root: an Ed25519 signature over
-every file in the directory, its name and the tier `private`. See
+every file in the directory, its name and the tier `private`. A level-3
+extension is declared model only: its `register()` may use neither its app nor
+its `ctx`, and `engine/migrations/*.sql` is refused. `extension publish` leaves
+the root `signature.json` out of its archive. See
 [signatures](../extensions/signatures.md#your-own-extensions-level-3).
 
 ---
