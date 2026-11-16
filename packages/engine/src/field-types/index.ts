@@ -13,6 +13,30 @@ function isPasswordHash(v: string): boolean {
   return /^\$(argon2(i|d|id)|2[aby]?|scrypt)\$/.test(v);
 }
 
+/**
+ * A numeric value as Postgres should receive it. `Number()` rounds an integer
+ * past 2^53 and a decimal past 15 significant digits, so a decimal string that
+ * would lose digits is passed through untouched for Postgres to parse exactly.
+ * Every other value keeps the number coercion, so validation rules still
+ * compare numbers.
+ */
+function exactNumber(v: unknown, integer: boolean): unknown {
+  if (v === '' || v === null || v === undefined) return null;
+  if (typeof v === 'string') {
+    const t = v.trim();
+    if (integer ? /^-?\d+$/.test(t) : /^-?\d+(\.\d+)?$/.test(t)) {
+      const significant = t
+        .replace(/^-/, '')
+        .replace('.', '')
+        .replace(/^0+/, '')
+        .replace(/0+$/, '');
+      const exact = integer ? Number.isSafeInteger(Number(t)) : significant.length <= 15;
+      return exact ? Number(t) : t;
+    }
+  }
+  return integer ? Math.trunc(Number(v)) : Number(v);
+}
+
 export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
   registry.register({
     type: 'text',
@@ -58,7 +82,7 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
         'is_null',
         'is_not_null',
       ],
-      deserialize: (v) => (v === '' || v === null || v === undefined ? null : Number(v)),
+      deserialize: (v) => exactNumber(v, false),
       validate: (v) => {
         if (v !== null && v !== undefined && v !== '' && Number.isNaN(Number(v)))
           return 'Must be a number';
@@ -322,8 +346,7 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
         'is_null',
         'is_not_null',
       ],
-      deserialize: (v) =>
-        v === '' || v === null || v === undefined ? null : Math.trunc(Number(v)),
+      deserialize: (v) => exactNumber(v, true),
       validate: (v) => {
         if (
           v !== null &&
@@ -649,7 +672,7 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
     db: { columnType: 'numeric' },
     api: {
       filterOperators: ['eq', 'neq', 'lt', 'lte', 'gt', 'gte', 'is_null', 'is_not_null'],
-      deserialize: (v) => (v === '' || v === null || v === undefined ? null : Number(v)),
+      deserialize: (v) => exactNumber(v, false),
     },
     typescript: { inputType: 'number', outputType: 'number' },
   });
