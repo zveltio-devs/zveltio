@@ -20,6 +20,6 @@ it, and working on it.
 | [troubleshooting.md](troubleshooting.md) | Something is broken and you want the common causes first |
 
 Reference material also in this chapter: [benchmarks](benchmarks.md),
-[versioning](versioning.md), [horizontal scaling](horizontal-scaling.md),
+[versioning](versioning.md), [HTTP API compatibility](api-compatibility.md), [horizontal scaling](horizontal-scaling.md),
 [graceful degradation](degradation.md), [monitoring](monitoring.md),
 [deployment](deployment.md), [Runtime support (Bun only)](nodejs-fallback.md).
