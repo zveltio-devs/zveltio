@@ -188,7 +188,7 @@ extension; the engine refuses an extension whose two lists differ.
 import { ActionRefusal, defineExtension, todayIn } from '@zveltio/sdk/extension';
 
 export default defineExtension(['data:write', 'data:system'], {
-  name: 'crm', category: 'business', register: async () => {},
+  name: 'crm', category: 'business', mountStrategy: 'subapp', register: async () => {},
   actions: {
     async markPaid(input, host) {
       const { id } = input as { id: string };

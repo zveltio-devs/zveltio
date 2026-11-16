@@ -139,6 +139,8 @@ package outside the extension. See docs/extensions/ui-model.md.`);
 export default defineExtension(['data:write'], {
   name: '${extName}',
   category: '${category}',
+  // Actions are served only on the extension's own sub-app.
+  mountStrategy: 'subapp',
 
   // Business logic is an action: \`POST /ext/${extName}/actions/markDone\`.
   // The engine checks the caller holds the manifest's \`permission\` and that
