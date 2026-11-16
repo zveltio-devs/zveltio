@@ -796,10 +796,14 @@ async function commitFieldEdit(collectionName: string, originalName: string) {
 
   editSaving = true;
   try {
-    const res = await api.patch<{ actions: string[] }>(
+    const answer = await api.patch<{ actions?: string[]; job_id?: string }>(
       `/api/collections/${collectionName}/fields/${originalName}`,
       body,
     );
+    // A retype is a job the engine runs (DR-36): its result is the same body.
+    const res = answer.job_id
+      ? await collectionsApi.waitForJob<{ actions: string[] }>(answer.job_id)
+      : answer;
     toast.success(
       m['erd.updated']({ actions: res.actions?.join(', ') ?? m['erd.fieldUpdated']() }),
     );

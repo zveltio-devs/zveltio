@@ -102,7 +102,32 @@ async function postSchema(
     }
     process.exit(1);
   }
-  return ((await res.json()) as { steps: Step[] }).steps;
+  const body = (await res.json()) as { steps: Step[]; job_id?: string };
+  // An apply with steps is a job the engine runs (DR-36): wait for what it ran.
+  return res.status === 202 && body.job_id ? waitForJob(engineUrl, body.job_id) : body.steps;
+}
+
+/** Polls a DDL job until it settles; its result's steps, or exit 1 with its error. */
+async function waitForJob(engineUrl: string, jobId: string): Promise<Step[]> {
+  for (;;) {
+    const res = await fetch(`${engineUrl}/api/collections/jobs/${jobId}`, {
+      headers: { Authorization: `Bearer ${process.env.ZVELTIO_API_KEY || ''}` },
+    });
+    if (!res.ok) {
+      console.error(`Schema apply job ${jobId}: ${res.status} ${res.statusText}`);
+      process.exit(1);
+    }
+    const { job } = (await res.json()) as {
+      job: { status: string; error: string | null; result: { steps: Step[] } | null };
+    };
+    if (job.status === 'completed') return job.result?.steps ?? [];
+    if (job.status === 'failed') {
+      // The steps before the one that failed stay applied; the next apply carries on.
+      console.error(`Schema apply failed: ${job.error ?? 'unknown error'}`);
+      process.exit(1);
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
 }
 
 function printSteps(steps: Step[]) {

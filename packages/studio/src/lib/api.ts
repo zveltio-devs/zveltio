@@ -264,6 +264,15 @@ export const collectionsApi = {
     ),
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   jobStatus: (jobId: string) => api.get<{ job: any }>(`/api/collections/jobs/${jobId}`),
+  /** Polls a schema job (a retype, DR-36) until it settles: its result, or its error thrown. */
+  waitForJob: async <T>(jobId: string): Promise<T> => {
+    for (;;) {
+      const { job } = await collectionsApi.jobStatus(jobId);
+      if (job.status === 'completed') return job.result as T;
+      if (job.status === 'failed') throw new Error(job.error ?? 'Schema change failed');
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  },
 };
 
 /**
