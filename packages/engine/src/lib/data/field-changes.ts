@@ -19,7 +19,7 @@ import {
 import { DDLManager, FIELD_RULE_TABLES, SYSTEM_COLUMNS } from './ddl-manager.js';
 import { writtenByNeedsOwner } from './written-by.js';
 import { announceSchemaChange } from './ddl-queue.js';
-import { keepsColumn, resolveConversion } from './field-type-conversions.js';
+import { type ConversionResult, keepsColumn, resolveConversion } from './field-type-conversions.js';
 import { applyColumnGuard } from './column-guard.js';
 import { dropMaskView, sealColumns } from './sealed-columns.js';
 import {
@@ -193,27 +193,28 @@ async function fieldsOf(
 /** The keys `alterField` changes with `DDLManager.setFieldKeys`, outside its transaction. */
 const KEY_CHANGES = ['defaultValue', 'unique', 'indexed'] as const;
 
+/** What `PATCH /api/collections/:name/fields/:field` asks of a field. */
+export type FieldChange = {
+  newName?: string;
+  newType?: string;
+  required?: boolean;
+  unique?: boolean;
+  indexed?: boolean;
+  defaultValue?: unknown;
+};
+
 /**
- * Changes a field's type (through `resolveConversion`), its `required` flag and
- * its name, in that order and in one transaction; then its default, unique key
- * and index, which build CONCURRENTLY and so cannot join it. A `defaultValue`
- * of null removes the field's own default (the type's, if any, applies).
+ * Every refusal of `alterField`, before it changes anything. The field route
+ * answers these itself before it queues a retype (DR-36), so a change the
+ * engine refuses is a 4xx, not a job that fails.
  */
-export async function alterField(
+export async function checkFieldChange(
   db: Database,
   name: string,
   fieldName: string,
-  change: {
-    newName?: string;
-    newType?: string;
-    required?: boolean;
-    unique?: boolean;
-    indexed?: boolean;
-    defaultValue?: unknown;
-  },
-  /** The extension whose apply this is (ADR 0012), when it is one. */
+  change: FieldChange,
   by?: string,
-): Promise<{ field: FieldDef; actions: string[] }> {
+) {
   const { newName, newType, required } = change;
   if (SYSTEM_COLUMNS.has(fieldName) || (newName && SYSTEM_COLUMNS.has(newName))) {
     throw new FieldChangeError('Cannot modify system fields', 400);
@@ -319,6 +320,36 @@ export async function alterField(
       );
     }
   }
+  // An unknown type, or a conversion the engine has none for: refused with the
+  // rest, not inside the transaction, so the route answers it before a job.
+  let conv: Extract<ConversionResult, { ok: true }> | undefined;
+  if (newType && newType !== fieldDef.type) {
+    const targetDef = fieldTypeRegistry.get(newType);
+    if (!targetDef) throw new FieldChangeError(`Unknown field type: "${newType}"`, 400);
+    const resolved = resolveConversion(fieldDef.type, newType, targetDef.db.columnType, fieldName);
+    if (!resolved.ok) throw new FieldChangeError(resolved.reason, 400);
+    conv = resolved;
+  }
+  return { fields, fieldDef, isRelation, intoSecret, keyChanges, wasRequired, tableName, conv };
+}
+
+/**
+ * Changes a field's type (through `resolveConversion`), its `required` flag and
+ * its name, in that order and in one transaction; then its default, unique key
+ * and index, which build CONCURRENTLY and so cannot join it. A `defaultValue`
+ * of null removes the field's own default (the type's, if any, applies).
+ */
+export async function alterField(
+  db: Database,
+  name: string,
+  fieldName: string,
+  change: FieldChange,
+  /** The extension whose apply this is (ADR 0012), when it is one. */
+  by?: string,
+): Promise<{ field: FieldDef; actions: string[] }> {
+  const { newName, newType, required } = change;
+  const { fields, fieldDef, isRelation, intoSecret, keyChanges, wasRequired, tableName, conv } =
+    await checkFieldChange(db, name, fieldName, change, by);
   const actions: string[] = [];
   let updatedFieldShape: FieldDef = { ...fieldDef };
 
@@ -338,24 +369,11 @@ export async function alterField(
     await dropMaskView(trx, tableName);
     // ── 1) Type change ────────────────────────────────────────────
     if (newType && newType !== fieldDef.type) {
-      if (!fieldTypeRegistry.has(newType)) {
-        // `return` here would be a return from THIS callback, captured by
-        // `.execute()`'s promise and discarded — not from the outer route
-        // handler. Throwing is what actually reaches the `catch` below and
-        // turns into an HTTP error instead of a silent no-op 200.
-        throw new Error(`Unknown field type: "${newType}"`);
-      }
-      const targetDef = fieldTypeRegistry.get(newType)!;
-      const targetSqlType = targetDef.db.columnType;
-      const conv = resolveConversion(fieldDef.type, newType, targetSqlType, fieldName);
-      if (!conv.ok) {
-        throw new Error(conv.reason);
-      }
       // Within a group that stores the same thing (`textarea` → `richtext`,
       // `json` → `file`): the column and its values stay, and nothing rewrites
       // the table. Into or out of `password`, `secret` or `computed` it never is.
       if (!keepsColumn(fieldDef.type, newType)) {
-        await dynamicChangeColumnType(trx, tableName, fieldName, conv.sqlType, conv.using);
+        await dynamicChangeColumnType(trx, tableName, fieldName, conv!.sqlType, conv!.using);
       }
       updatedFieldShape = { ...updatedFieldShape, type: newType };
       if (intoSecret) {

@@ -16,6 +16,7 @@ import {
   dropTestCollection,
   getTestApp,
   harnessAvailable,
+  jobOutcome,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -100,7 +101,7 @@ d('a relation change reaches its foreign key', () => {
     const applied = await call('POST', '/api/admin/schema/apply', {
       files: await withFiles(parentFile, childFile('CASCADE')),
     });
-    expect(applied.status).toBe(200);
+    expect(await jobOutcome(app, applied, { cookie })).toBe('completed');
     relId = (
       await sql<{ id: string }>`SELECT id FROM zvd_relations WHERE name = ${REL}`.execute(db)
     ).rows[0].id;
@@ -185,7 +186,9 @@ d('a relation change reaches its foreign key', () => {
   it('a file changing onDelete re-creates the key, and the plan after it is empty', async () => {
     const files = await withFiles(parentFile, childFile('CASCADE'));
     expect(await plan(files)).toEqual([`~ ${CHILD} alter relation ${REL}`]);
-    expect((await call('POST', '/api/admin/schema/apply', { files })).status).toBe(200);
+    expect(
+      await jobOutcome(app, await call('POST', '/api/admin/schema/apply', { files }), { cookie }),
+    ).toBe('completed');
     expect(await fk('project_id')).toEqual([
       `FOREIGN KEY (project_id) REFERENCES zvd_${PARENT}(id) ON UPDATE CASCADE ON DELETE CASCADE`,
     ]);
@@ -211,7 +214,9 @@ d('a relation change reaches its foreign key', () => {
       .execute(db);
     const files = await withFiles(parentFile, childFile('CASCADE'));
     expect(await plan(files)).toEqual([`~ ${CHILD} alter relation ${REL}`]);
-    expect((await call('POST', '/api/admin/schema/apply', { files })).status).toBe(200);
+    expect(
+      await jobOutcome(app, await call('POST', '/api/admin/schema/apply', { files }), { cookie }),
+    ).toBe('completed');
     expect((await fk('project_id'))[0]).toContain('ON DELETE CASCADE');
     expect(await plan(await withFiles(parentFile, childFile('CASCADE')))).toEqual([]);
   }, 60_000);
@@ -224,7 +229,7 @@ d('a relation change reaches its foreign key', () => {
     for (const file of [strict, childFile('CASCADE')]) {
       const files = await withFiles(parentFile, file);
       const res = await call('POST', '/api/admin/schema/apply', { files });
-      expect(res.status).toBe(200);
+      expect(await jobOutcome(app, res, { cookie })).toBe('completed');
       expect(await plan(await withFiles(parentFile, file))).toEqual([]);
     }
     expect((await fk('lead_id'))[0]).toContain('ON DELETE SET NULL');

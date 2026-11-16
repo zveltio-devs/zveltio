@@ -16,6 +16,7 @@ import {
   dropTestCollection,
   getTestApp,
   harnessAvailable,
+  jobOutcome,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -100,7 +101,7 @@ d('schema apply migrations', () => {
       ]),
     };
     const res = await call('apply', files);
-    expect(res.status).toBe(200);
+    expect(await jobOutcome(app, res, { cookie })).toBe('completed');
     const rows = await asDefaultTenant(
       db,
       sql<{
@@ -140,7 +141,7 @@ d('schema apply migrations', () => {
     expect(((await refused.json()) as { detail: string }).detail).toContain('--allow-destructive');
     expect(await columns()).toContain('note');
 
-    expect((await call('apply', files, true)).status).toBe(200);
+    expect(await jobOutcome(app, await call('apply', files, true), { cookie })).toBe('completed');
     expect(await columns()).not.toContain('note');
   });
 
@@ -182,7 +183,7 @@ d('schema apply migrations', () => {
       'roles.json': serialize(roles),
       ...migration('20261005T120000-drop-role', [{ op: 'dropRole', role: ROLE }]),
     };
-    expect((await call('apply', dropped, true)).status).toBe(200);
+    expect(await jobOutcome(app, await call('apply', dropped, true), { cookie })).toBe('completed');
     const left = await sql`SELECT 1 FROM zv_roles WHERE name = ${ROLE}`.execute(db);
     expect(left.rows).toEqual([]);
 

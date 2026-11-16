@@ -57,6 +57,8 @@ const PAYLOADS: Record<string, unknown> = {
   'ddl.build_index': {
     ddl: 'CREATE INDEX CONCURRENTLY IF NOT EXISTS zvd_outside_req_note ON zvd_outside_req (note)',
   },
+  'ddl.alter_field': { collection: 'outside_req', field: 'note', change: { newType: 'textarea' } },
+  'ddl.apply_schema': { files: {}, allowDestructive: false },
 };
 
 describe('DDL queue jobs run outside any request', () => {

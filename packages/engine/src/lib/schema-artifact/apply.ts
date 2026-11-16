@@ -812,6 +812,43 @@ export async function planExtensionSchema(
 }
 
 /**
+ * The plan `applySchema` would run, every op checked, changing nothing. Throws
+ * what `applySchema` throws before its first change. The route answers these
+ * itself before it queues the apply (DR-36); the job checks again under the lock.
+ */
+export async function checkSchemaApply(
+  db: Database,
+  files: Record<string, unknown>,
+  opts: { allowDestructive?: boolean } = {},
+): Promise<PlanStep[]> {
+  return (await checkedPlan(db, files, opts)).steps;
+}
+
+async function checkedPlan(
+  db: Database,
+  files: Record<string, unknown>,
+  opts: { allowDestructive?: boolean; owner?: string },
+): Promise<{ steps: PlanStep[]; ops: Prepared[] }> {
+  const { owner } = opts;
+  const steps = owner
+    ? await planExtensionSchema(db, owner, files)
+    : await planInstanceSchema(db, files);
+  const refused = steps.filter((s) => !s.op);
+  if (refused.length) throw new SchemaApplyRefused(refused);
+  // Every destructive step left has an op, so it comes from a migration
+  // (RFC §6): a drop in the state diff alone has none and was refused above.
+  const destructive = steps.filter((s) => s.destructive);
+  if (destructive.length && !opts.allowDestructive) {
+    throw new SchemaApplyRefused(destructive, 'destructive steps need --allow-destructive');
+  }
+  const ops: Prepared[] = [];
+  for (const step of steps) {
+    ops.push(await prepare(db, step, step.op as ApplyOp, owner));
+  }
+  return { steps, ops };
+}
+
+/**
  * Makes the instance match `files` and returns the steps it ran. Throws
  * `SchemaFileError` for a malformed or invalid file and `SchemaApplyRefused`
  * for a plan with a step it cannot run; in either case nothing is changed.
@@ -824,22 +861,7 @@ export async function applySchema(
 ): Promise<PlanStep[]> {
   const { owner } = opts;
   return withAdvisoryLock(db, 'zveltio:schema-apply', async () => {
-    const steps = owner
-      ? await planExtensionSchema(db, owner, files)
-      : await planInstanceSchema(db, files);
-    const refused = steps.filter((s) => !s.op);
-    if (refused.length) throw new SchemaApplyRefused(refused);
-    // Every destructive step left has an op, so it comes from a migration
-    // (RFC §6): a drop in the state diff alone has none and was refused above.
-    const destructive = steps.filter((s) => s.destructive);
-    if (destructive.length && !opts.allowDestructive) {
-      throw new SchemaApplyRefused(destructive, 'destructive steps need --allow-destructive');
-    }
-
-    const ops: Prepared[] = [];
-    for (const step of steps) {
-      ops.push(await prepare(db, step, step.op as ApplyOp, owner));
-    }
+    const { steps, ops } = await checkedPlan(db, files, opts);
     // Not one transaction: CREATE INDEX CONCURRENTLY refuses a transaction
     // block. A step that fails leaves the ones before it applied; the next
     // apply plans from what is there and carries on from that step.

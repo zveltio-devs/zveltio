@@ -20,6 +20,7 @@ import {
   dropTestCollection,
   getTestApp,
   harnessAvailable,
+  jobOutcome,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -149,7 +150,7 @@ d('schema as code acceptance', () => {
       headers: { cookie, 'content-type': 'application/json' },
       body: JSON.stringify({ files }),
     });
-    expect(res.status).toBe(200);
+    expect(await jobOutcome(app, res, { cookie })).toBe('completed');
 
     expect(await snapshot()).toBe(before);
     const again = await pull();

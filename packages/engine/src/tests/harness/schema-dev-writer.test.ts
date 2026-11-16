@@ -21,6 +21,7 @@ import {
   dropTestCollection,
   getTestApp,
   harnessAvailable,
+  jobOutcome,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -103,7 +104,8 @@ d('schema dev writer', () => {
       new_name: 'amount',
       new_type: 'integer',
     });
-    expect(res.status).toBe(200);
+    expect(await jobOutcome(app, res, { cookie })).toBe('completed');
+    await schemaWriteSettled();
     const probe = JSON.parse(files()[`collections/${COL}.json`]);
     expect(probe.fields.map((f: { name: string }) => f.name)).toEqual(['title', 'amount', 'note']);
     expect(lastOps()).toEqual([

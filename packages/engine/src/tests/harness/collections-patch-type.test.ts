@@ -12,6 +12,7 @@ import {
   createGodSession,
   getTestApp,
   harnessAvailable,
+  jobOutcome,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -50,7 +51,21 @@ d('collections field type change (in-process)', () => {
       headers: { 'Content-Type': 'application/json', cookie },
       body: JSON.stringify({ new_type: 'email' }),
     });
-    expect([200, 202]).toContain(res.status);
+    // DR-36: a retype can rewrite the table, so it is a job to poll, whose
+    // result is the body the route answered when it ran in the request.
+    expect(res.status).toBe(202);
+    const { job_id } = (await res.json()) as { job_id: string };
+    const job = await app.request(`/api/collections/jobs/${job_id}`, { headers: { cookie } });
+    expect(((await job.json()) as { job: unknown }).job).toMatchObject({
+      type: 'alter_field',
+      status: 'completed',
+      error: null,
+      result: {
+        success: true,
+        field: { name: 'contact', type: 'email' },
+        actions: ['type text→email'],
+      },
+    });
 
     const row = await DDLManager.getCollection(db, COLLECTION);
     const fields = typeof row?.fields === 'string' ? JSON.parse(row.fields) : (row?.fields ?? []);
@@ -97,5 +112,31 @@ d('collections field type change (in-process)', () => {
     const row = await DDLManager.getCollection(db, COLLECTION);
     const fields = typeof row?.fields === 'string' ? JSON.parse(row.fields) : (row?.fields ?? []);
     expect(fields.find((f: { name: string }) => f.name === 'contact')?.type).toBe('email');
+  });
+
+  it('a retype the rows refuse fails its job with the reason and changes nothing', async () => {
+    await asDefaultTenant(
+      db,
+      sql`INSERT INTO ${sql.id(`zvd_${COLLECTION}`)} (contact) VALUES ('not a number')`,
+    );
+    const res = await app.request(`/api/collections/${COLLECTION}/fields/contact`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ new_type: 'integer' }),
+    });
+    expect(await jobOutcome(app, res, { cookie })).toContain('failed: ');
+    const row = await DDLManager.getCollection(db, COLLECTION);
+    const fields = typeof row?.fields === 'string' ? JSON.parse(row.fields) : (row?.fields ?? []);
+    expect(fields.find((f: { name: string }) => f.name === 'contact')?.type).toBe('email');
+  });
+
+  it('a change that is no retype still answers 200 with its result', async () => {
+    const res = await app.request(`/api/collections/${COLLECTION}/fields/contact`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify({ indexed: true }),
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { actions: string[] }).actions).toEqual(['indexed→true']);
   });
 });

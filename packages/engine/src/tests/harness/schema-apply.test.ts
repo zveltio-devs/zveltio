@@ -18,6 +18,7 @@ import {
   dropTestCollection,
   getTestApp,
   harnessAvailable,
+  jobOutcome,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -38,6 +39,9 @@ d('schema apply', () => {
       headers: { cookie, 'content-type': 'application/json' },
       body: JSON.stringify({ files }),
     });
+
+  /** An apply with steps is a job (DR-36): how it ended. */
+  const applied = async (files: unknown) => jobOutcome(app, await call('apply', files), { cookie });
 
   const pull = async () => {
     const res = await app.request('/api/admin/schema/export', { headers: { cookie } });
@@ -100,7 +104,7 @@ d('schema apply', () => {
     };
 
     const res = await call('apply', edited);
-    expect(res.status).toBe(200);
+    expect(await jobOutcome(app, res, { cookie })).toBe('completed');
     const { steps } = (await res.json()) as { steps: { action: string }[] };
     expect(steps.map((s) => s.action)).toEqual([
       'create collection (1 fields)',
@@ -133,7 +137,7 @@ d('schema apply', () => {
     const edited = { ...files, [path]: serialize(probe), 'roles.json': serialize(roles) };
 
     const res = await call('apply', edited);
-    expect(res.status).toBe(200);
+    expect(await jobOutcome(app, res, { cookie })).toBe('completed');
     expect(await pull()).toEqual(edited);
 
     // Change each entry in place, then take every one away again.
@@ -141,14 +145,14 @@ d('schema apply', () => {
     probe.validation[0].message = 'Way too long';
     probe.columnPermissions[0].write = true;
     const altered = { ...edited, [path]: serialize(probe) };
-    expect((await call('apply', altered)).status).toBe(200);
+    expect(await applied(altered)).toBe('completed');
     expect(await pull()).toEqual(altered);
 
     probe.rowRules = [];
     probe.columnPermissions = [];
     probe.validation = [];
     const removed = { ...altered, [path]: serialize(probe) };
-    expect((await call('apply', removed)).status).toBe(200);
+    expect(await applied(removed)).toBe('completed');
     expect(await pull()).toEqual(removed);
   });
 
@@ -165,12 +169,12 @@ d('schema apply', () => {
     expect(role.permissions).toEqual([{ resource: EXISTING, actions: ['delete', 'read'] }]);
     role.permissions = [{ resource: EXISTING, actions: ['read'] }];
     const edited = { ...files, 'roles.json': serialize(roles) };
-    expect((await call('apply', edited)).status).toBe(200);
+    expect(await applied(edited)).toBe('completed');
     expect(await pull()).toEqual(edited);
 
     await sql`DELETE FROM zvd_permissions
               WHERE v0 = ${ROLE} AND v2 = ${EXISTING} AND v3 = 'read'`.execute(db);
-    expect((await call('apply', edited)).status).toBe(200);
+    expect(await applied(edited)).toBe('completed');
     expect(await pull()).toEqual(edited);
   });
 
@@ -182,7 +186,7 @@ d('schema apply', () => {
     title.required = true;
     title.label = 'Title';
     const edited = { ...files, [path]: serialize(probe) };
-    expect((await call('apply', edited)).status).toBe(200);
+    expect(await applied(edited)).toBe('completed');
     expect(await pull()).toEqual(edited);
     const notNull = await asDefaultTenant(
       db,
@@ -227,7 +231,7 @@ d('schema apply', () => {
     title.indexed = true;
     title.defaultValue = 'untitled';
     const edited = { ...files, [path]: serialize(probe) };
-    expect((await call('apply', edited)).status).toBe(200);
+    expect(await applied(edited)).toBe('completed');
     expect(await pull()).toEqual(edited);
     const on = await keys();
     expect(on).toContain('UNIQUE (tenant_id, title)');
@@ -240,7 +244,7 @@ d('schema apply', () => {
     delete title.indexed;
     delete title.defaultValue;
     const back = { ...files, [path]: serialize(probe) };
-    expect((await call('apply', back)).status).toBe(200);
+    expect(await applied(back)).toBe('completed');
     expect(await pull()).toEqual(back);
     expect(await keys()).toEqual(before);
   });
@@ -250,9 +254,11 @@ d('schema apply', () => {
     const path = `collections/${EXISTING}.json`;
     const probe = JSON.parse(files[path]);
     probe.rowRules = [{ role: ROLE, field: 'title', op: 'eq', value: 'nonsense' }];
-    const res = await call('apply', { ...files, [path]: serialize(probe) });
-    expect(res.status).toBe(400);
-    expect(((await res.json()) as { detail: string }).detail).toContain('row rule');
+    // Checked while the apply runs, against the columns the steps before it
+    // made: the job fails with the reason.
+    expect(await applied({ ...files, [path]: serialize(probe) })).toContain(
+      'failed: schema_apply_probe row rule',
+    );
   });
 
   it('vets custom and transition expressions as the validation rules API does', async () => {
@@ -268,9 +274,11 @@ d('schema apply', () => {
     expect(custom.status).toBe(400);
     expect(((await custom.json()) as { detail: string }).detail).toContain('the expression');
     expect((await withRule('transition', 'value == (')).status).toBe(400);
-    expect((await withRule('transition', 'value == previous')).status).toBe(200);
+    expect(
+      await jobOutcome(app, await withRule('transition', 'value == previous'), { cookie }),
+    ).toBe('completed');
     probe.validation = [];
-    expect((await call('apply', { ...files, [path]: serialize(probe) })).status).toBe(200);
+    expect(await applied({ ...files, [path]: serialize(probe) })).toBe('completed');
   });
 
   it('refuses a plan with a step it cannot run yet, and changes nothing', async () => {
@@ -318,6 +326,31 @@ d('schema apply', () => {
         'outside the schema files',
       );
     }
+  });
+
+  // DR-36: an apply runs for as long as its steps take, so it is a job. The
+  // answer is the plan and a job to poll; the job's result is the steps it ran.
+  it('answers 202 with the plan and a job whose result is the steps it ran', async () => {
+    const files = await pull();
+    const path = `collections/${EXISTING}.json`;
+    const probe = JSON.parse(files[path]);
+    probe.fields.push({ name: 'by_job', type: 'text' });
+    const res = await call('apply', { ...files, [path]: serialize(probe) });
+    expect(res.status).toBe(202);
+    const body = (await res.json()) as { job_id: string; steps: { action: string }[] };
+    expect(body.steps.map((s) => s.action)).toEqual(['add field by_job (text)']);
+    const job = await app.request(`/api/collections/jobs/${body.job_id}`, { headers: { cookie } });
+    expect(((await job.json()) as { job: unknown }).job).toMatchObject({
+      type: 'apply_schema',
+      status: 'completed',
+      error: null,
+      result: { steps: [{ action: 'add field by_job (text)' }] },
+    });
+    expect(await columns(`zvd_${EXISTING}`)).toContain('by_job');
+    // Nothing left to do is no job.
+    const again = await call('apply', { ...files, [path]: serialize(probe) });
+    expect(again.status).toBe(200);
+    expect(((await again.json()) as { steps: unknown[] }).steps).toEqual([]);
   });
 
   it('is refused without an instance admin', async () => {
