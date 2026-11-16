@@ -697,7 +697,7 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
   registry.register({
     type: 'varchar',
     label: 'Varchar',
-    description: 'Variable-length string with an optional max length constraint.',
+    description: 'Variable-length string with no length limit (`character varying`).',
     category: 'text',
     db: { columnType: 'character varying' },
     api: {
@@ -717,8 +717,9 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
 
   registry.register({
     type: 'char',
-    label: 'Char (fixed)',
-    description: 'Fixed-length character string, blank-padded to the declared length.',
+    label: 'Char (1)',
+    description:
+      'Exactly one character (`character`, which is `char(1)`); a longer value answers 422.',
     category: 'text',
     db: { columnType: 'character' },
     api: {
@@ -854,7 +855,7 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
   registry.register({
     type: 'bit',
     label: 'Bit String',
-    description: 'Fixed-length sequence of bits (e.g. bit(8) for flags byte).',
+    description: 'A single bit (`bit`, which is `bit(1)`); use varbit for longer strings.',
     category: 'advanced',
     db: { columnType: 'bit' },
     api: {
