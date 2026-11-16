@@ -448,7 +448,7 @@ function quoteIdentifierIfNeeded(name: string): string {
  */
 export const CORE_FIELD_TS_TYPES: Readonly<Record<string, string>> = {
   text: 'string',
-  number: 'number',
+  number: 'number | string',
   boolean: 'boolean',
   date: 'string',
   datetime: 'string',
@@ -463,7 +463,7 @@ export const CORE_FIELD_TS_TYPES: Readonly<Record<string, string>> = {
   m2o: 'string',
   location: '{ lat: number; lng: number }',
   computed: 'never',
-  integer: 'number',
+  integer: 'number | string',
   float: 'number',
   textarea: 'string',
   password: 'string',
@@ -481,7 +481,7 @@ export const CORE_FIELD_TS_TYPES: Readonly<Record<string, string>> = {
   vector: 'number[]',
   smallint: 'number',
   real: 'number',
-  decimal: 'number',
+  decimal: 'number | string',
   money: 'string',
   varchar: 'string',
   char: 'string',
