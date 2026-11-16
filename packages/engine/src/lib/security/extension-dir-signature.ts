@@ -15,7 +15,7 @@
  * signing changes the digest. A symbolic link is refused: what it points to is
  * outside what was signed. The CLI builds the same listing
  * (`packages/cli/src/commands/extension-sign.ts`); the two are held together by
- * `tests/harness/ext-operator-signed.test.ts`, which signs with the built CLI.
+ * `tests/harness/ext-operator-signed.test.ts`, which signs with the CLI.
  *
  * Verified at every load, against the operator's key list only: a key there
  * confers level 3 and never more. An unknown key is a refusal, not a fallback.

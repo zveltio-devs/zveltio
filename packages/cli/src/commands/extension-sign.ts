@@ -6,7 +6,7 @@
  *
  * What is signed is the listing below, byte for byte the engine's
  * (`packages/engine/src/lib/security/extension-dir-signature.ts`; the engine's
- * `ext-operator-signed` harness test signs with this built CLI to hold the two
+ * `ext-operator-signed` harness test signs with this CLI to hold the two
  * together):
  *
  *     zveltio-extension-dir/1
