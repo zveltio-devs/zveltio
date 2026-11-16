@@ -245,6 +245,10 @@ export default defineExtension(['data:write', 'data:system'], {
   the audit row. Each `host` member is a call the engine answers with the host
   it built for that run; an `ActionRefusal` answers its status and code.
   Engines after 3.0.0-beta.124; an older one refuses to load such an extension.
+  It fails alone: past the request's 30 s timeout it answers 504 and its
+  request's statement is cancelled and rolled back; past its concurrency limit
+  a call answers 503 `extension.busy`; five crashes in ten minutes disable the
+  extension ([developer guide](developer-guide.md), "Fails alone").
 - `host.actions.run(extension, action, input)` runs an action of an extension
   this one depends on (ADR 0014), so its invariant stays in the owner's code
   instead of a copy in another bundle. The calling action lists it in `calls`

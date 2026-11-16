@@ -20,6 +20,10 @@
  *   - Hang detection: heartbeat ping every 30s, terminate + respawn
  *     after 60s with no pong. Prevents a stuck extension from holding
  *     proxy routes open forever.
+ *   - The box fails alone (ADR 0056): a call that outlives the request's
+ *     hard timeout has its request's statement cancelled (504); requests
+ *     past `boxConcurrencyLimit` are refused (503); `CRASH_LIMIT` crashes
+ *     in `CRASH_WINDOW_MS` disable it; every line names it and its key.
  *   - Service registry bridge: workers can ctx.services.register() now;
  *     calls from other workers / inline extensions route through the
  *     host registry to the publishing worker.
@@ -355,6 +359,8 @@ interface ManagedWorker {
    * of the concurrency limit, as they hold one connection.
    */
   active?: Map<object, number>;
+  /** When a refusal past the limit was last logged. */
+  busyLoggedAt?: number;
   source?: WorkerCtxSource;
   /** Its `ctx.events.on` subscriptions on the engine bus, by listener key. */
   listeners?: Map<string, () => void>;
@@ -606,8 +612,9 @@ export class WorkerExtensionHost {
         this.workers.get(extName)?.source?.declaredForwardCredentials ?? {},
       );
       // After the read: a crash respawn may have swapped it, a stop removed it.
+      // A disabled one stays down: its enable reads the approval afresh.
       const managed = this.workers.get(extName);
-      if (!managed) return;
+      if (!managed || managed.disabled) return;
       const source = managed.source ?? {};
       if (JSON.stringify(source.forwardCredentials ?? {}) === JSON.stringify(forward)) return;
       // Set first: should the spawn below fail, crash recovery retries with it.
@@ -1383,6 +1390,8 @@ export class WorkerExtensionHost {
           () => {
             if (!invokeWaiters.has(invokeId)) return;
             invokeWaiters.delete(invokeId);
+            // Its work is over: nothing more it sends runs as this request.
+            target.invokeTenants.delete(invokeId);
             const what = `${type === 'action:invoke' ? 'action' : type === 'event:deliver' ? 'listener' : 'service'} "${name}"`;
             const err = this.timedOut(target, what);
             // Its statement cancelled first, while the request still holds the
@@ -1435,13 +1444,18 @@ export class WorkerExtensionHost {
    * call's release.
    */
   private admit(managed: ManagedWorker, key: object): () => void {
-    const active = (managed.active ??= new Map());
+    managed.active ??= new Map();
+    const active = managed.active;
     const held = active.get(key);
     const limit = boxConcurrencyLimit(activePoolMax());
     if (held === undefined && active.size >= limit) {
-      console.warn(
-        `${boxTag(managed.name, managed.source)} busy: ${active.size} requests in it, its limit; one more refused`,
-      );
+      // Once in ten seconds: a flood of refusals is not a flood of lines.
+      if (Date.now() - (managed.busyLoggedAt ?? 0) > 10_000) {
+        managed.busyLoggedAt = Date.now();
+        console.warn(
+          `${boxTag(managed.name, managed.source)} busy: ${limit} requests in it, its limit; more are refused`,
+        );
+      }
       const busy = problem(
         'extension.busy',
         503,
@@ -1624,6 +1638,7 @@ export class WorkerExtensionHost {
               const timer = setTimeout(() => {
                 if (!live.pendingInvokes.has(id)) return;
                 live.pendingInvokes.delete(id);
+                live.invokeTenants.delete(id);
                 const err = this.timedOut(live, `route ${r.method} ${r.path}`);
                 // As an action's (`invokeWorkerService`): its statement first.
                 if (txn.joined) void cancelJoinedStatement(txn).finally(() => reject(err));

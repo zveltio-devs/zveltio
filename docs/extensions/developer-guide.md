@@ -1453,7 +1453,8 @@ proxies SQL queries through its own pool.
   +5–20 ms per chatty DB workload (one IPC hop per query)
 - **Crash isolation:** ✅ — an uncaught exception in worker code
   doesn't take the engine down. alpha.122 added auto-respawn with
-  exponential backoff + heartbeat-based hang detection
+  exponential backoff + heartbeat-based hang detection; five crashes in ten
+  minutes disable it (ADR 0056)
 - **Memory isolation:** ⚠️ partial — separate V8 isolate, **shared
   OS process**. RSS is not measurable per-extension. There are NO
   per-extension memory limits.
@@ -1486,6 +1487,29 @@ proxies SQL queries through its own pool.
   the engine holds for the callback: committed when `cb` resolves, rolled
   back when it throws, times out (30 s) or the worker dies; nested calls
   are savepoints. At most 4 open at once per extension
+- **Fails alone** (ADR 0056):
+  - *Timeout.* A route, action or service call that has not answered within
+    the request's hard timeout (30 s) answers `504 extension.timeout`; the
+    statement running on its request's connection is cancelled
+    (`pg_cancel_backend`, only while that connection is still in the same
+    transaction), so the request rolls back and every lock it held is released
+    at the timeout. Each statement of the extension's own `db` is also under a
+    10 s `statement_timeout`.
+  - *Concurrency.* One extension serves at most a quarter of the pool's
+    connections' worth of requests at once (`DB_POOL_MAX / 4`, at least 1); a
+    request's nested calls into it count once. One more answers
+    `503 extension.busy` with `Retry-After: 1` before it reaches the worker. Its
+    Deno-runner jobs take every runner slot but one
+    (`ZVELTIO_JOB_RUNNER_CONCURRENCY - 1`, at least 1).
+  - *Crashes.* An exit, a missed heartbeat or a failed respawn counts as a
+    crash. Five within ten minutes and the extension is disabled: not
+    respawned, its routes and actions answer `503 extension.disabled` with the
+    reason, and health shows it. Disable and enable it again (or restart the
+    engine) once it is fixed. A call whose worker died under it answers
+    `503 extension.unavailable`.
+  - *Logs.* Every error, timeout, refusal past the limit and crash is logged as
+    `[ext:<name> key=<signing key id>]`; the key id reads `absent` until
+    signatures carry the tier (ADR 0056 slice 3).
 - **Limitations:** no streaming responses (body buffered as text),
   worker-published services routed via the host registry bridge
 - **Use for:** third-party / community extensions where the
@@ -1516,6 +1540,9 @@ Inspect runtime state at `GET /api/admin/extensions/health`:
       "name": "third-party-thing",
       "isolation": "worker",
       "status": "running",
+      "recentCrashes": 1,
+      "concurrencyLimit": 10,
+      "keyId": null,
       "workerGeneration": 3,
       "lastCrashAt": "2026-05-31T12:14:02.000Z",
       "inFlightRequests": 2,
@@ -1525,6 +1552,12 @@ Inspect runtime state at `GET /api/admin/extensions/health`:
   ]
 }
 ```
+
+`status` is `running`, `crashed` (between a crash and its respawn) or
+`disabled` (with `disabledReason`); `recentCrashes` counts the last ten
+minutes; `inFlightRequests` and `totalRequests` count routes, actions and
+service calls made in a request. A disabled extension also fails the
+`extensions` check of `GET /api/health/deep`.
 
 ### How the tier is decided — and what the CLI does for you
 
