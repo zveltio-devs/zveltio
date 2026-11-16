@@ -39,6 +39,7 @@ import type {
   DbQueryResponse,
   ServiceCallResponse,
   ServiceInvokeRequest,
+  ServiceInvokeResponse,
   ServiceRegisterResponse,
 } from './worker-extension-protocol.js';
 import { encodeFrame, FrameDecoder } from './worker-extension-transport.js';
@@ -62,6 +63,8 @@ function fillMap<K, V>(map: Map<K, V>, entries: Iterable<[K, V]>): Map<K, V> {
 }
 /** `ctx.events.on` listeners, by the key the host delivers them under. */
 const localListeners = new Map<string, (...args: unknown[]) => unknown>();
+/** The module's actions the manifest declares (ADR 0056), paired at init. */
+const localActions = new Map<string, (input: unknown, host: unknown) => unknown>();
 
 /**
  * stdout is the channel. The runtime keeps the only writer to it, and an
@@ -211,8 +214,13 @@ function call(send: (id: string) => void): Promise<unknown> {
       if (res.type === 'service:ok' || res.type === 'host:ok') {
         resolve(res.result);
       } else if (res.status) {
-        // Hono answers an uncaught HTTPException with its own status.
-        reject(new HTTPException(res.status as 503, { message: res.error }));
+        // Hono answers an uncaught HTTPException with its own status. `callId`
+        // names the refusal, so an action that lets it through answers the host's own.
+        reject(
+          Object.assign(new HTTPException(res.status as 503, { message: res.error }), {
+            callId: id,
+          }),
+        );
       } else {
         reject(new Error(res.error ?? 'call failed'));
       }
@@ -363,6 +371,18 @@ async function handleInit(msg: Extract<HostToWorkerMessage, { type: 'init' }>): 
       () => (ctx.host as () => DeclaredRouteHost)(),
       (c) => new Request(invocation.getStore()?.url ?? c.req.url, c.req.raw),
     );
+    // ADR 0056: each declared action implemented, and nothing implemented undeclared.
+    const actions = (extension.actions ?? {}) as Record<string, unknown>;
+    for (const name of msg.actions ?? []) {
+      const run = Object.hasOwn(actions, name) ? actions[name] : undefined;
+      if (typeof run !== 'function') throw new Error(`manifest action "${name}" has no implementation`);
+      localActions.set(name, run as (input: unknown, host: unknown) => unknown);
+    }
+    for (const name of Object.keys(actions)) {
+      if (!localActions.has(name)) {
+        throw new Error(`action "${name}" is implemented but not declared in the manifest`);
+      }
+    }
     await extension.register(app, ctx);
     await settled();
     shadowApp = app;
@@ -447,26 +467,91 @@ async function handleRouteInvoke(msg: RouteInvokeRequest): Promise<void> {
   }
 }
 
+const INVOKED = {
+  'service:invoke': ['service', localServices],
+  'event:deliver': ['listener', localListeners],
+  'action:invoke': ['action', localActions],
+} as const;
+
 async function handleServiceInvoke(msg: ServiceInvokeRequest): Promise<void> {
-  const impl = (msg.type === 'event:deliver' ? localListeners : localServices).get(msg.name);
+  const [what, registry] = INVOKED[msg.type];
+  const impl = (registry as Map<string, (...args: unknown[]) => unknown>).get(msg.name);
   if (!impl) {
     send({
       type: 'service:invoke:err',
       id: msg.id,
-      error: `${msg.type === 'event:deliver' ? 'listener' : 'service'} "${msg.name}" not registered in this worker`,
+      error: `${what} "${msg.name}" not registered in this worker`,
     });
     return;
   }
+  const args =
+    msg.type === 'action:invoke' ? [msg.args[0], actionHost(String(msg.args[1]))] : msg.args;
   try {
     // The host minted this id as an invocation of its own, recorded under the
     // CALLER's tenant, so the service's queries name it exactly as a route's do.
     const result = await invocation.run({ id: msg.id, requestTxn: msg.requestTxn }, () =>
-      Promise.resolve(impl(...msg.args)),
+      Promise.resolve(impl(...args)),
     );
     send({ type: 'service:invoke:ok', id: msg.id, result });
   } catch (err) {
-    send({ type: 'service:invoke:err', id: msg.id, error: (err as Error).message });
+    send({
+      type: 'service:invoke:err',
+      id: msg.id,
+      error: (err as Error)?.message ?? String(err),
+      ...(msg.type === 'action:invoke' ? actionFailure(err) : {}),
+    });
   }
+}
+
+/**
+ * An action's `host` (ADR 0056): every member a `host:call` the host answers
+ * with the `ActionHost` it built for this invocation, as inline.
+ */
+function actionHost(timezone: string): unknown {
+  const call = (member: string, ...args: unknown[]) => hostCall('action', [member, ...args]);
+  return {
+    timezone,
+    collections: {
+      read: (collection: string, id: string) => call('collections.read', collection, id),
+      list: (collection: string, query?: unknown) =>
+        call('collections.list', collection, query ?? {}),
+      insert: (collection: string, data: unknown) => call('collections.insert', collection, data),
+      update: (collection: string, id: string, data: unknown, options?: unknown) =>
+        call('collections.update', collection, id, data, options ?? {}),
+      delete: async (collection: string, id: string) => {
+        await call('collections.delete', collection, id);
+      },
+    },
+    enqueue: (job: string, input: unknown, options?: unknown) =>
+      call('enqueue', job, input, ...(options === undefined ? [] : [options])),
+    actions: {
+      run: (extension: string, action: string, input: unknown) =>
+        call('actions.run', extension, action, input),
+    },
+    files: {
+      read: (id: string) => call('files.read', id),
+      put: (bytes: Uint8Array, options?: unknown) =>
+        call('files.put', bytes, ...(options === undefined ? [] : [options])),
+    },
+  };
+}
+
+const ACTION_REFUSAL = Symbol.for('zveltio.extension.action-refusal');
+
+/**
+ * Why an action failed, as fields the host can act on: the `ActionRefusal`
+ * mark does not cross the channel, and a refusal the host answered one of its
+ * calls with is named by that call, so the host rethrows its own.
+ */
+function actionFailure(err: unknown): Partial<ServiceInvokeResponse> {
+  const e = (err ?? {}) as Record<string | symbol, unknown>;
+  if (typeof e.callId === 'string') return { hostError: e.callId };
+  if (e[ACTION_REFUSAL] === true) {
+    const message = typeof e.message === 'string' ? e.message : undefined;
+    return { refusal: { status: e.status, code: e.code, message } };
+  }
+  const errno = sqlState(err);
+  return errno ? { errno } : {};
 }
 
 function dispatch(msg: HostToWorkerMessage): void {
@@ -492,6 +577,7 @@ function dispatch(msg: HostToWorkerMessage): void {
       break;
     case 'service:invoke':
     case 'event:deliver':
+    case 'action:invoke':
       void handleServiceInvoke(msg);
       break;
     case 'service:register:ok':

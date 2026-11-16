@@ -36,7 +36,7 @@ import type { ExtensionManifest } from './manifest-schema.js';
 import { CapabilityDeniedError, holdsCapability } from './capabilities.js';
 import { ANY_COLLECTION } from '../manifest-capabilities.js';
 import { actionWrites, type ExtensionContext, type ExtensionInternals } from './internals.js';
-import { enqueueJob, extensionPrincipal, jobData } from './jobs.js';
+import { enqueueJob, extensionPrincipal, hostCall, jobData } from './jobs.js';
 import { admitFileGrant, type FileGrant } from './file-grants.js';
 import { callerFiles, grantedFiles, type HandedFiles } from './caller-files.js';
 import { systemCollectionsFor } from './as-system.js';
@@ -120,15 +120,17 @@ export function compileInput(
 /**
  * Pair the manifest's actions with the module's implementations, compiling each
  * input schema. Throws — refusing the load — on any mismatch, in either
- * direction, and for an extension whose actions could not be served inline in
- * the request transaction: a worker-isolated one runs its code elsewhere, and
- * a `global` one has no sub-app to mount them on ahead of its own middleware.
+ * direction, and for an inline extension whose actions could not be served in
+ * the request transaction: a `global` one has no sub-app to mount them on ahead
+ * of its own middleware. `worker`: the extension is worker-isolated (ADR 0056),
+ * so its module is not imported here — the worker pairs the implementations,
+ * and each action's `run` is `worker(name)`, which runs it there.
  */
 export function compileActions(
   extName: string,
   manifest: ExtensionManifest | null,
   extension: ZveltioExtension,
-  worker: boolean,
+  worker?: (action: string) => ExtensionAction,
 ): Map<string, CompiledAction> {
   const declared = manifest?.actions ?? [];
   const implemented = extension.actions ?? {};
@@ -137,17 +139,13 @@ export function compileActions(
   const refuse = (why: string): never => {
     throw new Error(`Extension "${extName}": ${why}`);
   };
-  // When they are: an ActionRefusal is recognised by a Symbol.for property, which
-  // a structured clone drops — carry status and code across explicitly, or every
-  // refusal from a worker answers 500.
-  if (worker) refuse('actions are not served for a worker-isolated extension yet');
-  if (extension.mountStrategy !== 'subapp') refuse("actions need mountStrategy 'subapp'");
-  for (const { declared: a, input, run } of pairImplementations(
-    'action',
-    declared,
-    implemented,
-    refuse,
-  )) {
+  if (!worker && extension.mountStrategy !== 'subapp') {
+    refuse("actions need mountStrategy 'subapp'");
+  }
+  const paired = worker
+    ? declared.map((d) => ({ declared: d, input: compileInput('action', d, refuse), run: worker(d.name) }))
+    : pairImplementations('action', declared, implemented, refuse);
+  for (const { declared: a, input, run } of paired) {
     out.set(a.name, {
       name: a.name,
       permission: a.permission,
@@ -476,6 +474,58 @@ export function refusalProblem(err: unknown): Error | null {
   const code =
     typeof r.code === 'string' && /^[a-z][a-z0-9_]{0,63}$/.test(r.code) ? r.code : 'action_refused';
   return problem(code, status, typeof r.message === 'string' ? r.message.slice(0, 500) : undefined);
+}
+
+/**
+ * A worker action's `ActionRefusal` (ADR 0056), from the fields it crossed as:
+ * marked again, so `refusalProblem` decides it exactly as an inline one, and a
+ * calling action catches it as it would inline.
+ */
+export function crossedRefusal(r: { status?: unknown; code?: unknown; message?: string }): Error {
+  return Object.assign(new Error(r.message ?? 'action refused'), {
+    [ACTION_REFUSAL]: true,
+    status: r.status,
+    code: r.code,
+  });
+}
+
+/**
+ * One `host` call of a worker action (ADR 0056), answered by the `ActionHost`
+ * the engine built for that run — the same object an inline action holds, so
+ * every check it makes holds here. The arguments are the worker's: checked.
+ */
+export async function actionHostCall(
+  host: ActionHost,
+  member: string,
+  args: unknown[],
+): Promise<unknown> {
+  const [a, b, c] = args;
+  const str = (v: unknown, what: string): string => {
+    if (typeof v !== 'string') throw new Error(`host.${member}: ${what} must be a string`);
+    return v;
+  };
+  switch (member) {
+    case 'collections.read':
+    case 'collections.list':
+    case 'collections.insert':
+    case 'collections.update':
+    case 'collections.delete':
+      return hostCall(host.collections, member, args);
+    case 'enqueue':
+      return host.enqueue(str(a, 'job'), b, c as { files?: true } | undefined);
+    case 'actions.run':
+      if (!host.actions) throw new Error('host.actions is not available');
+      return host.actions.run(str(a, 'extension'), str(b, 'action'), c);
+    case 'files.read':
+      if (!host.files) throw new Error('host.files is not available');
+      return host.files.read(str(a, 'id'));
+    case 'files.put':
+      if (!host.files) throw new Error('host.files is not available');
+      if (!(a instanceof Uint8Array)) throw new Error('host.files.put: bytes must be bytes');
+      return host.files.put(a, b as { contentType?: string } | undefined);
+    default:
+      throw new Error(`unknown action host call "${member}"`);
+  }
 }
 
 /** One data API call per member of `HostCollections`, answering with the route's status and body. */
