@@ -401,7 +401,14 @@ export async function runWebhookJob(job: DeliverJob): Promise<void> {
         .where('tenant_id', '=', d.tenantId)
         .executeTakeFirst(),
     );
-    if (!wh || !wh.active || !wh.run_as_role) return;
+    if (!wh || !wh.active) return;
+    if (!wh.run_as_role) {
+      // Its role was deleted (`deleteRole`): nothing is delivered until it is saved with one.
+      console.warn(
+        `[webhooks] event ${d.eventId} not delivered: webhook ${d.webhookId} has no run_as_role`,
+      );
+      return;
+    }
     target = {
       url: wh.url,
       method: wh.method || 'POST',
@@ -416,7 +423,12 @@ export async function runWebhookJob(job: DeliverJob): Promise<void> {
       d.data,
       d.shaped === true,
     );
-    if (!envelope.data) return;
+    if (!envelope.data) {
+      // The role cannot read this record, so it is not announced (ADR 0004). Counted, not
+      // logged: a webhook on every collection would log once per write.
+      webhookDeliveries.inc({ status: 'skipped' });
+      return;
+    }
 
     const delivered = await withTenantIsolation(d.tenantId, (trx) =>
       trx

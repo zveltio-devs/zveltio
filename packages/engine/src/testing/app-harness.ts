@@ -117,6 +117,26 @@ export async function getTestApp(): Promise<{ app: Hono; db: Database }> {
 }
 
 /**
+ * `getTestApp()` for a file of the integration lane, which drives a live engine
+ * on the same database: the in-process app without its DDL worker.
+ *
+ * Booted, the app is a second engine that works this database's DDL queue for
+ * the rest of the `bun test` process, and it took the live engine's
+ * `create_collection` jobs. It then wrote the default grants into its own model
+ * and announced them on its own bus (no `VALKEY_URL` here), which the live
+ * engine does not hear until its reconcile tick, 30 to 60 s later. Meanwhile the
+ * live engine read every record of that collection as a role without `read`:
+ * `webhooks.integration.test.ts` saw its delivery job complete with no request
+ * and no delivery row, intermittently in CI (DR-TASKS 2026-11-16).
+ */
+export async function getTestAppBesideLiveEngine(): Promise<{ app: Hono; db: Database }> {
+  const booted = await getTestApp();
+  const { stopDDLQueue } = await import('../lib/data/index.js');
+  await stopDDLQueue();
+  return booted;
+}
+
+/**
  * Run `fn` in a transaction as `tenantId`, the way the engine writes a firm's rows.
  *
  * The documented install runs the engine as a NOSUPERUSER NOBYPASSRLS owner
