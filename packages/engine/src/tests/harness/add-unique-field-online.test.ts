@@ -68,7 +68,7 @@ d('a unique field is added without building its key under the lock', () => {
                pg_get_indexdef(i.indexrelid) AS def
           FROM pg_index i JOIN pg_class ix ON ix.oid = i.indexrelid
           LEFT JOIN pg_constraint k ON k.conindid = i.indexrelid AND k.conrelid = i.indrelid
-         WHERE i.indrelid = ${TABLE}::regclass`.execute(db)
+         WHERE i.indrelid = ${TABLE}::regclass ORDER BY ix.relname`.execute(db)
     ).rows;
 
   const hasColumn = async (col: string) =>

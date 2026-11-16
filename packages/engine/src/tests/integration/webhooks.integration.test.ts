@@ -54,6 +54,21 @@ async function waitForDelivery(whId: string, maxMs = 5000): Promise<boolean> {
     if (rows.rows.length > 0) return true;
     await new Promise((r) => setTimeout(r, 200));
   }
+  // Intermittent in CI only (DR-TASKS 2026-11-16): say whether the job was never
+  // queued, never picked up, or failed, so the next failure names its cause.
+  const jobs = await sql<Record<string, unknown>>`
+    SELECT id, state, retry_count, created_on, started_on, completed_on, output
+      FROM pgboss.job WHERE name = 'webhook.deliver' AND data->>'webhookId' = ${whId}
+  `.execute(db);
+  const queue = await sql<Record<string, unknown>>`
+    SELECT state, count(*)::int AS n FROM pgboss.job WHERE name = 'webhook.deliver' GROUP BY state
+  `.execute(db);
+  console.error(
+    '[webhooks test] no delivery row; jobs:',
+    JSON.stringify(jobs.rows),
+    'queue:',
+    JSON.stringify(queue.rows),
+  );
   return false;
 }
 
