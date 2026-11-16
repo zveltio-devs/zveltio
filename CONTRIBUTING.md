@@ -169,5 +169,8 @@ Found a vulnerability? **Don't open a public issue.** Email
 
 ## Licence
 
-Contributions are licensed under MIT, the same as the project. By opening
-a PR you confirm you have the right to submit the code under that licence.
+Contributions are accepted under the [Contributor License Agreement](CLA.md):
+you keep your copyright and license your contribution to DaRe IT Systems
+S.R.L., which keeps Zveltio open source (AGPL-3.0 server, MIT SDKs; see
+[`LICENSING.md`](LICENSING.md)) and may also offer it under a commercial
+licence. Accept it by ticking the CLA box in the pull request template.

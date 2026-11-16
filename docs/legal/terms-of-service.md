@@ -25,14 +25,13 @@ These terms apply to:
 
 ### 2.1 Open Source Components
 
-Zveltio Core is distributed under the **MIT License**. You are free to:
+The Zveltio engine, Studio and client app are distributed under the **GNU Affero General Public License v3.0 only**, with the Zveltio Extension Exception; the SDKs (including the extension API), the CLI and the UI kit are distributed under the **MIT License**. Releases up to and including 3.0.0-beta.124 were distributed under the MIT License and remain so. You are free to:
 
 - Use the Software for any purpose, commercial or non-commercial
 - Modify the source code
 - Distribute copies of the Software
-- Sublicense the Software
 
-Subject to the condition that the original copyright notice and this permission notice appear in all copies.
+If you modify the engine, Studio or client app and let users interact with the modified version over a network, you must offer those users its source under the AGPL. Applications and extensions that use Zveltio only through its API, SDKs and extension interface are not affected and may be under any licence. A commercial licence is available for those who cannot accept the AGPL. See [`LICENSING.md`](../../LICENSING.md).
 
 ### 2.2 Commercial Extensions
 

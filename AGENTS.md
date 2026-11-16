@@ -8,7 +8,7 @@ this file is the map.
 
 **Zveltio** is a headless BaaS/CMS (Bun + Hono + PostgreSQL) that becomes a
 self-hosted SaaS through signed, sandboxed extensions. Current version:
-`3.0.0-beta.64` (source of truth: `packages/engine/package.json`). MIT license.
+`3.0.0-beta.64` (source of truth: `packages/engine/package.json`). Licence: engine, Studio and client AGPL-3.0-only; SDKs, CLI and UI kit MIT (`LICENSING.md`).
 
 - The **engine** is headless: dynamic collections, auth (Better-Auth), RBAC
   (Casbin), row-level multi-tenancy enforced by Postgres RLS, REST/RPC API,
