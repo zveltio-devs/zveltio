@@ -2,6 +2,8 @@
 
 Complete REST API reference for Zveltio Engine. All endpoints are prefixed with `/api` and require authentication unless otherwise noted.
 
+Which of these routes are a stable contract, and what may change between releases, is in [HTTP API compatibility](../platform/api-compatibility.md).
+
 ## Authentication
 
 Zveltio uses [Better-Auth](https://better-auth.com) for session management via HTTP-only cookies. Include `credentials: 'include'` in all fetch calls from the browser.

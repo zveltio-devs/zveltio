@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**The HTTP API is version 1 for the whole 3.x line, and says which routes are its contract (ADR 0055).** A breaking change to a contract route ships only in an engine major; there is no version in the path. The OpenAPI document carries `info.x-api-version: 1`, and the paths of the groups outside the contract (`flows`, `edge-functions`, `fn`, `sync`, `electric`, `insights`, `saved-queries`, `erd`, `marketplace`, and every route already answering 410) carry `x-contract: none`. The rules — what is breaking, how a route is deprecated and removed, which groups are inside — are in `docs/platform/api-compatibility.md`. A unit test fails when the engine mounts an `/api` group the classification does not list, so a new group cannot enter the contract silently.
+
 ## [3.0.0-beta.123] - 2026-11-16
 
 **Security: hono 4.13.18 and kysely 0.29.9** in the engine, the SDK, the worker runtime and the 14 first-party extension bundles that inline them (zveltio-extensions, same branch). hono 4.13.18 fixes three advisories: GHSA-92p4-j3wq-jmqx (`validator()` skipped when the `Content-Type` carries parameters), GHSA-39q9-qp46-w8xg (`bodyLimit` memory exhaustion) and GHSA-h25j-2p75-qj33 (mount path handling). kysely 0.29.9 fixes the migrator's timestamps. Supersedes dependabot zveltio-extensions#390 and #393.

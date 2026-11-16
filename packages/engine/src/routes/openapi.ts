@@ -29,12 +29,82 @@ export function openApiRoutes(): Hono {
   return app;
 }
 
-function buildSpec() {
+/**
+ * Every `/api/<group>` the engine mounts, inside the HTTP API 1.0 contract or
+ * outside it (ADR 0055 d4, `docs/platform/api-compatibility.md`). A contract
+ * group breaks only in an engine major; an outside group (`'none'`) may change
+ * or leave in any release, and its OpenAPI paths carry `x-contract: none`.
+ * `openapi-contract.test.ts` fails when a mounted group is missing here, so a
+ * new group cannot enter the contract silently.
+ */
+export const API_GROUPS: Readonly<Record<string, 'v1' | 'none'>> = {
+  auth: 'v1',
+  'sign-in': 'v1',
+  me: 'v1',
+  data: 'v1',
+  actions: 'v1',
+  collections: 'v1',
+  relations: 'v1',
+  schema: 'v1',
+  storage: 'v1',
+  realtime: 'v1',
+  ws: 'v1',
+  revisions: 'v1',
+  validation: 'v1',
+  rpc: 'v1',
+  users: 'v1',
+  invitations: 'v1',
+  tenants: 'v1',
+  permissions: 'v1',
+  'api-keys': 'v1',
+  settings: 'v1',
+  notifications: 'v1',
+  webhooks: 'v1',
+  backup: 'v1',
+  admin: 'v1',
+  health: 'v1',
+  'openapi.json': 'v1',
+  extensions: 'v1',
+  // ADR 0053 d2; ADR 0049 moves flows after rc.1.
+  flows: 'none',
+  'edge-functions': 'none',
+  fn: 'none',
+  sync: 'none',
+  electric: 'none',
+  // ADR 0051: leaving the engine.
+  insights: 'none',
+  'saved-queries': 'none',
+  // Studio's own diagram positions.
+  erd: 'none',
+  // Operator install path, moving with the registry.
+  marketplace: 'none',
+  // Already gone: 410 with the replacement.
+  templates: 'none',
+  approvals: 'none',
+  export: 'none',
+  import: 'none',
+  media: 'none',
+  briefing: 'none',
+};
+
+export function buildSpec() {
+  const spec = specBody();
+  for (const [path, item] of Object.entries(spec.paths)) {
+    if (API_GROUPS[path.split('/')[1] ?? ''] === 'none') {
+      (item as Record<string, unknown>)['x-contract'] = 'none';
+    }
+  }
+  return spec;
+}
+
+function specBody() {
   return {
     openapi: '3.1.0',
     info: {
       title: 'Zveltio Engine API',
       version: ENGINE_VERSION,
+      // The HTTP API version: the engine's major (ADR 0055 d1).
+      'x-api-version': 1,
       description: 'Headless BaaS that becomes a self-hosted SaaS through extensions.',
       contact: { url: 'https://zveltio.com' },
     },
