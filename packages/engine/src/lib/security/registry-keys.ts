@@ -62,20 +62,18 @@ function hexToBytes(hex: string): Uint8Array {
   return out;
 }
 
-function loadEnvKeys(): RegistryKey[] {
-  const raw = process.env.REGISTRY_PUBLIC_KEYS_JSON;
+function loadEnvKeys(variable = 'REGISTRY_PUBLIC_KEYS_JSON'): RegistryKey[] {
+  const raw = process.env[variable];
   if (!raw) return [];
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch (err) {
-    console.warn(
-      `[registry-keys] REGISTRY_PUBLIC_KEYS_JSON is not valid JSON: ${(err as Error).message}`,
-    );
+    console.warn(`[registry-keys] ${variable} is not valid JSON: ${(err as Error).message}`);
     return [];
   }
   if (!Array.isArray(parsed)) {
-    console.warn('[registry-keys] REGISTRY_PUBLIC_KEYS_JSON must be a JSON array');
+    console.warn(`[registry-keys] ${variable} must be a JSON array`);
     return [];
   }
   const out: RegistryKey[] = [];
@@ -107,6 +105,16 @@ export function getTrustedKeys(): RegistryKey[] {
 
 export function findKeyById(keyId: string): RegistryKey | null {
   return getTrustedKeys().find((k) => k.keyId === keyId) ?? null;
+}
+
+/**
+ * The operator's own trusted keys (ADR 0056 d1): `OPERATOR_PUBLIC_KEYS_JSON`,
+ * same shape as `REGISTRY_PUBLIC_KEYS_JSON` and never merged with it. A key here
+ * signs an extension directory at level 3 (private) and nothing higher; it is
+ * never consulted for a registry archive.
+ */
+export function findOperatorKeyById(keyId: string): RegistryKey | null {
+  return loadEnvKeys('OPERATOR_PUBLIC_KEYS_JSON').find((k) => k.keyId === keyId) ?? null;
 }
 
 /** Exported for tests that need to construct keys from hex. */

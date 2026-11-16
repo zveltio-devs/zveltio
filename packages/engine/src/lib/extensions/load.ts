@@ -26,6 +26,7 @@ import { auditLog } from '../audit.js';
 import { QuotaExceededError } from './extension-errors.js';
 import { resolveExtensionsBase } from './extension-paths.js';
 import { recordManifest } from '../tenancy/index.js';
+import { verifyExtensionDir } from '../security/index.js';
 import {
   pendingExtensionMigrations,
   pendingMigrationsRefusal,
@@ -120,6 +121,19 @@ export async function loadExtensionFromDir(
     // serialised to the browser, and a server filesystem path is not something
     // to hand a client.
     loader.extDirs.set(extName, extDir);
+
+    // ADR 0056 d1: an operator's signature is checked at every load, before
+    // anything of the directory is read or trusted. One that does not hold
+    // refuses the load: it never falls back to loading the files unsigned.
+    let operatorKeyId: string | null;
+    try {
+      operatorKeyId = (await verifyExtensionDir(extName, extDir))?.keyId ?? null;
+    } catch (err) {
+      const msg = (err as Error).message;
+      console.error(`❌ ${msg}`);
+      loader.lastLoadError.set(extName, msg);
+      return;
+    }
 
     const enginePath = join(extDir, 'engine/index.js');
 
@@ -275,7 +289,7 @@ export async function loadExtensionFromDir(
     // branch returned before reaching it. A non-worker extension is refused
     // here unless its tier is first-party; a worker-isolated, bundled one is
     // loaded by the runner below and never imported in this process.
-    const tierPhase = await enforcePublisherTier(extName, manifest);
+    const tierPhase = await enforcePublisherTier(extName, manifest, operatorKeyId);
     if (!tierPhase.ok) {
       if (tierPhase.logLevel !== 'none') {
         console[tierPhase.logLevel](...tierPhase.logArgs);
@@ -549,6 +563,7 @@ export async function loadExtensionFromDir(
       manifest ?? null,
       allowedTables,
       absentOptional,
+      operatorKeyId ?? undefined,
     );
   } catch (err) {
     const errMsg = (err as Error).message ?? String(err);

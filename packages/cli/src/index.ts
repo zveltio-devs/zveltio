@@ -292,6 +292,18 @@ ext
   });
 
 ext
+  .command('sign')
+  .description(
+    'Sign an extension directory with your own key (level 3, private): the engine loads it when OPERATOR_PUBLIC_KEYS_JSON lists the key',
+  )
+  .option('--dir <dir>', 'Extension root directory (defaults to cwd)')
+  .option('--key-id <id>', 'Signing key id (default: the only key in ~/.zveltio/keys/)')
+  .action(async (opts) => {
+    const { extensionSignCommand } = await import('./commands/extension-sign.js');
+    return extensionSignCommand(opts);
+  });
+
+ext
   .command('publish')
   .description('Validate, build, archive, sign, and upload an extension to the registry (S4-05)')
   .option('--dir <dir>', 'Extension root directory (defaults to cwd)')

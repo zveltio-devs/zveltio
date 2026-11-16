@@ -16,7 +16,11 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'path';
-import { EXTENSION_CATALOG, type ExtensionCatalogEntry } from './extension-catalog.js';
+import {
+  bundledCatalogEntry,
+  EXTENSION_CATALOG,
+  type ExtensionCatalogEntry,
+} from './extension-catalog.js';
 import { fetchWithRetry, isPathInsideBase } from './extension-utils.js';
 import { tryAdvisoryLock } from '../../db/advisory-lock.js';
 import type { Database } from '../../db/index.js';
@@ -115,14 +119,19 @@ export async function fetchRegistryCatalog(
   // but local catalog fills in anything the registry doesn't list
   // (local/dev extensions, self-hosted, extensions not yet published).
   //
-  // Local catalog entries default to is_official=true (they're
-  // hardcoded in this binary — the 54 official + smoke fixtures).
+  // A local entry's tier is the bundled catalogue's (official by default: the
+  // first-party extensions + smoke fixtures), whatever an override file says —
+  // one naming an extension the binary does not know is community (ADR 0056).
   // Remote entries carry whatever the registry returned.
   const remoteNames = new Set(remoteEntries.map((e) => e.name));
-  const localWithDefaults = EXTENSION_CATALOG.filter((e) => !remoteNames.has(e.name)).map((e) => ({
-    ...e,
-    is_official: e.is_official ?? true,
-  }));
+  const localWithDefaults = EXTENSION_CATALOG.filter((e) => !remoteNames.has(e.name)).map((e) => {
+    const shipped = bundledCatalogEntry(e.name);
+    return {
+      ...e,
+      is_official: shipped ? (shipped.is_official ?? true) : false,
+      publisher_tier: shipped?.publisher_tier,
+    };
+  });
   const merged = [...remoteEntries, ...localWithDefaults];
   const result = merged.length > 0 ? merged : localWithDefaults;
 

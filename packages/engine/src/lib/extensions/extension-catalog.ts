@@ -97,9 +97,9 @@ export function tierAllowsInline(tier: 'first-party' | 'verified' | 'community')
  *   - `hello-ext` and `hello-ext-worker` are smoke fixtures used by the release
  *     binary job. Studio filters category `fixture` out of the marketplace UI;
  *     install/enable through the API works because the catalog decides.
- *   - Entries carry no `publisher_tier`, so `resolvePublisherTier` falls back to
- *     `is_official`, and a local entry with neither is treated as community —
- *     which means worker isolation is required for it.
+ *   - Entries carry no `publisher_tier`. `fetchRegistryCatalog` marks a local
+ *     entry official only when the BUNDLED copy lists its name; an entry only an
+ *     override file lists is community, which means worker isolation.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -175,6 +175,19 @@ export function getExtensionCatalog(): ExtensionCatalogEntry[] {
 
   _cached = (bundled as CatalogFile).entries;
   return _cached;
+}
+
+const BUNDLED_BY_NAME = new Map((bundled as CatalogFile).entries.map((e) => [e.name, e]));
+
+/**
+ * The bundled catalogue's entry for `name`. Only the catalogue compiled into
+ * this engine (and the registry's own answer) may say an extension is
+ * first-party: an override file lists what can be installed, never who published
+ * it. Relabelling one's own extension first-party there ran it inline (LV-05);
+ * an operator's own code is signed with an operator key instead (ADR 0056 d1).
+ */
+export function bundledCatalogEntry(name: string): ExtensionCatalogEntry | undefined {
+  return BUNDLED_BY_NAME.get(name);
 }
 
 /** Which catalogue the bundled copy is. Shown at boot so an operator can tell

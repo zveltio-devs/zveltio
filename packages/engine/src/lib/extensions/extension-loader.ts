@@ -294,6 +294,8 @@ interface LoadedExtension {
     forwardCredentials?: Record<string, string[]>;
     /** Manifest `routes` (ADR 0039): its worker pairs and mounts them. */
     routes?: RouteSpec[];
+    /** The operator key its directory signature verified against (ADR 0056 d1). */
+    keyId?: string;
   };
   /**
    * Manifest `dependencies` + `optionalDependencies` as resolved at load — an

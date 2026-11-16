@@ -718,6 +718,8 @@ async function registerExtensionRoutes(
     forwardCredentials?: Record<string, string[]>;
     /** Its manifest `routes` (ADR 0039): the worker pairs and mounts them. */
     routes?: RouteSpec[];
+    /** The operator key its directory signature verified against (ADR 0056 d1). */
+    keyId?: string;
   } | null,
   db: Database,
   serviceDeps: ServiceDeps,
@@ -777,6 +779,7 @@ async function registerExtensionRoutes(
             if (!restrictedCtx.host) throw new Error(`${extName}: no route host`);
             return hostCall(restrictedCtx.host(c).collections, call as HostCall, args);
           },
+          keyId: isolation.keyId,
         },
       );
     } finally {
@@ -928,6 +931,8 @@ export async function finalizeExtensionLoad(
   allowedTables: Set<string>,
   /** Optional dependencies `resolveManifest` found not loaded or too old: absent to this one. */
   absentOptional: readonly string[] = [],
+  /** The operator key its directory signature verified against (ADR 0056 d1), if any. */
+  keyId?: string,
 ): Promise<void> {
   const worker = manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true;
   // First, so a mismatch refuses the load before anything is granted for it. A
@@ -1038,6 +1043,7 @@ export async function finalizeExtensionLoad(
           dependencies,
           forwardCredentials: manifest.forwardCredentials,
           routes: manifest.routes,
+          keyId,
         }
       : undefined;
   const routes = routeCollections(manifest);

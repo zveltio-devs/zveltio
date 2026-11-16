@@ -1,7 +1,8 @@
 import { existsSync } from 'fs';
-import { readFile, mkdir, cp } from 'fs/promises';
+import { readFile, mkdir, cp, rm } from 'fs/promises';
 import { join } from 'path';
 import { type EngineTarget, engineFetch, errorOf } from '../lib/engine-session.js';
+import { verifyExtensionDirSignature } from './extension-sign.js';
 
 /**
  * zveltio install <extension-name> [--path <path>] [--url <engine-url>] [--force]
@@ -53,8 +54,13 @@ async function installFromPath(name: string, sourcePath: string, force: boolean)
     process.exit(1);
   }
 
-  // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-  let manifest: any;
+  let manifest: {
+    name?: unknown;
+    displayName?: string;
+    version?: string;
+    zveltioMinVersion?: string;
+    zveltioMaxVersion?: string;
+  };
   try {
     manifest = JSON.parse(await readFile(join(sourcePath, 'manifest.json'), 'utf-8'));
   } catch {
@@ -62,31 +68,30 @@ async function installFromPath(name: string, sourcePath: string, force: boolean)
     process.exit(1);
   }
 
-  if (!manifest.name) {
+  if (typeof manifest.name !== 'string' || manifest.name === '') {
     console.error('❌ manifest.json is missing required field: name');
     process.exit(1);
   }
+  const extName = manifest.name;
+  if (extName !== name) {
+    console.error(`❌ manifest.json names "${extName}", not "${name}"`);
+    process.exit(1);
+  }
 
-  // Validate category and name against a strict allowlist — path traversal
-  // guard. `path.join` normalises `..` segments, so a manifest with
-  // `category: '../../../etc/cron.d'` would otherwise write outside the
-  // extensions/ directory.
+  // The name is the path under the extensions directory, as the engine loads it:
+  // `crm`, `communications/mail`, `compliance/ro/efactura`. Each segment from a
+  // strict allowlist — a path traversal guard, since `join` normalises `..`.
   const SAFE_SEGMENT_RE = /^[a-z0-9][a-z0-9_-]*$/;
-  const category = manifest.category || 'custom';
-  if (!SAFE_SEGMENT_RE.test(category)) {
-    console.error(`❌ manifest.json "category" contains invalid characters: "${category}"`);
-    console.error('   Only lowercase letters, digits, hyphens, and underscores are allowed.');
-    process.exit(1);
-  }
-  if (!SAFE_SEGMENT_RE.test(manifest.name)) {
-    console.error(`❌ manifest.json "name" contains invalid characters: "${manifest.name}"`);
-    console.error('   Only lowercase letters, digits, hyphens, and underscores are allowed.');
+  if (!extName.split('/').every((seg) => SAFE_SEGMENT_RE.test(seg))) {
+    console.error(`❌ manifest.json "name" contains invalid characters: "${extName}"`);
+    console.error(
+      '   Segments separated by "/", each of lowercase letters, digits, hyphens and underscores.',
+    );
     process.exit(1);
   }
 
-  console.log(`  Name:     ${manifest.displayName || manifest.name}`);
+  console.log(`  Name:     ${manifest.displayName || extName}`);
   console.log(`  Version:  ${manifest.version || '?'}`);
-  console.log(`  Category: ${category}`);
 
   // Compatibilitate engine (informational)
   const enginePkgPath = join(process.cwd(), 'packages/engine/package.json');
@@ -103,8 +108,18 @@ async function installFromPath(name: string, sourcePath: string, force: boolean)
     }
   }
 
-  const extName = manifest.name;
-  const targetDir = join(process.cwd(), 'extensions', category, extName);
+  // ADR 0056 d1: an operator's own extension is signed with a key the engine
+  // trusts, and checked here before it lands as the engine will check it at load.
+  try {
+    const by = await verifyExtensionDirSignature(sourcePath, extName);
+    console.log(`  Signed:   ${by}`);
+  } catch (e) {
+    console.error(`❌ ${(e as Error).message}`);
+    process.exit(1);
+  }
+
+  const base = process.env.EXTENSIONS_DIR || join(process.cwd(), 'extensions');
+  const targetDir = join(base, extName);
 
   if (existsSync(targetDir) && !force) {
     console.error(`❌ Extension already exists at ${targetDir}`);
@@ -112,15 +127,25 @@ async function installFromPath(name: string, sourcePath: string, force: boolean)
     process.exit(1);
   }
 
+  if (force) await rm(targetDir, { recursive: true, force: true });
   await mkdir(targetDir, { recursive: true });
   await cp(sourcePath, targetDir, { recursive: true });
+  // What landed is what the engine reads: verify the copy, not only the source.
+  try {
+    await verifyExtensionDirSignature(targetDir, extName);
+  } catch (e) {
+    await rm(targetDir, { recursive: true, force: true });
+    console.error(`❌ the copy at ${targetDir} does not verify: ${(e as Error).message}`);
+    process.exit(1);
+  }
   console.log(`  ✓ Copied to ${targetDir}`);
 
   console.log(`  Enable it on a running engine: zveltio extensions enable ${extName}`);
 
-  console.log(`\n✅ Extension "${manifest.displayName || manifest.name}" installed!`);
-  console.log(`\n  Add to your .env:`);
-  console.log(`  ZVELTIO_EXTENSIONS=...,${category}/${extName}\n`);
+  console.log(`\n✅ Extension "${manifest.displayName || extName}" installed!`);
+  console.log(`\n  Add to your .env (the engine must trust the key too):`);
+  console.log(`  ZVELTIO_EXTENSIONS=...,${extName}`);
+  console.log(`  OPERATOR_PUBLIC_KEYS_JSON=<zveltio keys export <keyId>>\n`);
 }
 
 // ── Flow 2: engine catalog ──────────────────────────────────────────────────
