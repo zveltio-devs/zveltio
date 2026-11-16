@@ -170,13 +170,25 @@ docker compose run --rm engine migrate
 
 ### 2. Create Admin Account
 
+The first account is a recovery override (`god`). A default install keeps both
+routes it needs shut, so open them for this one step:
+
+1. Set `ZVELTIO_REGISTRATION_ENABLED=true` and a `RECOVERY_TOKEN` (`openssl rand -hex 32`) on the engine, and restart it.
+2. Run the command (it prompts for the password, so it needs a terminal):
+
 ```bash
 # CLI
-zveltio create-god
+RECOVERY_TOKEN=<same value> zveltio create-god --email admin@your-org.com
 
 # Or Docker
-docker compose run --rm engine create-god --email admin@your-org.com
+docker compose run --rm -it -e RECOVERY_TOKEN engine create-god --email admin@your-org.com
 ```
+
+3. Remove `ZVELTIO_REGISTRATION_ENABLED` and rotate or unset `RECOVERY_TOKEN`, then restart.
+
+Invite day-to-day administrators from Studio. Installing or enabling extensions
+also needs a second factor on the account; see
+[cli.md](../engine/cli.md#zveltio-extensions-enable-name).
 
 ### 3. Verify Installation
 

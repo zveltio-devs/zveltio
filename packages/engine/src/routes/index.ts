@@ -184,7 +184,7 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // `registration_enabled` is on (default OFF: Zveltio is app/intranet-first,
   // not open-registration). Guards the PUBLIC HTTP sign-up only; admin
   // invitations create users in-process (auth.api.signUpEmail, see routes/auth.ts)
-  // and the CLI create-god path both bypass this middleware.
+  // and bypass this middleware. The CLI create-god path does not: it signs up here.
   app.on(['POST'], '/api/auth/sign-up/*', async (c, next) => {
     if (!(await isRegistrationEnabled(db))) {
       return c.json(

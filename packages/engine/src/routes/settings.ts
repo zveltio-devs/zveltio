@@ -124,8 +124,8 @@ const READONLY_SETTINGS_KEYS = new Set([
  * app/intranet-first, not open-registration; an operator opts in by setting
  * `registration_enabled` = true. Read at request time so toggling takes effect
  * without a restart. Guards the public HTTP sign-up (routes/index.ts); admin
- * invitations create users in-process (auth.api.signUpEmail) and are unaffected,
- * as is the CLI create-god path.
+ * invitations create users in-process (auth.api.signUpEmail) and are unaffected.
+ * The CLI create-god path is NOT: it signs up over HTTP, so it needs this open.
  */
 export async function isRegistrationEnabled(db: Database): Promise<boolean> {
   // Env override wins over the DB setting — lets an operator force self-signup

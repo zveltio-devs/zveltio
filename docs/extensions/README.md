@@ -107,8 +107,10 @@ and only holding the `$ext:<name>` scope for that route's action.
 The opt-out list in the manifest is the authoritative statement of what is
 public — not inline comments, some of which still describe an older design.
 
-Beyond authentication, an extension authorises with `permissionGate(ctx, '<resource>')`
-and the Casbin role mapping. See
+Beyond authentication, an extension carries **no authorization logic**: it
+declares collections and actions, and the engine's rules decide who may read,
+write or execute them (ADR 0002). `permissionGate`, `manifest.resources` and
+invented verbs belong to the legacy v1 surface and are not for new work. See
 [../platform/security-model.md](../platform/security-model.md).
 
 ---
@@ -156,15 +158,13 @@ data access.
 
 ---
 
-## 8. Studio pages: declarative first
+## 8. Studio pages: data only
 
-Prefer an **SDUI JSON schema** over a Svelte page. The host renders it with
-trusted generic components, which means no per-extension build, no toolchain,
-and no third-party JavaScript in the admin bundle. The vocabulary was derived
-from the real extension pages and reduces to two archetypes — list+form and
-settings. See [../ui/sdui.md](../ui/sdui.md).
-
-Bespoke Svelte pages remain possible (Tier 3) for genuinely unusual surfaces.
+Extension UI is **data only** (ADR 0042): `studio/schemas/*.json` holds
+`zveltio.view/2` documents, semantic views bound by name, and each front end
+draws them with its own trusted components. No extension code runs in a browser
+and no framed document is served. A screen that genuinely needs code is a
+front-end package, not part of an extension. See [ui-model.md](ui-model.md).
 
 An extension **owns its Studio page** — `scripts/check-extension-page-ownership.ts`
 enforces that the host does not carry per-extension page code.
