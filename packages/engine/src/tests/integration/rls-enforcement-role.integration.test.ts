@@ -22,10 +22,15 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
-import type { Database } from '../../db/index.js';
-import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { createDb, type Database } from '../../db/index.js';
 
-const d = harnessAvailable() ? describe : describe.skip;
+// A connection, not `getTestApp()`: the in-process app is a whole engine, DDL
+// queue worker included, and it claimed the live engine's create_collection jobs
+// for the rest of the run. On a hardened install its tables were then owned by
+// the test's superuser, which grants `zveltio_rls` nothing, and the engine under
+// test answered 403/500 on the collections later files created.
+const TEST_DB_URL = process.env.TEST_DATABASE_URL;
+const d = TEST_DB_URL ? describe : describe.skip;
 
 const TABLE = 'zv_rls_role_probe';
 const TENANT_A = '11111111-1111-1111-1111-1111111111a1';
@@ -35,7 +40,7 @@ d('RLS enforcement role', () => {
   let db: Database;
 
   beforeAll(async () => {
-    ({ db } = await getTestApp());
+    db = createDb(TEST_DB_URL as string);
     await sql.raw(`DROP TABLE IF EXISTS ${TABLE}`).execute(db);
     await sql
       .raw(`CREATE TABLE ${TABLE} (id serial primary key, tenant_id uuid, label text)`)
@@ -70,6 +75,7 @@ d('RLS enforcement role', () => {
       .raw(`DROP TABLE IF EXISTS ${TABLE}`)
       .execute(db)
       .catch(() => undefined);
+    await db.destroy();
   });
 
   /** A tenant transaction WITHOUT the role — what the engine used to do. */

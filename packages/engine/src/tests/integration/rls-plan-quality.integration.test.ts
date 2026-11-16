@@ -33,6 +33,12 @@ describe.skipIf(skipAll)('RLS predicate does not restrict the planner', () => {
     await sql.raw(`DROP TABLE IF EXISTS ${TABLE}`).execute(db);
     await sql.raw(`CREATE TABLE ${TABLE} (id bigserial primary key, payload text)`).execute(db);
     await applyTenantRLS(db, TABLE);
+    // A collection gets `zveltio_rls` from its creator's default privileges,
+    // which migration 001 sets for the role that migrated. This table is the
+    // test's, made by whoever TEST_DATABASE_URL is: on a hardened install
+    // (scripts/bootstrap-db-role.sh) that is not the migrating role, so the
+    // grant is stated, as rls-enforcement-role does.
+    await sql.raw(`GRANT SELECT, INSERT, UPDATE, DELETE ON ${TABLE} TO zveltio_rls`).execute(db);
   });
 
   afterAll(async () => {
@@ -125,8 +131,14 @@ describe.skipIf(skipAll)('RLS predicate does not restrict the planner', () => {
     // The reason PARALLEL SAFE is sound: workers inherit the leader's
     // transaction-local GUC. Asserted rather than assumed, because if it were
     // false the marker would turn a performance fix into a data leak.
+    const own = '11111111-1111-1111-1111-111111111111';
     const other = '22222222-2222-2222-2222-222222222222';
-    await sql.raw(`INSERT INTO ${TABLE} (payload) VALUES ('own')`).execute(db);
+    // As a firm, the way the engine writes: an owner that FORCE RLS binds may
+    // not write a row with no tenant context (DR-03).
+    await db.transaction().execute(async (trx) => {
+      await sql`SELECT set_config('zveltio.current_tenant', ${own}, true)`.execute(trx);
+      await sql.raw(`INSERT INTO ${TABLE} (payload) VALUES ('own')`).execute(trx);
+    });
 
     // The Bun SQL driver refuses a raw BEGIN on a pooled connection, and
     // SET LOCAL only means anything inside a transaction — so this has to go
