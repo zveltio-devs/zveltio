@@ -10,7 +10,7 @@
 import { RETIRED_EXTENSIONS } from './load.js';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'path';
 import type { Database } from '../../db/index.js';
 import { auth } from '../auth.js';
@@ -47,7 +47,7 @@ import {
   clientIp,
 } from './extension-license.js';
 import { withExtensionLock, isPathInsideBase } from './extension-utils.js';
-import { resolvePublisherTier } from './extension-catalog.js';
+import { type ExtensionCatalogEntry, resolvePublisherTier } from './extension-catalog.js';
 import { DownMissingError, OwnedCollectionsReferencedError } from './extension-errors.js';
 import { revokeExtensionDbRoles } from './ext-db-role.js';
 import { auditLog } from '../audit.js';
@@ -78,6 +78,51 @@ import { checkRevoked, revocationCheckRequired, revocationMessage } from './revo
 import { announceExtensionLifecycle } from '../runtime/index.js';
 import type { ExtensionLoader } from './extension-loader.js';
 
+/**
+ * ADR 0056 d1: an operator's own extension, copied into EXTENSIONS_DIR by
+ * `zveltio install --path`, is in no catalogue, so it could be neither listed
+ * nor enabled. Each directory there carrying a `signature.json` is an entry,
+ * from its manifest. Nothing is trusted here: the signature is verified, against
+ * the operator key list, at the load an enable starts.
+ */
+export function operatorSignedEntries(
+  base: string,
+  listed: ReadonlySet<string>,
+): ExtensionCatalogEntry[] {
+  const out: ExtensionCatalogEntry[] = [];
+  const dirs = (rel: string): string[] => {
+    try {
+      return readdirSync(join(base, rel), { withFileTypes: true })
+        .filter((d) => d.isDirectory() && !d.name.startsWith('.') && !d.name.startsWith('_'))
+        .map((d) => (rel ? `${rel}/${d.name}` : d.name));
+    } catch {
+      return [];
+    }
+  };
+  // `name` or `category/name`, as `install --path` lays them out.
+  for (const name of dirs('').flatMap((top) => [top, ...dirs(top)])) {
+    if (listed.has(name) || !existsSync(join(base, name, 'signature.json'))) continue;
+    try {
+      const m = JSON.parse(readFileSync(join(base, name, 'manifest.json'), 'utf8'));
+      if (m?.name !== name) continue;
+      out.push({
+        name,
+        displayName: typeof m.displayName === 'string' ? m.displayName : name,
+        description: typeof m.description === 'string' ? m.description : '',
+        category: typeof m.category === 'string' ? m.category : 'custom',
+        version: typeof m.version === 'string' ? m.version : '0.0.0',
+        author: typeof m.author === 'string' ? m.author : '',
+        tags: [],
+        permissions: Array.isArray(m.permissions) ? m.permissions : [],
+        is_official: false,
+      });
+    } catch {
+      /* no readable manifest: not an extension */
+    }
+  }
+  return out;
+}
+
 export function registerMarketplaceRoutes(
   self: ExtensionLoader,
   app: Hono,
@@ -92,7 +137,13 @@ export function registerMarketplaceRoutes(
     fetchRegistryChangelog?: typeof fetchRegistryChangelog;
   } = { fetchRegistryCatalog, downloadExtension },
 ): void {
-  const { fetchRegistryCatalog: fetchCatalog, downloadExtension: doDownload } = deps;
+  const { downloadExtension: doDownload } = deps;
+  // An operator's own extensions are in no catalogue; listed all the same (ADR 0056 d1).
+  const fetchCatalog: typeof fetchRegistryCatalog = async (...args) => {
+    const catalog = await deps.fetchRegistryCatalog(...args);
+    const listed = new Set(catalog.map((e) => e.name));
+    return [...catalog, ...operatorSignedEntries(resolveExtensionsBase(), listed)];
+  };
   const fetchChangelog = deps.fetchRegistryChangelog ?? fetchRegistryChangelog;
   const spendStepUp = deps.requireStepUp ?? requireStepUp;
   // Admin-only guard

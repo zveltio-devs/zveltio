@@ -140,7 +140,7 @@ export async function keysGenerateCommand(opts: KeysGenerateOptions = {}): Promi
   console.log(`  ${JSON.stringify([trusted], null, 2)}`);
   console.log(
     c.dim(
-      "\n  Paste the array above into the engine's `REGISTRY_PUBLIC_KEYS_JSON` env to trust this key locally.",
+      "\n  To trust it for your own extensions (`zveltio extension sign`, level 3), put the array in the engine's `OPERATOR_PUBLIC_KEYS_JSON`;\n  for archives a registry or mirror signs, in `REGISTRY_PUBLIC_KEYS_JSON`. Never both.",
     ),
   );
   console.log('');

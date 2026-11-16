@@ -140,12 +140,11 @@ async function installFromPath(name: string, sourcePath: string, force: boolean)
   }
   console.log(`  ✓ Copied to ${targetDir}`);
 
-  console.log(`  Enable it on a running engine: zveltio extensions enable ${extName}`);
-
   console.log(`\n✅ Extension "${manifest.displayName || extName}" installed!`);
-  console.log(`\n  Add to your .env (the engine must trust the key too):`);
-  console.log(`  ZVELTIO_EXTENSIONS=...,${extName}`);
-  console.log(`  OPERATOR_PUBLIC_KEYS_JSON=<zveltio keys export <keyId>>\n`);
+  console.log(`\n  The engine must trust the key (in its .env, then restart it):`);
+  console.log(`  OPERATOR_PUBLIC_KEYS_JSON=<zveltio keys export <keyId>>`);
+  // Listing it in ZVELTIO_EXTENSIONS loads it, but active for no firm (no registry row).
+  console.log(`  Then enable it: zveltio extensions enable ${extName}\n`);
 }
 
 // ── Flow 2: engine catalog ──────────────────────────────────────────────────

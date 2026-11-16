@@ -391,6 +391,33 @@ describe('registerMarketplaceRoutes (unit)', () => {
     }
   });
 
+  it('GET /api/marketplace lists an operator-signed directory, which no catalogue names (ADR 0056)', async () => {
+    const put = (name: string, manifest: Record<string, unknown>, signed: boolean) => {
+      mkdirSync(join(extBase, name), { recursive: true });
+      writeFileSync(join(extBase, name, 'manifest.json'), JSON.stringify(manifest));
+      if (signed) writeFileSync(join(extBase, name, 'signature.json'), '{"tier":"private"}');
+    };
+    put(
+      'acme/invoices',
+      { name: 'acme/invoices', version: '1.2.0', permissions: ['data:write'] },
+      true,
+    );
+    put('acme/unsigned', { name: 'acme/unsigned', version: '1.0.0' }, false);
+    put('acme/renamed', { name: 'acme/other', version: '1.0.0' }, true);
+    const res = await mountRoutes(db, extBase).request('/api/marketplace', {
+      headers: adminHeaders,
+    });
+    const names = ((await res.json()) as { extensions: { name: string; version: string }[] })
+      .extensions;
+    expect(names.find((e) => e.name === 'acme/invoices')).toMatchObject({
+      version: '1.2.0',
+      publisher_tier: 'community',
+    });
+    expect(names.some((e) => e.name === 'acme/unsigned' || e.name.startsWith('acme/other'))).toBe(
+      false,
+    );
+  });
+
   it('POST install returns 404 when the extension is absent from the catalog', async () => {
     const app = mountRoutes(db, extBase);
     const res = await app.request(`/api/marketplace/ghost-ext/install`, {
