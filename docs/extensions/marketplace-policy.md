@@ -100,8 +100,9 @@ status is granted manually by an admin via `enroll-publisher --tier verified`.
 
 **Since RFC extension-model-v3 phase A, `verified` runs in a worker too.**
 Inline code receives `ctx.db`, raw SQL with no boundary, and the RFC allows
-third-party code no SQL. A reviewed version comes back inline as level 1
-(certified) once `host.collections` is its only data path (phase B). The
+third-party code no SQL. A reviewed version becomes level 1 (certified) once
+`host.collections` is its only data path (phase B), and still runs isolated:
+since 2026-11-16 only first-party code runs inline. The
 engine and the CLI enforce this; the registry still accepts a verified
 `inline` submission, which the engine then refuses at enable.
 
