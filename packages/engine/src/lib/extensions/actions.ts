@@ -143,7 +143,11 @@ export function compileActions(
     refuse("actions need mountStrategy 'subapp'");
   }
   const paired = worker
-    ? declared.map((d) => ({ declared: d, input: compileInput('action', d, refuse), run: worker(d.name) }))
+    ? declared.map((d) => ({
+        declared: d,
+        input: compileInput('action', d, refuse),
+        run: worker(d.name),
+      }))
     : pairImplementations('action', declared, implemented, refuse);
   for (const { declared: a, input, run } of paired) {
     out.set(a.name, {

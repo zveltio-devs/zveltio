@@ -238,6 +238,13 @@ export default defineExtension(['data:write', 'data:system'], {
   ([v2 candidate 9](v2-candidates.md)).
 - `throw new ActionRefusal(status, code, message)` answers the caller with that
   4xx. Any other throw answers 500. Both roll back what the action wrote.
+- A worker-isolated extension (`engine.isolation: "worker"`) has actions too
+  (ADR 0056): the function runs in its process, and the engine decides
+  everything around it as for an inline one — the permission, the input, the
+  declared collections, the caller, the request transaction its writes land in,
+  the audit row. Each `host` member is a call the engine answers with the host
+  it built for that run; an `ActionRefusal` answers its status and code.
+  Engines after 3.0.0-beta.124; an older one refuses to load such an extension.
 - `host.actions.run(extension, action, input)` runs an action of an extension
   this one depends on (ADR 0014), so its invariant stays in the owner's code
   instead of a copy in another bundle. The calling action lists it in `calls`

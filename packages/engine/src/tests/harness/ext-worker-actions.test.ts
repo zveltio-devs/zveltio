@@ -103,8 +103,8 @@ export default {
     zone: async (_input, host) => host.timezone,
   },
   async register(app) {
-    // Its own catch-all: never reached by an action request.
-    app.use('*', async (c) => c.json({ intercepted: true }, 418));
+    // A route of its own on the action's path: the engine's is mounted first.
+    app.post('/actions/:name', (c) => c.json({ intercepted: true }, 418));
   },
 };
 `;
@@ -256,10 +256,7 @@ d('a worker-isolated extension’s actions run in its worker, decided by the eng
       db,
     );
     await sql`DELETE FROM zvd_permissions WHERE v2 = ${RES}`.execute(db);
-    await asEveryTenant(
-      db,
-      sql`DELETE FROM zv_audit_log WHERE resource_id LIKE ${`${EXT}:%`}`,
-    );
+    await asEveryTenant(db, sql`DELETE FROM zv_audit_log WHERE resource_id LIKE ${`${EXT}:%`}`);
     await asDefaultTenant(db, sql`DELETE FROM zv_revisions WHERE collection IN (${C}, ${OTHER})`);
     await dropTestCollection(db, C);
     await dropTestCollection(db, OTHER);
@@ -336,7 +333,7 @@ d('a worker-isolated extension’s actions run in its worker, decided by the eng
     expect(await rowsLabelled('rolled-back')).toEqual([]);
   });
 
-  it('hands the action the request tenant’s zone, and its own middleware never sees it', async () => {
+  it('hands the action the request tenant’s zone, and its own route never answers for it', async () => {
     const res = await act('zone', {}, member.cookie);
     expect(res.status).toBe(200);
     expect(((await res.json()) as { result: string }).result).toBe(

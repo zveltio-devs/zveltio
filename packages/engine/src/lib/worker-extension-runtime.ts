@@ -375,7 +375,9 @@ async function handleInit(msg: Extract<HostToWorkerMessage, { type: 'init' }>): 
     const actions = (extension.actions ?? {}) as Record<string, unknown>;
     for (const name of msg.actions ?? []) {
       const run = Object.hasOwn(actions, name) ? actions[name] : undefined;
-      if (typeof run !== 'function') throw new Error(`manifest action "${name}" has no implementation`);
+      if (typeof run !== 'function') {
+        throw new Error(`manifest action "${name}" has no implementation`);
+      }
       localActions.set(name, run as (input: unknown, host: unknown) => unknown);
     }
     for (const name of Object.keys(actions)) {

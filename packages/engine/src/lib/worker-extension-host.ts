@@ -67,11 +67,12 @@ import { Turns, transactionTurns } from '../db/trx-sequencer.js';
 import type { RawPool } from '../db/bun-sql-dialect.js';
 import {
   CREDENTIAL_HEADERS,
+  actionHostCall,
   activationMiddlewareFor,
+  crossedRefusal,
   extensionLoader,
   guardEventHandler,
 } from './extensions/index.js';
-import { actionHostCall, crossedRefusal } from './extensions/actions.js';
 import type { ActionHost } from '@zveltio/sdk/extension';
 import { compilePattern, extensionRequestRefused } from '../middleware/extension-auth-gate.js';
 import { ProblemException, problem, problemOnError } from './problem.js';
@@ -953,8 +954,9 @@ export class WorkerExtensionHost {
     managed: ManagedWorker,
     msg: Extract<WorkerToHostMessage, { type: 'service:call' }>,
   ): Promise<void> {
+    let scope: InvokeScope = { tenantId: null };
     try {
-      const scope = requestScope(managed, msg.requestId, 'service call') ?? { tenantId: null };
+      scope = requestScope(managed, msg.requestId, 'service call') ?? scope;
       const { tenantId, actor } = scope;
       const name = msg.name;
       const ownerWorker = this.findServiceOwner(name);
@@ -1025,6 +1027,7 @@ export class WorkerExtensionHost {
         : await run(call);
       this.post(managed, { type: 'service:ok', id: msg.id, result });
     } catch (err) {
+      if (err instanceof ProblemException) scope.action?.refusals.set(msg.id, err);
       this.post(managed, {
         type: 'service:err',
         id: msg.id,
@@ -1260,7 +1263,11 @@ export class WorkerExtensionHost {
           () => {
             if (invokeWaiters.has(invokeId)) {
               invokeWaiters.delete(invokeId);
-              reject(new Error(`${type === 'action:invoke' ? 'action' : 'service'} "${name}" call timeout`));
+              reject(
+                new Error(
+                  `${type === 'action:invoke' ? 'action' : 'service'} "${name}" call timeout`,
+                ),
+              );
             }
             // In a request, the request's hard timeout, as a worker route's (ADR
             // 0009 §3). Outside one (an event delivery, a call from a timer) there
