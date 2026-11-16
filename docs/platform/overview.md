@@ -4,7 +4,7 @@ Zveltio is a **self-hosted Business OS**: a headless backend that becomes a
 complete business system through extensions. One binary, one Postgres database,
 installed on hardware the organisation controls.
 
-**Version:** see [`packages/engine/package.json`](../../packages/engine/package.json). MIT licensed. Runtime is Bun.
+**Version:** see [`packages/engine/package.json`](../../packages/engine/package.json). Open source: AGPL-3.0 server, MIT SDKs ([`LICENSING.md`](../../LICENSING.md)). Runtime is Bun.
 
 ---
 
@@ -64,7 +64,7 @@ See [multi-tenancy.md](multi-tenancy.md).
 
 ## Strengths and trade-offs
 
-Where it is strong: self-hosted and MIT-licensed with no per-seat fees; tenant
+Where it is strong: self-hosted and open source (AGPL-3.0 server, MIT SDKs) with no per-seat fees; tenant
 isolation enforced by PostgreSQL row-level security rather than application
 filters; the headless engine and the business extensions on one database, one
 permission model and one audit trail; schema changes on live tables; signed

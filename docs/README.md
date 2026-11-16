@@ -5,7 +5,7 @@ into five chapters. Start with the chapter that matches what you are about to
 change; each chapter opens with its own index.
 
 **Version:** see [`packages/engine/package.json`](../packages/engine/package.json).
-**License:** MIT. **Runtime:** Bun (not Node).
+**License:** AGPL-3.0-only (engine, Studio, client), MIT (SDKs, CLI, UI kit) — see [`LICENSING.md`](../LICENSING.md). **Runtime:** Bun (not Node).
 
 > If you are an AI agent or a new contributor about to touch code, read
 > [`../AGENTS.md`](../AGENTS.md) first — it is the short operational map of the

@@ -16,6 +16,7 @@ See CONTRIBUTING.md for the code rules and commit/PR style.
 - [ ] Tests added/updated and passing (`bun test`)
 - [ ] For schema/RLS/multi-tenant changes: validated against a real Postgres (not just CI's superuser conn)
 - [ ] For extension changes: re-packed the bundle (`zveltio extension pack`) and `validate` passes
+- [ ] I have read the [Contributor License Agreement](../CLA.md) and I accept it
 
 ## Notes for reviewers
 

@@ -11,7 +11,7 @@
 
 > **The self-hosted Business OS: a headless backend that becomes your business stack through its extensions.**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: AGPL-3.0 + MIT SDKs](https://img.shields.io/badge/License-AGPL--3.0%20%2B%20MIT%20SDKs-blue.svg)](LICENSING.md)
 [![Status: Beta](https://img.shields.io/badge/Status-Beta-blue)](https://github.com/zveltio-devs/zveltio/releases)
 [![Bun](https://img.shields.io/badge/Bun-1.3+-red)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.4+-blue)](https://www.typescriptlang.org/)
@@ -24,7 +24,7 @@ Install the official extensions and it becomes a business stack: CRM, invoicing,
 
 **Use it headless. Use the extensions to replace your SaaS stack. Or do both.**
 
-Modern TypeScript stack (Bun + Hono + Postgres). AI through an extension. Audit trail and GDPR export/erasure built in. MIT-licensed.
+Modern TypeScript stack (Bun + Hono + Postgres). AI through an extension. Audit trail and GDPR export/erasure built in. Open source (AGPL-3.0 server, MIT SDKs).
 
 > 🟢 **Beta** (current version in [`packages/engine/package.json`](packages/engine/package.json)) — extensions API + marketplace are API-stable. Engine internals + Studio still iterating. See [Beta caveats](#beta-caveats) for what's locked vs. still moving.
 
@@ -158,7 +158,7 @@ Country-specific compliance currently ships **Romanian** packs (e-Factura, SAF-T
 
 **Where Zveltio is strong**
 
-- **Yours to run.** MIT-licensed and self-hosted: it runs on your hardware and the data never leaves it. No per-seat fees, no cloud account required.
+- **Yours to run.** Open source and self-hosted: it runs on your hardware and the data never leaves it. No per-seat fees, no cloud account required.
 - **Isolation in the database.** Tenant isolation is FORCE row-level security in PostgreSQL, keyed on a per-transaction setting — not an application filter. Hierarchical tenants: a parent can read its subtree and write only its own node.
 - **Backend and business stack on the same data.** The headless engine and the business extensions (CRM, invoicing, accounting, payroll, POS, e-commerce) share one database, one permission model and one audit trail.
 - **Schema changes on live tables.** A column is added in place, as a catalog change, so writes block for milliseconds (a volatile default rewrites the table); schema branches get a diff, review, preview and merge first.
@@ -365,7 +365,7 @@ Honest about where we are: still beta. The current version is in [`packages/engi
 
 ## License
 
-MIT — see [LICENSE](LICENSE). No per-seat fees, no commercial restriction, no source-available bait-and-switch.
+The engine, Studio and client app are AGPL-3.0-only ([LICENSE](LICENSE)); the SDKs (including the extension API), the CLI and the UI kit are MIT. Your applications and extensions stay yours, under any licence; a change to the engine you offer over a network is shared under the AGPL. A commercial licence is available for those who cannot accept the AGPL. Details, the extension exception and the FAQ: [LICENSING.md](LICENSING.md). No per-seat fees, no source-available bait-and-switch.
 
 If you build something on Zveltio that helps your business, the only thing we ask is a star ⭐ on this repo and — if you can spare it — a write-up so others know it's viable.
 
