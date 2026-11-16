@@ -26,6 +26,7 @@ import {
   enqueueDDLJob,
   getDDLJob,
   requestApiKey,
+  fieldChangeAudit,
   runAlterField,
 } from '../lib/data/index.js';
 import { fieldTypeRegistry } from '../lib/data/index.js';
@@ -708,6 +709,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
           );
         }
         const result = await runAlterField(db, collection, field, change, user?.id);
+        await auditLog(db, fieldChangeAudit(collection, field, result, user?.id));
         return c.json({ success: true, ...result });
       } catch (error) {
         if (error instanceof FieldChangeError)

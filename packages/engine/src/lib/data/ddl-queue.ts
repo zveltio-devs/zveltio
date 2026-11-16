@@ -469,7 +469,9 @@ export async function runAddField(
 
 /**
  * Change a field as `PATCH /api/collections/:name/fields/:field` asks, and
- * record it: in the request, or in the `alter_field` job when it retypes.
+ * record the migration: in the request, or in the `alter_field` job when it
+ * retypes. The caller writes the audit entry (`fieldChangeAudit`), where the
+ * audit gate can see it.
  */
 export async function runAlterField(
   db: Database,
@@ -491,14 +493,23 @@ export async function runAlterField(
       ? [{ op: 'renameField' as const, collection, from: fieldName, to: result.field.name }]
       : []),
   );
-  await auditLog(db, {
-    type: 'settings.changed',
+  return result;
+}
+
+/** The audit entry of a field change; the route and the job each write it. */
+export function fieldChangeAudit(
+  collection: string,
+  from: string,
+  result: { actions: string[]; field: { name: string } },
+  userId: string | undefined,
+) {
+  return {
+    type: 'settings.changed' as const,
     userId,
     resourceId: collection,
     resourceType: 'collection_field',
-    metadata: { actions: result.actions, from: fieldName, to: result.field.name },
-  });
-  return result;
+    metadata: { actions: result.actions, from, to: result.field.name },
+  };
 }
 
 // ── Per-type handlers ──────────────────────────────────────────────────────
@@ -562,7 +573,9 @@ async function registerHandlers(boss: PgBossInst, db: Database): Promise<void> {
   // built CONCURRENTLY. What each returns is the job's `result`.
   await work<AlterFieldJob>(QUEUE_NAMES.alter_field, async ([job]) => {
     const { collection, field, change, userId } = job!.data;
-    return { success: true, ...(await runAlterField(db, collection, field, change, userId)) };
+    const result = await runAlterField(db, collection, field, change, userId);
+    await auditLog(db, fieldChangeAudit(collection, field, result, userId));
+    return { success: true, ...result };
   });
   await work<ApplySchemaJob>(QUEUE_NAMES.apply_schema, async ([job]) => {
     const { applySchema } = await import('../schema-artifact/apply.js');
