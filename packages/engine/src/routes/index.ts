@@ -59,7 +59,7 @@ import { requestLogMiddleware } from '../middleware/request-log.js';
 import { problem } from '../lib/problem.js';
 import { tracingMiddleware } from '../middleware/tracing.js';
 import { demoModeMiddleware } from '../middleware/demo-mode.js';
-import { listSignInProviders } from '../lib/extensions/index.js';
+import { listSignInProviders, startScheduleTicks } from '../lib/extensions/index.js';
 import { configStepUp } from '../middleware/config-step-up.js';
 
 // ── Core routes (always registered) ─────────────────────────────────────────
@@ -124,6 +124,8 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
     _coreServicesInitialized = true;
     // Wire DB into rate limiter so configs from zv_rate_limit_configs override defaults
     initRateLimitDb(db);
+    // Extension jobs' schedules tick on the job queue (ADR 0048 d1).
+    startScheduleTicks();
     // Initialize DDL job queue (starts background polling — must run exactly once)
     await initDDLQueue(db);
   }

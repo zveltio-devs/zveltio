@@ -38,6 +38,8 @@ function standIn() {
       calls.send.push(q);
       return 'job-id';
     },
+    // No job here declares a schedule (ADR 0048 d1).
+    getSchedules: async () => [],
   };
   return { boss, calls, open, fail };
 }

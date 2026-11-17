@@ -10,6 +10,8 @@ export {
   receiveExtensionBroadcast,
 } from './broadcast.js';
 export * from './extension-catalog.js';
+// The clock of a job's declared `schedule` (ADR 0048 d1); started at boot.
+export { startScheduleTicks } from './jobs.js';
 export * from './extension-context.js';
 export * from './extension-deps.js';
 export * from './extension-download.js';

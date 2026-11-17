@@ -178,7 +178,7 @@ d('jobs[].schedule enqueues the job per active tenant (ADR 0048 d1)', () => {
   }, 120_000);
 
   afterAll(async () => {
-    await second?.stop({ graceful: false, wait: true }).catch(() => {});
+    await second?.stop({ graceful: false }).catch(() => {});
     invalidateActivationCache();
     await unregisterJobs(EXT);
     await unregisterJobs(OFF);

@@ -197,7 +197,14 @@ describe('ManifestSchema — extension-api v1 actions and jobs', () => {
     expect(ManifestSchema.parse(v1).jobs[0].schedule).toBeUndefined();
     expect(issues('*/5 * * * *')).toEqual([]);
     expect(issues('0 3 * * 1-5')).toEqual([]);
-    for (const bad of ['@hourly', '* * * *', '0 0 * * * *', '61 * * * *', 'every 5 minutes']) {
+    for (const bad of [
+      '@hourly',
+      '* * * *',
+      '0 0 * * * *',
+      '61 * * * *',
+      'every 5 minutes',
+      '0 0 30 2 *',
+    ]) {
       expect(issues(bad)[0], bad).toContain('is not a five-field cron expression');
     }
     expect(issues('* * * * *', { permissions: [] })[0]).toContain(

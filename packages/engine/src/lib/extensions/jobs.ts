@@ -184,8 +184,20 @@ export const jobQueueName = (extName: string, job: string): string => `ext.${ext
  */
 export const SCHEDULE_QUEUE = 'zv.ext-schedule';
 export const scheduleKey = (extName: string, job: string): string => `${extName}/${job}`;
-/** The pg-boss instance whose ticks this process works; a restarted queue works them again. */
-let ticking: JobQueue | null = null;
+
+/**
+ * Work the clock's ticks, from boot: whether or not any loaded extension has a
+ * schedule, so the tick of an extension removed while the engine was down still
+ * comes, and drops its schedule.
+ */
+export function startScheduleTicks(): void {
+  onJobQueueStart(async (boss) => {
+    await boss.createQueue(SCHEDULE_QUEUE, QUEUE_RETENTION);
+    await boss.work<{ extName: string; job: string }>(SCHEDULE_QUEUE, ([j]) =>
+      runOutsideTenantContext(() => tick(boss, j!.data)),
+    );
+  });
+}
 
 /**
  * `engine/jobs.js` of the extension at `extDir`, when the manifest's
@@ -322,13 +334,6 @@ export function registerJobs(
       working.clear();
       for (const name of registered.keys()) work(boss, name);
       await Promise.all([...working.values()].map((w) => w.ready));
-      if (ticking !== boss) {
-        await boss.createQueue(SCHEDULE_QUEUE, QUEUE_RETENTION);
-        await boss.work<{ extName: string; job: string }>(SCHEDULE_QUEUE, ([j]) =>
-          runOutsideTenantContext(() => tick(boss, j!.data)),
-        );
-        ticking = boss;
-      }
     });
     return;
   }

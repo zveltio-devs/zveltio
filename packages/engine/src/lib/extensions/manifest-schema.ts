@@ -16,7 +16,7 @@ import { join } from 'path';
 import { z } from 'zod';
 import { CAPABILITIES, isKnownCapability } from './capabilities.js';
 import { parseEgress, SLOT_NAME_RE } from '../edge-functions/egress.js';
-import { parseCron } from '../flows/cron.js';
+import { nextCronRun } from '../flows/index.js';
 import viewSchemaJson from '@zveltio/sdk/view/schema.json' with { type: 'json' };
 
 /** Request headers that carry the caller's credentials; never handed to a worker unasked. */
@@ -670,8 +670,9 @@ export const ManifestSchema = z
         } catch {
           // Reported by inputSchemaIssue above.
         }
-        const issue = !parseCron(j.schedule)
-          ? `schedule "${j.schedule}" is not a five-field cron expression (minute hour day-of-month month day-of-week; *, n, a-b, a,b and /step; in UTC)`
+        // Null too for one that never fires (`0 0 30 2 *`).
+        const issue = !nextCronRun(j.schedule)
+          ? `schedule "${j.schedule}" is not a five-field cron expression that fires (minute hour day-of-month month day-of-week; *, n, a-b, a,b and /step; in UTC)`
           : !m.permissions.includes('data:system')
             ? 'a scheduled job runs with no caller, which needs the data:system capability'
             : !acceptsEmpty
