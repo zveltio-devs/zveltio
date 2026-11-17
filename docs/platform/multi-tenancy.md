@@ -38,8 +38,9 @@ at every boot which of three states it is in (`initRlsEnforcementRole`,
 | `unavailable` | No descent role **and** the connection bypasses RLS | `❌ … Tenant isolation is NOT enforced` |
 
 The third state is **fatal in production** — `rlsBootFailure()` stops startup
-when `NODE_ENV=production`, with no override (ADR 0058 removed
-`ZVELTIO_ALLOW_UNENFORCED_RLS`). Outside production it stays a warning, because a development machine on the stock
+in production — every `NODE_ENV` but `development` and `test`, unset included —
+with no override (ADR 0058 removed `ZVELTIO_ALLOW_UNENFORCED_RLS`). Under
+`development` or `test` it stays a warning, because a development machine on the stock
 image's superuser is a normal thing.
 
 Before any of the three, boot refuses — everywhere, with no override — a

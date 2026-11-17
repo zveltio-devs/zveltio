@@ -117,7 +117,7 @@ openssl rand -base64 32
 | `CORS_ORIGINS` | `http://localhost:3000` | Comma-separated allowed CORS origins |
 | `SITE_URL` | — | Public site URL (used in sitemap.xml generation) |
 | `TEST_PORT` | `3001` | Port used by integration test runner |
-| `ZVELTIO_SCHEMA_DIR` | — | Dev only (ignored when `NODE_ENV=production`): every schema change made through the engine rewrites this directory as `zveltio schema pull` would, and a rename, type change or drop also writes its `migrations/<id>.json`. See [rfc-schema-as-code.md](../engine/rfc-schema-as-code.md) §7. |
+| `ZVELTIO_SCHEMA_DIR` | — | Dev only (read only under `NODE_ENV=development` or `test`; unset is production): every schema change made through the engine rewrites this directory as `zveltio schema pull` would, and a rename, type change or drop also writes its `migrations/<id>.json`. See [rfc-schema-as-code.md](../engine/rfc-schema-as-code.md) §7. |
 | `ZVELTIO_MAP_TILES` | OpenStreetMap (`https://tile.openstreetmap.org/{z}/{x}/{y}.png`) | The tile server every map in Studio and the client draws from, served to them as `map_tiles` in `GET /api/settings/public`. An `https://` URL template with `{z}`, `{x}` and `{y}` (optional `{s}`, `{r}`); anything else refuses boot. Each tile request carries the viewer's IP address to that host: set your own server to keep it, or `off` to load no tiles at all (a map view then shows its list of places only). |
 | `ZVELTIO_MAP_ATTRIBUTION` | `© OpenStreetMap contributors` when `ZVELTIO_MAP_TILES` is unset, else empty | The attribution text shown on the map, as text (front ends escape it). Your tile provider's terms usually require one. |
 
@@ -383,7 +383,8 @@ question "what can weaken this deployment?" deserves an answer that is a list
 rather than a grep.
 
 None of them is on by default. On a hardened install every one of them is off —
-`NODE_ENV=production`, the rest absent — and the engine says so: it warns at
+`NODE_ENV=production` (or unset: only `development` and `test` are not
+production), the rest absent — and the engine says so: it warns at
 every boot for each mode that is on, and for each removed variable still set.
 The table is generated from the register in
 `packages/engine/src/lib/operational-modes.ts`, which is also the only code that

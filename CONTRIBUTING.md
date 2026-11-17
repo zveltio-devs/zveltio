@@ -56,6 +56,14 @@ cd packages/engine && bun test   # unit + integration
 These bite contributors regularly. See also
 [`docs/extensions/developer-guide.md` §12](docs/extensions/developer-guide.md#12-local-development-loop).
 
+#### `NODE_ENV` — unset is production
+
+`bun run dev` and `zveltio dev` set `NODE_ENV=development`. An engine started
+any other way (`bun packages/engine/src/index.ts`, a script) without it boots
+as **production** (ADR 0058): it refuses to start without `VALKEY_URL`, sets
+Secure cookies and mounts no `/__zveltio_dev_reload`. Set `NODE_ENV=development`
+(or `test`) yourself.
+
 #### `EXTENSIONS_DIR` — where extension files come from
 
 The engine resolves extension files in this order:
