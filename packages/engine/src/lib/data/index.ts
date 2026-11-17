@@ -54,8 +54,10 @@ export {
   inOrder,
   principalRecord,
   readScope,
+  realtimeScope,
   recordReadable,
   type ReadScope,
+  type RealtimeScope,
 } from './read-scope.js';
 //   - `readableRevisions` so both revision lists (`/api/revisions`,
 //     `/api/admin/revisions`) ask the record's read gate the same way.

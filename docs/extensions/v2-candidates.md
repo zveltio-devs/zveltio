@@ -13,6 +13,13 @@ from memory. Two kinds of entry:
 
 Each entry says what happened, what v1 does now, and what v2 should do.
 
+**When v2 freezes.** On evidence, not on a date. Three proof apps are built
+from the public documentation and the published packages only, with no access
+to engine or extension source: one on a database adopted with `byod`, one with
+a job that makes an external call, and one free choice. Every detour is a
+finding, and every finding that needs a breaking change becomes an entry here.
+v2 freezes when the last run adds no breaking entry.
+
 ## 1. Cross-replica broadcast — stopgap (3.0.0-beta.90)
 
 **What happened.** `ai` caches each firm's providers in memory. Saving a
