@@ -405,7 +405,21 @@ async function ensurePgExtensions(db: Database, fields: FieldConfig[]): Promise<
     if (!ALLOWED_PG_EXTENSIONS.has(ext)) {
       throw new Error(`PostgreSQL extension "${ext}" is not in the allowed extensions whitelist.`);
     }
-    await sql`CREATE EXTENSION IF NOT EXISTS ${sql.id(ext)}`.execute(db);
+    try {
+      await sql`CREATE EXTENSION IF NOT EXISTS ${sql.id(ext)}`.execute(db);
+    } catch (err) {
+      // Not installed on the server, or the engine's role may not create it:
+      // say which field type needs what, not Postgres's bare "is not available".
+      const types = fields
+        .filter((f) => fieldTypeRegistry.getRequiredExtensions([f]).includes(ext))
+        .map((f) => `"${f.name}" (${f.type})`)
+        .join(', ');
+      throw new Error(
+        `Field ${types} needs the PostgreSQL extension "${ext}", which this database could not ` +
+          `create: ${err instanceof Error ? err.message : String(err)}. Install it on the ` +
+          `PostgreSQL server and run CREATE EXTENSION ${ext} as a superuser, then retry.`,
+      );
+    }
   }
 }
 

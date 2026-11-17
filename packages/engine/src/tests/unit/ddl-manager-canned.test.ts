@@ -75,6 +75,21 @@ describe('createCollection', () => {
     }
   });
 
+  it('names the field and the missing extension when Postgres cannot create it', async () => {
+    const db = setup();
+    db.when(/CREATE EXTENSION IF NOT EXISTS "postgis"/, () => {
+      throw new Error('extension "postgis" is not available');
+    });
+    await expect(
+      DDLManager.createCollection(asDb(db), {
+        name: 'parcels',
+        fields: [TEXT_FIELD, { name: 'shape', type: 'geometry' }],
+      } as never),
+    ).rejects.toThrow(
+      'Field "shape" (geometry) needs the PostgreSQL extension "postgis", which this database could not create: extension "postgis" is not available.',
+    );
+  });
+
   it("installs pgvector by its extension name, 'vector'", async () => {
     const db = setup();
     await DDLManager.createCollection(asDb(db), {
