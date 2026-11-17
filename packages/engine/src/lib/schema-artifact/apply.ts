@@ -785,10 +785,25 @@ export async function planExtensionSchema(
   // target: on a collection this extension does not declare, that is a column
   // in somebody else's table.
   for (const [path, content] of Object.entries(files)) {
-    const { fields, relations } = JSON.parse(String(content)) as {
+    const { fields, relations, rowRules } = JSON.parse(String(content)) as {
       fields?: Entry[];
       relations?: Entry[];
+      rowRules?: Entry[];
     };
+    // ADR 0058 amendment (amends ADR 0016 point 2): an extension declares one
+    // row rule, the owner-only one, which only narrows. `created_by` is engine
+    // written (`RESERVED` in db/dynamic.ts), so no caller forges it. Any other
+    // rule — `neq`, another column, a `static:` value — is business separation,
+    // the operator's.
+    for (const r of rowRules ?? []) {
+      if (r.field !== 'created_by' || r.op !== 'eq' || r.value !== 'user_id') {
+        throw new SchemaFileError(
+          `${path}: row rule ${r.role}: ${r.field} ${r.op} ${r.value} — an extension declares ` +
+            'only the owner-only row rule created_by eq user_id (a role may be named; ADR 0058 ' +
+            "amendment, ADR 0016); any other row rule is the operator's, through /api/admin/rls",
+        );
+      }
+    }
     // The operator's names (amendment 2): the two sets never collide.
     const named = [
       ...(fields ?? []).map((f) => f.name),

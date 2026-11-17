@@ -419,6 +419,75 @@ d('an extension declares its collections; the engine creates and owns them', () 
     expect((await post('activate')).status).toBe(200);
   }, 60_000);
 
+  it('an extension declares only the owner-only row rule; it binds, and a new version replaces it', async () => {
+    await reset();
+    const ownerOnly = (role: string) => ({ role, field: 'created_by', op: 'eq', value: 'user_id' });
+    const file = (rule: Record<string, string>) => ({
+      [TASKS]: { fields: [text('title')], rowRules: [rule] },
+    });
+    const rules = async () =>
+      (
+        await sql`SELECT role, filter_field, filter_op, filter_value_source
+                    FROM zvd_rls_policies WHERE collection = ${TASKS}`.execute(db)
+      ).rows;
+
+    // Every other form is the operator's (ADR 0016): refused at load, nothing created.
+    for (const bad of [
+      { ...ownerOnly('member'), op: 'neq' },
+      { ...ownerOnly('member'), field: 'title' },
+      { ...ownerOnly('member'), value: 'static:x' },
+    ]) {
+      await ship(file(bad));
+      expect((await post('enable')).status).toBe(422);
+      expect(await lastLoadError()).toMatch(/only the owner-only row rule created_by eq user_id/);
+      expect(await DDLManager.tableExists(db, TASKS)).toBe(false);
+    }
+
+    await ship(file(ownerOnly('member')));
+    expect((await post('enable')).status).toBe(200);
+    const stored = {
+      role: 'member',
+      filter_field: 'created_by',
+      filter_op: 'eq',
+      filter_value_source: 'user_id',
+    };
+    expect(await rules()).toEqual([stored]);
+    // An operator sees it where every row rule is.
+    expect(JSON.stringify(await (await call('GET', '/api/admin/rls')).json())).toContain(TASKS);
+
+    const grants = [{ collection: TASKS, actions: ['read', 'create', 'update'] }];
+    const a = (await createMemberSession(engine, db, { grants })).cookie;
+    const b = (await createMemberSession(engine, db, { grants })).cookie;
+    const as = (cookie: string, method: string, path: string, body?: unknown) =>
+      engine.request(path, {
+        method,
+        headers: { 'Content-Type': 'application/json', cookie },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    const made = await as(a, 'POST', `/api/data/${TASKS}`, { title: 'mine' });
+    expect(made.status).toBe(201);
+    const id = ((await made.json()) as { id: string }).id;
+    const row = `/api/data/${TASKS}/${id}`;
+    const listed = async (cookie: string) =>
+      JSON.stringify(await (await as(cookie, 'GET', `/api/data/${TASKS}`)).json()).includes('mine');
+    const binds = async () => {
+      expect(await listed(a)).toBe(true);
+      expect(await listed(b)).toBe(false);
+      expect((await as(b, 'GET', row)).status).toBe(404);
+      expect([403, 404]).toContain((await as(b, 'PATCH', row, { title: 'theirs' })).status);
+      expect((await as(a, 'PATCH', row, { title: 'mine 2' })).status).toBe(200);
+      await as(a, 'PATCH', row, { title: 'mine' });
+    };
+    await binds();
+    await extensionLoader.unload(NAME);
+
+    // The next version names another role: its rule replaces the old one, no copy left.
+    await ship(file(ownerOnly('*')));
+    expect((await post('enable')).status).toBe(200);
+    expect(await rules()).toEqual([{ ...stored, role: '*' }]);
+    await binds();
+  }, 60_000);
+
   it('defaultGrants false: no default grant at enable, nor at the boot reconcile', async () => {
     await reset();
     await ship({
