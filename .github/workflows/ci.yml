@@ -615,7 +615,17 @@ jobs:
         #     files, never from a request, so no runtime path reaches it. Drop the
         #     ignore when braces ships a fix (override it then) or those tools move
         #     to picomatch-only matching.
-        run: bun audit --audit-level=high --ignore=GHSA-vfj7-8cjw-p6xm
+        #
+        #   GHSA-fc5q-39xc-vjpf  picomatch <=4.0.7 ReDoS on single-branch repeated
+        #     extglobs (published 2026-11-17). No patched release exists (4.0.7 is
+        #     the latest). Every copy is build or test tooling: vite, vitest and
+        #     @vitest/ui (the engine reaches it only through better-auth's optional
+        #     vitest peer), tinyglobby, fdir, unplugin (paraglide), and picomatch 2
+        #     via micromatch / anymatch / readdirp (tailwindcss 3, chokidar). The
+        #     patterns come from repository config, never from a request. Accepted
+        #     by the owner 2026-11-17. Drop the ignore when picomatch ships a fix
+        #     (override it then).
+        run: bun audit --audit-level=high --ignore=GHSA-vfj7-8cjw-p6xm --ignore=GHSA-fc5q-39xc-vjpf
 
   ext-runner-isolation:
     name: Extension runner isolation
