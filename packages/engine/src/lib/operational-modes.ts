@@ -218,8 +218,7 @@ export const MODES = {
       'LDAPS certificate verification (auth/ldap), for every tenant: with `1` or `true` the ' +
       'directory is not authenticated, so whoever sits on the path reads the bind and user ' +
       'passwords. Was the Console field `tls_verify`; a stored `false` is ignored since auth/ldap 4.0.0.',
-    when:
-      "A directory with a self-signed certificate. Prefer trusting its CA with `NODE_EXTRA_CA_CERTS`, which keeps verification on.",
+    when: 'A directory with a self-signed certificate. Prefer trusting its CA with `NODE_EXTRA_CA_CERTS`, which keeps verification on.',
     removal: '3.1.0',
     on: is('1', 'true'),
   },
@@ -229,8 +228,7 @@ export const MODES = {
       'The SAML assertion audience check (auth/saml), for every tenant: with `1` or `true` an ' +
       'assertion the identity provider issued for another service signs a person in here. Was ' +
       'the Console field `audience_check`; a stored `false` is ignored since auth/saml 3.0.0.',
-    when:
-      'An identity provider that sends an audience you cannot match. Prefer setting the expected audience in the SAML settings.',
+    when: 'An identity provider that sends an audience you cannot match. Prefer setting the expected audience in the SAML settings.',
     removal: '3.1.0',
     on: is('1', 'true'),
   },
