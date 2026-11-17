@@ -193,6 +193,20 @@ export function buildExtensionConfig(
       const v = modeValue('ALLOW_INSECURE_LDAP');
       return v === '1' || v === 'true';
     },
+    /**
+     * Skips LDAPS certificate verification (auth/ldap), for every tenant. An
+     * environment hatch with a date (ADR 0058 d4): it was the Console field
+     * `tls_verify`, which any tenant admin could turn off.
+     */
+    get allowUnverifiedLdaps(): boolean {
+      const v = modeValue('ZVELTIO_ALLOW_UNVERIFIED_LDAPS');
+      return v === '1' || v === 'true';
+    },
+    /** Skips the SAML audience check (auth/saml), for every tenant. As above: was `audience_check`. */
+    get allowSamlAnyAudience(): boolean {
+      const v = modeValue('ZVELTIO_ALLOW_SAML_ANY_AUDIENCE');
+      return v === '1' || v === 'true';
+    },
     get objectStorage(): ObjectStorageConfig | undefined {
       if (!mayReadStorage) return undefined;
       const { driver, s3 } = storageConfig();

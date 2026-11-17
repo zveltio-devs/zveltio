@@ -20,6 +20,8 @@ const ENV_KEYS = [
   'FIELD_ENCRYPTION_KEY',
   'CROSS_DOMAIN_AUTH',
   'ALLOW_INSECURE_LDAP',
+  'ZVELTIO_ALLOW_UNVERIFIED_LDAPS',
+  'ZVELTIO_ALLOW_SAML_ANY_AUDIENCE',
   'S3_ENDPOINT',
   'S3_ACCESS_KEY',
   'S3_SECRET_KEY',
@@ -150,6 +152,22 @@ describe('scalar configuration', () => {
     expect(buildExtensionConfig([]).crossDomainAuth).toBe(true);
     process.env.CROSS_DOMAIN_AUTH = 'no';
     expect(buildExtensionConfig([]).crossDomainAuth).toBe(false);
+  });
+
+  // DR-10 slice B: these were Console fields a tenant admin could turn off;
+  // now only the operator's environment does, and unset keeps the check on.
+  it('reads the LDAPS and SAML audience hatches from the environment only, off when unset', () => {
+    const c = buildExtensionConfig([]);
+    expect(c.allowUnverifiedLdaps).toBe(false);
+    expect(c.allowSamlAnyAudience).toBe(false);
+    process.env.ZVELTIO_ALLOW_UNVERIFIED_LDAPS = '1';
+    process.env.ZVELTIO_ALLOW_SAML_ANY_AUDIENCE = 'true';
+    expect(c.allowUnverifiedLdaps).toBe(true);
+    expect(c.allowSamlAnyAudience).toBe(true);
+    process.env.ZVELTIO_ALLOW_UNVERIFIED_LDAPS = 'false';
+    process.env.ZVELTIO_ALLOW_SAML_ANY_AUDIENCE = '0';
+    expect(c.allowUnverifiedLdaps).toBe(false);
+    expect(c.allowSamlAnyAudience).toBe(false);
   });
 
   it('leaves publicUrl undefined rather than empty when unset', () => {
