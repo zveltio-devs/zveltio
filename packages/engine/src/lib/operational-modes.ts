@@ -25,8 +25,6 @@ export type ModeClass =
   | 'permanent'
   /** Not a variable: an exemption an authorized admin delegates, row by row. */
   | 'delegated'
-  /** A Console setting that weakens; becomes an environment hatch with a date (DR-10 slice B). */
-  | 'pending'
   /** The platform's variable; its readers are not routed here (see the entry). */
   | 'platform';
 
@@ -214,17 +212,25 @@ export const MODES = {
     when: 'A service key that must read whole collections, such as an export.',
     removal: 'permanent',
   },
-  'auth/ldap tlsVerify=false': {
-    class: 'pending',
-    weakens: 'LDAPS certificate verification (auth/ldap), set from the Console.',
-    when: 'A directory with a self-signed certificate. Leaves the Console for an environment variable with a date (DR-10 slice B).',
-    removal: 'moves to the environment (DR-10 slice B)',
+  ZVELTIO_ALLOW_UNVERIFIED_LDAPS: {
+    class: 'dated',
+    weakens:
+      'LDAPS certificate verification (auth/ldap), for every tenant: with `1` or `true` the ' +
+      'directory is not authenticated, so whoever sits on the path reads the bind and user ' +
+      'passwords. Was the Console field `tls_verify`; a stored `false` is ignored since auth/ldap 4.0.0.',
+    when: 'A directory with a self-signed certificate. Prefer trusting its CA with `NODE_EXTRA_CA_CERTS`, which keeps verification on.',
+    removal: '3.1.0',
+    on: is('1', 'true'),
   },
-  'auth/saml audience=false': {
-    class: 'pending',
-    weakens: 'The SAML assertion audience check (auth/saml), set from the Console.',
-    when: 'An identity provider that sends a wrong audience. Leaves the Console for an environment variable with a date (DR-10 slice B).',
-    removal: 'moves to the environment (DR-10 slice B)',
+  ZVELTIO_ALLOW_SAML_ANY_AUDIENCE: {
+    class: 'dated',
+    weakens:
+      'The SAML assertion audience check (auth/saml), for every tenant: with `1` or `true` an ' +
+      'assertion the identity provider issued for another service signs a person in here. Was ' +
+      'the Console field `audience_check`; a stored `false` is ignored since auth/saml 3.0.0.',
+    when: 'An identity provider that sends an audience you cannot match. Prefer setting the expected audience in the SAML settings.',
+    removal: '3.1.0',
+    on: is('1', 'true'),
   },
 } as const satisfies Record<string, Mode>;
 

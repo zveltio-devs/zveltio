@@ -276,6 +276,18 @@ export interface ExtensionConfig {
   readonly crossDomainAuth: boolean;
   /** Permits plaintext LDAP binds. Development only. */
   readonly allowInsecureLdap: boolean;
+  /**
+   * Skips LDAPS certificate verification, for every tenant
+   * (`ZVELTIO_ALLOW_UNVERIFIED_LDAPS`, removed in 3.1.0). Absent on an older
+   * engine: read it as `?? false`, so verification stays on.
+   */
+  readonly allowUnverifiedLdaps?: boolean;
+  /**
+   * Skips the SAML assertion audience check, for every tenant
+   * (`ZVELTIO_ALLOW_SAML_ANY_AUDIENCE`, removed in 3.1.0). Absent on an older
+   * engine: read it as `?? false`, so the check stays on.
+   */
+  readonly allowSamlAnyAudience?: boolean;
   /** Present only to a first-party extension with the `storage` capability, and only when configured. */
   readonly objectStorage?: ObjectStorageConfig;
 }
