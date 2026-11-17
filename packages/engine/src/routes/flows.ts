@@ -3,7 +3,12 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
 import { auditLog } from '../lib/audit.js';
-import { EXECUTABLE_STEP_TYPES, executeFlow, nextCronRun } from '../lib/flows/index.js';
+import {
+  EXECUTABLE_STEP_TYPES,
+  executeFlow,
+  nextCronRun,
+  REMOVED_STEP_TYPES,
+} from '../lib/flows/index.js';
 import { validateStepConfig } from '../lib/flows/index.js';
 import {
   holdsRole,
@@ -53,7 +58,14 @@ const StepSchema = z.object({
   // options fail at save with a message naming the supported types. That is a
   // visible regression against an invisible one: those steps never did anything,
   // and a builder who picks one now learns it while they can still change it.
-  type: z.enum(EXECUTABLE_STEP_TYPES),
+  //
+  // A removed type (`query_db`, ADR 0058) says so and what to use instead.
+  type: z.enum(EXECUTABLE_STEP_TYPES, {
+    error: (iss) => {
+      const removed = REMOVED_STEP_TYPES.get(String(iss.input));
+      return removed ? `Step type ${String(iss.input)}: ${removed}` : undefined;
+    },
+  }),
   name: z.string().optional(),
   config: z.record(z.string(), z.unknown()).default({}),
   on_error: z.enum(['stop', 'continue', 'retry']).default('stop'),
@@ -121,24 +133,14 @@ async function replaceSteps(trx: Database, flowId: string, steps: StepInput[]): 
 }
 
 /**
- * Step types that hand the author raw execution against the engine's own
- * database or runtime. These are INSTANCE-admin only.
+ * Step types that hand the author raw execution against the engine's runtime.
+ * These are INSTANCE-admin only.
  *
- * `query_db` runs arbitrary SQL. It is read-only (SET TRANSACTION READ ONLY,
- * enforced by Postgres) and tenant-scoped for collection data — but the tenant
- * GUC only governs `zvd_*` rows. Better-Auth's `session` table has no RLS, so a
- * TENANT admin could author `SELECT token FROM "session"` and read every live
- * session on the instance, including god sessions. Read-only does not help: the
- * attack is a read.
- *
- * `run_script` is the same argument one level up.
- *
- * The durable fix is a dedicated Postgres role with no SELECT on the auth
- * tables, so the database enforces this the way it enforces read-only. Until
- * that exists, authorship is the boundary: a tenant admin cannot write these
- * steps, so cannot reach the tables.
+ * `run_script` runs author-written code. Authorship is the boundary: a tenant
+ * admin cannot write these steps. (`query_db`, raw SQL, sat here too; it is
+ * removed, ADR 0058.)
  */
-const INSTANCE_ADMIN_STEP_TYPES = new Set(['query_db', 'run_script']);
+const INSTANCE_ADMIN_STEP_TYPES = new Set(['run_script']);
 
 /**
  * Reject a flow body whose steps reach past the tenant boundary unless the
@@ -159,8 +161,7 @@ async function assertStepTypesAllowed(
   if (await requireInstanceAdmin(userId)) return null;
   return (
     `Step type(s) ${[...new Set(dangerous)].join(', ')} require instance-admin rights: ` +
-    `they execute raw SQL or code against the engine's database, which is not ` +
-    `confined to your tenant.`
+    `they execute code in the engine, which is not confined to your tenant.`
   );
 }
 
@@ -550,9 +551,8 @@ export function flowsRoutes(poolDb: Database, auth: any): Hono {
 
     // Same gate as POST / and PATCH /:id. It was on the routes that write a
     // whole flow and missing from the two that write ONE step, so a tenant
-    // admin who could not create a flow containing a `query_db` step could add
-    // exactly that step to a flow they already owned — and `query_db` runs raw
-    // SQL on the engine's database, which is not confined to their tenant.
+    // admin who could not create a flow containing a `run_script` step could add
+    // exactly that step to a flow they already owned.
     const stepDenial = await assertStepTypesAllowed(user.id, [body]);
     if (stepDenial) return c.json({ error: stepDenial }, 403);
 
@@ -634,7 +634,7 @@ export function flowsRoutes(poolDb: Database, auth: any): Hono {
 
     // Checked against the RESULTING type, not the submitted one: a PUT that
     // omits `type` keeps the stored value, and a PUT that supplies it is the
-    // whole attack — changing a benign step into `query_db` in place.
+    // whole attack — changing a benign step into `run_script` in place.
     const stepDenial = await assertStepTypesAllowed((c.get('user') as { id: string }).id, [
       { type: newType },
     ]);

@@ -305,8 +305,9 @@ extension, so a public sign-in route reaches its own settings).
 - The engine names the columns it may read (`readableColumns` in
   `db/dynamic.ts`) on every read and write path: list, get, the write echoes,
   bulk, `?expand=`, revisions, sync pull and push, and an extension's record
-  hooks. Extension SQL, a flow `query_db` step and an insight must name their
-  columns on such a collection.
+  hooks. Extension SQL and an insight must name their columns on such a
+  collection. (A flow runs no SQL of its author's: `query_db` is removed,
+  ADR 0058.)
 - Re-applied in the CREATE's transaction, with a field's ADD, on every field
   rename, retype and drop, and at boot; the boot grant loops leave a sealed
   table's SELECT alone. Dropping the last such field gives the table-level
@@ -354,8 +355,8 @@ masked, raw SQL on the table is not.
   alters a collection's columns drops the view first and builds it last: SQL
   that runs `ALTER TABLE … DROP COLUMN` or `… TYPE` on a collection table by
   hand must `DROP VIEW zvv_<collection>` first; the next boot puts it back.
-- Extension SQL, a flow `query_db` step and an insight read the table and must
-  name their columns on a collection with a read rule, as on a sealed one.
+- Extension SQL and an insight read the table and must name their columns on a
+  collection with a read rule, as on a sealed one.
 
 The settings the view reads are the request's own, and raw SQL on the request
 role can set them: the view stops the engine and the narrow roles forgetting a

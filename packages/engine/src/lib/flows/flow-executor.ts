@@ -2,7 +2,6 @@
  * Flow Executor — runs the steps of a Zveltio automation flow.
  *
  * Supports step types:
- *   query_db          — execute a raw SQL query and pass rows as output
  *   run_script        — run sandboxed JS via script-runner
  *   send_email        — send email via email lib (graceful no-op if not configured)
  *   webhook           — HTTP call to an external URL
@@ -19,7 +18,6 @@ import { sql } from 'kysely';
 import { toJsonb } from '../jsonb.js';
 import type { Database } from '../../db/index.js';
 import {
-  asIdentityOn,
   DEFAULT_TENANT_ID,
   grantHoldsIn,
   rolePrincipal,
@@ -81,18 +79,6 @@ async function getUsersForRole(db: Database, role: string, tenantId: string): Pr
 
 // ── Step executor ─────────────────────────────────────────────────────────────
 
-/** Warn once per process, not once per flow run. */
-let _warnedNoFlowRole = false;
-
-/**
- * The role `query_db` drops to. A constant rather than a literal so that a test
- * can point it at a role that does not exist: the engine connects as a superuser,
- * so absence is the ONLY way `SET LOCAL ROLE` fails here, and the cluster role is
- * shared with every other database on the machine — dropping it to prove a
- * fallback is not an option.
- */
-let _flowReaderRole = 'zveltio_flow_reader';
-
 /** Rows one `export_collection` step may write; its step schema caps `limit` the same. */
 const EXPORT_MAX_ROWS = 100_000;
 
@@ -110,7 +96,6 @@ const EXPORT_MAX_ROWS = 100_000;
  * so this one is anchored to the code that runs.
  */
 export const EXECUTABLE_STEP_TYPES = [
-  'query_db',
   'run_script',
   'send_email',
   'webhook',
@@ -121,6 +106,26 @@ export const EXECUTABLE_STEP_TYPES = [
 
 export type ExecutableStepType = (typeof EXECUTABLE_STEP_TYPES)[number];
 
+/**
+ * Step types the engine ran once and now refuses, with what the author does
+ * instead. A flow holding one is refused before its first step: run with the
+ * step skipped (`on_error: 'continue'`), its later steps would act on an input
+ * that was never produced.
+ *
+ * `query_db` ran caller-written SQL. RLS reads the `zveltio.*` settings, which
+ * that SQL could rewrite with `set_config` in its own transaction and read
+ * another tenant's rows; without `zveltio_flow_reader` it ran as the connection
+ * role (a superuser on a stock install). No caller-written SQL runs in the
+ * engine (ADR 0058, DR-05). Migration 124 keeps stored steps, inert.
+ */
+export const REMOVED_STEP_TYPES: ReadonlyMap<string, string> = new Map([
+  [
+    'query_db',
+    'raw SQL steps were removed (ADR 0058): read a collection with an export_collection ' +
+      "step, which reads as the flow's role, and delete this step",
+  ],
+]);
+
 async function executeStep(
   db: Database,
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -129,8 +134,8 @@ async function executeStep(
   prevOutput: any,
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   flowContext: Record<string, any> = {},
-  // Tenant for any collection-data access in this step (query_db / export_collection
-  // run inside a `set_config('zveltio.current_tenant', …)` transaction, and collection
+  // Tenant for any collection-data access in this step (export_collection runs
+  // inside a `set_config('zveltio.current_tenant', …)` transaction, and collection
   // tables are FORCE-RLS'd). This is the flow's OWN tenant, resolved by executeFlow —
   // NOT derived from caller-supplied trigger data, which a caller could set to another
   // tenant's id to read/export across tenants.
@@ -163,102 +168,6 @@ async function executeStep(
   }
 
   switch (step.type) {
-    // ── query_db ──
-    case 'query_db': {
-      if (!cfg.query) return { output: prevOutput };
-
-      // Shape check first — it produces the message an author can act on. It is
-      // NOT what makes this read-only; see SET TRANSACTION READ ONLY below.
-      const trimmed = (cfg.query as string).trim().toUpperCase();
-      if (!trimmed.startsWith('SELECT') && !trimmed.startsWith('WITH')) {
-        throw new Error(
-          'Flow query_db step only allows SELECT or WITH (read-only) statements. ' +
-            'Use update_record or insert_record step types for writes.',
-        );
-      }
-
-      // Defence in depth against obvious abuse. A denylist cannot be the
-      // boundary — every pattern below requires a leading `;`, so a
-      // data-modifying CTE walked straight through:
-      //
-      //   WITH x AS (DELETE FROM zvd_customers RETURNING *) SELECT * FROM x
-      //
-      // starts with WITH, matches nothing here, and deletes the table. Postgres
-      // enforces the actual guarantee now; this list only catches noise early.
-      const DANGEROUS_PATTERNS = [
-        /;\s*(DROP|DELETE|UPDATE|INSERT|CREATE|ALTER|TRUNCATE|GRANT|REVOKE)/i,
-        /pg_sleep/i,
-        /pg_read_file/i,
-        /pg_write_file/i,
-        /copy\s+.*\s+to\s+/i,
-        /copy\s+.*\s+from\s+/i,
-        /lo_export/i,
-        /lo_import/i,
-      ];
-      for (const pattern of DANGEROUS_PATTERNS) {
-        if (pattern.test(cfg.query as string)) {
-          throw new Error('Flow query_db: blocked dangerous SQL pattern.');
-        }
-      }
-
-      const runAs = await requirePrincipal(principal);
-      // Execute with statement_timeout to prevent long-running queries.
-      // SET LOCAL only takes effect inside a transaction, AND `.execute(db)`
-      // can hand out a different pool connection per call — so the timeout
-      // MUST live in the same transaction as the user query, otherwise a
-      // cartesian join can monopolise a pool connection indefinitely.
-      const result = await db.transaction().execute(async (trx: Database) => {
-        // THE read-only guarantee. Postgres refuses any write in this
-        // transaction — including from a data-modifying CTE, which the string
-        // checks above cannot see. Must run before the tenant GUC: once a
-        // statement has executed, SET TRANSACTION is no longer permitted.
-        await sql.raw('SET TRANSACTION READ ONLY').execute(trx);
-
-        // Drop to a role with SELECT on `zvd_*` collection tables and nothing
-        // else. Read-only stops writes; it does not stop reads, and the tenant
-        // GUC only governs `zvd_*` rows — so `SELECT token FROM "session"`
-        // returned every live session on the instance. Authorship is gated to
-        // instance admins (routes/flows.ts), but that contains the escalation
-        // rather than removing the capability. This removes it: Postgres
-        // refuses regardless of who wrote the query or how it is shaped.
-        //
-        // Best-effort: a managed Postgres that could not CREATE ROLE leaves the
-        // role absent (see migration 024). Falling back to the authorship gate
-        // is the honest degradation — refusing to run every report because a
-        // hardening layer is unavailable would get the whole step disabled.
-        //
-        // The SAVEPOINT is what makes the fallback a fallback. A failed
-        // `SET LOCAL ROLE` aborts the transaction in Postgres, so catching the
-        // JS error changed nothing: the next two statements came back with
-        // `25P02 current transaction is aborted`, and EVERY query_db step failed
-        // on an install without the role — the opposite of degrading. Measured
-        // in psql: SET TRANSACTION READ ONLY, a SET LOCAL ROLE to an absent
-        // role, then two statements, both refused.
-        await sql.raw('SAVEPOINT zveltio_flow_role').execute(trx);
-        try {
-          await sql`SET LOCAL ROLE ${sql.id(_flowReaderRole)}`.execute(trx);
-          await sql.raw('RELEASE SAVEPOINT zveltio_flow_role').execute(trx);
-        } catch {
-          await sql.raw('ROLLBACK TO SAVEPOINT zveltio_flow_role').execute(trx);
-          if (!_warnedNoFlowRole) {
-            _warnedNoFlowRole = true;
-            console.warn(
-              '[flows] zveltio_flow_reader role is unavailable — query_db runs with the ' +
-                'connection role, protected only by the instance-admin gate on authorship. ' +
-                'See migration 024_flow_reader_role.sql.',
-            );
-          }
-        }
-        await sql`SELECT set_config('zveltio.current_tenant', ${flowTenantId}, true)`.execute(trx);
-        await sql.raw(`SET LOCAL statement_timeout = '10s'`).execute(trx);
-        // As the flow's role: the collection-permission and row-rule policies
-        // bind this role too (ADR 0004).
-        return asIdentityOn(trx, runAs.identity, () => sql.raw(cfg.query as string).execute(trx));
-      });
-      // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-      return { output: (result as any).rows };
-    }
-
     // ── run_script ──
     case 'run_script': {
       // The schema calls it `script`; this read `cfg.code`.
@@ -658,6 +567,15 @@ export async function executeFlow(
   const principal = () => (resolved ??= runWithDomain(tenant, () => rolePrincipal(runAsRole)));
 
   try {
+    for (const step of steps) {
+      const removed = REMOVED_STEP_TYPES.get(step.type);
+      if (removed) {
+        throw new Error(
+          `Flow step "${step.name}" is type ${step.type}, which the engine no longer runs: ` +
+            `${removed}. Nothing in this run was executed.`,
+        );
+      }
+    }
     const skipped = new Set<string>();
     for (const [index, step] of steps.entries()) {
       if (step.id && skipped.has(step.id)) continue;
@@ -737,14 +655,4 @@ export async function executeFlow(
 }
 
 /** Test-only export — never import outside src/tests/. */
-export const _internalForTests = {
-  executeStep,
-  /** Returns a restorer. See `_flowReaderRole`. */
-  setFlowReaderRoleForTests(name: string): () => void {
-    const previous = _flowReaderRole;
-    _flowReaderRole = name;
-    return () => {
-      _flowReaderRole = previous;
-    };
-  },
-};
+export const _internalForTests = { executeStep };

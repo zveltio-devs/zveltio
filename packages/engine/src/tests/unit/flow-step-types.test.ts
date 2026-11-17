@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import type { ZvFlowStepsTable } from '../../db/schema.generated.js';
-import { EXECUTABLE_STEP_TYPES, type ExecutableStepType } from '../../lib/flows/flow-executor.js';
+import {
+  EXECUTABLE_STEP_TYPES,
+  type ExecutableStepType,
+  REMOVED_STEP_TYPES,
+} from '../../lib/flows/flow-executor.js';
 
 /**
  * C-6 — the Studio offered six flow step types and the executor implemented
@@ -54,8 +58,17 @@ describe('flow step types', () => {
   });
 
   it('still implements the ones flows depend on', () => {
-    for (const type of ['query_db', 'run_script', 'send_email', 'webhook']) {
+    for (const type of ['run_script', 'send_email', 'webhook', 'export_collection']) {
       expect(EXECUTABLE_STEP_TYPES as readonly string[]).toContain(type);
     }
+  });
+
+  // ADR 0058 (DR-05): no caller-written SQL runs in the engine.
+  it('runs no removed type, and names each one it refuses', () => {
+    for (const type of REMOVED_STEP_TYPES.keys()) {
+      expect(EXECUTABLE_STEP_TYPES as readonly string[]).not.toContain(type);
+      expect(casesInExecutor()).not.toContain(type);
+    }
+    expect([...REMOVED_STEP_TYPES.keys()]).toContain('query_db');
   });
 });

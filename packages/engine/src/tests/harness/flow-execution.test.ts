@@ -2,17 +2,14 @@
  * Phase C — actual flow EXECUTION, driven through the in-process app.
  *
  * Covers lib/flows/flow-executor.ts (275 uncovered lines), the biggest untested
- * logic module reachable without external services. The route validator and the
- * executor disagree on step-config keys (a known bug — the route's StepSchema
- * lacks `query_db` and wants `script`, the executor reads `query`/`code`), so a
- * flow authored purely through the route can't run those step types. This suite
- * side-steps that by inserting runnable steps DIRECTLY into zv_flow_steps (the
- * canonical shape the executor reads), then triggering POST /:id/run.
+ * logic module reachable without external services. This suite inserts runnable
+ * steps DIRECTLY into zv_flow_steps (the canonical shape the executor reads,
+ * including the legacy `code` key of run_script), then triggers POST /:id/run.
  *
  * The run route fires executeFlow fire-and-forget (202), so we WAIT for the run
  * row to reach a terminal state before asserting — that's what pulls the
- * executor into coverage. query_db (SELECT) + run_script (sandboxed JS) +
- * run_script all run in-process with no network.
+ * executor into coverage. condition (CEL) + run_script (sandboxed JS) run
+ * in-process with no network.
  *
  * Skips without a test database.
  */
@@ -88,7 +85,7 @@ d('flow execution (in-process)', () => {
 
     // A flow whose steps all run cleanly in-process.
     flowId = await createFlow('Harness Run Flow');
-    await insertStep(db, flowId, 0, 'query_db', { query: 'SELECT 1 AS ok, 2 AS two' });
+    await insertStep(db, flowId, 0, 'condition', { expression: '1 < 2' });
     await insertStep(db, flowId, 1, 'run_script', { code: 'return { doubled: 21 * 2 };' });
     // A `condition` step used to sit here, and this suite asserted the run
     // succeeded — which it did, because the executor had no `condition` case
@@ -96,7 +93,7 @@ d('flow execution (in-process)', () => {
     // expected behaviour. The type is no longer storable (migration 042) and
     // the executor now throws on anything it does not implement, so the step
     // is gone rather than expected-to-fail: what this flow is for is the
-    // query_db + run_script path.
+    // condition + run_script path.
 
     // Notification + webhook + email arms of the executor.
     notifyFlowId = await createFlow('Harness Notify Flow');
@@ -117,10 +114,10 @@ d('flow execution (in-process)', () => {
       body: 'hi',
     });
 
-    // A flow whose query_db step is rejected by the read-only guard (a write
-    // statement) — exercises the executor's error arm + on_error handling.
+    // A flow whose condition cannot decide (not a boolean) — exercises the
+    // executor's error arm + on_error handling.
     failFlowId = await createFlow('Harness Fail Flow');
-    await insertStep(db, failFlowId, 0, 'query_db', { query: 'DELETE FROM zv_flows' }, 'stop');
+    await insertStep(db, failFlowId, 0, 'condition', { expression: '"yes"' }, 'stop');
   });
 
   afterAll(async () => {
@@ -143,11 +140,11 @@ d('flow execution (in-process)', () => {
 
     const status = await waitForRun(db, flowId);
     expect(status).not.toBeNull();
-    // query_db (SELECT) + run_script both succeed → a successful run.
+    // condition + run_script both succeed → a successful run.
     expect(['completed', 'success']).toContain(status as string);
   });
 
-  it('records a failed run when a step throws (query_db write guard)', async () => {
+  it('records a failed run when a step throws', async () => {
     const res = await app.request(`/api/flows/${failFlowId}/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie },
@@ -155,17 +152,10 @@ d('flow execution (in-process)', () => {
     });
     expect(res.status).toBe(202);
 
-    // The executor's error arm runs (read-only guard throws on the DELETE); the
-    // run reaches a terminal state. The security-critical assertion is that the
-    // write was blocked — the flows table is intact.
+    // The executor's error arm runs (the condition is refused); the run is
+    // recorded failed, not successful.
     const status = await waitForRun(db, failFlowId);
-    expect(status).not.toBeNull();
-
-    const flows = await asDefaultTenant(
-      db,
-      sql<{ n: number }>`SELECT count(*)::int AS n FROM zv_flows`,
-    );
-    expect(flows.rows[0]!.n).toBeGreaterThan(0);
+    expect(status).toBe('failed');
   });
 
   it('lists the run history for the flow (GET /:id/runs)', async () => {

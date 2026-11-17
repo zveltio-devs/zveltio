@@ -294,6 +294,23 @@ export function problemNotFound(c: Context): Response {
   });
 }
 
+/**
+ * The issues of a serialized ZodError. zod 4 keeps `issues` off the JSON: a
+ * zValidator body carries only `name` and `message`, the issues as a JSON
+ * string, so every refused body answered a bare `bad_request` with no reason.
+ */
+function zodIssuesOf(error: object): unknown {
+  const e = error as { issues?: unknown; name?: unknown; message?: unknown };
+  if (e.issues !== undefined) return e.issues;
+  if (e.name !== 'ZodError' || typeof e.message !== 'string') return undefined;
+  try {
+    const issues: unknown = JSON.parse(e.message);
+    return Array.isArray(issues) ? issues : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Map a legacy/plain error body to a ProblemDetails for the given status. */
 function normalizeBody(status: number, raw: string, c: Context): ProblemDetails {
   let parsed: Record<string, unknown> | null = null;
@@ -314,9 +331,7 @@ function normalizeBody(status: number, raw: string, c: Context): ProblemDetails 
     undefined;
   // zValidator emits { success:false, error: ZodError } — surface its issues.
   const zodIssues =
-    parsed?.error && typeof parsed.error === 'object'
-      ? (parsed.error as { issues?: unknown }).issues
-      : undefined;
+    parsed?.error && typeof parsed.error === 'object' ? zodIssuesOf(parsed.error) : undefined;
   const code =
     (typeof parsed?.code === 'string' && parsed.code) ||
     (zodIssues ? 'validation_failed' : defaultCode(status));

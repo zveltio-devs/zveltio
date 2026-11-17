@@ -17,11 +17,11 @@ describe('executeFlow — bookkeeping update failures', () => {
     db.when(RUN_INSERT, [{ id: 'run-ok' }]);
     db.when(/tenant_id FROM zv_flows/i, [{ tenant_id: 'tenant-1', run_as_role: 'member' }]);
     db.when(STEPS_SELECT, [
-      // `query_db` with no query: implemented, returns the previous output.
+      // `send_email` with no recipient: implemented, returns the previous output.
       // It was `unknown_kind`, which succeeded only via the executor's old
       // default arm — this case is about the bookkeeping UPDATE failing, and
       // needs a step that genuinely succeeds to isolate that.
-      { id: 's1', name: 'noop', type: 'query_db', step_order: 1, config: {} },
+      { id: 's1', name: 'noop', type: 'send_email', step_order: 1, config: {} },
     ]);
     db.fail(RUN_UPDATE, new Error('update denied'));
 
@@ -45,9 +45,10 @@ describe('executeFlow — bookkeeping update failures', () => {
       {
         id: 's1',
         name: 'bad',
-        type: 'query_db',
+        // No script: the step throws.
+        type: 'run_script',
         step_order: 1,
-        config: { query: 'DROP TABLE users' },
+        config: {},
       },
     ]);
     db.fail(RUN_UPDATE, new Error('update denied'));

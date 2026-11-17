@@ -341,7 +341,6 @@ export interface ZvFlowStepsTable {
   step_order: Generated<number>;
   name: string;
   type:
-    | 'query_db'
     | 'run_script'
     | 'send_email'
     | 'webhook'

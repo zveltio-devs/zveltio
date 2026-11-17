@@ -329,7 +329,6 @@ export interface ZvFlowStepsTable {
     | 'run_script'
     | 'send_email'
     | 'webhook'
-    | 'query_db'
     | 'condition'
     | 'transform'
     | 'delay'

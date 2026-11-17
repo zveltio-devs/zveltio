@@ -2,7 +2,8 @@
  * The narrow roles hold exactly the tenant-isolated collection tables.
  *
  * `zveltio_worker` (worker SQL bridge) and `zveltio_flow_reader` (flow
- * `query_db`) are meant to reach collections and nothing else of the engine's.
+ * `query_db`, removed by ADR 0058; the role stays until it is retired) are meant
+ * to reach collections and nothing else of the engine's.
  *
  * The worker SQL bridge runs every query of a worker-isolated extension as
  * `zveltio_worker`. Migration 001 granted it DML on every `zvd_%` table present
@@ -107,7 +108,7 @@ async function grantAs001(db: Database, tables: string[], role: string, privs: s
   }
 }
 
-/** What flow-executor does around a `query_db` step. */
+/** What flow-executor did around a `query_db` step (removed, ADR 0058). */
 async function asQueryDbStep(db: Database, query: string, tenantId: string) {
   return db.transaction().execute(async (trx) => {
     await sql.raw('SET TRANSACTION READ ONLY').execute(trx);

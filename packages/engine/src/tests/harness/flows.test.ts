@@ -104,20 +104,20 @@ d('flows CRUD + steps + run (in-process)', () => {
   it('appends a step (POST /:id/steps)', async () => {
     const res = await app.request(
       `/api/flows/${flowId}/steps`,
-      // `query_db`: this case is about step CRUD, not about what a step
-      // evaluates. (`condition` was refused here while the executor had no
-      // case for it (C-6); it runs as CEL since migration 088.)
+      // `condition`: this case is about step CRUD, not about what a step
+      // evaluates. (It was refused here while the executor had no case for it
+      // (C-6); it runs as CEL since migration 088.)
       json('POST', {
-        type: 'query_db',
+        type: 'condition',
         name: 'gate',
-        config: { query: 'SELECT 1 AS ok' },
+        config: { expression: '1 < 2' },
         on_error: 'stop',
       }),
     );
     expect(res.status).toBe(201);
     const body = (await res.json()) as { step: { id: string; type: string } };
     expect(body.step.id).toBeDefined();
-    expect(body.step.type).toBe('query_db');
+    expect(body.step.type).toBe('condition');
     stepId = body.step.id;
   });
 
@@ -133,17 +133,15 @@ d('flows CRUD + steps + run (in-process)', () => {
     const res = await app.request(
       `/api/flows/${flowId}/steps/${stepId}`,
       // The config has to be valid for the step's type — the route runs
-      // `validateStepConfig`, which is wired on the single-step routes. It was
-      // `{ expression: '2 > 1' }`, a `condition` shape, left over from when
-      // this step was that type.
-      json('PUT', { name: 'gate (renamed)', config: { query: 'SELECT 2 AS two' } }),
+      // `validateStepConfig`, which is wired on the single-step routes.
+      json('PUT', { name: 'gate (renamed)', config: { expression: '2 > 1' } }),
     );
     expect([200, 204]).toContain(res.status);
   });
 
   it('runs the flow (POST /:id/run) and records a run', async () => {
     const res = await app.request(`/api/flows/${flowId}/run`, json('POST', {}));
-    // The query_db step evaluates in-process; tolerate the flow engine's status.
+    // The condition step evaluates in-process; tolerate the flow engine's status.
     expect(res.status).toBeLessThan(500);
 
     const runs = await app.request(`/api/flows/${flowId}/runs`, { headers: { cookie } });

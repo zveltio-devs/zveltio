@@ -575,7 +575,8 @@ export async function applyTenantRLS(
 
   // The two narrow roles hold an allowlist of collection tables, and this is
   // where a collection joins it: `zveltio_worker` (the worker SQL bridge, DML)
-  // and `zveltio_flow_reader` (flow `query_db` steps, SELECT) — the grants
+  // and `zveltio_flow_reader` (SELECT; flow `query_db` used it, unused since
+  // ADR 0058 removed that step, until the role is retired) — the grants
   // migration 001 gave the tables that existed when it ran. `zveltio_worker`'s
   // create-time grant was never written, so every collection created after
   // install answered `permission denied` to every worker-isolated extension;
@@ -1938,8 +1939,9 @@ export async function ensureRlsEnforcementRole(db: Database): Promise<void> {
 
   // 1. The roles themselves. Needs CREATEROLE, which a plain engine role should
   //    not have — scripts/bootstrap-db-role.sh pre-creates them for that case.
-  //    The two narrow ones too: absent, a flow `query_db` step falls back to the
-  //    connection role, a SUPERUSER on a stock install. Their grants are not
+  //    The two narrow ones too (`zveltio_flow_reader` has had no user since
+  //    ADR 0058 removed flow `query_db`, which fell back to the connection
+  //    role when it was absent). Their grants are not
   //    made here — after a restore without roles only the dump has them, and
   //    `enforceRoleGrantsMarker` refuses to start instead.
   for (const role of NARROW_ENGINE_ROLES) {

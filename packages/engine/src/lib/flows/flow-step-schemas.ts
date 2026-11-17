@@ -17,20 +17,15 @@ import { checkConditionExpression } from '../validation-engine.js';
 // ── Per-type schemas ──────────────────────────────────────────────────────────
 
 export const stepSchemas = {
-  // Three types the executor implements and this map did not list. Because
+  // Two types the executor implements and this map did not list. Because
   // `validateStepConfig` rejects anything it has no schema for, and
-  // `POST /:id/steps` calls it, `query_db`, `send_notification` and
-  // `export_collection` steps could not be added to an existing flow at all —
-  // 400 "Unknown step type", for three of the seven types that actually run.
+  // `POST /:id/steps` calls it, `send_notification` and `export_collection`
+  // steps could not be added to an existing flow at all — 400 "Unknown step
+  // type", for types that actually run.
   //
   // The mirror image of C-6: there, types that never execute were storable;
   // here, types that do execute were not addable. Same root — several lists of
   // step types, none checked against another.
-
-  /** Read-only SQL; the executor enforces SELECT/WITH and a READ ONLY tx. */
-  query_db: z.object({
-    query: z.string().min(1, 'Query is required'),
-  }),
 
   /** In-app notification to a specific user or to everyone holding a role. */
   send_notification: z
