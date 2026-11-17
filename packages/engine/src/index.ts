@@ -379,7 +379,7 @@ COMMANDS
 
 ENVIRONMENT
   DATABASE_URL is required for migrate/create-god/start; create-god also
-  needs BETTER_AUTH_SECRET.
+  needs BETTER_AUTH_SECRET (or BETTER_AUTH_SECRETS).
   When called via the /usr/local/bin/zveltio wrapper, /opt/zveltio/.env is
   loaded automatically, so plain "sudo zveltio migrate" works from anywhere.
 

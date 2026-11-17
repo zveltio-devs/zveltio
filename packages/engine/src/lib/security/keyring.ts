@@ -31,6 +31,8 @@
  * passwords are under their own key, and rotating it does not touch field data.
  */
 
+import { currentAuthSecret } from './auth-secret.js';
+
 export type Keyring = 'field' | 'mail';
 
 /**
@@ -201,7 +203,7 @@ export async function decryptWithKeyring(value: string, keyring: Keyring): Promi
  * reuse this — it is a compatibility surface, not a general-purpose MAC.
  */
 export async function hmacAuthSecret(raw: string): Promise<string> {
-  const secret = process.env.BETTER_AUTH_SECRET ?? '';
+  const secret = currentAuthSecret() ?? '';
   if (!secret) throw new Error('BETTER_AUTH_SECRET is required to derive token hashes');
   const key = await crypto.subtle.importKey(
     'raw',

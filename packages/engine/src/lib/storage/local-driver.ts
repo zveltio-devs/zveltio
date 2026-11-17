@@ -21,6 +21,7 @@ import {
   type StorageDriver,
   type StorageObject,
 } from './driver.js';
+import { currentAuthSecret } from '../security/index.js';
 
 export function localRoot(): string {
   return resolve(storageConfig().localDir);
@@ -49,7 +50,7 @@ export async function readLocalMeta(
 }
 
 function urlSecret(): string {
-  const s = process.env.BETTER_AUTH_SECRET;
+  const s = currentAuthSecret();
   if (!s) throw new Error('storage(local): BETTER_AUTH_SECRET is required to sign file URLs');
   return s;
 }

@@ -21,6 +21,7 @@ import {
 } from './tenant-context.js';
 import { DEFAULT_TENANT_ID, type RlsIdentity, withEveryTenant } from './tenant-manager.js';
 import { withSavepoint } from '../savepoint.js';
+import { currentAuthSecret } from '../security/index.js';
 
 // Cache TTLs
 const PERMISSION_CACHE_TTL = 60; // seconds
@@ -739,7 +740,7 @@ export async function initPermissions(db: Database): Promise<void> {
   // An empty/missing secret makes the HMAC trivially forgeable — an attacker who can write
   // to Redis could craft a valid signed value and escalate privileges.
   // Fail-closed: throw at startup rather than running insecurely.
-  if (!process.env.BETTER_AUTH_SECRET) {
+  if (!currentAuthSecret()) {
     throw new Error(
       '[permissions] FATAL: BETTER_AUTH_SECRET env var is not set. ' +
         'Permission cache HMAC signatures would use an empty secret, making privilege escalation trivial. ' +
@@ -889,7 +890,7 @@ export async function getEnforcer(): Promise<Enforcer> {
  * to prevent privilege escalation via direct Redis key manipulation.
  */
 function _permHmac(key: string, value: '1' | '0'): string {
-  const secret = process.env.BETTER_AUTH_SECRET;
+  const secret = currentAuthSecret();
   if (!secret)
     throw new Error(
       '[permissions] BETTER_AUTH_SECRET is not set — cannot sign permission cache entry',
@@ -932,7 +933,7 @@ function _decodePermCache(key: string, raw: string): boolean | null {
  * If HMAC verification fails, we return `null` → DB fallback (fail-closed).
  */
 function _godHmac(userId: string, value: '1' | '0'): string {
-  const secret = process.env.BETTER_AUTH_SECRET;
+  const secret = currentAuthSecret();
   if (!secret)
     throw new Error(
       '[permissions] BETTER_AUTH_SECRET is not set — cannot sign god-role cache entry',
@@ -1530,7 +1531,7 @@ export async function isTenantAdmin(userId: string, god?: boolean): Promise<bool
  * (`:` + 64 hex) are unambiguous regardless of the JSON content.
  */
 function _rolesHmac(cacheKey: string, userId: string, rolesJson: string): string {
-  const secret = process.env.BETTER_AUTH_SECRET;
+  const secret = currentAuthSecret();
   if (!secret)
     throw new Error('[permissions] BETTER_AUTH_SECRET is not set — cannot sign roles cache entry');
   // The KEY is signed, not just the user and the value.

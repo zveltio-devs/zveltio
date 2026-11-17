@@ -296,6 +296,8 @@ services:
 
       # Auth (change BETTER_AUTH_SECRET in production!)
       BETTER_AUTH_SECRET: '${BETTER_AUTH_SECRET:?ERROR: BETTER_AUTH_SECRET must be set in .env - generate with: openssl rand -hex 32}'
+      # Versioned list for rotation (docs/platform/security.md); first entry is current
+      BETTER_AUTH_SECRETS: '${BETTER_AUTH_SECRETS:-}'
       BETTER_AUTH_URL: '${BETTER_AUTH_URL:-http://localhost:3000}'
 
       # Valkey/Redis

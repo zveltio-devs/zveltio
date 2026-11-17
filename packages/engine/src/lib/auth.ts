@@ -22,6 +22,7 @@ import type { Database } from '../db/index.js';
 import { withIdleInTransactionTimeout } from '../db/index.js';
 import type { DbSchema } from '../db/schema.js';
 import { sendEmail as deliverEmail, _internalForTests as emailInternals } from './email.js';
+import { readAuthSecrets } from './security/index.js';
 
 let _auth: ReturnType<typeof betterAuth> | null = null;
 
@@ -396,9 +397,8 @@ const FACTOR_CHANGING_PATHS = new Set([
 ]);
 
 export async function initAuth(db: Database) {
-  if (!process.env.BETTER_AUTH_SECRET) {
-    throw new Error('BETTER_AUTH_SECRET environment variable is required');
-  }
+  // Throws when neither variable is set or BETTER_AUTH_SECRETS is malformed.
+  const authSecrets = readAuthSecrets();
   // S4-09: capture db so the password.verify callback can re-hash
   // scrypt → argon2id without taking db as a closure argument.
   _authDb = db;
@@ -532,7 +532,11 @@ export async function initAuth(db: Database) {
   const authInstance = betterAuth({
     baseURL,
     trustedOrigins,
-    secret: process.env.BETTER_AUTH_SECRET,
+    // Passed explicitly so Better Auth reads the same values the engine does
+    // (lib/security/auth-secret.ts): `secrets` first entry current, `secret`
+    // the legacy key for values written before the list.
+    secret: authSecrets.legacy,
+    secrets: authSecrets.secrets,
     database,
 
     // Hash single-use tokens at rest. Better-Auth 1.6 supports this and defaults

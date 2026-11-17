@@ -25,9 +25,10 @@
  */
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { currentAuthSecret } from '../security/index.js';
 
 function hmac(namespace: string, key: string, value: string): string {
-  const secret = process.env.BETTER_AUTH_SECRET;
+  const secret = currentAuthSecret();
   if (!secret) {
     throw new Error(
       `[${namespace}] BETTER_AUTH_SECRET is not set — the cache signature would use an ` +

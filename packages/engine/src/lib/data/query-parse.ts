@@ -15,6 +15,7 @@ import { type FilterCondition, toBox, toNear } from '../../db/dynamic.js';
 import { fieldTypeRegistry } from './field-type-registry.js';
 import { normalizeFields } from './shape.js';
 import type { CollectionDef, JsonValue } from './types.js';
+import { currentAuthSecret } from '../security/index.js';
 
 /** Zod schema for the list endpoint's query string. */
 export const QuerySchema = z.object({
@@ -267,7 +268,7 @@ export interface CursorBinding {
  * BETTER_AUTH_SECRET, so a rotated secret refuses what the old one sealed.
  */
 function keys(): { enc: Buffer; iv: Buffer } {
-  const secret = process.env.BETTER_AUTH_SECRET;
+  const secret = currentAuthSecret();
   if (!secret) throw new Error('BETTER_AUTH_SECRET is required to seal cursors');
   const derive = (info: string) => Buffer.from(hkdfSync('sha256', secret, '', info, 32));
   return { enc: derive('zveltio:list-cursor:v1'), iv: derive('zveltio:cursor-iv:v1') };

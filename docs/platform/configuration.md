@@ -31,7 +31,7 @@ These must be set for the engine to start:
 | Variable | Description | Example |
 |----------|-------------|---------|
 | `DATABASE_URL` | PostgreSQL connection string | `postgresql://user:pass@localhost:5432/zveltio` |
-| `BETTER_AUTH_SECRET` | Secret key for session signing (min 32 chars) | `your-super-secret-32-char-key-here` |
+| `BETTER_AUTH_SECRET` | Secret key for session signing (min 32 chars). Or set `BETTER_AUTH_SECRETS` instead | `your-super-secret-32-char-key-here` |
 | `BETTER_AUTH_URL` | Public URL of the engine (used in OAuth redirects) | `https://api.yourapp.com` |
 
 ### Secrets from files (`<NAME>_FILE`)
@@ -46,7 +46,7 @@ anything running in it, and removing it from `process.env` does not change that.
 A value read from a file never gets there.
 
 `APNS_KEY`, `APPLE_CLIENT_SECRET`, `BACKUP_DB_PASSWORD`,
-`BETTER_AUTH_SECRET`, `DATABASE_PASSWORD`, `DATABASE_URL`, `DISCORD_CLIENT_SECRET`,
+`BETTER_AUTH_SECRET`, `BETTER_AUTH_SECRETS`, `DATABASE_PASSWORD`, `DATABASE_URL`, `DISCORD_CLIENT_SECRET`,
 `ELECTRIC_SECRET`, `FCM_SERVER_KEY`, `FIELD_ENCRYPTION_KEY`,
 `GITHUB_CLIENT_SECRET`, `GOOGLE_CLIENT_SECRET`, `MAIL_ENCRYPTION_KEY`,
 `METRICS_TOKEN`, `MICROSOFT_CLIENT_SECRET`, `NATIVE_DATABASE_URL`,
@@ -97,7 +97,8 @@ DATABASE_PORT_DIRECT=5432
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BETTER_AUTH_SECRET` | — | **Required.** Session signing secret (32+ chars) |
+| `BETTER_AUTH_SECRET` | — | **Required** unless `BETTER_AUTH_SECRETS` is set. Session signing secret (32+ chars). Beside `BETTER_AUTH_SECRETS` it is only the key that decrypts values written before the list |
+| `BETTER_AUTH_SECRETS` | — | Versioned secrets for rotation, Better Auth's format `<version>:<secret>,<version>:<secret>`. The **first** entry is current: everything is signed and encrypted with it; older entries only decrypt what they wrote. A malformed list stops the engine at boot. See [Rotating the auth secret](security.md#rotating-better_auth_secret) |
 | `BETTER_AUTH_URL` | — | **Required.** Public engine URL for OAuth callbacks |
 
 Generate a secure secret:
