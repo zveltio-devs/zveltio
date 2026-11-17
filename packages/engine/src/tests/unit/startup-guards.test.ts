@@ -193,7 +193,13 @@ describe('Valkey is a requirement, not a preference', () => {
     // A development box with no Valkey is a normal thing to run, and blocking it
     // would only teach people to set the hatch permanently.
     expect(productionGuardViolations({ NODE_ENV: 'development' })).toEqual([]);
-    expect(productionGuardViolations({})).toEqual([]);
+    expect(productionGuardViolations({ NODE_ENV: 'test' })).toEqual([]);
+  });
+
+  it('fires with NODE_ENV unset or unknown: only development and test are not production', () => {
+    for (const env of [{}, { NODE_ENV: 'staging' }, { NODE_ENV: '' }]) {
+      expect(productionGuardViolations(env).map((v) => v.variable)).toContain('VALKEY_URL');
+    }
   });
 });
 

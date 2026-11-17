@@ -76,9 +76,21 @@ describe('ExtensionLoader introspection helpers', () => {
 });
 
 describe('ExtensionLoader.registerDevEndpoints', () => {
-  it('mounts POST /__zveltio_dev_reload outside production', async () => {
+  // ADR 0058 (owner 2026-11-17): unset is production. A hand-started engine
+  // without NODE_ENV used to mount this unauthenticated route.
+  it.each([undefined, 'production', 'staging'])('does not mount it under NODE_ENV=%s', (env) => {
     savedNodeEnv = process.env.NODE_ENV;
-    delete process.env.NODE_ENV;
+    if (env === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = env;
+    const routes: string[] = [];
+    const app = { post: (path: string) => routes.push(path) } as unknown as Hono;
+    new ExtensionLoader().registerDevEndpoints(app);
+    expect(routes).toEqual([]);
+  });
+
+  it('mounts POST /__zveltio_dev_reload under NODE_ENV=development', async () => {
+    savedNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'development';
 
     const { Hono } = await import('hono');
     const app = new Hono();

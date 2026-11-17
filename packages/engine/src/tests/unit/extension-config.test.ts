@@ -116,6 +116,7 @@ describe('config is live, not a boot-time snapshot', () => {
 
   it('reflects an environment change without rebuilding the config', () => {
     const config = buildExtensionConfig([]);
+    process.env.NODE_ENV = 'development';
     expect(config.isProduction).toBe(false);
     process.env.NODE_ENV = 'production';
     expect(config.isProduction).toBe(true);
@@ -124,11 +125,14 @@ describe('config is live, not a boot-time snapshot', () => {
 
 describe('scalar configuration', () => {
   it('normalises env to the three known values', () => {
-    expect(buildExtensionConfig([]).env).toBe('development');
+    // Unset and unknown are production (ADR 0058).
+    expect(buildExtensionConfig([]).env).toBe('production');
     process.env.NODE_ENV = 'test';
     expect(buildExtensionConfig([]).env).toBe('test');
-    process.env.NODE_ENV = 'staging';
+    process.env.NODE_ENV = 'development';
     expect(buildExtensionConfig([]).env).toBe('development');
+    process.env.NODE_ENV = 'staging';
+    expect(buildExtensionConfig([]).env).toBe('production');
   });
 
   it('exposes encryption as a boolean, never the key', () => {

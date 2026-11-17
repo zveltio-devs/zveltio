@@ -31,8 +31,13 @@ describe('rlsBootFailure', () => {
   });
 
   // A dev box on the stock postgres superuser is a normal thing to run.
-  test.each([undefined, 'development', 'test'])('allows NODE_ENV=%s to start', (nodeEnv) => {
+  test.each(['development', 'test'])('allows NODE_ENV=%s to start', (nodeEnv) => {
     expect(rlsBootFailure({ mode: 'unavailable', nodeEnv })).toBeNull();
+  });
+
+  // Unset is production (ADR 0058, owner 2026-11-17): a hand-started engine has none.
+  test.each([undefined, '', 'staging'])('refuses NODE_ENV=%s', (nodeEnv) => {
+    expect(rlsBootFailure({ mode: 'unavailable', nodeEnv })).toBeString();
   });
 
   // ADR 0058 d4: the single-tenant override is gone; setting it changes nothing.
