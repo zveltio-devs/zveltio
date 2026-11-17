@@ -786,6 +786,26 @@ const CASES: Case[] = [
       '}\n',
   },
   {
+    // A guard that reads unset NODE_ENV as development (ADR 0058, owner
+    // 2026-11-17): only isProduction() may answer "is this production?".
+    gate: 'gen-operational-modes (NODE_ENV compared with production)',
+    expect: 'ask isProduction()',
+    cmd: 'bun run scripts/gen-operational-modes.ts --check',
+    file: 'packages/engine/src/lib/__gate_probe_modes.ts',
+    body:
+      'export function plant(env: Record<string, string | undefined>): boolean {\n' +
+      "  return env.NODE_ENV !== 'production';\n" +
+      '}\n',
+  },
+  {
+    // A literal read, which `bun build` without the define inlines as "development".
+    gate: 'gen-operational-modes (literal process.env.NODE_ENV)',
+    expect: 'ask nodeEnv() or isProduction()',
+    cmd: 'bun run scripts/gen-operational-modes.ts --check',
+    file: 'packages/engine/src/lib/__gate_probe_modes.ts',
+    body: "export const plant = (): boolean => process.env.NODE_ENV === 'test';\n",
+  },
+  {
     // The register changed and the docs table was not regenerated.
     gate: 'gen-operational-modes (stale table)',
     expect: 'does not match the register',
