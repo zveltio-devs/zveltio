@@ -44,7 +44,7 @@ import {
   buildSandboxSsrfGuardSource,
 } from '../security/url-validator.js';
 import { runnerInterpreterArgs, runningAsCompiledBinary } from './runner-sentinel.js';
-import { modeValue } from '../operational-modes.js';
+import { isProduction, modeValue, nodeEnv } from '../operational-modes.js';
 import {
   createEgressBridge,
   EGRESS_LIMITS,
@@ -1080,7 +1080,7 @@ function noteDevelopmentPlacement(): void {
   if (developmentPlacementNoted) return;
   developmentPlacementNoted = true;
   console.warn(
-    `[edge-functions] development placement (NODE_ENV=${process.env.NODE_ENV}): edge functions ` +
+    `[edge-functions] development placement (NODE_ENV=${nodeEnv()}): edge functions ` +
       'and flow scripts run as children of the engine, under its uid, and one that declares no ' +
       'egress reaches the network. Production runs every one on the extension runner, where ' +
       'an undeclared fetch is refused.',
@@ -1258,7 +1258,7 @@ function toRunResult(o: Outcome, duration_ms: number): RunResult {
 export function edgeTransport(
   env: Record<string, string | undefined> = process.env,
 ): 'process' | 'runner' {
-  if (env.NODE_ENV !== 'development' && env.NODE_ENV !== 'test') return 'runner';
+  if (isProduction(env)) return 'runner';
   return modeValue('ZVELTIO_EDGE_TRANSPORT', env) === 'runner' ? 'runner' : 'process';
 }
 

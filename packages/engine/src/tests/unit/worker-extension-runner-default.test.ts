@@ -34,7 +34,8 @@ describe('extensionTransport', () => {
     expect(extensionTransport({ NODE_ENV: 'production' })).toBe('runner');
     expect(extensionTransport({ NODE_ENV: 'development' })).toBe('process');
     expect(extensionTransport({ NODE_ENV: 'test' })).toBe('process');
-    expect(extensionTransport({})).toBe('process');
+    expect(extensionTransport({})).toBe('runner'); // unset is production (ADR 0058)
+    expect(extensionTransport({ NODE_ENV: 'staging' })).toBe('runner');
   });
 
   it('takes ZVELTIO_EXT_TRANSPORT when it names a transport', () => {

@@ -322,7 +322,7 @@ The plan reads like `terraform plan`:
 
 ## 7. Studio and the dev loop
 
-- **In dev** (`NODE_ENV !== 'production'` and `ZVELTIO_SCHEMA_DIR` set), every
+- **In dev** (`NODE_ENV=development` or `test` and `ZVELTIO_SCHEMA_DIR` set), every
   committed schema change also writes the affected files, the way PocketBase
   does. A rename or drop made in Studio also writes its migration. That is the
   only reliable moment to capture the intent.

@@ -1,3 +1,4 @@
+import { isProduction } from '../lib/operational-modes.js';
 import { Hono } from 'hono';
 import { guardAdmin } from '../lib/admin-guard.js';
 import { ENGINE_VERSION } from '../version.js';
@@ -16,7 +17,7 @@ export function openApiRoutes(): Hono {
     //
     // The override OPENAPI_PUBLIC=true keeps the spec public even in
     // production for operators who run a public API docs site.
-    const inProd = process.env.NODE_ENV === 'production';
+    const inProd = isProduction();
     const publicOverride = process.env.OPENAPI_PUBLIC === 'true';
     if (inProd && !publicOverride) {
       const user = await guardAdmin(c, auth, isTenantAdmin);

@@ -32,7 +32,7 @@ const url = process.env.TEST_DATABASE_URL;
 // that way left "undefined" behind, and code after it read a real setting: the
 // schema dev writer exported into `packages/engine/undefined/`. Restore with
 // `delete` when the saved value is undefined.
-// Unset NODE_ENV reads as production for edge placement (ADR 0058 d2), but
+// Unset NODE_ENV reads as production for every guard (ADR 0058), but
 // many tests "restore" it with `delete`, meaning "not production". Put the
 // run's value back when a test leaves it unset; a value a file set on purpose
 // (production in a beforeAll) is left alone.

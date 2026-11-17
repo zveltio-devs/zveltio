@@ -48,7 +48,6 @@ const is =
     v !== undefined && values.includes(v.trim());
 const nonEmpty = (v: string | undefined) => Boolean(v?.trim());
 
-// ponytail: the dated removals (3.1.0) are a proposal, not an owner decision yet.
 export const MODES = {
   ZVELTIO_COLLECTION_RLS_EXEMPT: {
     class: 'removed',
@@ -126,7 +125,7 @@ export const MODES = {
     class: 'permanent',
     weakens:
       'With `=process`, a worker-isolated extension runs as a child of the engine, under its uid. ' +
-      'Refused in production (`NODE_ENV=production`), where it runs on the extension runner.',
+      'Refused in production (any `NODE_ENV` but `development` or `test`, unset included), where it runs on the extension runner.',
     when: 'Development without a runner.',
     removal: 'permanent',
     on: is('process'),
@@ -196,15 +195,17 @@ export const MODES = {
   NODE_ENV: {
     class: 'platform',
     weakens:
-      'Anything but `production` — unset included — turns off the production refusals: ' +
-      '`productionGuardViolations` (no cache, `CORS_ORIGINS=*`, …), the RLS-unenforceable ' +
-      'refusal, the extension-runner requirement, Secure session cookies, the admin gate on ' +
-      '`/api/openapi.json`, and mounts the unauthenticated `POST /__zveltio_dev_reload`. Edge ' +
-      'placement alone reads unset as production (ADR 0058 d2). Its readers are not routed ' +
-      'through the register.',
-    when: '`development` or `test` on a machine that serves nobody. Set `NODE_ENV=production` on every deployment.',
+      '`development` or `test` turns off the production refusals: `productionGuardViolations` ' +
+      '(no cache, `CORS_ORIGINS=*`, …), the RLS-unenforceable refusal, the extension-runner ' +
+      'requirement and edge placement, Secure session cookies, the admin gate on ' +
+      '`/api/openapi.json`, the demo credentials kept off `/api/health`, and mounts the ' +
+      'unauthenticated `POST /__zveltio_dev_reload`. Every other value — unset included — is ' +
+      'production (ADR 0058, owner 2026-11-17): a hand-started engine without it boots as ' +
+      'production. Every guard asks `isProduction()`; `check:modes` refuses a direct comparison ' +
+      "with `'production'`.",
+    when: 'Set `NODE_ENV=development` (or `test`) explicitly on a machine that serves nobody.',
     removal: 'permanent',
-    on: (v) => v !== 'production',
+    on: (v) => v === 'development' || v === 'test',
   },
   'zv_api_keys.rls_bypass': {
     class: 'delegated',
@@ -237,6 +238,25 @@ export type ModeVariable = {
       : K
     : never;
 }[keyof Modes];
+
+/**
+ * Whether this engine runs as production (ADR 0058 d4, owner 2026-11-17): every
+ * `NODE_ENV` but `development` and `test`, unset included — a hand-started
+ * engine has none. The one answer for every guard. `env` is read as an object,
+ * never as the literal `process.env.NODE_ENV`, which `bun build` inlines.
+ */
+export function isProduction(env: Env = process.env): boolean {
+  return env.NODE_ENV !== 'development' && env.NODE_ENV !== 'test';
+}
+
+/**
+ * The raw `NODE_ENV`, for what is not a guard (test-only shortcuts, logs, a
+ * child's environment). Read as an object property so `bun build` cannot inline
+ * it; `check:modes` refuses a literal `process.env.NODE_ENV` read elsewhere.
+ */
+export function nodeEnv(env: Env = process.env): string | undefined {
+  return env.NODE_ENV;
+}
 
 /** The one read of a registered variable. */
 export function modeValue(name: ModeVariable, env: Env = process.env): string | undefined {

@@ -18,7 +18,7 @@
 
 import { connect } from 'node:net';
 import type { HostToWorkerMessage, WorkerToHostMessage } from './worker-extension-protocol.js';
-import { modeValue } from './operational-modes.js';
+import { isProduction, modeValue } from './operational-modes.js';
 
 /**
  * Largest frame either side accepts. A frame carries a whole request or
@@ -145,7 +145,7 @@ export function extensionTransport(
 ): ExtensionTransport {
   const t = modeValue('ZVELTIO_EXT_TRANSPORT', env);
   if (t === 'process' || t === 'runner') return t;
-  return env.NODE_ENV === 'production' ? 'runner' : 'process';
+  return isProduction(env) ? 'runner' : 'process';
 }
 
 /**

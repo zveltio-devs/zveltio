@@ -274,7 +274,7 @@ audited on every change. A function that lists nothing is refused when it calls
 out, until it lists its hosts. `ZVELTIO_EDGE_TRANSPORT=process` stops a
 production engine at boot. The engine's child remains only as the named
 development placement (`NODE_ENV` `development` or `test`, logged once); an
-unset `NODE_ENV` is production here.
+unset `NODE_ENV` is production, here as for every guard.
 
 Every invocation runs under a uid of its own: in containers from the runner's
 `ZVELTIO_EXT_RUNNER_UID_BASE`, on bare metal from 400000 to 465535 (the
@@ -480,7 +480,7 @@ replica. Trashed records are purged by the trash scheduler, not by this sweep.
 
 `DEMO_MODE=true` advertises throwaway credentials on `/api/health` so
 the login page can prefill them. **The engine never surfaces those
-credentials when `NODE_ENV=production`** — defence in depth for the
+credentials in production** (any `NODE_ENV` but `development` or `test`, unset included) — defence in depth for the
 operator-left-a-flag-on case (`DEMO_MODE_ALLOW_IN_PROD` was removed by
 ADR 0058). The `demo_mode: true` banner still
 shows, so the misconfig stays visible.

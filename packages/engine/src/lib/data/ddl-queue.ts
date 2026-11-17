@@ -27,6 +27,7 @@
  *     them separate lets us tune concurrency without code changes.
  */
 
+import { nodeEnv } from '../operational-modes.js';
 import { sql } from 'kysely';
 import { sqlState } from '../../db/bun-sql-quirks.js';
 import { PgBoss, systemClock } from 'pg-boss';
@@ -250,7 +251,7 @@ export async function enqueueDDLJob(
   // In test mode, the integration suite expects the job to be processed
   // synchronously after enqueue. pg-boss's worker is async; emulate by
   // polling until the job leaves the active state. Bounded to avoid hangs.
-  if (process.env.NODE_ENV === 'test') {
+  if (nodeEnv() === 'test') {
     await waitForJobToSettle(queue, jobId);
   }
 

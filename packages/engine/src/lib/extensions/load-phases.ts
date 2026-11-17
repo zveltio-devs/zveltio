@@ -15,6 +15,7 @@
  * replays those uniformly.
  */
 
+import { isProduction } from '../operational-modes.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { sql as _sql } from 'kysely';
 import { join } from 'path';
@@ -304,7 +305,7 @@ export function enforceRunnerInProduction(
   manifest: ExtensionManifest | null,
 ): PhaseResult<void> {
   if (manifest?.engine?.isolation !== 'worker') return { ok: true, value: undefined };
-  if (process.env.NODE_ENV !== 'production') return { ok: true, value: undefined };
+  if (!isProduction()) return { ok: true, value: undefined };
   if (extensionTransport() === 'runner') return { ok: true, value: undefined };
   const msg =
     `Extension "${extName}" runs in worker isolation, which in production runs only on the ` +
@@ -555,7 +556,7 @@ export async function resolveEntryPath(
   // surfaces "this extension wasn't packed" loudly instead of
   // letting it slip through to a cryptic dynamic-import throw.
   const allowLegacy = process.env.ZVELTIO_EXTENSION_DEV_RELOAD === '1';
-  if (!allowLegacy && process.env.NODE_ENV === 'production') {
+  if (!allowLegacy && isProduction()) {
     const msg =
       `Extension "${extName}" is not bundled (manifest.engine.bundled !== true). ` +
       `Production refuses legacy .ts extensions because Bun's compiled-binary ` +

@@ -59,14 +59,16 @@ WORKDIR /app/packages/engine
 
 COPY packages/engine ./
 
+# The define keeps NODE_ENV a run-time read: without it `bun build` inlines
+# every literal process.env.NODE_ENV as "development" (build-binary.ts, ADR 0058).
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
       bun scripts/gen-embedded-migrations.ts && \
       bun scripts/gen-worker-source.ts && \
-      bun build src/binary-entry.ts --compile --outfile /zveltio --target bun-linux-arm64; \
+      bun build src/binary-entry.ts --compile --outfile /zveltio --target bun-linux-arm64 --define process.env.NODE_ENV=globalThis.process.env.NODE_ENV; \
     else \
       bun scripts/gen-embedded-migrations.ts && \
       bun scripts/gen-worker-source.ts && \
-      bun build src/binary-entry.ts --compile --outfile /zveltio --target bun-linux-x64; \
+      bun build src/binary-entry.ts --compile --outfile /zveltio --target bun-linux-x64 --define process.env.NODE_ENV=globalThis.process.env.NODE_ENV; \
     fi
 
 # ── Stage 3: glibc for Deno ───────────────────────────────────

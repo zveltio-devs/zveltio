@@ -158,9 +158,9 @@ Limits (intentional):
   only re-imports `engine/index.ts`; the engine applies a changed
   `schema/collections/` file (checked against `schemaSha256`) when the
   extension is enabled.
-- **Endpoint is dev-only.** `POST /__zveltio_dev_reload` is skipped when
-  `NODE_ENV=production`. If you see HTTP 404 from the dev probe, check
-  the engine's env.
+- **Endpoint is dev-only.** `POST /__zveltio_dev_reload` is mounted only
+  under `NODE_ENV=development` or `test`; unset is production. If you see
+  HTTP 404 from the dev probe, check the engine's env.
 
 ---
 
@@ -1231,10 +1231,10 @@ Two concurrent loops:
    browser HMR; the CLI just keeps the process alive. Skip with
    `--no-studio` when you're only touching backend code.
 
-The endpoint is gated behind `NODE_ENV !== 'production'`. If `zveltio
-extension dev` exits with "Engine returned 404 on
-`/__zveltio_dev_reload`", the engine was started with NODE_ENV=production
-— restart it without that env.
+The endpoint is mounted only under `NODE_ENV=development` or `test` — an
+unset `NODE_ENV` is production (ADR 0058). If `zveltio extension dev` exits
+with "Engine returned 404 on `/__zveltio_dev_reload`", restart the engine with
+`NODE_ENV=development` (`bun run dev` and `zveltio dev` set it).
 
 Migration changes (new SQL under `engine/migrations/`) still require a
 reinstall: the watcher only re-imports `engine/index.ts`. Toggle the

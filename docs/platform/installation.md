@@ -293,7 +293,7 @@ cat zveltio/zveltio.log
 | `BETTER_AUTH_SECRET` | ✅ | Secret for HMAC signing (min 32 chars, `openssl rand -hex 32`) |
 | `VALKEY_URL` | ✅ | Valkey connection string (e.g. `redis://:password@host:6379`) |
 | `PORT` | — | HTTP port (default: `3000`) |
-| `NODE_ENV` | — | `production` / `development` |
+| `NODE_ENV` | — | `production` (also when unset) / `development` / `test`. Only `development` and `test` turn the production guards off |
 | `MAIL_ENCRYPTION_KEY` | ✅ if using mail | AES-256-GCM key for IMAP/SMTP passwords (`openssl rand -hex 32`) |
 | `METRICS_TOKEN` | ✅ | Bearer token protecting `GET /metrics`, shared with Prometheus; both installers (Docker and native) generate it. If unset, `/metrics` returns 403 (and the repository's `docker-compose.yml` refuses to start). |
 | `SLOW_QUERY_THRESHOLD_MS` | — | Log requests slower than this (default: `200`) |

@@ -83,7 +83,7 @@ import {
   httpRequestDuration,
 } from './lib/runtime/index.js';
 import { engineEvents } from './lib/runtime/index.js';
-import { modeValue, warnOperationalModes } from './lib/operational-modes.js';
+import { modeValue, nodeEnv, warnOperationalModes } from './lib/operational-modes.js';
 import { checkSchemaCompatibility, ENGINE_VERSION } from './version.js';
 import { getMemoryReport } from './lib/runtime/index.js';
 import {
@@ -542,7 +542,7 @@ async function ensureDefaultExtensions(db: any): Promise<void> {
   // own extensions directory — never from a sibling dev checkout, and never in
   // tests: a dev or CI engine starts with no extension switched on behind its
   // back (activating ai + content/pages there made collection create time out).
-  if (process.env.NODE_ENV === 'test') return;
+  if (nodeEnv() === 'test') return;
   const extBase = installExtensionsBase();
   if (!extBase) return;
 
@@ -1432,7 +1432,7 @@ async function bootstrap() {
     // Left as a warning outside production, because a single-tenant development
     // box on the stock postgres superuser is a normal thing to run. Production
     // has no override (ADR 0058 d4 removed ZVELTIO_ALLOW_UNENFORCED_RLS).
-    if (rlsBootFailure({ mode: rlsMode, nodeEnv: process.env.NODE_ENV })) {
+    if (rlsBootFailure({ mode: rlsMode, nodeEnv: nodeEnv() })) {
       console.error(`❌ ${message}`);
       throw new Error(`${message} Refusing to start in production.`);
     }

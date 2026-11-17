@@ -1,6 +1,7 @@
 // packages/engine/src/lib/tenant-manager.ts
 // Manages tenant schema lifecycle and resolution
 
+import { isProduction } from '../operational-modes.js';
 import { applyCollectionPermissions } from './collection-permissions.js';
 import { noteReconcile, startReconcile } from './reconcile-failures.js';
 import { createHmac, timingSafeEqual } from 'node:crypto';
@@ -947,7 +948,7 @@ export function rlsBootFailure(opts: {
   nodeEnv: string | undefined;
 }): string | null {
   if (opts.mode !== 'unavailable') return null;
-  if (opts.nodeEnv !== 'production') return null;
+  if (!isProduction({ NODE_ENV: opts.nodeEnv })) return null;
   return (
     'Tenant isolation cannot be enforced: the zveltio_rls role is unavailable and this ' +
     'connection bypasses row-level security.'

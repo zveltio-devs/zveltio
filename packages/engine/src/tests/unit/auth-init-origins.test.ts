@@ -91,4 +91,17 @@ describe('initAuth trusted origins', () => {
     expect(attrs?.secure).toBe(true);
     expect(attrs?.sameSite).toBe('none');
   });
+
+  // ADR 0058 (owner 2026-11-17): unset NODE_ENV is production, so a
+  // hand-started engine sets Secure cookies; only development and test do not.
+  it.each([
+    [undefined, true],
+    ['staging', true],
+    ['development', false],
+    ['test', false],
+  ])('NODE_ENV=%s sets Secure=%s', async (env, secure) => {
+    if (env !== undefined) process.env.NODE_ENV = env;
+    await initAuth(new CannedDb().kysely as unknown as Database);
+    expect(capturedOpts?.advanced?.defaultCookieAttributes?.secure).toBe(secure);
+  });
 });

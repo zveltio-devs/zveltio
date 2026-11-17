@@ -29,6 +29,8 @@ cd "$REPO_ROOT"
 : "${ADMIN_PASSWORD:=Test12345}"
 export DATABASE_URL PORT
 export EXTENSIONS_DIR
+# Unset NODE_ENV boots as production (ADR 0058): no Valkey here, so say what this is.
+export NODE_ENV="${NODE_ENV:-development}"
 export BETTER_AUTH_SECRET="${BETTER_AUTH_SECRET:-firetest-secret-32-chars-long-zzzzzz}"
 export BETTER_AUTH_URL="http://localhost:${PORT}"
 export ENCRYPTION_KEY="${ENCRYPTION_KEY:-firetest-encryption-key-32-bytes-aaaaaaaa}"

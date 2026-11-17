@@ -1,3 +1,4 @@
+import { isProduction, nodeEnv } from '../operational-modes.js';
 import { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
 import type { FieldTypeRegistry } from '../data/index.js';
@@ -707,13 +708,13 @@ export class ExtensionLoader {
   }
 
   /**
-   * Dev-only HTTP endpoint mounted in non-production. The CLI's
+   * Dev-only HTTP endpoint, mounted only under `NODE_ENV=development` or `test`. The CLI's
    * `zveltio extension dev` watcher POSTs `{ name }` here to ask the engine
    * to re-import an extension's source. No auth — same trust boundary as
-   * the dev server itself (only listens when `NODE_ENV !== 'production'`).
+   * the dev server itself. Unset NODE_ENV is production: not mounted (ADR 0058).
    */
   registerDevEndpoints(app: Hono): void {
-    if (process.env.NODE_ENV === 'production') return;
+    if (isProduction()) return;
     app.post('/__zveltio_dev_reload', async (c) => {
       let body: { name?: unknown };
       try {
@@ -727,7 +728,7 @@ export class ExtensionLoader {
       return c.json(result, result.ok ? 200 : 500);
     });
     console.log(
-      '🛠️  Dev reload endpoint mounted at POST /__zveltio_dev_reload (NODE_ENV != production)',
+      `🛠️  Dev reload endpoint mounted at POST /__zveltio_dev_reload (NODE_ENV=${nodeEnv()})`,
     );
   }
 

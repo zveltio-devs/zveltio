@@ -18,7 +18,10 @@ describe('operational-mode register', () => {
     });
     expect(lines).toHaveLength(1);
     expect(lines[0]).toContain('ZVELTIO_FAIL_CLOSED_TENANT=0');
-    expect(operationalModeWarnings({})).toEqual([expect.stringContaining('NODE_ENV=(unset)')]);
+    expect(operationalModeWarnings({})).toEqual([]); // unset is production (ADR 0058)
+    expect(operationalModeWarnings({ NODE_ENV: 'development' })).toEqual([
+      expect.stringContaining('NODE_ENV=development'),
+    ]);
   });
 
   test('a removed variable still set is named as removed', () => {
