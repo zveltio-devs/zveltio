@@ -496,23 +496,23 @@ async function syncSchedules(boss: JobQueue, extName: string): Promise<void> {
  */
 async function tick(boss: JobQueue, { extName, job }: { extName: string; job: string }) {
   const db = getDb();
-  const def = registered.get(extName)?.jobs.get(job);
-  if (!def?.schedule) {
-    // Not loaded on this replica, or this version does not schedule it. Turned
-    // off everywhere (disabled, uninstalled, purged): its schedule goes too.
+  const active: string[] = [];
+  // Not loaded on this replica, or this version does not schedule it: no tenant here.
+  if (registered.get(extName)?.jobs.get(job)?.schedule) {
+    const tenants = await sql<{ id: string }>`
+      SELECT id::text AS id FROM zv_tenants WHERE status = 'active' ORDER BY created_at
+    `.execute(db);
+    for (const { id } of tenants.rows) {
+      if (await isExtensionActiveForTenant(db, extName, id)) active.push(id);
+    }
+  }
+  if (active.length === 0) {
+    // Turned off everywhere (disabled, uninstalled, purged): its schedule goes too.
     if (!(await isExtensionActiveAnywhere(db, extName))) {
       await boss.unschedule(SCHEDULE_QUEUE, scheduleKey(extName, job));
     }
     return;
   }
-  const tenants = await sql<{ id: string }>`
-    SELECT id::text AS id FROM zv_tenants WHERE status = 'active' ORDER BY created_at
-  `.execute(db);
-  const active: string[] = [];
-  for (const { id } of tenants.rows) {
-    if (await isExtensionActiveForTenant(db, extName, id)) active.push(id);
-  }
-  if (active.length === 0) return;
   const refuse = (why: string): never => {
     throw new Error(`${extName}: the schedule of job "${job}" could not enqueue it: ${why}`);
   };
