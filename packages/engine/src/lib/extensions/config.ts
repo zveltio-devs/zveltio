@@ -187,7 +187,9 @@ export function buildExtensionConfig(
      * Permits plaintext LDAP binds. Extension-specific and only meaningful to
      * auth/ldap; it lives here because it is an operator/deployment decision
      * expressed in the environment, not a per-tenant setting. New
-     * extension-specific switches belong in extension settings, not here.
+     * extension-specific switches belong in extension settings, not here —
+     * unless, like the two below, they switch off a check a tenant admin must
+     * not be able to switch off (ADR 0058 d4): those are dated operational modes.
      */
     get allowInsecureLdap(): boolean {
       const v = modeValue('ALLOW_INSECURE_LDAP');
