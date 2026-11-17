@@ -1,7 +1,7 @@
 {
   "name": "@zveltio/vue",
   "license": "MIT",
-  "version": "3.0.0-beta.125",
+  "version": "3.0.0-beta.126",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
