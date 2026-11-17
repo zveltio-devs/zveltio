@@ -171,15 +171,22 @@ export async function runExtRunner(): Promise<never> {
   // (ADR 0023), both through setpriv. On systemd the unit bans sockets for the
   // runner and everything it starts.
   const allocate = uidBase === null ? null : uidAllocator(uidBase);
-  const socketBan = uidBase === null ? undefined : writeSocketBan();
-  const wrap: RouteWrap = (argv, opts) => {
-    if (!allocate) return { argv };
-    const { uid, release } = allocate();
-    return {
-      release,
-      argv: limitArgv(setprivArgv(uid, argv, socketBan), opts?.addressSpace ?? true),
+  const wrapWith =
+    (socketBan?: string): RouteWrap =>
+    (argv, opts) => {
+      if (!allocate) return { argv };
+      const { uid, release } = allocate();
+      return {
+        release,
+        argv: limitArgv(setprivArgv(uid, argv, socketBan), opts?.addressSpace ?? true),
+      };
     };
-  };
+  // The bare-metal `edge` instance (root, a uid per invocation) already bans
+  // sockets for everything it starts through its unit's RestrictAddressFamilies,
+  // and a host's setpriv may predate --seccomp-filter (util-linux < 2.41, e.g.
+  // Ubuntu 24.04): load the filter only where the probe shows no ban without it.
+  let wrap = wrapWith();
+  if (allocate && checkSocketBan(wrap)) wrap = wrapWith(writeSocketBan());
   const unbanned = checkSocketBan(wrap);
   if (unbanned) {
     console.error(`[ext-runner] ${unbanned}`);
@@ -514,6 +521,8 @@ export async function stopRunner(extName: string): Promise<void> {
  * on the first invocation, and again after a failed one.
  */
 export const EDGE_RUNNER_INSTANCE = 'edge';
+/** First uid of the bare-metal edge instance's per-invocation range. */
+export const EDGE_UID_BASE = 400_000;
 let edgeSocket: Promise<string> | null = null;
 export function edgeRunnerSocket(): Promise<string> {
   edgeSocket ??= startInstance(EDGE_RUNNER_INSTANCE);
@@ -603,8 +612,19 @@ WantedBy=multi-user.target
     [`/etc/systemd/system/zveltio-ext-runner@${EDGE_RUNNER_INSTANCE}.service.d/edge.conf`]: `# Written by \`zveltio ext-runner setup\`: edge functions and flow scripts
 # run here, one process per invocation and several at once — a Bun process is
 # about ten tasks, so the template's 64 would cap them near six.
+# Each invocation under a uid of its own (ADR 0058, owner 2026-11-17): the
+# runner starts as root with only CAP_SETUID, CAP_SETGID and CAP_KILL and drops
+# each invocation to a uid from ${EDGE_UID_BASE} up (65536 of them). The range
+# avoids systemd's dynamic users (61184-65519), the usual /etc/subuid start
+# (100000) and container ranges (524288+). One shared uid would let a function
+# read or kill another tenant's invocation while it runs.
 [Service]
 TasksMax=512
+DynamicUser=no
+User=root
+CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_KILL
+AmbientCapabilities=CAP_SETUID CAP_SETGID CAP_KILL
+Environment=ZVELTIO_EXT_RUNNER_UID_BASE=${EDGE_UID_BASE}
 `,
     '/etc/systemd/system/zveltio.service.d/ext-runner.conf': `# Written by \`zveltio ext-runner setup\`: worker-isolated extensions run in
 # zveltio-ext-runner@ instances. .env can override it (EnvironmentFile wins).

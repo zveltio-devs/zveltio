@@ -65,6 +65,15 @@ describe('runnerSetupFiles', () => {
     expect(unit).toContain('\nSystemCallErrorNumber=EPERM\n');
   });
 
+  it('runs each edge invocation under its own uid: root with three capabilities, range 400000 up', () => {
+    const edge = files['/etc/systemd/system/zveltio-ext-runner@edge.service.d/edge.conf']!;
+    expect(edge).toMatch(/^DynamicUser=no$/m);
+    expect(edge).toMatch(/^User=root$/m);
+    expect(edge).toMatch(/^CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_KILL$/m);
+    expect(edge).toMatch(/^AmbientCapabilities=CAP_SETUID CAP_SETGID CAP_KILL$/m);
+    expect(edge).toMatch(/^Environment=ZVELTIO_EXT_RUNNER_UID_BASE=400000$/m);
+  });
+
   it('switches the engine to the runner transport', () => {
     expect(files['/etc/systemd/system/zveltio.service.d/ext-runner.conf']).toContain(
       'Environment=ZVELTIO_EXT_TRANSPORT=runner',

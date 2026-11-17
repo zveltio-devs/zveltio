@@ -276,8 +276,10 @@ production engine at boot. The engine's child remains only as the named
 development placement (`NODE_ENV` `development` or `test`, logged once); an
 unset `NODE_ENV` is production here.
 
-On bare metal every invocation shares the `zveltio-ext-runner@edge` instance's
-uid; containers give each invocation a uid of its own.
+Every invocation runs under a uid of its own: in containers from the runner's
+`ZVELTIO_EXT_RUNNER_UID_BASE`, on bare metal from 400000 to 465535 (the
+`zveltio-ext-runner@edge` instance starts as root with only `CAP_SETUID`,
+`CAP_SETGID` and `CAP_KILL`). Keep that range free of other users on the host.
 
 ---
 
