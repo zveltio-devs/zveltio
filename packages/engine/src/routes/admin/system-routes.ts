@@ -231,7 +231,7 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
     return c.json({ success: true });
   });
 
-  // PATCH /api-keys/:id — Update API key (name, scopes, IPs, rate limit, etc.)
+  // PATCH /api-keys/:id — Update API key (name, scopes, rate limit, etc.)
   app.patch(
     '/api-keys/:id',
     zValidator(
@@ -242,13 +242,13 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
           scopes: z
             .array(z.object({ collection: z.string(), actions: z.array(z.string()) }))
             .optional(),
-          allowed_ips: z.array(z.string()).nullable().optional(),
           organization: z.string().nullable().optional(),
           description: z.string().nullable().optional(),
           rate_limit: z.number().int().min(1).max(1_000_000).nullable().optional(),
         })
-        // `permissions_mode` and `casbin_subject` were accepted and stored, but no
-        // auth path reads them: the write answered success and changed nothing.
+        // `permissions_mode`, `casbin_subject` and `allowed_ips` were accepted and
+        // stored, but no auth path reads them: the write answered success and
+        // changed nothing (`allowed_ips`: dropped, not enforced — ADR 0058 d5).
         // Strict, so any field the engine does not apply is a 400, not a no-op.
         .strict(),
     ),

@@ -364,7 +364,7 @@ adopted:
 | Data binding | URLs (`dataSource`, `endpoint`) | names of collections and actions |
 | Styling | daisyUI class names, icon names | semantic tones |
 | Computed values | arithmetic tokens, templates, `computed` | server fields or actions |
-| Code pages (`studio/pages/+page.svelte`, "Tier-3") | synced into Studio at release (ai, graphql, storage/cloud); the page builder is a Studio front-end package over the `pages.builder` view | views; screens that need code are front-end packages |
+| Code pages (`studio/pages/+page.svelte`, "Tier-3") | synced into Studio at release (ai, storage/cloud); the page builder is a Studio front-end package over the `pages.builder` view | views; screens that need code are front-end packages |
 | Slot widgets (`studio/src/contribute.ts`) | Svelte components | data only |
 | Renderers | Studio and `@zveltio/react` (the shared runtime is in `@zveltio/sdk/view`) | Studio, `sdk-react`, `sdk-vue` |
 

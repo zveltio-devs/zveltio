@@ -311,7 +311,9 @@ extensions/custom/my-feature/
 Outside a checkout the scaffold pins `@zveltio/sdk` to the CLI's own version. A
 pre-release CLI can name an SDK version npm does not have yet; point the
 dependency at a local checkout (`"@zveltio/sdk": "file:../zveltio/packages/sdk"`)
-until it is published.
+until it is published. The package resolves to its built `dist/`, so build the
+checkout first (`bun run --cwd=../zveltio/packages/sdk build`), then
+`bun install` in the extension folder.
 
 See [extensions/authoring.md](../extensions/authoring.md) for what goes in each file.
 

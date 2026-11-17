@@ -56,15 +56,18 @@ key gives the action its own permission action (`approve`, `storno`) and the
 key names that action. Studio's API-key page offers only `execute`; a custom
 permission action is typed into the scope by hand.
 
-**What v2 should do.**
+**What v2 should do** (amended by ADR 0058 decision 5, 2026-11-17).
 
-- Address an action as a resource of its own (`$ext:<name>/<action>`, or the
-  manifest action id), so a key, the permission matrix and an audit row all
-  name the same thing.
-- List extension actions in `GET /api/admin/resources`, so the matrix and the
-  API-key page can offer them instead of free text.
+- Name an action only inside an API key's `$ext:<name>` scope entry (for
+  example `{ collection: "$ext:invoicing", actions: ["send"] }` naming the
+  manifest action). An action is never a Casbin object of its own and never
+  appears in `GET /api/admin/resources`: ADR 0002 keeps the engine objects
+  closed, and ADR 0015 already refused the action-as-object option.
 - Decide whether `$ext:<name>` with `execute` keeps meaning "every action"
-  (a wildcard) or is refused once per-action resources exist.
+  (a wildcard) or is refused once actions can be named in the scope.
+- Job subjects (`apikey:job:<ext>:<job>`) stay an accepted exception: they
+  are minted by the engine for a declared job and gated by the job's declared
+  capabilities, not by an admin-written scope.
 
 ## 3. Free-string extension objects — breaking
 

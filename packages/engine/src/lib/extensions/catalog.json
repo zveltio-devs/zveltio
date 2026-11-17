@@ -57,7 +57,7 @@
       "displayName": "Dashboards",
       "description": "Role-aware, per-user home dashboards — IT sets a default layout per role, each user personalizes within their permissions",
       "category": "analytics",
-      "version": "2.0.1",
+      "version": "2.0.2",
       "author": "Zveltio",
       "tags": ["analytics", "dashboard", "widgets"],
       "permissions": ["audit:read"]
@@ -77,7 +77,7 @@
       "displayName": "LDAP / Active Directory",
       "description": "Authenticate users via LDAP or Active Directory (ldapts)",
       "category": "auth",
-      "version": "3.0.1",
+      "version": "4.0.0",
       "author": "Zveltio",
       "tags": ["auth", "ldap", "active-directory", "sso"],
       "permissions": ["auth:session", "data:system"]
@@ -87,7 +87,7 @@
       "displayName": "SAML 2.0 SSO",
       "description": "SAML 2.0 Single Sign-On with external Identity Providers (Okta, Azure AD, Google Workspace)",
       "category": "auth",
-      "version": "2.2.1",
+      "version": "3.0.0",
       "author": "Zveltio",
       "tags": ["auth", "saml", "sso", "okta", "azure"],
       "permissions": ["auth:session", "data:system"]
@@ -107,7 +107,7 @@
       "displayName": "Mail Client",
       "description": "IMAP/SMTP mail client: accounts, folders, messages, drafts, identities, signatures, filters and contacts as collections; syncing and sending run as jobs that reach only the mail servers an operator binds to the \"mail\" slot.",
       "category": "communications",
-      "version": "2.2.0",
+      "version": "2.3.0",
       "author": "Zveltio",
       "tags": ["mail", "email", "imap", "smtp"],
       "permissions": ["data:system", "files"]
@@ -127,7 +127,7 @@
       "displayName": "GDPR Compliance",
       "description": "Data export and right to erasure (GDPR Art. 15, 17)",
       "category": "compliance",
-      "version": "3.0.0",
+      "version": "3.1.0",
       "author": "Zveltio",
       "tags": ["compliance", "gdpr", "privacy"],
       "permissions": ["data:write", "auth:users"]
@@ -147,7 +147,7 @@
       "displayName": "e-Factura RO",
       "description": "Romanian e-Invoice (e-Factura): build the UBL XML (CIUS-RO), submit it to ANAF, follow its state and keep ANAF's signed answer",
       "category": "compliance/ro",
-      "version": "2.1.0",
+      "version": "2.1.1",
       "author": "Zveltio",
       "tags": ["invoicing", "anaf", "romania", "ubl"],
       "permissions": ["data:write", "data:system"]
@@ -187,7 +187,7 @@
       "displayName": "Document Templates",
       "description": "HTML templates with {{variable}} interpolation, rendered to PDF as the caller",
       "category": "content",
-      "version": "2.1.0",
+      "version": "2.1.1",
       "author": "Zveltio",
       "tags": ["documents", "templates", "pdf"],
       "permissions": ["documents", "data:write"]
@@ -197,7 +197,7 @@
       "displayName": "Document Generator",
       "description": "Numbered documents generated from templates as the caller, with signatures by logged-in users",
       "category": "content",
-      "version": "2.0.1",
+      "version": "2.0.2",
       "author": "Zveltio",
       "tags": ["documents", "pdf", "templates"],
       "permissions": ["documents", "data:write"]
@@ -267,7 +267,7 @@
       "displayName": "Data Export",
       "description": "Export collection data as JSON, CSV or NDJSON through the data API, as the exporting user",
       "category": "data",
-      "version": "2.0.1",
+      "version": "2.0.2",
       "author": "Zveltio",
       "tags": ["export", "csv", "json", "data"],
       "permissions": []
@@ -277,7 +277,7 @@
       "displayName": "Data Import",
       "description": "Import collection data from CSV, JSON or NDJSON files through the data API, as the importing user",
       "category": "data",
-      "version": "2.0.2",
+      "version": "2.0.3",
       "author": "Zveltio",
       "tags": ["import", "csv", "json", "data"],
       "permissions": ["data:write"]
@@ -287,7 +287,7 @@
       "displayName": "API Documentation",
       "description": "Swagger UI over the data API: each visitor sees the collections they may read",
       "category": "developer",
-      "version": "2.2.0",
+      "version": "2.2.1",
       "author": "Zveltio",
       "tags": ["api", "swagger", "openapi", "docs"],
       "permissions": []
@@ -297,20 +297,10 @@
       "displayName": "BYOD Import",
       "description": "External database schema introspection and import",
       "category": "developer",
-      "version": "2.0.1",
+      "version": "2.0.2",
       "author": "Zveltio",
       "tags": ["byod", "introspection", "migration"],
       "permissions": ["introspection", "data:write"]
-    },
-    {
-      "name": "developer/graphql",
-      "displayName": "GraphQL API",
-      "description": "Auto-generated GraphQL API with playground for all collections",
-      "category": "developer",
-      "version": "2.2.0",
-      "author": "Zveltio",
-      "tags": ["graphql", "api", "playground"],
-      "permissions": ["data:write"]
     },
     {
       "name": "billing",
@@ -507,7 +497,7 @@
       "displayName": "Trasabilitate Alimentară",
       "description": "Trasabilitate alimentară conformă Reg. CE 178/2002 (Art. 18) și cerințelor ANSVSA România — recepție loturi, scanare QR, arbore bidirecțional, simulator recall.",
       "category": "operations",
-      "version": "2.0.1",
+      "version": "2.0.2",
       "author": "Zveltio",
       "tags": ["traceability", "food-safety", "lots", "recall", "ansvsa"],
       "permissions": ["data:write"]
@@ -587,7 +577,7 @@
       "displayName": "Cloud Storage",
       "description": "Version history, favorites and retention policies over the engine's stored files",
       "category": "storage",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "author": "Zveltio",
       "tags": ["storage", "files", "cloud", "sharing"],
       "permissions": ["data:write", "files"]
