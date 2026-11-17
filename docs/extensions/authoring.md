@@ -121,6 +121,14 @@ List them in `manifest.json` and ship one file per name, in the
   fields on it. While an operator's collection holds a key into one of them (an
   m2o), the purge answers 409 naming the field and drops nothing: a purge never
   changes a collection the extension does not own.
+- A collection's file may declare one row rule, the owner-only one:
+  `"rowRules": [{ "role": "tenant_member", "field": "created_by", "op": "eq", "value": "user_id" }]`
+  (any role, or `*`). Each caller then reads and writes only the rows they
+  created; `created_by` is written by the engine, never by the caller. It only
+  narrows. Any other rule (`neq`, another column, a `static:` value) is refused
+  at load: business separation is the operator's, through `/api/admin/rls`
+  (ADR 0058 amendment, ADR 0016). A later version that changes the rule's role
+  replaces it; the operator sees it with every other row rule.
 - `"defaultGrants": false` in a collection's file withholds it from the default
   role grants, at creation and at every boot: an internal collection only the
   extension's actions and jobs reach. It replaces `sensitiveResources` for

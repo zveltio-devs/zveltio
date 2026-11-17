@@ -55,7 +55,8 @@ workflow.
   in this format in its own package (`schema/collections/<name>.json`, see
   [authoring](../extensions/authoring.md#collections--declared-created-by-the-engine));
   the engine records it as their owner (`zvd_collections.owner_extension`) and
-  plans its files against what it owns only. Validation rule groups (§4.1) were
+  plans its files against what it owns only. Of row rules, an extension's file
+  may hold only `created_by eq user_id` (ADR 0058 amendment). Validation rule groups (§4.1) were
   the one extension table exported (`developer/validation`'s); the engine owns
   them since migration 111.
 - BYOD (`is_managed = false`) tables are not exported in v1.

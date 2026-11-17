@@ -408,6 +408,14 @@ users' rows, name the roles the rule is meant for instead of `*`, and make sure
 the administrators do not hold one of them. There is no permission that writes
 past a row rule.
 
+**An extension declares the owner-only rule only (ADR 0058 amendment).** A
+collection file an extension ships may carry `created_by eq user_id`, for any
+role or `*`, and nothing else; the engine refuses any other declared rule at
+load. Such a rule is stored with every other row rule, shown by
+`/api/admin/rls`, and replaced, not copied, by a later version. An operator's own
+rules on the collection stay; separation rules (`neq`, ADR 0016) are only ever
+the operator's.
+
 Any other API key is filtered by its own rules (role
 `api_key`, and `*`, resolved against the key's author: `user_id` and
 `user_email` are its issuer's — ADR 0028 — or empty when it has none) AND by
