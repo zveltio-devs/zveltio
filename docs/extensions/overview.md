@@ -105,7 +105,8 @@ extension stores are encrypted at rest.
 
 These are engine core, and documentation claiming otherwise is out of date:
 collections, storage, webhooks, realtime, audit, notifications, automation
-flows, backup, insights, saved queries, schema branches, and tenants.
+flows, backup, saved queries, schema branches, and tenants. Insights was
+removed (ADR 0051); `/api/insights` answers 410.
 
 `developer/views` and `content/page-builder` were merged into
 [`content/pages`](catalog.md) and no longer exist as separate

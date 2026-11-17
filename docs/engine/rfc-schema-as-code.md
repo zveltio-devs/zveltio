@@ -220,7 +220,9 @@ guessing:
 
 - **Ops, not SQL.** A schema file is applied by a tenant admin as often as by
   a god, and the collection API deliberately never gives a tenant admin SQL.
-  Arbitrary SQL stays a god-only tool (`/api/admin/sql`).
+  Arbitrary SQL is not an engine tool at all (`/api/admin/sql` was removed,
+  ADR 0058): an operator runs it with a database client and credentials of
+  their own.
 - **No free `USING`.** `changeFieldType` converts through `resolveConversion`
   (`lib/data/field-type-conversions.ts`), the closed table Studio's type change
   already uses: same-family casts, `NULLIF(col, '')` for text → number, and a

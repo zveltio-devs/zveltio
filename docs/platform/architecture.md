@@ -155,11 +155,11 @@ of the product. A feature leaves only once the public primitive it needs
 exists; when one is missing, the primitive is engine work and the feature waits
 for it. Planned on this rule, in order: `/api/templates` becomes
 collections-only official extensions (done); the data API gains aggregates;
-`/api/insights` goes (its panels move to `analytics/dashboard`) and
-`/api/saved-queries` moves to an extension; `/api/admin/sql` and
-`/api/schema/branches` are removed (run SQL as an operator with a database
-client and credentials of your own; change the schema with
-`zveltio schema apply`). Flows stay until after 1.0-rc.1. Each removal is a
+`/api/insights` goes (done: charts are a view/2 `chart`, ADR 0051) and
+`/api/saved-queries` moves to Studio; `/api/admin/sql` (done, ADR 0058) and
+`/api/schema/branches` are removed. No SQL written by a caller runs in the
+engine: run SQL as an operator with a database client and credentials of your
+own (`psql "$DATABASE_URL"`), and change the schema with `zveltio schema apply`. Flows stay until after 1.0-rc.1. Each removal is a
 `BREAKING` CHANGELOG entry when it lands.
 
 ---

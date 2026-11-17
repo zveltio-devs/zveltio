@@ -143,11 +143,11 @@ resolved beforehand, on the pool, as the engine role.
 /api/health  /api/metrics  /api/auth  /api/openapi
 /api/collections  /api/relations  /api/schema
 /api/tenants  /api/invitations
-/api/insights  /api/flows  /api/backup  /api/admin/sql
+/api/flows  /api/backup
 /api/admin/audit
 ```
 
-The last four are built on `poolDb`, and that **is not an oversight, it is a
+`/api/flows` and `/api/backup` are built on `poolDb`, and that **is not an oversight, it is a
 repair**. A request already inside a transaction has reserved one connection; a
 handler on `poolDb` asks for a second. At concurrency equal to the pool size,
 every request holds one and waits for one, and nothing is ever released:
@@ -160,9 +160,9 @@ every request holds one and waits for one, and nothing is ever released:
 <sub>Measured against a live engine on `:3400`, a 50,000-row collection, load
 over HTTP; samples from `pg_stat_activity` during the load.</sub>
 
-This is not degradation, it is a stall. Those four filter explicitly through
-`tenantOf(c)` — they must, being on the pool — and `backup` and `sql-editor` are
-instance-level tools with no tenant scope. The `check:pooldb-txn` gate guards
+This is not degradation, it is a stall. `flows` filters explicitly through
+`tenantOf(c)` — it must, being on the pool — and `backup` is an
+instance-level tool with no tenant scope. The `check:pooldb-txn` gate guards
 the list.
 
 `/api/tenants` skips for a different reason: **administering tenants is not work

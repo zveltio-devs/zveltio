@@ -24,14 +24,14 @@
  * reconciles walk every tenant's tables. All of them need to see across tenants by
  * design, which is why the engine's own role is not restricted.
  *
- * `poolDb` exists for good reasons — the four routers in `TXN_SKIP_PREFIXES`
+ * `poolDb` exists for good reasons — the routers on it in `TXN_SKIP_PREFIXES`
  * would otherwise pin one connection and reach for a second, which deadlocks at
  * a concurrency equal to the pool size. This gate does not object to `poolDb`.
  * It objects to `poolDb` plus a table that carries a tenant.
  *
  * "`poolDb`" is a binding, not a spelling. The pool is followed from
  * `registerCoreRoutes` into every router and helper it is passed to, under
- * whatever name the parameter has (`backupRoutes(db)`, `sqlEditorRoutes(db)`),
+ * whatever name the parameter has (`backupRoutes(db)`, `flowsRoutes(db)`),
  * into `const` aliases, and into the callback of a transaction opened on it.
  * Until 2026-10-12 the gate matched the text `poolDb.` and so never judged
  * `backup` or `sql-editor`. It now refuses to pass when it can see nothing.

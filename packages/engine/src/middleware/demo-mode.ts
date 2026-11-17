@@ -37,10 +37,6 @@ const BLOCKED_PATHS: Array<{ method: string; pattern: RegExp }> = [
   { method: 'POST', pattern: /^\/api\/admin\/migrate$/ },
   // Wiping logs would hide the audit trail of the demo session itself.
   { method: 'DELETE', pattern: /^\/api\/admin\/revisions$/ },
-  // The SQL editor runs operator-authored SQL against the demo's database.
-  // The route refuses DROP DATABASE / DROP SCHEMA, which is not the same as
-  // being safe on an instance where anyone can sign up.
-  { method: 'POST', pattern: /^\/api\/admin\/sql$/ },
   // Changing a user's role is how a visitor promotes themselves. Deleting a
   // user was already blocked; editing one was not, and the edit is the more
   // useful of the two.

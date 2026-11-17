@@ -615,9 +615,9 @@ const SECTIONS: Section[] = [
   {
     id: 'B12',
     track: 'B — engine subsystems',
-    title: 'Insights, saved queries, SQL editor',
+    title: 'Saved queries',
     focus: 'User-authored SQL: which role runs it, on which connection, with which timeout.',
-    match: [`${E}routes/insights.ts`, `${E}routes/saved-queries.ts`, `${E}routes/sql-editor.ts`],
+    match: [`${E}routes/saved-queries.ts`],
   },
   {
     id: 'B13',
@@ -740,10 +740,9 @@ const SECTIONS: Section[] = [
   {
     id: 'C10',
     track: 'C — Studio & client',
-    title: 'Admin pages — insights, saved queries, settings, storage, backup',
+    title: 'Admin pages — saved queries, settings, storage, backup',
     focus: 'Screens that read across the whole instance or move data out of it.',
     match: [
-      `${S}routes/(admin)/insights/`,
       `${S}routes/(admin)/saved-queries/`,
       `${S}routes/(admin)/settings/`,
       `${S}routes/(admin)/storage/`,

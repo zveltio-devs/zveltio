@@ -53,7 +53,6 @@ const TRANSLATED = [
   'src/routes/(admin)/permissions/+page.svelte',
   'src/routes/(admin)/flows/+page.svelte',
   'src/routes/(admin)/tenants/+page.svelte',
-  'src/routes/(admin)/insights/+page.svelte',
   // tranche 3
   'src/routes/(admin)/schema-branches/+page.svelte',
   'src/routes/(admin)/onboarding/+page.svelte',
@@ -77,7 +76,6 @@ const TRANSLATED = [
   'src/routes/(admin)/notifications/+page.svelte',
   'src/routes/(admin)/request-logs/+page.svelte',
   'src/routes/(admin)/settings/storage/+page.svelte',
-  'src/routes/(admin)/sql/+page.svelte',
   'src/routes/(admin)/storage/+page.svelte',
   'src/routes/(admin)/webhooks/+page.svelte',
 ];

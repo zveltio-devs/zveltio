@@ -13,7 +13,7 @@ without a row fails the suite, so a new door cannot ship unexamined.
 
 The prefixes are `/api/data`, `/api/sync`, `/api/realtime`, `/api/ws`,
 `/api/revisions`, `/api/storage`, `/files`, `/api/api-keys`, `/api/webhooks`,
-`/api/flows`, `/api/insights`, `/api/saved-queries`, `/api/notifications` and
+`/api/flows`, `/api/saved-queries`, `/api/notifications` and
 `/api/rpc`.
 
 ## How a door is probed
@@ -60,8 +60,6 @@ absent or refused:
 | `/api/api-keys` list, create, revoke | `api-keys-tenant-isolation.test.ts`; as a tenant administrator, `tenant-admin-api-keys.test.ts` |
 | `/api/webhooks` list, create, read, change, delete, rotate; the dispatcher | `webhooks-tenant-isolation.test.ts` |
 | `/api/flows` list, create, read, change, delete, run, runs, steps, dead letters (list, retry) | `flows-tenant-isolation.test.ts` |
-| `/api/insights/dashboards` list, create, read, delete; shares, panels (add, change, delete, run); saved-query writes and runs; `/stats`; `POST /query` (god reads the instance, any other admin its own tenant) | `dashboards-tenant-isolation.test.ts` |
-| `/api/insights/saved-queries` list | `insights-role-share-visibility.test.ts` |
 | `/api/saved-queries` list, read | `saved-queries-import-tenant-isolation.test.ts` |
 | `/api/storage` list, read, delete | `storage-tenant-isolation.test.ts` |
 | `/api/revisions` list | `revisions-tenant-isolation.test.ts` |

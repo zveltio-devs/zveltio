@@ -72,13 +72,13 @@ export const API_GROUPS: Readonly<Record<string, 'v1' | 'none'>> = {
   sync: 'none',
   electric: 'none',
   // ADR 0051: leaving the engine.
-  insights: 'none',
   'saved-queries': 'none',
   // Studio's own diagram positions.
   erd: 'none',
   // Operator install path, moving with the registry.
   marketplace: 'none',
-  // Already gone: 410 with the replacement.
+  // Already gone: 410 with the replacement, or with why (ADR 0051, ADR 0058).
+  insights: 'none',
   templates: 'none',
   approvals: 'none',
   export: 'none',

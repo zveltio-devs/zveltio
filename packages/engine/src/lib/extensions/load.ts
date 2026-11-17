@@ -71,7 +71,7 @@ export const RETIRED_EXTENSIONS: Readonly<Record<string, string>> = {
   'developer/edge-functions': 'the engine administers edge functions (/api/edge-functions)',
   'developer/validation': 'the engine administers validation rules (/api/validation)',
   'developer/saved-queries': 'the engine serves saved queries (/api/saved-queries)',
-  'analytics/insights': 'the engine serves insights (/api/insights)',
+  'analytics/insights': 'insights was removed (ADR 0051)',
   'operations/backup': 'the engine serves backups (/api/backup)',
   'developer/schema-branches': 'the engine serves schema branches',
   search: 'the engine serves full-text search (search= on the data API)',

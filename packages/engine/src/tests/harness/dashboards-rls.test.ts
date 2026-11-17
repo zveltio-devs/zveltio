@@ -1,5 +1,5 @@
 /**
- * `zv_dashboards` is isolated by Postgres, not only by `/api/insights`.
+ * `zv_dashboards` is isolated by Postgres, not only by the routes that read it.
  *
  * The table carries `tenant_id` and had no policy: the boundary was the
  * `where tenant_id = tenantOf(c)` each insights handler remembered. A reader
@@ -7,12 +7,8 @@
  * API key can reach goes through — saw every firm's dashboards. Migration 026
  * puts the table under the tenant policy.
  *
- * `/api/insights` runs on the pool (it opens transactions of its own), and on a
- * non-superuser database a policed table read there answers for the default
- * tenant only. So the router now takes each dashboard query into the tenant's
- * `withTenantIsolation`; the second case drives the real routes in a
- * non-default firm, and because those queries now run as `zveltio_rls` they
- * are answered by the policy even on the harness's superuser pool.
+ * `/api/insights` is gone (ADR 0051); the table stays one release under the
+ * same policy, so these cases still hold.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -24,7 +20,6 @@ import { withTenantIsolation } from '../../lib/tenancy/index.js';
 import {
   asEveryTenant,
   asTenant,
-  createGodSession,
   createMemberSession,
   getTestApp,
   harnessAvailable,
@@ -40,7 +35,6 @@ const FN = 'harness_dashboards_rls_rows';
 d('zv_dashboards under tenant RLS', () => {
   let app: Hono;
   let db: Database;
-  let god = '';
   const raw: Record<string, string> = {};
 
   const inTenant = (tenant: string, extra: Record<string, string>) => ({
@@ -52,7 +46,6 @@ d('zv_dashboards under tenant RLS', () => {
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
     const { userId } = await createMemberSession(app, db);
-    god = await createGodSession(app, db);
     await sql`INSERT INTO zv_tenants (id, slug, name, status)
               VALUES (${OTHER}::uuid, ${SLUG}, ${SLUG}, 'active')`.execute(db);
     // A tenant key acts on its issuer's membership there.
@@ -105,43 +98,6 @@ d('zv_dashboards under tenant RLS', () => {
       const { data } = (await res.json()) as { data: { tenant_id: string }[] };
       expect(data.map((r) => r.tenant_id)).toEqual([tenant]);
     }
-  });
-
-  it('the insights routes still create, list and open a non-default firm’s dashboard', async () => {
-    const create = await app.request('/api/insights/dashboards', {
-      method: 'POST',
-      headers: inTenant(OTHER, { cookie: god }),
-      body: JSON.stringify({ name: `${STAMP}-route` }),
-    });
-    expect(create.status).toBe(201);
-    const { dashboard } = (await create.json()) as { dashboard: { id: string; tenant_id: string } };
-    expect(dashboard.tenant_id).toBe(OTHER);
-
-    const listed = async (tenant: string) => {
-      const res = await app.request('/api/insights/dashboards', {
-        headers: inTenant(tenant, { cookie: god }),
-      });
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as { dashboards: { id: string; name: string }[] };
-      return body.dashboards.filter((x) => x.name.startsWith(STAMP)).map((x) => x.name);
-    };
-    expect((await listed(OTHER)).sort()).toEqual([`${STAMP}-route`, `${STAMP}-seed`]);
-    expect(await listed(ROOT)).toEqual([`${STAMP}-seed`]);
-
-    const open = await app.request(`/api/insights/dashboards/${dashboard.id}`, {
-      headers: inTenant(OTHER, { cookie: god }),
-    });
-    expect(open.status).toBe(200);
-    const views = await asEveryTenant(db, (trx) =>
-      sql<{ view_count: number }>`
-      SELECT view_count FROM zv_dashboards WHERE id = ${dashboard.id}::uuid`.execute(trx),
-    );
-    expect(views.rows[0]?.view_count).toBe(1);
-
-    const elsewhere = await app.request(`/api/insights/dashboards/${dashboard.id}`, {
-      headers: inTenant(ROOT, { cookie: god }),
-    });
-    expect(elsewhere.status).toBe(404);
   });
 
   it('a firm cannot write a dashboard into another firm', async () => {

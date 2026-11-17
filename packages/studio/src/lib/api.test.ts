@@ -310,7 +310,7 @@ describe('api — a configuration change without a step-up', () => {
   it('never resends a streamed body, which the first send consumed', async () => {
     token.mockClear();
     respond(403, { code: 'step_up_required', errors: { action: 'config' } });
-    const res = await api.fetch('/api/admin/sql', {
+    const res = await api.fetch('/api/admin/migrate', {
       method: 'POST',
       body: new ReadableStream({ start: (c) => c.close() }),
     });
