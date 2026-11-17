@@ -17,17 +17,16 @@ import {
   LoaderCircle,
   Globe,
   Mail,
-  Database,
   Webhook,
   GitBranch,
   Play,
 } from '@lucide/svelte';
 
+// Only types the engine runs (EXECUTABLE_STEP_TYPES, flow-executor.ts); the
+// engine refuses any other at save. http_request / create_record / update_record
+// were offered here and always refused.
 const STEP_TYPES = [
-  { value: 'http_request', label: m['flowEdit.typeHttp'], icon: Globe },
   { value: 'send_email', label: m['flowEdit.typeEmail'], icon: Mail },
-  { value: 'create_record', label: m['flowEdit.typeCreate'], icon: Database },
-  { value: 'update_record', label: m['flowEdit.typeUpdate'], icon: Database },
   { value: 'webhook', label: m['flowEdit.typeWebhook'], icon: Webhook },
   { value: 'condition', label: m['flowEdit.typeCondition'], icon: GitBranch },
 ] as const;
@@ -410,41 +409,7 @@ function updateStepName(name: string) {
             </div>
 
             <!-- Type-specific config fields -->
-            {#if selectedStep.type === 'http_request'}
-              <div class="form-control">
-                <label class="label py-0" for="step-url"><span class="label-text text-xs">URL</span></label>
-                <input
-                  id="step-url"
-                  class="input input-sm font-mono"
-                  placeholder="https://api.example.com/endpoint"
-                  value={selectedStep.config.url ?? ''}
-                  oninput={(e) => updateStepConfig('url', (e.target as HTMLInputElement).value)}
-                />
-              </div>
-              <div class="form-control">
-                <label class="label py-0" for="step-method"><span class="label-text text-xs">{m['flowEdit.method']()}</span></label>
-                <select
-                  id="step-method"
-                  class="select select-sm"
-                  value={selectedStep.config.method ?? 'POST'}
-                  onchange={(e) => updateStepConfig('method', (e.target as HTMLSelectElement).value)}
-                >
-                  <option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option>
-                </select>
-              </div>
-              <div class="form-control">
-                <label class="label py-0" for="step-body"><span class="label-text text-xs">{m['flowEdit.bodyJson']()}</span></label>
-                <textarea
-                  id="step-body"
-                  class="textarea textarea-sm font-mono text-xs resize-none"
-                  rows="4"
-                  placeholder="&#123;&#125;"
-                  value={selectedStep.config.body ?? ''}
-                  oninput={(e) => updateStepConfig('body', (e.target as HTMLTextAreaElement).value)}
-                ></textarea>
-              </div>
-
-            {:else if selectedStep.type === 'send_email'}
+            {#if selectedStep.type === 'send_email'}
               <div class="form-control">
                 <label class="label py-0" for="step-to"><span class="label-text text-xs">{m['common.col.to']()}</span></label>
                 <input
@@ -474,29 +439,6 @@ function updateStepName(name: string) {
                   placeholder={m['flowEdit.emailBodyPh']({ token: '{{record.name}}' })}
                   value={selectedStep.config.body ?? ''}
                   oninput={(e) => updateStepConfig('body', (e.target as HTMLTextAreaElement).value)}
-                ></textarea>
-              </div>
-
-            {:else if selectedStep.type === 'create_record' || selectedStep.type === 'update_record'}
-              <div class="form-control">
-                <label class="label py-0" for="step-collection"><span class="label-text text-xs">{m['common.col.collection']()}</span></label>
-                <input
-                  id="step-collection"
-                  class="input input-sm"
-                  placeholder="collection_name"
-                  value={selectedStep.config.collection ?? ''}
-                  oninput={(e) => updateStepConfig('collection', (e.target as HTMLInputElement).value)}
-                />
-              </div>
-              <div class="form-control">
-                <label class="label py-0" for="step-data"><span class="label-text text-xs">{m['flowEdit.dataJson']()}</span></label>
-                <textarea
-                  id="step-data"
-                  class="textarea textarea-sm font-mono text-xs resize-none"
-                  rows="4"
-                  placeholder="&#123;&quot;field&quot;: &quot;&#123;&#123;record.value&#125;&#125;&quot;&#125;"
-                  value={selectedStep.config.data ?? ''}
-                  oninput={(e) => updateStepConfig('data', (e.target as HTMLTextAreaElement).value)}
                 ></textarea>
               </div>
 
