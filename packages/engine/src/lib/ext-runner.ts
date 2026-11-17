@@ -623,6 +623,7 @@ TasksMax=512
 DynamicUser=no
 User=root
 CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_KILL
+AmbientCapabilities=CAP_SETUID CAP_SETGID CAP_KILL
 Environment=ZVELTIO_EXT_RUNNER_UID_BASE=${EDGE_UID_BASE}
 `,
     '/etc/systemd/system/zveltio.service.d/ext-runner.conf': `# Written by \`zveltio ext-runner setup\`: worker-isolated extensions run in

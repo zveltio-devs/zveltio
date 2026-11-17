@@ -70,6 +70,7 @@ describe('runnerSetupFiles', () => {
     expect(edge).toMatch(/^DynamicUser=no$/m);
     expect(edge).toMatch(/^User=root$/m);
     expect(edge).toMatch(/^CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_KILL$/m);
+    expect(edge).toMatch(/^AmbientCapabilities=CAP_SETUID CAP_SETGID CAP_KILL$/m);
     expect(edge).toMatch(/^Environment=ZVELTIO_EXT_RUNNER_UID_BASE=400000$/m);
   });
 
