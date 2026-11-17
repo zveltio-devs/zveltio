@@ -483,6 +483,10 @@ if (_cmd === 'create-god') {
     );
     process.exit(1);
   }
+  // A one-shot command, often run beside a live engine (installers, CI). Sized
+  // from the server like a boot, it opened ~50 connections and met
+  // "too many clients" next to an engine that holds its own share.
+  process.env.DB_POOL_MAX ??= '2';
   const { initDatabase: _initDb2 } = await import('./db/index.js');
   const _db = await _initDb2();
   // Through better-auth, never rows written by hand (ADR 0056 d4): the hash,
