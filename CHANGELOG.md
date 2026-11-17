@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.126] - 2026-11-17
+
 **`BETTER_AUTH_SECRETS`: rotate the auth secret without losing two-factor enrolments (ADR 0058 decision 7, DR-17 slice 1).** Better Auth's own versioned list, `"<version>:<secret>,…"`, first entry current, also as `BETTER_AUTH_SECRETS_FILE`. Before this the engine read only `BETTER_AUTH_SECRET` while Better Auth read the list from the environment on its own, so a list rotated Better Auth's half and the engine kept signing with the old value. Now one helper owns both variables and passes them to Better Auth explicitly; every engine signature (cache, cursors, file URLs, API-key hashes) uses the current secret only; a malformed list stops boot without echoing a secret. With the list, `BETTER_AUTH_SECRET` is only the legacy key for values encrypted before it. Making a new secret current still re-issues API keys (hash versioning is the next slice). Procedure: `docs/platform/security.md`.
 
 **Fixed (security) — realtime follows the same tenant reach as `GET` (ADR 0058 decision 6, DR-33).** WebSocket and SSE fan-out matched a subscriber's tenant to the write's by equality, so a member with `read_scope='subtree'` never heard a child tenant's writes that `GET` returns. Now each door (WS, keyed SSE, wildcard SSE) admits a write whose tenant is in the subscriber's visible set. The tenant tree and reach (`parent_id`, `status`, `read_scope`, `scope_list`) joined the rules fingerprint, so a change made by plain SQL bumps the access generation within one reconcile tick (30–60 s). Behaviour change: a god subscriber now hears writes from every tenant, as its `GET` reach already allowed.
