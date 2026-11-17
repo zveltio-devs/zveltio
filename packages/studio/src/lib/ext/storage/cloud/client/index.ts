@@ -4,7 +4,6 @@
  * Import in your SvelteKit app:
  *   import { FileUpload } from 'zveltio-extensions/storage/cloud/client';
  *
- * Requires: storage/cloud extension active on your Zveltio instance.
- * The engine must expose POST /api/storage/presign.
+ * Uploads through the engine's `POST /api/storage/upload` as the signed-in user.
  */
 export { default as FileUpload } from './FileUpload.svelte';
