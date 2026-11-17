@@ -370,14 +370,16 @@ USAGE
 COMMANDS
   start                              Start the engine (default if no command).
   migrate                            Run pending database migrations.
-  create-god --email E --password P  Create a god-role user.
+  create-god --email E --password P  Create the instance's god (first admin) through
+                                     better-auth; refused once a god exists. [--name N]
   status                             Show service status.
   update                             How to update (points to update.sh).
   version                            Print version.
   help                               Show this message.
 
 ENVIRONMENT
-  DATABASE_URL is required for migrate/create-god/start.
+  DATABASE_URL is required for migrate/create-god/start; create-god also
+  needs BETTER_AUTH_SECRET.
   When called via the /usr/local/bin/zveltio wrapper, /opt/zveltio/.env is
   loaded automatically, so plain "sudo zveltio migrate" works from anywhere.
 
@@ -469,63 +471,31 @@ if (_cmd === 'create-god') {
   const _args = process.argv.slice(3);
   let _email = '';
   let _password = '';
+  let _name = '';
   for (let i = 0; i < _args.length; i++) {
     if (_args[i] === '--email' && _args[i + 1]) _email = _args[i + 1];
     if (_args[i] === '--password' && _args[i + 1]) _password = _args[i + 1];
+    if (_args[i] === '--name' && _args[i + 1]) _name = _args[i + 1];
   }
   if (!_email || !_password) {
-    console.error('Usage: zveltio-engine create-god --email <email> --password <password>');
+    console.error(
+      'Usage: zveltio-engine create-god --email <email> --password <password> [--name <name>]',
+    );
     process.exit(1);
   }
   const { initDatabase: _initDb2 } = await import('./db/index.js');
   const _db = await _initDb2();
-  // Use argon2id via Bun.password — matches auth.ts password.hash config.
-  // Defaults (4 MB / 3 iters) keep create-god usable on small VMs;
-  // ARGON_MEMORY_COST_KIB / ARGON_TIME_COST env vars bump it in prod.
-  const _memoryEnv = parseInt(process.env.ARGON_MEMORY_COST_KIB || '', 10);
-  const _timeEnv = parseInt(process.env.ARGON_TIME_COST || '', 10);
-  const _hash = await Bun.password.hash(_password, {
-    algorithm: 'argon2id',
-    memoryCost:
-      Number.isFinite(_memoryEnv) && _memoryEnv >= 1024 && _memoryEnv <= 1_048_576
-        ? _memoryEnv
-        : 4096,
-    timeCost: Number.isFinite(_timeEnv) && _timeEnv >= 1 && _timeEnv <= 20 ? _timeEnv : 3,
-  });
-  const _now = new Date();
-  const _id = crypto.randomUUID();
-  await _db
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    .insertInto('user' as any)
-    .values({
-      id: _id,
-      email: _email,
-      name: 'Admin',
-      emailVerified: true,
-      role: 'god',
-      createdAt: _now,
-      updatedAt: _now,
-    })
-    .execute();
-  await _db
-    // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-    .insertInto('account' as any)
-    .values({
-      id: crypto.randomUUID(),
-      accountId: _id,
-      providerId: 'credential',
-      userId: _id,
-      password: _hash,
-      // Better Auth 1.7 stamps this on every credential account it writes, and
-      // looks for it when signing one in. This row is written directly through
-      // Kysely rather than through the library, so it has to match by hand —
-      // without it, sign-in answers "User not found" for an account that plainly
-      // exists, which is what upgrading from 1.6.23 produced.
-      issuer: 'local:credential',
-      createdAt: _now,
-      updatedAt: _now,
-    })
-    .execute();
+  // Through better-auth, never rows written by hand (ADR 0056 d4): the hash,
+  // the account row and the password policy are the library's.
+  const { initAuth: _initAuth } = await import('./lib/auth.js');
+  await _initAuth(_db);
+  const { createFirstAdmin } = await import('./lib/first-admin.js');
+  try {
+    await createFirstAdmin(_db, { email: _email, password: _password, name: _name });
+  } catch (err) {
+    console.error(`❌ create-god refused: ${(err as Error).message}`);
+    process.exit(1);
+  }
   console.log(`✅ God user created: ${_email}`);
   process.exit(0);
 }

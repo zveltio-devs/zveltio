@@ -259,6 +259,7 @@ const SECTIONS: Section[] = [
       `${E}lib/auth.ts`,
       `${E}lib/auth-email.ts`,
       `${E}lib/identity.ts`,
+      `${E}lib/first-admin.ts`,
       `${E}lib/extensions/sign-in.ts`,
       `${E}lib/extensions/directory.ts`,
       `${E}lib/admin-guard.ts`,

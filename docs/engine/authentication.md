@@ -340,12 +340,18 @@ God Mode provides an emergency bypass for locked-out administrators. A "god" use
 
 ### Create a god user
 
-```bash
-# Via CLI
-zveltio create-god
+There is exactly one. On a fresh install the engine binary makes it, through
+better-auth's sign-up with its password policy, and writes an audit row; it is
+refused once a god exists:
 
-# Prompts for email and password, creates user with role='god'
+```bash
+zveltio-engine create-god --email admin@example.com --password '<password>' [--name "Admin"]
 ```
+
+Handing the role to another existing account is recovery (`RECOVERY_TOKEN`,
+`POST /api/permissions/bootstrap`), which never creates an account. The developer
+CLI's `zveltio create-god` is that recovery path over HTTP, see
+[cli.md](cli.md#zveltio-create-god).
 
 ### God user behavior
 

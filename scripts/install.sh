@@ -650,7 +650,9 @@ if [[ "$SKIP_INFRA" == "false" ]]; then
           info "Admin: ${ADMIN_EMAIL} / ${ADMIN_PASSWORD}"
           info "(save these credentials!)"
         fi
-        ./zveltio-engine create-god \
+        # Only DATABASE_URL is exported above; create-god signs the account up
+        # through better-auth, which needs the secret too.
+        BETTER_AUTH_SECRET="$BETTER_AUTH_SECRET" ./zveltio-engine create-god \
           --email "$ADMIN_EMAIL" \
           --password "$ADMIN_PASSWORD"
         ok "Admin account created"

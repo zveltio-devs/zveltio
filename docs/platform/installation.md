@@ -170,8 +170,10 @@ docker compose run --rm engine migrate
 
 ### 2. Create Admin Account
 
-The engine binary creates the first account directly in the database, with no
-HTTP route open (the installer runs this step for you):
+The engine binary creates the first account in-process, through the same
+better-auth sign-up an invitation uses, with no HTTP route open (the installer
+runs this step for you). It needs `DATABASE_URL` and `BETTER_AUTH_SECRET` (both in
+the install's `.env`):
 
 ```bash
 # Installed binary (sudo: it reads the install's .env)
@@ -180,6 +182,14 @@ sudo zveltio create-god --email admin@your-org.com --password '<password>'
 # Or Docker
 docker compose run --rm engine create-god --email admin@your-org.com --password '<password>'
 ```
+
+The password is checked against the sign-up policy (8 to 128 characters) and
+refused otherwise. The command is refused once the instance has its god: handing
+the role to another account is recovery (`RECOVERY_TOKEN`, see
+[authorization.md](../engine/authorization.md)), which promotes an existing
+account and never creates one. The creation writes a `user.created` audit row
+(`metadata.reason = "first_admin"`). `--name` sets the display name (default: the
+part of the email before `@`).
 
 The password is passed as an argument, so it lands in shell history; clear it
 afterwards. The developer CLI's `zveltio create-god` (package `@zveltio/cli`) is a
