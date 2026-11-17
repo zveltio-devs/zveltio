@@ -37,6 +37,7 @@
  *     (`process`, development) under the engine's uid, with no boundary.
  */
 
+import { nodeEnv } from './operational-modes.js';
 import type { Context, Hono } from 'hono';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { pathToFileURL } from 'node:url';
@@ -421,7 +422,7 @@ async function openExtensionChannel(extName: string): Promise<ExtensionChannel> 
     return connectRunner(socket);
   }
   return spawnProcessRunner(ensureWorkerRuntimeOnDisk(), {
-    NODE_ENV: process.env.NODE_ENV ?? 'production',
+    NODE_ENV: nodeEnv() ?? 'production',
   });
 }
 
@@ -813,7 +814,7 @@ export class WorkerExtensionHost {
         ...(bundleSha256 ? { bundleSha256, declaredOnly: true as const } : {}),
         extName,
         env: {
-          NODE_ENV: process.env.NODE_ENV ?? 'production',
+          NODE_ENV: nodeEnv() ?? 'production',
           extensionPath: extDir,
         },
         config: source.config,

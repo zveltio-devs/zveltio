@@ -4,6 +4,8 @@
  * and optimize resource consumption.
  */
 
+import { nodeEnv } from '../operational-modes.js';
+
 let memoryStats: {
   peakHeapUsed: number;
   peakHeapTotal: number;
@@ -87,7 +89,7 @@ export function startMemorySampling(intervalMs = MEMORY_SAMPLING_INTERVAL): void
     updatePeakStats();
 
     // Log memory usage in development
-    if (process.env.NODE_ENV === 'development') {
+    if (nodeEnv() === 'development') {
       const usage = getMemoryUsage();
       console.log(
         `[Memory Monitor] Heap: ${usage.heapUsedMB}MB/${usage.heapTotalMB}MB | RSS: ${usage.rssMB}MB | Samples: ${memoryStats.samples}`,

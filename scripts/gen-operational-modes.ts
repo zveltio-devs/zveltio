@@ -11,6 +11,8 @@
  * It also fails on a `NODE_ENV` compared with `'production'` outside the
  * register: unset is production (ADR 0058, owner 2026-11-17), and such a
  * comparison reads unset as development — every guard asks `isProduction()`.
+ * And on a literal `process.env.NODE_ENV` read, which `bun build` without the
+ * release define inlines as "development": the rest asks `nodeEnv()`.
  */
 
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -58,6 +60,9 @@ const PROD_COMPARE = new RegExp(
   'g',
 );
 
+// A read, not an assignment (the worker runtime sets it from its parent).
+const LITERAL_NODE_ENV = /process\.env\.NODE_ENV\b(?!\s*=(?!=))/g;
+
 /** Engine code, tests and fixtures aside, that reads a registered variable. */
 function directReads(): string[] {
   const names = (Object.entries(MODES) as [string, Mode][])
@@ -82,6 +87,8 @@ function directReads(): string[] {
         for (const m of code.matchAll(re)) out.push(`${relative(ROOT, p)}: ${m[1] ?? m[2]}`);
         for (const m of code.matchAll(PROD_COMPARE))
           out.push(`${relative(ROOT, p)}: ${m[0]} (ask isProduction())`);
+        for (const _ of code.matchAll(LITERAL_NODE_ENV))
+          out.push(`${relative(ROOT, p)}: process.env.NODE_ENV (ask nodeEnv() or isProduction())`);
       }
     }
   };

@@ -26,7 +26,7 @@
 import type { ExtensionConfig, ObjectStorageConfig } from '@zveltio/sdk/extension';
 import { storageConfig } from '../storage/index.js';
 import { knownExtensionNames } from './worker-sql-policy.js';
-import { isProduction, modeValue } from '../operational-modes.js';
+import { isProduction, modeValue, nodeEnv } from '../operational-modes.js';
 
 function flag(name: string): boolean {
   const v = process.env[name];
@@ -163,7 +163,7 @@ export function buildExtensionConfig(
     vars,
     get env(): 'production' | 'development' | 'test' {
       if (isProduction()) return 'production';
-      return process.env.NODE_ENV === 'test' ? 'test' : 'development';
+      return nodeEnv() === 'test' ? 'test' : 'development';
     },
     get isProduction(): boolean {
       return isProduction();

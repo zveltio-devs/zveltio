@@ -249,6 +249,15 @@ export function isProduction(env: Env = process.env): boolean {
   return env.NODE_ENV !== 'development' && env.NODE_ENV !== 'test';
 }
 
+/**
+ * The raw `NODE_ENV`, for what is not a guard (test-only shortcuts, logs, a
+ * child's environment). Read as an object property so `bun build` cannot inline
+ * it; `check:modes` refuses a literal `process.env.NODE_ENV` read elsewhere.
+ */
+export function nodeEnv(env: Env = process.env): string | undefined {
+  return env.NODE_ENV;
+}
+
 /** The one read of a registered variable. */
 export function modeValue(name: ModeVariable, env: Env = process.env): string | undefined {
   return env[name];

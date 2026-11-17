@@ -1,4 +1,4 @@
-import { isProduction } from '../operational-modes.js';
+import { isProduction, nodeEnv } from '../operational-modes.js';
 import { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
 import type { FieldTypeRegistry } from '../data/index.js';
@@ -728,7 +728,7 @@ export class ExtensionLoader {
       return c.json(result, result.ok ? 200 : 500);
     });
     console.log(
-      `🛠️  Dev reload endpoint mounted at POST /__zveltio_dev_reload (NODE_ENV=${process.env.NODE_ENV})`,
+      `🛠️  Dev reload endpoint mounted at POST /__zveltio_dev_reload (NODE_ENV=${nodeEnv()})`,
     );
   }
 

@@ -4,7 +4,7 @@ import { getCache, RATE_LIMIT_CONFIG_CHANGED_EVENT, realtimeBus } from '../lib/r
 import { resolveClientIp } from '../lib/security/index.js';
 import type { Database } from '../db/index.js';
 import { tenantId } from '../lib/route-db.js';
-import { modeValue } from '../lib/operational-modes.js';
+import { modeValue, nodeEnv } from '../lib/operational-modes.js';
 import { apiKeyActsIn, onAfterCommit } from '../lib/tenancy/index.js';
 
 // In-process cache for DB-loaded rate limit configs (TTL: 60s)
@@ -579,7 +579,7 @@ export function rateLimit(config: RateLimitConfig) {
     const max = perKeyLive?.max ?? live?.max ?? config.max;
     const windowSec = Math.ceil(windowMs / 1000);
     // Skip rate limiting in test environment to allow integration tests to run
-    if (process.env.NODE_ENV === 'test') return next();
+    if (nodeEnv() === 'test') return next();
 
     // Operator IP lists (RATE_LIMIT_DENYLIST / RATE_LIMIT_ALLOWLIST, IPv4/IPv6 CIDR or
     // bare address, comma-separated). Deny wins — an explicitly blocked source shouldn't

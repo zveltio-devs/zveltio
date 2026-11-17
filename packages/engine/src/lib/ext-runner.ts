@@ -36,6 +36,7 @@
  * the engine, which it drops to the engine's uid.
  */
 
+import { nodeEnv } from './operational-modes.js';
 import {
   readFileSync,
   existsSync,
@@ -196,7 +197,7 @@ export async function runExtRunner(): Promise<never> {
     workerArgv: [process.execPath, runtimePath],
     // Only what the runtime needs. The runner's own environment is the unit's,
     // and nothing of the engine's ever reaches this process.
-    childEnv: { NODE_ENV: process.env.NODE_ENV ?? 'production', BUN_BE_BUN: '1' },
+    childEnv: { NODE_ENV: nodeEnv() ?? 'production', BUN_BE_BUN: '1' },
     wrap,
     serveEdge: serveEdgeConnection,
     serveJob: (conn: Socket, first: Buffer, w: RouteWrap) => serveJobConnection(conn, first, w),
