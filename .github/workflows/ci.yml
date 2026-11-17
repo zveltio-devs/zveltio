@@ -617,8 +617,8 @@ jobs:
         #     to picomatch-only matching.
         #
         #   GHSA-fc5q-39xc-vjpf  picomatch <=4.0.7 ReDoS on single-branch repeated
-        #     extglobs (published 2026-11-17). No patched release exists (4.0.7 is
-        #     the latest). Every copy is build or test tooling: vite, vitest and
+        #     extglobs (published 2026-10-19). No patched release exists (4.0.7 is
+        #     the latest; fix pending upstream in micromatch/picomatch#254). Every copy is build or test tooling: vite, vitest and
         #     @vitest/ui (the engine reaches it only through better-auth's optional
         #     vitest peer), tinyglobby, fdir, unplugin (paraglide), and picomatch 2
         #     via micromatch / anymatch / readdirp (tailwindcss 3, chokidar). The
