@@ -46,7 +46,7 @@ SvelteKit route groups under `src/routes/`, each with its own layout and guard:
 > not exist.
 
 Sections under `(admin)`: account, ai, api-keys, audit, backup, collections
-(+ `erd`, `[name]`), column-permissions, developer (+ edge-functions, graphql),
+(+ `erd`, `[name]`), column-permissions, developer (+ edge-functions),
 extensions, flows, geospatial, mail, marketplace, notifications,
 onboarding, pages, permissions, projects, request-logs, rls, rpc, saved-queries,
 settings, storage, tenants, users,
