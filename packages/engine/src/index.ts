@@ -37,7 +37,6 @@ import { initRls } from './lib/tenancy/index.js';
 import { createRequestScopedDb } from './lib/tenancy/index.js';
 import { fieldTypeRegistry } from './lib/data/index.js';
 import {
-  collectionRlsExemptionStatus,
   extensionLoader,
   buildExtensionInternals,
   installExtensionsBase,
@@ -84,6 +83,7 @@ import {
   httpRequestDuration,
 } from './lib/runtime/index.js';
 import { engineEvents } from './lib/runtime/index.js';
+import { modeValue, warnOperationalModes } from './lib/operational-modes.js';
 import { checkSchemaCompatibility, ENGINE_VERSION } from './version.js';
 import { getMemoryReport } from './lib/runtime/index.js';
 import {
@@ -1008,7 +1008,7 @@ rm studio.tar.gz</pre>
       const provided =
         c.req.header('Authorization')?.replace('Bearer ', '') ?? c.req.query('token');
       if (provided !== metricsToken) return c.json({ error: 'Unauthorized' }, 401);
-    } else if (process.env.METRICS_ALLOW_UNAUTHENTICATED !== '1') {
+    } else if (modeValue('METRICS_ALLOW_UNAUTHENTICATED') !== '1') {
       // Fail-CLOSED: with no METRICS_TOKEN configured, refuse rather than leak
       // uptime / heap / request-count internals to any anonymous caller (an
       // information-disclosure surface flagged in the 3.0.0 security review).
@@ -1039,9 +1039,6 @@ rm studio.tar.gz</pre>
       '# HELP zveltio_extensions_active Number of active extensions',
       '# TYPE zveltio_extensions_active gauge',
       `zveltio_extensions_active ${extensionLoader.getActive().length}`,
-      '# HELP zveltio_collection_rls_exemptions Extensions running without collection permissions in the database (ZVELTIO_COLLECTION_RLS_EXEMPT)',
-      '# TYPE zveltio_collection_rls_exemptions gauge',
-      `zveltio_collection_rls_exemptions ${collectionRlsExemptionStatus().applied.length}`,
       '# HELP zveltio_memory_heap_used_bytes Current heap used in bytes',
       '# TYPE zveltio_memory_heap_used_bytes gauge',
       `zveltio_memory_heap_used_bytes ${memoryReport.current.heapUsed}`,
@@ -1213,6 +1210,8 @@ async function bootstrap() {
   await initTelemetry();
 
   console.log('🚀 Zveltio starting...');
+  // Every operational mode that is on, every boot (ADR 0058 d4).
+  warnOperationalModes();
 
   // 0. Configuration that must not reach production. Before the database, so a
   //    misconfigured deploy fails in a second instead of after migrations.
@@ -1431,29 +1430,13 @@ async function bootstrap() {
     // not accept traffic that assumes it.
     //
     // Left as a warning outside production, because a single-tenant development
-    // box on the stock postgres superuser is a normal thing to run and blocking
-    // it would only teach people to set the escape hatch permanently.
-    const overridden = process.env.ZVELTIO_ALLOW_UNENFORCED_RLS === '1';
-    if (
-      rlsBootFailure({
-        mode: rlsMode,
-        nodeEnv: process.env.NODE_ENV,
-        override: overridden,
-      })
-    ) {
+    // box on the stock postgres superuser is a normal thing to run. Production
+    // has no override (ADR 0058 d4 removed ZVELTIO_ALLOW_UNENFORCED_RLS).
+    if (rlsBootFailure({ mode: rlsMode, nodeEnv: process.env.NODE_ENV })) {
       console.error(`❌ ${message}`);
-      throw new Error(
-        `${message} Refusing to start in production. Set ZVELTIO_ALLOW_UNENFORCED_RLS=1 to ` +
-          'override, which is appropriate only for a single-tenant install you accept the risk on.',
-      );
+      throw new Error(`${message} Refusing to start in production.`);
     }
     console.warn(`⚠️  ${message}`);
-    if (overridden) {
-      console.warn(
-        '⚠️  [tenant-rls] ZVELTIO_ALLOW_UNENFORCED_RLS=1 is set — starting anyway. ' +
-          'This is only defensible on a single-tenant install.',
-      );
-    }
   }
   // Mode-aware on purpose. This used to print "row-level security is BYPASSED,
   // so tenant isolation is NOT enforced" on every superuser connection —

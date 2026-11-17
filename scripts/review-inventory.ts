@@ -156,6 +156,7 @@ const SECTIONS: Section[] = [
       `${E}lib/client-ssr.ts`,
       `${E}routes/index.ts`,
       `${E}lib/startup-guards.ts`,
+      `${E}lib/operational-modes.ts`,
       `${E}lib/service-registry.ts`,
       `${E}version.ts`,
       `${E}api-types.ts`,
@@ -464,8 +465,6 @@ const SECTIONS: Section[] = [
       `${E}lib/extensions/config.ts`,
       `${E}lib/extensions/index.ts`,
       `${E}lib/extensions/ext-db-role.ts`,
-      // The operator's per-extension exemption rides on those roles.
-      `${E}lib/extensions/collection-rls-exempt.ts`,
       `${E}lib/extensions/tenant-facts.ts`,
       `${E}lib/extensions/actions.ts`,
       `${E}lib/extensions/inline-lag.ts`,
@@ -920,6 +919,7 @@ const SECTIONS: Section[] = [
       'scripts/check-gate-coverage.ts',
       'scripts/check-test-leftovers.ts',
       'scripts/check-env-documented.ts', // on master, not on every branch
+      'scripts/gen-operational-modes.ts',
       // The other direction of the same question: check-env-documented asks
       // whether a variable the ENGINE reads is documented; this one asks
       // whether a variable .env.example calls REQUIRED is produced by an

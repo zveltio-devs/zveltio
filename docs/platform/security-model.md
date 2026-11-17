@@ -415,7 +415,7 @@ NOT applied to (intentional — finer-grained protection in place):
 | Extension | Why no broad gate |
 |---|---|
 | `ai` | Each `/embed` and `/search` route does `checkPermission(user.id, body.collection, 'read'/'update')` — finer than a single resource gate. AI touches arbitrary user collections, so per-collection authorization is the correct shape. |
-| `developer/graphql` | Per-resolver RBAC (~21 inline checkPermission calls). Mirrors AI's per-collection pattern at the resolver level. |
+| `developer/graphql` | Leaves the 1.0 catalogue (ADR 0058 decision 8); no gate is described for it here. |
 | `content/{drafts,documents}`, `workflow/approvals`, `developer/{api-docs,validation}`, `analytics/quality` | Rich per-route checkPermission already in place (8-13 calls per file). |
 | `auth/{ldap,saml}` | Routes are IdP callbacks; the caller is not an end user with a session. |
 | `compliance/gdpr`, `billing`, `developer/{byod,database}`, `content/document-templates`, `forms` | Admin-only via inline `checkPermission(user.id, 'admin', '*')` or a `requireAdmin` helper. Adding `permissionGate` on top would only allow operators to grant access to non-admin roles via Casbin — useful but not security-critical; deferred. |
@@ -479,10 +479,10 @@ replica. Trashed records are purged by the trash scheduler, not by this sweep.
 ## Demo mode
 
 `DEMO_MODE=true` advertises throwaway credentials on `/api/health` so
-the login page can prefill them. As of this release, **the engine refuses
-to surface those credentials when `NODE_ENV=production`** unless
-`DEMO_MODE_ALLOW_IN_PROD=true` is also set explicitly — defence in depth
-for the operator-left-a-flag-on case. The `demo_mode: true` banner still
+the login page can prefill them. **The engine never surfaces those
+credentials when `NODE_ENV=production`** — defence in depth for the
+operator-left-a-flag-on case (`DEMO_MODE_ALLOW_IN_PROD` was removed by
+ADR 0058). The `demo_mode: true` banner still
 shows, so the misconfig stays visible.
 
 ---

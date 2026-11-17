@@ -25,6 +25,7 @@ import { fetchWithRetry, isPathInsideBase } from './extension-utils.js';
 import { tryAdvisoryLock } from '../../db/advisory-lock.js';
 import type { Database } from '../../db/index.js';
 import { purgeExtensionData } from './migration-runner.js';
+import { modeValue } from '../operational-modes.js';
 import { parseSignature, verifySignature, SignatureMissingError } from '../security/index.js';
 
 // ── Registry catalog cache ────────────────────────────────────────────────────
@@ -205,7 +206,7 @@ export async function fetchRegistryChangelog(name: string): Promise<string | nul
  * private mirror that does not sign yet).
  */
 export function signaturesRequired(): boolean {
-  return process.env.REQUIRE_EXTENSION_SIGNATURES !== 'false';
+  return modeValue('REQUIRE_EXTENSION_SIGNATURES') !== 'false';
 }
 
 /**

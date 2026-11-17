@@ -134,6 +134,7 @@ import m115 from './sql/121_role_grants_marker.sql' with { type: 'text' };
 import m116 from './sql/122_drop_ghost_ddl_leftovers.sql' with { type: 'text' };
 import m117 from './sql/123_fail_closed_tenant_by_default.sql' with { type: 'text' };
 import m118 from './sql/124_remove_flow_query_db.sql' with { type: 'text' };
+import m119 from './sql/125_no_collection_rls_exemption.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -256,4 +257,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '122_drop_ghost_ddl_leftovers.sql': m116,
   '123_fail_closed_tenant_by_default.sql': m117,
   '124_remove_flow_query_db.sql': m118,
+  '125_no_collection_rls_exemption.sql': m119,
 };

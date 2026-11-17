@@ -945,11 +945,9 @@ export type RlsMode = 'enforced' | 'native' | 'unavailable';
 export function rlsBootFailure(opts: {
   mode: RlsMode;
   nodeEnv: string | undefined;
-  override: boolean;
 }): string | null {
   if (opts.mode !== 'unavailable') return null;
   if (opts.nodeEnv !== 'production') return null;
-  if (opts.override) return null;
   return (
     'Tenant isolation cannot be enforced: the zveltio_rls role is unavailable and this ' +
     'connection bypasses row-level security.'

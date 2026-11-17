@@ -1484,7 +1484,6 @@
   "wh.testNamed": "Probar el webhook {name}",
   "wh.timeout": "Tiempo de espera",
   "wh.timeoutHint": "milisegundos (1000–30000)",
-  "shell.collection_rls_exempt": "{count} extensión(es) se ejecutan sin permisos de colección en la base de datos: {names}. Adáptelas y quítelas de ZVELTIO_COLLECTION_RLS_EXEMPT: la exención termina en la 3.0.0.",
   "stepUp.userVerificationOrCode": "Esta llave de acceso confirmó un toque, pero no tu identidad. Configura un PIN o activa el desbloqueo con huella o rostro en tu llave de seguridad, o introduce el código de tu aplicación de autenticación.",
   "stepUp.orCodeLabel": "O un código de tu aplicación de autenticación",
   "passkeys.passwordWrong": "Esa contraseña no es correcta.",

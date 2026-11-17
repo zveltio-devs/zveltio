@@ -1484,7 +1484,6 @@
   "wh.testNamed": "Webhook {name} testen",
   "wh.timeout": "Time-out",
   "wh.timeoutHint": "milliseconden (1000–30000)",
-  "shell.collection_rls_exempt": "{count} extensie(s) draaien zonder collectierechten in de database: {names}. Pas ze aan en haal ze uit ZVELTIO_COLLECTION_RLS_EXEMPT — de uitzondering vervalt bij 3.0.0.",
   "stepUp.userVerificationOrCode": "Deze passkey bevestigde een aanraking, maar niet uw identiteit. Stel een pincode in of schakel ontgrendeling met vingerafdruk of gezicht in voor uw beveiligingssleutel, of voer de code uit uw authenticator-app in.",
   "stepUp.orCodeLabel": "Of een code uit uw authenticator-app",
   "passkeys.passwordWrong": "Dat wachtwoord is niet juist.",

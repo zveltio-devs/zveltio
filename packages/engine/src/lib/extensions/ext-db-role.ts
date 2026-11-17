@@ -58,7 +58,6 @@
  * most — whose privileges Postgres has already checked when it starts.
  */
 
-import { syncCollectionExemption, warnCollectionRlsExemptions } from './collection-rls-exempt.js';
 import { createHash } from 'node:crypto';
 import { sqlState } from '../../db/bun-sql-quirks.js';
 import { withLockWaitBound } from '../../db/dynamic.js';
@@ -282,8 +281,6 @@ export function ensureExtensionDbRole(db: Database): Promise<boolean> {
     _perExtension = _ready && (await canMakeRolesUnder(db, EXT_DB_ROLE).catch(() => false));
     if (_perExtension) await narrowSharedRole(db, EXT_DB_ROLE);
     else if (_ready) warnSharedRole();
-    // Once per boot, naming every extension exempted from collection permissions.
-    warnCollectionRlsExemptions(!_perExtension);
     return _ready;
   })();
   return _ensuring;
@@ -381,8 +378,6 @@ export async function grantExtensionDbRole(
   if (own) extRoles.set(extName, { role: own, bypass });
   else extRoles.delete(extName);
   await grantOwnTables(db, extName, allowedTables, true, EXT_DB_ROLE, own);
-  // Collection permissions (R1): listed in ZVELTIO_COLLECTION_RLS_EXEMPT or not.
-  await syncCollectionExemption(db, extName, [own, bypass]);
 }
 
 /**
@@ -437,7 +432,6 @@ export async function grantWorkerDbRole(
   if (own) workerRoles.set(extName, own);
   else workerRoles.delete(extName);
   await grantOwnTables(db, extName, allowedTables, false, WORKER_DB_ROLE, own);
-  await syncCollectionExemption(db, extName, [own]);
 }
 
 /**

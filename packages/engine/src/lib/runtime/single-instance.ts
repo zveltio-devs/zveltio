@@ -21,6 +21,7 @@
 import type { MiddlewareHandler } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { modeValue } from '../operational-modes.js';
 
 export const HEARTBEAT_MS = 10_000;
 /** A heartbeat older than three beats belongs to an instance that is gone. */
@@ -33,7 +34,7 @@ export const RETIRED_REASON =
 
 /** Declared, and only meaningful without Valkey: with it, replicas share invalidations. */
 export function singleInstanceMode(env: Record<string, string | undefined> = process.env): boolean {
-  return env.ZVELTIO_SINGLE_INSTANCE === '1' && !env.VALKEY_URL;
+  return modeValue('ZVELTIO_SINGLE_INSTANCE', env) === '1' && !env.VALKEY_URL;
 }
 
 /**

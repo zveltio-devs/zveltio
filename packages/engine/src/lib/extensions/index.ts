@@ -9,7 +9,6 @@ export {
   extensionBroadcastsMissed,
   receiveExtensionBroadcast,
 } from './broadcast.js';
-export { collectionRlsExemptionStatus } from './collection-rls-exempt.js';
 export * from './extension-catalog.js';
 export * from './extension-context.js';
 export * from './extension-deps.js';

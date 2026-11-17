@@ -26,6 +26,7 @@
 import type { ExtensionConfig, ObjectStorageConfig } from '@zveltio/sdk/extension';
 import { storageConfig } from '../storage/index.js';
 import { knownExtensionNames } from './worker-sql-policy.js';
+import { modeValue } from '../operational-modes.js';
 
 function flag(name: string): boolean {
   const v = process.env[name];
@@ -189,7 +190,8 @@ export function buildExtensionConfig(
      * extension-specific switches belong in extension settings, not here.
      */
     get allowInsecureLdap(): boolean {
-      return flag('ALLOW_INSECURE_LDAP');
+      const v = modeValue('ALLOW_INSECURE_LDAP');
+      return v === '1' || v === 'true';
     },
     get objectStorage(): ObjectStorageConfig | undefined {
       if (!mayReadStorage) return undefined;

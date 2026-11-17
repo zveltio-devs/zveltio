@@ -18,7 +18,6 @@ describe('rlsBootFailure', () => {
     const reason = rlsBootFailure({
       mode: 'unavailable',
       nodeEnv: 'production',
-      override: false,
     });
     expect(reason).toBeString();
     expect(reason).toContain('zveltio_rls');
@@ -28,17 +27,21 @@ describe('rlsBootFailure', () => {
   // the normal state of a superuser install, and failing it would make the
   // guard unshippable — which is how guards end up disabled everywhere.
   test.each(['enforced', 'native'] as const)('allows production in %s mode', (mode) => {
-    expect(rlsBootFailure({ mode, nodeEnv: 'production', override: false })).toBeNull();
+    expect(rlsBootFailure({ mode, nodeEnv: 'production' })).toBeNull();
   });
 
   // A dev box on the stock postgres superuser is a normal thing to run.
   test.each([undefined, 'development', 'test'])('allows NODE_ENV=%s to start', (nodeEnv) => {
-    expect(rlsBootFailure({ mode: 'unavailable', nodeEnv, override: false })).toBeNull();
+    expect(rlsBootFailure({ mode: 'unavailable', nodeEnv })).toBeNull();
   });
 
-  test('honours the explicit single-tenant override', () => {
-    expect(
-      rlsBootFailure({ mode: 'unavailable', nodeEnv: 'production', override: true }),
-    ).toBeNull();
+  // ADR 0058 d4: the single-tenant override is gone; setting it changes nothing.
+  test('has no override: ZVELTIO_ALLOW_UNENFORCED_RLS=1 still refuses production', () => {
+    process.env.ZVELTIO_ALLOW_UNENFORCED_RLS = '1';
+    try {
+      expect(rlsBootFailure({ mode: 'unavailable', nodeEnv: 'production' })).toBeString();
+    } finally {
+      delete process.env.ZVELTIO_ALLOW_UNENFORCED_RLS;
+    }
   });
 });

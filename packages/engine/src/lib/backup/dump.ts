@@ -30,7 +30,8 @@ import type { DumpTarget } from './run-scheduled-backup.js';
  * marker watches (tenant-manager.ts), `zveltio_coll_exempt` (migration 058),
  * and `zveltio_ext` / `zveltio_ext_bypass` (ext-db-role.ts). Carried whenever
  * the source cluster has them, even where no grant in this database names one:
- * a function reads `zveltio_coll_exempt` by name, and nothing recreates it.
+ * a function reads `zveltio_coll_exempt` by name, and nothing recreates it
+ * (inert since migration 125, which a rollback undoes).
  */
 const FIXED_ENGINE_ROLES = [
   'zveltio_rls',

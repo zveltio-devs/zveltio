@@ -138,8 +138,8 @@ At boot the engine reports which of three states it is in:
 | `🔒 Tenant RLS enforced natively` | The connection is already a plain role; RLS binds it directly. |
 | `❌ [tenant-rls] … isolation is NOT enforced` | No enforcement role **and** the connection bypasses RLS. Fatal in production. |
 
-If you accept the risk on a genuinely single-tenant install, `ZVELTIO_ALLOW_UNENFORCED_RLS=1`
-overrides the refusal. It is not appropriate anywhere more than one tenant exists.
+There is no override: run the engine as a plain role, or let migration 030 create
+`zveltio_rls` (`ZVELTIO_ALLOW_UNENFORCED_RLS` was removed by ADR 0058).
 
 ## Secret management
 
