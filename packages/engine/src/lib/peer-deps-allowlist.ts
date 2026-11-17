@@ -38,7 +38,7 @@ export const PEER_DEPS_ALLOWLIST: ReadonlySet<string> = new Set([
   'pdfkit', // no first-party user left; kept for third-party extensions
 
   // Query language
-  'graphql', // developer/graphql — GraphQL schema + execution
+  'graphql', // no first-party user left (ADR 0058 d8); kept for third-party extensions
 ]);
 
 export function isPackageAllowed(pkg: string): boolean {

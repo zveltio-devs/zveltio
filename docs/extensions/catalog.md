@@ -1,7 +1,7 @@
 # Official Extension Catalog
 
-The 57 first-party extensions, maintained in the sibling repository
-`zveltio-extensions`. 56 ship engine code; `content/pdf-viewer` is Studio-only.
+The 56 first-party extensions, maintained in the sibling repository
+`zveltio-extensions`. 55 ship engine code; `content/pdf-viewer` is Studio-only.
 25 categories.
 
 The rows are copied from the manifests by `bun run sync-catalog`, which also
@@ -28,15 +28,15 @@ accurate counts.
 
 | Extension | Name | Ver | What it does |
 |---|---|---|---|
-| `analytics/dashboard` | Dashboards | 2.0.1 | Role-aware, per-user home dashboards — IT sets a default layout per role, each user personalizes within their permissions |
+| `analytics/dashboard` | Dashboards | 2.0.2 | Role-aware, per-user home dashboards — IT sets a default layout per role, each user personalizes within their permissions |
 | `analytics/quality` | Data Quality | 3.0.0 | Data quality scans over the data API, as the scanning user: duplicates, missing values, outliers and optional AI normalization hints |
 
 ## auth
 
 | Extension | Name | Ver | What it does |
 |---|---|---|---|
-| `auth/ldap` | LDAP / Active Directory | 3.0.1 | Authenticate users via LDAP or Active Directory (ldapts) |
-| `auth/saml` | SAML 2.0 SSO | 2.2.1 | SAML 2.0 Single Sign-On with external Identity Providers (Okta, Azure AD, Google Workspace) |
+| `auth/ldap` | LDAP / Active Directory | 4.0.0 | Authenticate users via LDAP or Active Directory (ldapts) |
+| `auth/saml` | SAML 2.0 SSO | 3.0.0 | SAML 2.0 Single Sign-On with external Identity Providers (Okta, Azure AD, Google Workspace) |
 | `auth/scim` | SCIM Provisioning | 3.0.0 | SCIM 2.0 user provisioning for Azure AD / Entra, Okta and other identity providers — engine API keys, Users CRUD, active-flag offboarding |
 
 ## billing
@@ -55,20 +55,20 @@ accurate counts.
 
 | Extension | Name | Ver | What it does |
 |---|---|---|---|
-| `communications/mail` | Mail Client | 2.2.0 | IMAP/SMTP mail client: accounts, folders, messages, drafts, identities, signatures, filters and contacts as collections; syncing and sending run as jobs that reach only the mail servers an operator binds to the "mail" slot. |
+| `communications/mail` | Mail Client | 2.3.0 | IMAP/SMTP mail client: accounts, folders, messages, drafts, identities, signatures, filters and contacts as collections; syncing and sending run as jobs that reach only the mail servers an operator binds to the "mail" slot. |
 
 ## compliance
 
 | Extension | Name | Ver | What it does |
 |---|---|---|---|
-| `compliance/gdpr` | GDPR Compliance | 3.0.0 | Data export and right to erasure (GDPR Art. 15, 17) |
+| `compliance/gdpr` | GDPR Compliance | 3.1.0 | Data export and right to erasure (GDPR Art. 15, 17) |
 
 ## compliance/ro — Romanian regulatory
 
 | Extension | Name | Ver | What it does |
 |---|---|---|---|
 | `compliance/ro/documents` | RO Documents | 2.1.0 | Romanian compliance document management — contracts, PVs, NIRs, dispozitii de plata |
-| `compliance/ro/efactura` | e-Factura RO | 2.1.0 | Romanian e-Invoice (e-Factura): build the UBL XML (CIUS-RO), submit it to ANAF, follow its state and keep ANAF's signed answer |
+| `compliance/ro/efactura` | e-Factura RO | 2.1.1 | Romanian e-Invoice (e-Factura): build the UBL XML (CIUS-RO), submit it to ANAF, follow its state and keep ANAF's signed answer |
 | `compliance/ro/etransport` | e-Transport RO | 2.1.0 | Romanian e-Transport monitoring system — declare and track road transport of goods via ANAF |
 | `compliance/ro/procurement` | Achizitii Publice RO | 2.3.0 | Romanian public procurement management — purchase orders, supplier registry, budget tracking |
 | `compliance/ro/saft` | SAF-T RO | 2.0.0 | Romanian SAF-T (D406) — build the audit file XML from the finance/accounting ledger |
@@ -79,8 +79,8 @@ accurate counts.
 |---|---|---|---|
 | `content/pages` | Pages | 2.3.0 | Pages built from blocks, grouped into sites. Authors edit drafts; publishing writes the sanitized snapshot a public website or a signed-in portal renders, read through the data API under the engine's rules. |
 | `content/media` | Media Library | 2.1.0 | Tags, favorites, curated collections and AI metadata for the engine’s media files |
-| `content/documents` | Document Generator | 2.0.1 | Numbered documents generated from templates as the caller, with signatures by logged-in users |
-| `content/document-templates` | Document Templates | 2.1.0 | HTML templates with {{variable}} interpolation, rendered to PDF as the caller |
+| `content/documents` | Document Generator | 2.0.2 | Numbered documents generated from templates as the caller, with signatures by logged-in users |
+| `content/document-templates` | Document Templates | 2.1.1 | HTML templates with {{variable}} interpolation, rendered to PDF as the caller |
 | `content/drafts` | Content Drafts | 3.0.0 | Draft, review and publish workflow for content collections, through the data API as the publishing user |
 | `content/pdf-viewer` | PDF Viewer | 1.0.1 | Inline PDF viewer components for client apps and integrator-built pages. Exports PdfViewer and PdfBlock; no page-builder block type is registered. |
 
@@ -88,16 +88,15 @@ accurate counts.
 
 | Extension | Name | Ver | What it does |
 |---|---|---|---|
-| `data/export` | Data Export | 2.0.1 | Export collection data as JSON, CSV or NDJSON through the data API, as the exporting user |
-| `data/import` | Data Import | 2.0.2 | Import collection data from CSV, JSON or NDJSON files through the data API, as the importing user |
+| `data/export` | Data Export | 2.0.2 | Export collection data as JSON, CSV or NDJSON through the data API, as the exporting user |
+| `data/import` | Data Import | 2.0.3 | Import collection data from CSV, JSON or NDJSON files through the data API, as the importing user |
 
 ## developer
 
 | Extension | Name | Ver | What it does |
 |---|---|---|---|
-| `developer/api-docs` | API Documentation | 2.2.0 | Swagger UI over the data API: each visitor sees the collections they may read |
-| `developer/byod` | BYOD Import | 2.0.1 | External database schema introspection and import |
-| `developer/graphql` | GraphQL API | 2.2.0 | Auto-generated GraphQL API with playground for all collections |
+| `developer/api-docs` | API Documentation | 2.2.1 | Swagger UI over the data API: each visitor sees the collections they may read |
+| `developer/byod` | BYOD Import | 2.0.2 | External database schema introspection and import |
 
 ## ecommerce
 
@@ -154,7 +153,7 @@ accurate counts.
 
 | Extension | Name | Ver | What it does |
 |---|---|---|---|
-| `operations/traceability` | Trasabilitate Alimentară | 2.0.1 | Trasabilitate alimentară conformă Reg. CE 178/2002 (Art. 18) și cerințelor ANSVSA România — recepție loturi, scanare QR, arbore bidirecțional, simulator recall. |
+| `operations/traceability` | Trasabilitate Alimentară | 2.0.2 | Trasabilitate alimentară conformă Reg. CE 178/2002 (Art. 18) și cerințelor ANSVSA România — recepție loturi, scanare QR, arbore bidirecțional, simulator recall. |
 | `operations/inventory` | Inventory | 2.2.0 | Warehouses, SKUs, stock movements, reorder alerts and barcode support |
 | `operations/pos` | Point of Sale | 2.2.0 | Till sessions, sales, receipts numbering, loyalty, cash movements and Z-reports, with stock moved through inventory |
 | `operations/assets` | Fixed Assets | 2.2.0 | Fixed asset register, straight-line and declining balance depreciation posted to the ledger, maintenance, insurance, revaluations and transfers |
@@ -176,7 +175,7 @@ accurate counts.
 
 | Extension | Name | Ver | What it does |
 |---|---|---|---|
-| `storage/cloud` | Cloud Storage | 2.0.0 | Version history, favorites and retention policies over the engine's stored files |
+| `storage/cloud` | Cloud Storage | 2.0.1 | Version history, favorites and retention policies over the engine's stored files |
 
 ## templates
 

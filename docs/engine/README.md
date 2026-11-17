@@ -13,7 +13,6 @@ The Bun + Hono server. Everything else in the product is a client of it.
 | [authentication.md](authentication.md) | Better-Auth: sessions, OAuth, passkeys, 2FA |
 | [authorization.md](authorization.md) | Casbin RBAC, row rules, column permissions, the god role |
 | [webhooks.md](webhooks.md) | Outbound HMAC-signed webhooks |
-| [graphql.md](graphql.md) | The GraphQL surface (provided by the `developer/graphql` extension) |
 | [offline-sync.md](offline-sync.md) | Local-first sync, Electric SQL, CRDTs |
 | [self-hosted-ai.md](self-hosted-ai.md) | AI providers, including fully local models |
 | [kms.md](kms.md) | External key management |

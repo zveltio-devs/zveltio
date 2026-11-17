@@ -111,7 +111,7 @@ d('revoking an API key reports what it did (in-process)', () => {
     expect(audited.rows[0]!.n).toBe(1);
   });
 
-  it('PATCH refuses permissions_mode and casbin_subject: no auth path reads them', async () => {
+  it('PATCH refuses permissions_mode, casbin_subject and allowed_ips: no auth path reads them', async () => {
     const id = await mint('permissions-mode-probe');
     const patch = (body: unknown) =>
       app.request(`/api/admin/api-keys/${id}`, {
@@ -122,5 +122,7 @@ d('revoking an API key reports what it did (in-process)', () => {
     expect((await patch({ permissions_mode: 'god' })).status).toBe(400);
     expect((await patch({ permissions_mode: 'casbin' })).status).toBe(400);
     expect((await patch({ casbin_subject: 'admin' })).status).toBe(400);
+    // ADR 0058 d5 (DR-12): dropped, not enforced.
+    expect((await patch({ allowed_ips: ['10.0.0.1'] })).status).toBe(400);
   });
 });
