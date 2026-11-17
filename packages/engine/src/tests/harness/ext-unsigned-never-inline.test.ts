@@ -55,7 +55,11 @@ d('an unsigned directory never runs inline, whatever its name (U3)', () => {
     mkdirSync(join(dir, 'engine'), { recursive: true });
     writeFileSync(
       join(dir, 'manifest.json'),
-      JSON.stringify({ name, version: '1.0.0', engine: { entry: 'engine/index.js', bundled: true } }),
+      JSON.stringify({
+        name,
+        version: '1.0.0',
+        engine: { entry: 'engine/index.js', bundled: true },
+      }),
     );
     writeFileSync(
       join(dir, 'engine', 'index.js'),

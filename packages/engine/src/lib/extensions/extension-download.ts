@@ -512,7 +512,10 @@ export async function verifyRegistrySignedDir(
     }
     const nested = nestedExtensions(extDir, extName);
     for (const path of have.keys()) {
-      if (path.startsWith(`${REGISTRY_SIGNED_DIR}/`) || nested.some((n) => path.startsWith(`${n}/`)))
+      if (
+        path.startsWith(`${REGISTRY_SIGNED_DIR}/`) ||
+        nested.some((n) => path.startsWith(`${n}/`))
+      )
         have.delete(path);
     }
     const differs = [...new Set([...want.keys(), ...have.keys()])]
@@ -594,9 +597,7 @@ async function extractArchive(extName: string, buf: Uint8Array, stageDir: string
     } catch {
       /* ignore */
     }
-    throw new Error(
-      `Extraction failed for "${extName}": ${stderr.trim() || `exit ${exitCode}`}`,
-    );
+    throw new Error(`Extraction failed for "${extName}": ${stderr.trim() || `exit ${exitCode}`}`);
   }
 
   // Defense-in-depth against zip-slip / symlink escape: GNU tar/unzip already

@@ -17,7 +17,15 @@
  *        (no name: every directory under it holding a manifest.json)
  */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { REGISTRY_SIGNED_DIR } from '../packages/engine/src/lib/security/extension-dir-signature.ts';
