@@ -30,6 +30,13 @@ import { parseSignature, SignatureInvalidError, verifySignature } from './signat
 export const DIR_SIGNATURE_FILE = 'signature.json';
 
 /**
+ * Where a download keeps the archive the registry signed and its signature
+ * (`archive`, `archive.sig`), inside the extension's directory: what lets it run
+ * inline, re-verified at every load (`verifyRegistrySignedDir`, U3).
+ */
+export const REGISTRY_SIGNED_DIR = '.zveltio-registry';
+
+/**
  * The canonical listing an operator signature covers. Throws on a link or an
  * unlistable name. `files`, when given, receives each listed path's sha256.
  */

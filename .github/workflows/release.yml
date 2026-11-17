@@ -192,11 +192,15 @@ jobs:
         # zveltio-extensions sibling clones.
         # Outside the workspace and world-readable: hello-ext-worker runs on the
         # extension runner under a uid of its own, which must read its bundle.
+        # Signed as a registry download leaves them, with a key made for this run
+        # and trusted through REGISTRY_PUBLIC_KEYS_JSON: in production a
+        # directory runs inline only on the registry's signature, never its name (U3).
         run: |
           sudo install -d -o "$(id -u)" -m 0755 /opt/zveltio-smoke/extensions
           for f in hello-ext hello-ext-worker hello-ext-global hello-ext-uionly; do
             cp -r "packages/engine/src/tests/fixtures/$f" "/opt/zveltio-smoke/extensions/$f"
           done
+          bun scripts/sign-as-registry.ts /opt/zveltio-smoke/extensions >> "$GITHUB_ENV"
           chmod -R a+rX /opt/zveltio-smoke/extensions
 
       - name: Start the extension runner
