@@ -68,7 +68,7 @@ d('unimplemented flow step (in-process)', () => {
   afterAll(async () => {
     await sql`
       ALTER TABLE zv_flow_steps ADD CONSTRAINT zv_flow_steps_type_check
-      CHECK (type IN ('query_db','run_script','send_email','webhook',
+      CHECK (type IN ('run_script','send_email','webhook',
                       'send_notification','export_collection','condition')) NOT VALID
     `
       .execute(db)
@@ -110,9 +110,9 @@ d('unimplemented flow step (in-process)', () => {
   it('still runs a flow whose steps ARE implemented', async () => {
     // Positive control. A `default` arm that threw for everything would pass
     // every assertion above while breaking every real flow on the instance.
-    const flowId = await makeFlow('query_db');
+    const flowId = await makeFlow('condition');
     await sql`UPDATE zv_flow_steps SET config = ${JSON.stringify({
-      query: 'SELECT 1 AS ok',
+      expression: '1 < 2',
     })}::jsonb WHERE flow_id = ${flowId}`.execute(db);
 
     const result = await executeFlow(db, flowId, {});

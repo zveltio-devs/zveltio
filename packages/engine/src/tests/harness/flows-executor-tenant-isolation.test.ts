@@ -1,11 +1,10 @@
 /**
  * Phase C — flow EXECUTOR tenant isolation (PR2, the background/executor pass).
  *
- * Regression: flow-executor derived the tenant for data-access steps (query_db /
- * export_collection, which run inside a `set_config('zveltio.current_tenant', …)`
- * transaction against FORCE-RLS'd collection tables) from CALLER-supplied
- * `triggerData.tenantId`, falling back to the default tenant. So a tenant-B flow ran
- * its query_db/export steps as the DEFAULT tenant (cross-tenant read/export), and a
+ * Regression: flow-executor derived the tenant for data-access steps
+ * (export_collection, which runs in the flow's tenant against FORCE-RLS'd
+ * collection tables) from CALLER-supplied `triggerData.tenantId`, falling back to
+ * the default tenant. So a tenant-B flow ran its export steps as the DEFAULT tenant (cross-tenant read/export), and a
  * caller could pass `tenantId` to run a flow's data steps as ANY tenant (escalation).
  * Fix: executeFlow resolves the flow's OWN tenant_id and threads it, ignoring the
  * caller. A write's change event only enqueues flows of the writing tenant.
@@ -34,8 +33,9 @@ const OTHER_TENANT = '00000000-0000-0000-0000-0000000000ff';
 const STAMP = Date.now();
 const PROBE_COLLECTION = `zzz_flow_probe_${STAMP}`;
 
-// A query_db step that echoes the tenant GUC the executor set for this run.
-const ECHO_TENANT = { query: "SELECT current_setting('zveltio.current_tenant', true) AS tenant" };
+// Each tenant holds one row of the probe collection, titled with its own id; an
+// export step shows whose rows the run read.
+const EXPORT = { collection: PROBE_COLLECTION };
 
 async function makeFlow(
   db: Database,
@@ -54,13 +54,16 @@ async function makeFlow(
   const flowId = row.rows[0]!.id;
   await sql`
     INSERT INTO zv_flow_steps (flow_id, step_order, name, type, config, on_error)
-    VALUES (${flowId}, 0, 'echo', 'query_db', ${JSON.stringify(ECHO_TENANT)}::jsonb, 'stop')
+    VALUES (${flowId}, 0, 'export', 'export_collection', ${JSON.stringify(EXPORT)}::jsonb, 'stop')
   `.execute(db);
   return flowId;
 }
 
-const echoedTenant = (out: unknown): string | undefined =>
-  Array.isArray(out) ? (out[0] as { tenant?: string })?.tenant : undefined;
+/** The tenant whose rows the export read: exactly one, or undefined. */
+const echoedTenant = (out: { csv?: string } | undefined): string | undefined => {
+  const seen = [DEFAULT_TENANT, OTHER_TENANT].filter((t) => String(out?.csv).includes(t));
+  return seen.length === 1 ? seen[0] : undefined;
+};
 
 d('flow executor tenant isolation (in-process)', () => {
   let db: Database;
@@ -79,6 +82,12 @@ d('flow executor tenant isolation (in-process)', () => {
     await sql`INSERT INTO zv_tenants (id, slug, name, status)
               VALUES (${OTHER_TENANT}::uuid, ${`exec-iso-${STAMP}`}, 'exec-iso', 'active')
               ON CONFLICT (id) DO NOTHING`.execute(db);
+    for (const tenant of [DEFAULT_TENANT, OTHER_TENANT]) {
+      await asTenant(db, tenant, (trx) =>
+        sql`INSERT INTO ${sql.table(`zvd_${PROBE_COLLECTION}`)} (tenant_id, title)
+            VALUES (${tenant}::uuid, ${tenant})`.execute(trx),
+      );
+    }
   });
 
   afterAll(async () => {

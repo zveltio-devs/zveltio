@@ -302,7 +302,8 @@ Checked after the findings above. None produced a defect.
   catalogue code, which runs at boot or from admin routes. The one per-request
   use is the edge-function runner, which writes one small bootstrap file per
   invocation. Nothing measured made it worth changing.
-- **Flow `query_db` and `LOCK`.** This is the open twin of the `LOCK` hole that
+- **Flow `query_db` and `LOCK`.** (Moot since ADR 0058 removed `query_db`.)
+  This is the open twin of the `LOCK` hole that
   the worker SQL policy closed. It does not reproduce. Measured on PostgreSQL 18,
   `zveltio_flow_reader` inside a `READ ONLY` transaction:
   - `LOCK … IN ACCESS SHARE MODE` succeeds.

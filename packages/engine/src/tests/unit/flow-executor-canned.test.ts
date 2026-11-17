@@ -10,12 +10,6 @@ import type { Database } from '../../db/index.js';
 import { executeFlow, _internalForTests } from '../../lib/flows/flow-executor.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
-/** A flow's role as `rolePrincipal` would give it, granting every read (ADR 0004). */
-const runAs = async () => ({
-  allows: () => true,
-  identity: { userId: '', email: '', role: 'member', roles: ['member'], bypass: false },
-});
-
 const { executeStep } = _internalForTests;
 
 const RUN_INSERT = /INSERT INTO zv_flow_runs/i;
@@ -37,7 +31,7 @@ describe('executeFlow (CannedDb)', () => {
     const db = new CannedDb();
     db.when(RUN_INSERT, [{ id: 'run-orphan' }]);
     db.when(STEPS_SELECT, [
-      { id: 's1', name: 'q', type: 'query_db', step_order: 1, config: { query: 'SELECT 1' } },
+      { id: 's1', name: 'n', type: 'send_notification', step_order: 1, config: { user_id: 'u1' } },
     ]);
     db.when(TENANT_LOOKUP, []);
     db.whenAffected(RUN_UPDATE, 1);
@@ -45,7 +39,42 @@ describe('executeFlow (CannedDb)', () => {
     expect(result.status).toBe('failed');
     expect(result.runId).toBe('run-orphan');
     expect(result.error).toMatch(/refusing to run it as the default tenant/);
-    expect(db.executed(/SELECT 1/).length).toBe(0);
+    expect(db.executed(/notification/i).length).toBe(0);
+    expect(db.executed(RUN_UPDATE)[0]!.parameters).toContain(result.error);
+  });
+
+  // ADR 0058 (DR-05): `query_db` ran caller-written SQL, which could rewrite the
+  // tenant setting RLS reads. A stored step stays (migration 124) and is inert:
+  // the run fails before its first step, even with `on_error: continue`, which
+  // the `default` arm alone would have let through to a "successful" run.
+  it('refuses a flow holding a stored query_db step, running no step and no SQL of it', async () => {
+    const db = dbForFlow(
+      [
+        {
+          id: 's0',
+          name: 'n',
+          type: 'send_notification',
+          step_order: 0,
+          config: { user_id: 'u1' },
+        },
+        {
+          id: 's1',
+          name: 'legacy report',
+          type: 'query_db',
+          step_order: 1,
+          config: { query: "SELECT 'qdb-marker' AS m" },
+          on_error: 'continue',
+        },
+      ],
+      'run-qdb',
+    );
+    db.when(/qdb-marker/, [{ m: 'qdb-marker' }]);
+
+    const result = await executeFlow(db.kysely as unknown as Database, 'flow-qdb', {});
+    expect(result.status).toBe('failed');
+    expect(result.error).toMatch(/"legacy report" is type query_db.*ADR 0058/);
+    expect(db.executed(/qdb-marker/).length).toBe(0);
+    expect(db.executed(/notification/i).length).toBe(0);
     expect(db.executed(RUN_UPDATE)[0]!.parameters).toContain(result.error);
   });
 
@@ -79,21 +108,22 @@ describe('executeFlow (CannedDb)', () => {
       [
         {
           id: 's1',
-          name: 'bad-query',
-          type: 'query_db',
+          name: 'bad-script',
+          // No script: the step throws.
+          type: 'run_script',
           step_order: 1,
-          config: { query: 'DELETE FROM secrets' },
+          config: {},
           on_error: 'continue',
         },
         {
           id: 's2',
           name: 'after',
-          // `query_db` with no query, which returns the previous output —
+          // `send_email` with no recipient, which returns the previous output —
           // implemented, and does nothing. It was `noop_step`, an unimplemented
           // type that only "worked" because the executor's default arm reported
           // success. This case is about `on_error: continue`, not about what an
           // unknown type does.
-          type: 'query_db',
+          type: 'send_email',
           step_order: 2,
           config: {},
         },
@@ -103,7 +133,7 @@ describe('executeFlow (CannedDb)', () => {
 
     const result = await executeFlow(db.kysely as unknown as Database, 'flow-2', {});
     expect(result.status).toBe('success');
-    expect(String(result.output.error ?? '')).toMatch(/SELECT|read-only/i);
+    expect(String(result.output.error ?? '')).toMatch(/no script/i);
   });
 
   it('fails the run when a step throws and on_error is stop (default)', async () => {
@@ -111,10 +141,10 @@ describe('executeFlow (CannedDb)', () => {
       [
         {
           id: 's1',
-          name: 'bad-query',
-          type: 'query_db',
+          name: 'bad-script',
+          type: 'run_script',
           step_order: 1,
-          config: { query: 'DROP TABLE users' },
+          config: {},
         },
       ],
       'run-3',
@@ -123,7 +153,7 @@ describe('executeFlow (CannedDb)', () => {
     const result = await executeFlow(db.kysely as unknown as Database, 'flow-3', {});
     expect(result.status).toBe('failed');
     expect(result.runId).toBe('run-3');
-    expect(result.error).toMatch(/SELECT|read-only|blocked/i);
+    expect(result.error).toMatch(/no script/i);
   });
 
   it('returns failed when the run insert fails', async () => {
@@ -269,16 +299,6 @@ describe('executeStep — CannedDb branches', () => {
     ).rejects.toThrow(/custom_step.*not implemented/is);
   });
 
-  it('query_db with no query returns the previous output unchanged', async () => {
-    const { output } = await executeStep(
-      new CannedDb().kysely as unknown as Database,
-      { type: 'query_db', config: {} },
-      { prev: 42 },
-      {},
-    );
-    expect(output).toEqual({ prev: 42 });
-  });
-
   it('send_notification reports missing role and user_id', async () => {
     const { output } = await executeStep(
       new CannedDb().kysely as unknown as Database,
@@ -393,85 +413,6 @@ describe('executeStep — CannedDb branches', () => {
         {},
       ),
     ).rejects.toThrow(/no script/i);
-  });
-
-  it('query_db rejects non-read-only statements', async () => {
-    await expect(
-      executeStep(
-        new CannedDb().kysely as unknown as Database,
-        {
-          type: 'query_db',
-          config: { query: 'DELETE FROM zvd_contacts' },
-        },
-        {},
-        {},
-      ),
-    ).rejects.toThrow(/only allows SELECT or WITH/i);
-  });
-
-  it('query_db blocks dangerous SQL patterns inside SELECT', async () => {
-    await expect(
-      executeStep(
-        new CannedDb().kysely as unknown as Database,
-        {
-          type: 'query_db',
-          config: { query: 'SELECT pg_sleep(10)' },
-        },
-        {},
-        {},
-      ),
-    ).rejects.toThrow(/blocked dangerous SQL pattern/i);
-  });
-
-  it('query_db allows read-only WITH queries', async () => {
-    const db = new CannedDb();
-    db.when(/set_config/i, []);
-    db.when(/statement_timeout/i, []);
-    db.when(/WITH x AS/i, [{ n: 1 }]);
-    const { output } = await executeStep(
-      db.kysely as unknown as Database,
-      {
-        type: 'query_db',
-        config: { query: 'WITH x AS (SELECT 1 AS n) SELECT * FROM x' },
-      },
-      {},
-      {},
-      undefined,
-      runAs,
-    );
-    expect(output).toEqual([{ n: 1 }]);
-  });
-
-  it('query_db runs SELECT inside a transaction with tenant context', async () => {
-    const db = new CannedDb();
-    db.when(/set_config/i, (q) => {
-      expect(q.parameters[0]).toBe('tenant-99');
-      return [];
-    });
-    // The flow's role, published around the query (ADR 0004).
-    db.when(/json_object_agg|json_each_text/i, []);
-    db.when(/statement_timeout/i, []);
-    db.when(/SELECT id, name FROM zvd_contacts/i, [
-      { id: 'c1', name: 'Ada' },
-      { id: 'c2', name: 'Bob' },
-    ]);
-    const { output } = await executeStep(
-      db.kysely as unknown as Database,
-      {
-        type: 'query_db',
-        config: { query: 'SELECT id, name FROM zvd_contacts ORDER BY name' },
-      },
-      {},
-      {},
-      // Tenant is now threaded explicitly by executeFlow (the flow's OWN tenant),
-      // not derived from caller-supplied flowContext.trigger.tenantId.
-      'tenant-99',
-      runAs,
-    );
-    expect(output).toEqual([
-      { id: 'c1', name: 'Ada' },
-      { id: 'c2', name: 'Bob' },
-    ]);
   });
 
   it('webhook blocks private-network URLs (SSRF)', async () => {

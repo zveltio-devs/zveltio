@@ -36,8 +36,9 @@ const d = harnessAvailable() ? describe : describe.skip;
 const FIRM = crypto.randomUUID();
 const STAMP = `lv01_${Date.now()}`;
 const C = `${STAMP}_c`;
-// The run's firm, as the executor set it for the step.
-const ECHO_TENANT = { query: "SELECT current_setting('zveltio.current_tenant', true) AS tenant" };
+// The run's firm: the export reads the collection's one row, titled with the
+// firm's id, only when the step ran in that firm.
+const EXPORT = { collection: C };
 
 d('background work reaches its firm under the closed tenant default (LV-01)', () => {
   let db: Database;
@@ -54,19 +55,19 @@ d('background work reaches its firm under the closed tenant default (LV-01)', ()
     });
     await sql`
       INSERT INTO zv_flow_steps (flow_id, step_order, name, type, config, on_error)
-      VALUES (${id}, 0, 'echo', 'query_db', ${JSON.stringify(ECHO_TENANT)}::jsonb, 'stop')
+      VALUES (${id}, 0, 'export', 'export_collection', ${JSON.stringify(EXPORT)}::jsonb, 'stop')
     `.execute(db);
     return id;
   };
-  /** The firms the flow's runs ran as, from the echo step's output. */
+  /** The firms the flow's runs ran as, from the export step's output. */
   const runsOf = async (flowId: string) =>
     (
       await asEveryTenant(db, (trx) =>
-        sql<{ status: string; tenant: string | null }>`
-          SELECT status, output->0->>'tenant' AS tenant FROM zv_flow_runs
+        sql<{ status: string; csv: string | null }>`
+          SELECT status, output->>'csv' AS csv FROM zv_flow_runs
            WHERE flow_id = ${flowId}::uuid`.execute(trx),
       )
-    ).rows;
+    ).rows.map((r) => ({ status: r.status, tenant: r.csv?.includes(FIRM) ? FIRM : null }));
 
   beforeAll(async () => {
     ({ db } = await getTestApp());
@@ -76,6 +77,10 @@ d('background work reaches its firm under the closed tenant default (LV-01)', ()
       name: C,
       fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
     } as never);
+    await asTenant(db, FIRM, (trx) =>
+      sql`INSERT INTO ${sql.table(`zvd_${C}`)} (tenant_id, title)
+          VALUES (${FIRM}::uuid, ${FIRM})`.execute(trx),
+    );
     originalFetch = globalThis.fetch;
     globalThis.fetch = (async () =>
       ({ ok: true, status: 200, text: async () => 'ok' }) as Response) as unknown as typeof fetch;

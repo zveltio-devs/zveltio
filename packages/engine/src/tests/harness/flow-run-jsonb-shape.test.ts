@@ -32,8 +32,8 @@ it.skipIf(!harnessAvailable())(
     );
     await sql`
       INSERT INTO zv_flow_steps (flow_id, step_order, name, type, config)
-      VALUES (${flowId}, 1, 'probe step', 'query_db',
-              ${JSON.stringify({ query: 'SELECT 1 AS one' })}::text::jsonb)
+      VALUES (${flowId}, 1, 'probe step', 'condition',
+              ${JSON.stringify({ expression: '1 < 2' })}::text::jsonb)
     `.execute(db);
 
     try {

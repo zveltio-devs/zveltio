@@ -43,7 +43,15 @@ const OTHER = crypto.randomUUID();
 const SLUG = `flrls-${OTHER.slice(0, 8)}`;
 const STAMP = `flrls_${Date.now()}`;
 const FN = 'harness_flows_rls_rows';
-const ECHO = { query: "SELECT current_setting('zveltio.current_tenant', true) AS tenant" };
+// Every firm holds one row of this collection, titled `t:<firm>`; an export
+// step shows whose rows the run read.
+const PROBE = `${STAMP}_probe`;
+const ECHO = { collection: PROBE };
+const seedProbeRow = (db: Database, tenant: string) =>
+  asTenant(db, tenant, (trx) =>
+    sql`INSERT INTO ${sql.table(`zvd_${PROBE}`)} (tenant_id, title)
+        VALUES (${tenant}::uuid, ${`t:${tenant}`})`.execute(trx),
+  );
 
 /** The harness URL, every connection opened as the plain role. */
 function plainRoleUrl(): string {
@@ -80,17 +88,20 @@ d('zv_flows under tenant RLS', () => {
     );
     const id = row.rows[0]!.id;
     await sql`INSERT INTO zv_flow_steps (flow_id, step_order, name, type, config)
-              VALUES (${id}, 0, 'echo', 'query_db', ${JSON.stringify(ECHO)}::jsonb)`.execute(db);
+              VALUES (${id}, 0, 'echo', 'export_collection', ${JSON.stringify(ECHO)}::jsonb)`.execute(
+      db,
+    );
     return id;
   }
 
   async function runsOf(flowId: string) {
     const r = await sql<{ status: string; output: unknown }>`
       SELECT status, output FROM zv_flow_runs WHERE flow_id = ${flowId}::uuid`.execute(db);
-    return r.rows.map((x) => ({
-      status: x.status,
-      tenant: (x.output as { tenant?: string }[] | null)?.[0]?.tenant,
-    }));
+    return r.rows.map((x) => {
+      const csv = String((x.output as { csv?: string } | null)?.csv ?? '');
+      const firms = [...csv.matchAll(/t:([0-9a-f-]{36})/g)].map((m) => m[1]);
+      return { status: x.status, tenant: firms.length > 0 ? firms.join(',') : undefined };
+    });
   }
 
   beforeAll(async () => {
@@ -117,6 +128,11 @@ d('zv_flows under tenant RLS', () => {
                 ${JSON.stringify([{ collection: '$rpc', actions: ['execute'] }])}::jsonb, true,
                 ${tenant}::uuid, ${userId})`.execute(db);
     }
+    await DDLManager.createCollection(db, {
+      name: PROBE,
+      fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
+    } as never);
+    for (const tenant of [ROOT, OTHER]) await seedProbeRow(db, tenant);
     // No tenant predicate anywhere in it: whatever it returns, the policy chose.
     await sql
       .raw(`CREATE OR REPLACE FUNCTION "${FN}"() RETURNS TABLE(tenant_id uuid)
@@ -139,6 +155,7 @@ d('zv_flows under tenant RLS', () => {
       sql`DELETE FROM zv_flows WHERE name LIKE ${`${STAMP}%`}`.execute(trx),
     );
     await sql`DELETE FROM zv_api_keys WHERE name LIKE ${`${STAMP}-%`}`.execute(db);
+    await dropTestCollection(db, PROBE).catch(() => {});
     await sql`DELETE FROM zv_tenant_users WHERE tenant_id = ${OTHER}::uuid`.execute(db);
     await sql`DELETE FROM zv_tenants WHERE id = ${OTHER}::uuid`.execute(db);
   });
@@ -207,7 +224,7 @@ d('zv_flows under tenant RLS', () => {
       body: JSON.stringify({
         name: `${STAMP}-route`,
         trigger: { type: 'manual' },
-        steps: [{ type: 'query_db', config: ECHO }],
+        steps: [{ type: 'export_collection', config: ECHO }],
       }),
     });
     expect(create.status).toBe(201);
@@ -278,6 +295,7 @@ d('zv_flows under tenant RLS', () => {
               VALUES (${SUSP}::uuid, ${`flsusp-${SUSP.slice(0, 8)}`}, 'susp', 'suspended')`.execute(
       db,
     );
+    await seedProbeRow(db, SUSP);
     try {
       const flow = await seedFlow(SUSP, 'suspended', 'cron', { cron: '0 3 * * *' });
       const nextRun = async () =>
@@ -300,6 +318,9 @@ d('zv_flows under tenant RLS', () => {
       await flowScheduler._tick();
       expect(await runsOf(flow)).toEqual([{ status: 'success', tenant: SUSP }]);
     } finally {
+      await asTenant(db, SUSP, (trx) =>
+        sql`DELETE FROM ${sql.table(`zvd_${PROBE}`)} WHERE tenant_id = ${SUSP}::uuid`.execute(trx),
+      );
       await sql`DELETE FROM zv_tenants WHERE id = ${SUSP}::uuid`.execute(db);
     }
   }, 30_000);

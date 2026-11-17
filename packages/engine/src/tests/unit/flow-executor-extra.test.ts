@@ -3,16 +3,14 @@
  * runner without inserting into zv_flow_steps.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { runCreateCollection } from '../../lib/data/ddl-queue.js';
 import { _internalForTests } from '../../lib/flows/flow-executor.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const { executeStep } = _internalForTests;
 const d = harnessAvailable() ? describe : describe.skip;
-const COLLECTION = `fex_${Date.now()}`;
 
 function step(type: string, config: Record<string, unknown>): any {
   return { id: type, name: type, type, config };
@@ -45,45 +43,12 @@ d('executeStep — flow-executor branches', () => {
       }>`SELECT id FROM "user" WHERE role = 'god' ORDER BY "createdAt" DESC LIMIT 1`.execute(db);
       godUserId = made.rows[0]!.id;
     }
-
-    // The create_collection job's path: the table plus its tenant RLS and the
-    // narrow roles' grants (zveltio_flow_reader runs query_db). The bare
-    // DDLManager call left the table without them on a freshly migrated database.
-    await runCreateCollection(db, {
-      name: COLLECTION,
-      fields: [{ name: 'title', type: 'text', required: false, unique: false, indexed: false }],
-    } as never);
-    await sql
-      .raw(
-        `INSERT INTO "zvd_${COLLECTION}" (id, title, created_by, updated_by) VALUES ('${crypto.randomUUID()}', 'row1', '${godUserId}', '${godUserId}')`,
-      )
-      .execute(db)
-      .catch(() => {});
-  });
-
-  afterAll(async () => {
-    if (!db) return;
-    await sql
-      .raw(`DROP TABLE IF EXISTS "zvd_${COLLECTION}" CASCADE`)
-      .execute(db)
-      .catch(() => {});
-    await db
-      .deleteFrom('zvd_collections')
-      .where('name', '=', COLLECTION)
-      .execute()
-      .catch(() => {});
   });
 
   it('export_collection fails the step on an invalid collection name', async () => {
     await expect(
       executeStep(db, step('export_collection', { collection: '../evil' }), {}, {}),
     ).rejects.toThrow(/invalid collection name/);
-  });
-
-  it('query_db blocks dangerous SQL patterns', async () => {
-    await expect(
-      executeStep(db, step('query_db', { query: 'SELECT pg_sleep(1)' }), {}, {}),
-    ).rejects.toThrow(/blocked|dangerous/i);
   });
 
   it('send_email rejects an invalid recipient', async () => {
@@ -129,22 +94,6 @@ d('executeStep — flow-executor branches', () => {
         {},
       ),
     ).rejects.toThrow(/blocked|sandbox/i);
-  });
-
-  it('query_db runs a read-only SELECT inside tenant context', async () => {
-    const { output } = await executeStep(
-      db,
-      step('query_db', { query: `SELECT title FROM "zvd_${COLLECTION}" LIMIT 5` }),
-      {},
-      {},
-    );
-    expect(Array.isArray(output)).toBe(true);
-  });
-
-  it('query_db rejects non-SELECT statements', async () => {
-    await expect(
-      executeStep(db, step('query_db', { query: 'DELETE FROM "user"' }), {}, {}),
-    ).rejects.toThrow(/SELECT|read-only/i);
   });
 
   it('run_script evaluates sandboxed code with input', async () => {

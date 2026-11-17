@@ -5,9 +5,11 @@
  */
 
 import { describe, it, expect } from 'bun:test';
+import { zValidator } from '@hono/zod-validator';
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import type { Context } from 'hono';
+import { z } from 'zod';
 import {
   problem,
   problemNormalizer,
@@ -33,6 +35,10 @@ function makeApp(): Hono {
   });
   app.get('/api/zod', (c) =>
     c.json({ success: false, error: { issues: [{ path: ['name'], message: 'Required' }] } }, 400),
+  );
+  // The real thing: zod 4 serializes a ZodError as `{ name, message }` only.
+  app.get('/api/zod-real', zValidator('query', z.object({ name: z.string() })), (c) =>
+    c.json({ ok: true }),
   );
   app.notFound(problemNotFound);
   return app;
@@ -189,6 +195,14 @@ describe('H-13 error envelope', () => {
     isEnvelope(body, 400);
     expect(body.code).toBe('validation_failed');
     expect(Array.isArray(body.errors)).toBe(true);
+  });
+
+  it('a real zValidator refusal carries its issues', async () => {
+    const res = await call('/api/zod-real');
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { code: string; errors: { path: string[] }[] };
+    expect(body.code).toBe('validation_failed');
+    expect(body.errors[0]!.path).toEqual(['name']);
   });
 
   it('app.notFound(problemNotFound) returns a problem+json 404 envelope', async () => {
