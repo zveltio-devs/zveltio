@@ -14,3 +14,6 @@
 --   SELECT count(*) FROM zv_api_keys WHERE key_hash_version IS DISTINCT FROM <current>;
 
 ALTER TABLE zv_api_keys ADD COLUMN IF NOT EXISTS key_hash_version INTEGER;
+
+-- DOWN
+ALTER TABLE zv_api_keys DROP COLUMN IF EXISTS key_hash_version;
