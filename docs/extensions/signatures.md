@@ -87,10 +87,40 @@ The two key lists stay apart: a key in `REGISTRY_PUBLIC_KEYS_JSON` verifies
 registry archives and is never consulted for a directory, and a key in
 `OPERATOR_PUBLIC_KEYS_JSON` is never consulted for an archive.
 
-Not yet: first-party and registry tiers are still read from the catalogue by
-name (bundled or registry), not from a signature the engine checks at load. That
-needs the registry to sign the tier with each archive; until then a directory
-that takes a first-party extension's name on disk is treated as that extension.
+## What runs inline (U3)
+
+Only code the registry signed runs inside the engine process, and the engine
+checks that at every load, not once at install (ADR 0056 amendment 4, ADR 0058):
+
+- **The download keeps the signature with the files.** A verified archive is
+  kept, with its `.sig`, in `.zveltio-registry/` inside the extension's
+  directory.
+- **Every load re-verifies it.** The signature against the registry keys
+  (`BUILTIN_KEYS` and `REGISTRY_PUBLIC_KEYS_JSON`, never an operator key), then
+  every file of the directory against the archive: a byte changed, a file added
+  or removed since the download refuses the load. So does an archive whose
+  manifest names another extension — a signed archive copied under a
+  first-party name is not that extension. A kept signature that does not hold is
+  refused; the directory is never loaded as if it were unsigned.
+- **Unsigned is never inline in production,** whatever its name: a directory put
+  there by hand, a source checkout, or an archive installed without a signature
+  under `REQUIRE_EXTENSION_SIGNATURES=false`. It loads on the extension runner,
+  as community code, when it is worker-isolated and bundled; otherwise it is
+  refused, naming the reason.
+- **Development and test** (`NODE_ENV=development` or `test`) keep the
+  catalogue's word for an unsigned directory, so a source checkout of the
+  first-party extensions runs as before.
+
+Still from the catalogue: which tier a registry-signed extension has (bundled
+catalogue or the registry's answer, by its name). The registry does not sign the
+tier yet; until it does, the signature proves the files are what the registry
+published under that name, and the name's publisher is the registry's to
+enforce.
+
+A production boot that loads extensions from disk without the registry (the
+release smoke, the extensions' runtime probe) signs them as a download leaves
+them, with a key made for that run and trusted through
+`REGISTRY_PUBLIC_KEYS_JSON`: `bun scripts/sign-as-registry.ts <extensions-dir>`.
 
 ## Why signatures matter (threat model)
 

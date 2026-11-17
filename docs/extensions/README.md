@@ -182,7 +182,9 @@ zveltio extension publish           # upload to the registry
 
 Signing uses Ed25519; installs verify signatures by default.
 `REQUIRE_EXTENSION_SIGNATURES=false` exists only for unsigned private mirrors,
-and extra signers go in `REGISTRY_PUBLIC_KEYS_JSON`.
+and extra signers go in `REGISTRY_PUBLIC_KEYS_JSON`. An unsigned extension never
+runs inline in production, whatever its name
+([signatures](signatures.md#what-runs-inline-u3)).
 
 **Your own extension, without the registry:** pack it, sign it with your key
 (`zveltio extension sign`), install it with `zveltio install <name> --path`, and

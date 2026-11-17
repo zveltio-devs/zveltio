@@ -971,6 +971,8 @@ const SECTIONS: Section[] = [
       'scripts/release-gate.ts',
       // The release smoke's stepped-up god requests (#1184).
       'scripts/god-request.ts',
+      // Signs a directory as the registry for the release smoke and the ext runtime probe (U3).
+      'scripts/sign-as-registry.ts',
       'scripts/suppress-existing-any.ts',
       'scripts/review-inventory.ts',
       'scripts/lib/',
