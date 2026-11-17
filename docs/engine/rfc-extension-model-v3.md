@@ -75,7 +75,13 @@ Moving an extension between backends is configuration, never a rewrite.
 **Amended 2026-11-16 (owner).** Only first-party code runs inline. Levels 1–3
 run on the same runner: one boundary, no weaker path for anyone. A first-party
 extension uses the same surface as a third party, except a named list a gate
-enforces, so it can also run isolated when the operator has the memory. The
+enforces (`FIRST_PARTY_REACH` in `zveltio-extensions/scripts/check-extension-authorization.ts`:
+which of `ctx.db`, `checkPermission`, `getUserRoles` and `ctx.internals.<method>`
+each extension may use, and why), so it can also run isolated when the operator
+has the memory. An inline action that blocks the event loop cannot be stopped;
+a watchdog thread logs `event loop blocked` with the inline actions running
+(`blockedMs`, `inlineActions`) after 2 s and every 10 s after, so the log names
+it after the restart. The
 isolated backend must fail alone: a per-action timeout that cancels the
 request transaction, a per-extension concurrency limit, disable after repeated
 crashes, and every failure logged with the extension's name and signing key.

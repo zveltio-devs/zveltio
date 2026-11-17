@@ -61,6 +61,7 @@ import {
   type RequestUser,
   rowAuthorId,
 } from '../data/index.js';
+import { attributed } from './inline-lag.js';
 import type { Database } from '../../db/index.js';
 import type { GatePrincipal } from '../../middleware/extension-auth-gate.js';
 
@@ -159,7 +160,10 @@ export function compileActions(
       writes: new Set(a.writes),
       enqueues: new Set(a.enqueues),
       calls: new Set(a.calls),
-      run,
+      // Inline code shares the engine's thread: the watchdog names it if it stalls.
+      run: worker
+        ? run
+        : (input, host) => attributed(`${extName}/${a.name}`, () => run(input, host)),
     });
   }
   return out;
