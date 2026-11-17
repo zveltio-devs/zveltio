@@ -31,11 +31,10 @@ import { sql } from 'kysely';
 import { sqlState } from '../../db/bun-sql-quirks.js';
 import { PgBoss, systemClock } from 'pg-boss';
 import { type Database, recycleActivePool } from '../../db/index.js';
-import { refreshBranchProtections } from './branch-protections.js';
 import { DDLManager } from './ddl-manager.js';
 import { broadcastSchemaChange, type SchemaChangeAction } from '../../routes/ws.js';
 import { realtimeBus, SCHEMA_CHANGED_EVENT } from '../runtime/index.js';
-import { getTenantDb, onAfterCommit, runOutsideTenantContext } from '../tenancy/index.js';
+import { onAfterCommit, runOutsideTenantContext } from '../tenancy/index.js';
 import { recordSchemaMigration, scheduleSchemaWrite } from '../schema-artifact/dev-writer.js';
 import { auditLog } from '../audit.js';
 import type { FieldChange } from './field-changes.js';
@@ -224,14 +223,6 @@ export function announceSchemaChange(collection: string, action: SchemaChangeAct
       timestamp: new Date().toISOString(),
     });
   });
-  // A field change seals or unseals its column in `public` (`sealColumns`),
-  // and a branch previewing the collection kept the grants it copied: a field
-  // retyped away from `password` left the branch column revoked, and every
-  // preview read failed (42501). Every alter is announced here. A job of its
-  // own: the mirror's locks must not hold up the announcement.
-  if (action === 'alter') {
-    onAfterCommit(() => refreshBranchProtections(getTenantDb(), `zvd_${collection}`));
-  }
 }
 
 /**
@@ -447,9 +438,9 @@ export async function runCreateCollection(
 }
 
 /**
- * Add a field on the pool, now. The schema-branch merge and
- * `POST /api/admin/schema/apply` run this; the `add_field` job calls `addField`
- * the same way. The column is altered in place at any size (ADR 0041).
+ * Add a field on the pool, now. `POST /api/admin/schema/apply` runs this; the
+ * `add_field` job calls `addField` the same way. The column is altered in place
+ * at any size (ADR 0041).
  */
 export async function runAddField(
   db: Database,
@@ -458,8 +449,7 @@ export async function runAddField(
   /** The extension whose apply this is (ADR 0012), when it is one. */
   by?: string,
 ): Promise<void> {
-  // Both callers (schema-branch merge, schema apply) reach a BYOD table only
-  // through here, and nothing upstream asked.
+  // Schema apply reaches a BYOD table only through here, and nothing upstream asked.
   const { schemaChangeRefusal } = await import('./field-changes.js');
   const refusal = await schemaChangeRefusal(db, collection, 'add', by, field);
   if (refusal) throw refusal;

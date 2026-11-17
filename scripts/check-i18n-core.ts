@@ -54,7 +54,6 @@ const TRANSLATED = [
   'src/routes/(admin)/flows/+page.svelte',
   'src/routes/(admin)/tenants/+page.svelte',
   // tranche 3
-  'src/routes/(admin)/schema-branches/+page.svelte',
   'src/routes/(admin)/onboarding/+page.svelte',
   'src/routes/(admin)/saved-queries/+page.svelte',
   'src/routes/(admin)/virtual-collections/+page.svelte',
@@ -145,9 +144,8 @@ const ALLOWED_EXACT: RegExp[] = [
   /^[a-z_][a-z0-9_]*((,| \/) ?[a-z_][a-z0-9_]*)+$/,
   /^\/\*[\s\S]*\*\/$/, // a CSS or JS sample shown as code in a placeholder
   /^(Bearer token|Basic auth)$/, // HTTP auth scheme names (RFC 6750 / 7617)
-  // An HTTP header name shown in a code sample. `X-API-Key:` and
-  // `X-Preview-Token:` are wire identifiers — a translated header does not
-  // reach the server.
+  // An HTTP header name shown in a code sample. `X-API-Key:` is a wire
+  // identifier — a translated header does not reach the server.
   /^X-[A-Za-z][A-Za-z0-9-]*:$/,
   /^(GET|POST|PUT|PATCH|DELETE) \//, // an HTTP method and path, e.g. POST /api/rpc/:function
   // ERD legend: a relation-type identifier plus its cardinality, e.g.

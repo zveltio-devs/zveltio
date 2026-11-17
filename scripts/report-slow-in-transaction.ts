@@ -63,7 +63,6 @@ const NO_TXN_MODULES = new Set([
   'collections.ts',
   'relations.ts',
   'schema.ts',
-  'schema-branches.ts',
   'templates.ts',
   'tenants.ts',
 ]);

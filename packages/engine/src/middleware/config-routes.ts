@@ -13,7 +13,6 @@ const CONFIG_PREFIXES = [
   '/api/marketplace',
   '/api/permissions',
   '/api/relations',
-  '/api/schema',
   '/api/settings',
   '/api/tenants',
   '/api/users',

@@ -274,18 +274,12 @@ export function healthRoutes(db: Database, auth?: any): Hono {
       {
         // The same for the rules the boot puts in the database beside the
         // engine's own checks: row rules (policies), column write rules
-        // (triggers), column seals and masking views, and the copies of them on
-        // schema-branch previews. The engine still applies each rule; this is
-        // the second layer being absent.
+        // (triggers), and column seals and masking views. The engine still
+        // applies each rule; this is the second layer being absent.
         name: 'db_rules',
         critical: false,
         run: () => {
-          const failed = reconcileFailures(
-            'row_rules',
-            'column_guards',
-            'column_seals',
-            'branch_protections',
-          );
+          const failed = reconcileFailures('row_rules', 'column_guards', 'column_seals');
           return {
             ok: failed.length === 0,
             detail: { failed },

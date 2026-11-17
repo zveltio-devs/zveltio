@@ -349,7 +349,7 @@ masked, raw SQL on the table is not.
 
 - The engine reads through the view on list, get, `?expand=`, saved queries,
   sync pull and the write echoes; a write returns `id` and reads the row back
-  through it. A schema-branch preview reads the branch's tables, as before.
+  through it.
 - The view is rebuilt with every rule change, in the CREATE's transaction, with
   every field add, rename, retype and drop, and at boot. A transaction that
   alters a collection's columns drops the view first and builds it last: SQL

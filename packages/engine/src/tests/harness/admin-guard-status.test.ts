@@ -42,7 +42,6 @@ const ROUTES: Array<[method: string, path: string]> = [
   ['POST', '/api/marketplace/no-such-ext/deactivate'],
   ['GET', '/api/settings'],
   ['GET', '/api/backup'],
-  ['GET', '/api/schema/branches'],
 ];
 
 /** The routes behind `guardAdmin` — the ones a key's status code is pinned on. */

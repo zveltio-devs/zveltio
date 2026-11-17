@@ -884,8 +884,8 @@ jobs:
         # eliminated by measurement: creating a collection does NOT alter
         # `zvd_collections` (19 columns before and after, on a live engine);
         # migrations run before the engine starts; `ext:seam` works in separate
-        # databases via CREATE DATABASE … TEMPLATE; and nothing here sends
-        # `X-Preview-Token`, the only thing that switches `search_path`.
+        # databases via CREATE DATABASE … TEMPLATE; and nothing switches
+        # `search_path` (schema-branch previews were removed, ADR 0049).
         #
         # A DDL log settles it: the container's Postgres output is already
         # printed by "Stop containers", so the offending statement appears there

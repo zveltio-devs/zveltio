@@ -42,7 +42,7 @@ replacement for the whole next major, then disappears.
 ## Which groups the contract covers
 
 **Inside the contract:** `/api/auth`, `/api/sign-in`, `/api/me`, `/api/data`,
-`/api/actions`, `/api/collections`, `/api/relations`, `/api/schema`,
+`/api/actions`, `/api/collections`, `/api/relations`,
 `/api/storage`, `/api/realtime`, `/api/ws`, `/api/revisions`,
 `/api/validation`, `/api/rpc`, `/api/users`, `/api/invitations`,
 `/api/tenants`, `/api/permissions`, `/api/api-keys`, `/api/settings`,
@@ -57,7 +57,8 @@ paths carry `x-contract: none`:
 - `/api/erd` (Studio's own diagram positions);
 - `/api/marketplace` (the operator's install path, moving with the registry);
 - every route already gone and answering 410: `/api/insights`,
-  `/api/admin/sql`, `/api/templates`,
+  `/api/admin/sql`, `/api/schema/branches` (ADR 0049; schema changes go through
+  `/api/admin/schema`, which `zveltio schema apply` calls), `/api/templates`,
   `/api/approvals`, `/api/export`, `/api/import`, `/api/media`,
   `/api/briefing`;
 - `/ext/*`: an extension route's contract is the extension's own version, not

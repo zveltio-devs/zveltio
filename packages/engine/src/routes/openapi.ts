@@ -45,7 +45,6 @@ export const API_GROUPS: Readonly<Record<string, 'v1' | 'none'>> = {
   actions: 'v1',
   collections: 'v1',
   relations: 'v1',
-  schema: 'v1',
   storage: 'v1',
   realtime: 'v1',
   ws: 'v1',
@@ -77,8 +76,9 @@ export const API_GROUPS: Readonly<Record<string, 'v1' | 'none'>> = {
   erd: 'none',
   // Operator install path, moving with the registry.
   marketplace: 'none',
-  // Already gone: 410 with the replacement, or with why (ADR 0051, ADR 0058).
+  // Already gone: 410 with the replacement, or with why (ADR 0049, 0051, 0058).
   insights: 'none',
+  schema: 'none',
   templates: 'none',
   approvals: 'none',
   export: 'none',

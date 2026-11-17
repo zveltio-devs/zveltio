@@ -109,7 +109,7 @@ List them in `manifest.json` and ship one file per name, in the
 - The instance's own schema export leaves the extension's collections out: they
   belong to its package.
 - Their fields, relations and settings are the extension's: an operator's change
-  through `/api/collections`, `/api/relations`, Studio or a schema branch
+  through `/api/collections`, `/api/relations`, Studio or a schema file
   answers 409. Row rules, column permissions, validation rules and grants an
   operator adds stay: a load adds, changes and removes only the entries the
   extension's own files declared, judged against what its previous apply

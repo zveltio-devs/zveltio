@@ -141,7 +141,7 @@ resolved beforehand, on the pool, as the engine role.
 
 ```
 /api/health  /api/metrics  /api/auth  /api/openapi
-/api/collections  /api/relations  /api/schema
+/api/collections  /api/relations
 /api/tenants  /api/invitations
 /api/flows  /api/backup
 /api/admin/audit
@@ -740,9 +740,9 @@ than something every extension author has to get right.
   request no longer carries a `tenantSchema`. An environment is a row in
   `zv_environments` whose `schema_name` is NULL (since migration 043; the API's
   `schema` field is kept and answers `null`). Installs from before keep their
-  schemas, untouched, until the tenant is purged. The schema that is used,
-  through `search_path`, is a schema branch's preview (`branch_*`,
-  `middleware/preview-env.ts`).
+  schemas, untouched, until the tenant is purged. Nothing switches
+  `search_path` any more: schema-branch previews (`branch_*`) were removed with
+  the branches (ADR 0049).
 - **It is not database-per-tenant.**
 - **`enableRLS` and `applyTenantRLS` are not dead duplicates** — both are called,
   from different places (`routes/tenants.ts`, `lib/data/ddl-queue.ts`). They now

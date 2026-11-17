@@ -129,7 +129,7 @@ Build your own: `zveltio extension create <name>` scaffolds. `zveltio extension 
 
 Some capabilities are the engine itself rather than an extension — collections,
 storage, webhooks, realtime, audit, notifications, automation flows, backup,
-saved queries, schema branches, tenants — so they are not in that 57.
+saved queries, tenants — so they are not in that 57.
 See [What is not an extension](docs/extensions/overview.md#what-is-not-an-extension).
 
 **Data & Content** · `content/pages` (block-based pages and sites, including authenticated portals) · `content/documents` · `content/document-templates` · `content/media` · `content/drafts` · `content/pdf-viewer` · `forms` · `data/import` · `data/export`
@@ -161,7 +161,7 @@ Country-specific compliance currently ships **Romanian** packs (e-Factura, SAF-T
 - **Yours to run.** Open source and self-hosted: it runs on your hardware and the data never leaves it. No per-seat fees, no cloud account required.
 - **Isolation in the database.** Tenant isolation is FORCE row-level security in PostgreSQL, keyed on a per-transaction setting — not an application filter. Hierarchical tenants: a parent can read its subtree and write only its own node.
 - **Backend and business stack on the same data.** The headless engine and the business extensions (CRM, invoicing, accounting, payroll, POS, e-commerce) share one database, one permission model and one audit trail.
-- **Schema changes on live tables.** A column is added in place, as a catalog change, so writes block for milliseconds (a volatile default rewrites the table); schema branches get a diff, review, preview and merge first.
+- **Schema changes on live tables.** A column is added in place, as a catalog change, so writes block for milliseconds (a volatile default rewrites the table); a schema change is a file in git, applied with `zveltio schema apply` after `zveltio schema diff` shows its steps.
 - **Extensions are signed and fenced.** Ed25519 signatures verified at install; community code runs in a worker whose SQL is limited to user tables and its own, under a database role with no access to auth tables — a guard-rail in the engine process, opt-in in production, not a sandbox. Admin pages are declarative JSON, so no third-party JavaScript reaches the admin.
 - **Compliance built in.** Audit trail on every write, GDPR export and erasure, per-field encryption, and Romanian fiscal packs (e-Factura, SAF-T, e-Transport).
 

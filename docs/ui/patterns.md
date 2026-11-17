@@ -9,7 +9,7 @@ are decisions already made — follow them rather than re-deciding per page.
 
 | Use | When |
 |---|---|
-| **Modal** | Creating a new item with a small, focused form (1–6 fields), edited inline, living on the list page. Webhooks, API Keys, Users, Schema Branches, Backups. |
+| **Modal** | Creating a new item with a small, focused form (1–6 fields), edited inline, living on the list page. Webhooks, API Keys, Users, Backups. |
 | **Dedicated page** `/<resource>/[id]` | Editing an existing item that has its own tabs, nested resources, or a rich editor. Collections, flows with a step builder, edge functions. |
 
 Rule of thumb: more than six fields, or tabs, or sub-resources → a page.

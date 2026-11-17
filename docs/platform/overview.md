@@ -52,7 +52,7 @@ See [multi-tenancy.md](multi-tenancy.md).
 | Capability | What it means |
 |---|---|
 | **Schema changes on live tables** | Add a column to a multi-million-row table while users are active — a catalog change that blocks for milliseconds; only a volatile default (`gen_random_uuid()`) rewrites the table. See [collections.md](../engine/collections.md). |
-| **Schema branching** | Record schema changes on a branch, diff, review and preview them, then merge. |
+| **Schema as code** | The schema as files in git: `zveltio schema pull`, `diff` and `apply` move a change from a branch to staging to production. |
 | **Bring Your Own Data** | Import tables from an existing database into Zveltio's PostgreSQL; they become collections with admin UI, REST API and permissions. `integrations/migrators` imports from HubSpot, Notion and Airtable. |
 | **Per-field encryption** | Mark any field `encrypted: true`; AES-256-GCM, transparent at the engine level. |
 | **Live TypeScript types** | `zveltio generate-types` once, and every SDK call is typed from that point on. |

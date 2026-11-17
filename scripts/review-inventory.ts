@@ -403,8 +403,6 @@ const SECTIONS: Section[] = [
       `${E}routes/relations.ts`,
       `${E}routes/revisions.ts`,
       `${E}routes/erd-layout.ts`,
-      `${E}routes/schema-branches.ts`,
-      `${E}lib/data/branch-protections.ts`,
     ],
   },
   {
@@ -728,12 +726,11 @@ const SECTIONS: Section[] = [
   {
     id: 'C09',
     track: 'C — Studio & client',
-    title: 'Admin pages — flows, marketplace, schema branches, onboarding',
+    title: 'Admin pages — flows, marketplace, onboarding',
     focus: 'Screens that install or execute something.',
     match: [
       `${S}routes/(admin)/flows/`,
       `${S}routes/(admin)/marketplace/`,
-      `${S}routes/(admin)/schema-branches/`,
       `${S}routes/(admin)/onboarding/`,
     ],
   },

@@ -18,8 +18,9 @@ As a result, a team cannot:
 - reproduce production's schema on a laptop or in CI;
 - promote a change from staging to production other than by clicking it again.
 
-Schema branches (`docs/engine/collections.md#schema-branches`) diff and merge
-inside one database. They do not leave it.
+Schema branches diffed and merged inside one database and did not leave it;
+they were removed (ADR 0049), and schema as code is now the one way the schema
+changes.
 
 The comparable products have this:
 
@@ -306,7 +307,7 @@ The plan reads like `terraform plan`:
   file without them would otherwise show drift forever. `pull` writes every
   setting, so a pulled file still says everything.
 - **No request transaction.** `/api/admin/schema` is in `TXN_SKIP_PREFIXES`
-  with `/api/collections` and `/api/schema`: the DDL runs on the pool, and a
+  with `/api/collections`: the DDL runs on the pool, and a
   CONCURRENTLY index build would otherwise wait on its own request.
 - **Plan.** `diff` sends the files to `POST /api/admin/schema/plan`, which
   compares them with the instance's own export and returns the steps. It
@@ -344,8 +345,8 @@ The plan reads like `terraform plan`:
     already files.
 - **In production** Studio does not write files. `pull` is how changes made
   there get back into git.
-- **Schema branches** stay as they are. A later step can export a branch as a
-  diff against the files. That is not part of v1.
+- **Schema branches** were removed (ADR 0049): the branch is a git branch of
+  the files.
 
 ## 8. Types
 

@@ -174,10 +174,9 @@ class Declared {
       manifest.integrity?.schemaSha256,
     );
     // After each create the engine tells its running self — the enforcer's
-    // model, branch previews, the other replicas. Nothing runs on this
-    // database, so those say only that, once per collection; anything else
-    // still prints.
-    const quiet = /^\[(resource-grants|schema-branches|realtime-bus)\] /;
+    // model, the other replicas. Nothing runs on this database, so those say
+    // only that, once per collection; anything else still prints.
+    const quiet = /^\[(resource-grants|realtime-bus)\] /;
     const { warn, error } = console;
     const filter =
       (to: (...a: unknown[]) => void) =>

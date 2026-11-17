@@ -84,7 +84,7 @@ export function afterRequestSettles(c: Context, fn: SettleJob): void {
 // (covers /api/data, content routes, and all extension routes), so no RLS'd
 // table is ever read without the GUC set.
 //
-// Schema-management routes (collections/relations/schema) operate on
+// Schema-management routes (collections, relations) operate on
 // GLOBAL metadata, not tenant rows, AND they enqueue DDL that runs `CREATE INDEX
 // CONCURRENTLY` — which blocks until all concurrent transactions finish. Holding
 // a tenant transaction across such a request deadlocks it against its own index
@@ -96,7 +96,6 @@ const TXN_SKIP_PREFIXES = [
   '/api/openapi',
   '/api/collections',
   '/api/relations',
-  '/api/schema',
   // Administering tenants is not work INSIDE a tenant.
   //
   // Provisioning creates the tenant row through the pool — it has to, because a
@@ -160,7 +159,7 @@ const TXN_SKIP_PREFIXES = [
 
   // Schema as code: export, plan and apply read and change global metadata,
   // and apply creates tables and builds indexes CONCURRENTLY — the reason
-  // `/api/collections` and `/api/schema` are above.
+  // `/api/collections` is above.
   '/api/admin/schema',
   // Running pending migrations: DDL, and the ledgers (zv_schema_versions,
   // zv_migrations) the request role may not write.

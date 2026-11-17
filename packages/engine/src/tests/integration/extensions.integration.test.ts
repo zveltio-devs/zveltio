@@ -27,7 +27,6 @@ const ENGINE_ROUTES = [
   '/api/flows',
   '/api/marketplace',
   '/api/backup',
-  '/api/schema/branches',
   '/api/saved-queries',
   '/api/tenants',
 ];
