@@ -36,7 +36,7 @@ const tenantOf = tenantId;
 // (`TXN_SKIP_PREFIXES`), where no tenant is set: on a non-superuser database a
 // policed table answers there for the default tenant only, and refuses any other
 // tenant's INSERT. So each query on it runs in a short tenant transaction of its
-// own, as `insights` does.
+// own.
 //
 // Nothing inside `fn` may reach for `poolDb` (Casbin lookups, the executor, the
 // audit log): holding this connection while waiting for a second one is the

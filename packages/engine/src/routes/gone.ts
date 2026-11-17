@@ -18,3 +18,12 @@ export function goneRoutes(replacement: string, feature: string): Hono {
   });
   return app;
 }
+
+/** A feature removed with nothing to move to: 410, saying why. */
+export function removedRoutes(detail: string): Hono {
+  const app = new Hono();
+  app.all('*', () => {
+    throw problem('gone', 410, detail);
+  });
+  return app;
+}

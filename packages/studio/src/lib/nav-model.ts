@@ -30,8 +30,6 @@ import {
   CheckSquare,
   Code,
   Bookmark,
-  BarChart2,
-  Terminal,
   Activity,
   LayoutGrid,
   Zap,
@@ -204,11 +202,6 @@ const RAW_NAV: NavGroup[] = [
     labelKey: 'nav.group.insights',
     items: [
       {
-        href: resolve(`insights`),
-        icon: BarChart2,
-        labelKey: 'nav.analytics',
-      },
-      {
         href: resolve(`audit`),
         icon: ClipboardList,
         labelKey: 'nav.auditLog',
@@ -262,12 +255,6 @@ const RAW_NAV: NavGroup[] = [
         href: resolve(`saved-queries`),
         icon: Bookmark,
         labelKey: 'nav.savedQueries',
-      },
-
-      {
-        href: resolve(`sql`),
-        icon: Terminal,
-        labelKey: 'nav.sqlEditor',
       },
     ],
   },

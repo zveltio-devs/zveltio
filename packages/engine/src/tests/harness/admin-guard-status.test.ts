@@ -43,7 +43,6 @@ const ROUTES: Array<[method: string, path: string]> = [
   ['GET', '/api/settings'],
   ['GET', '/api/backup'],
   ['GET', '/api/schema/branches'],
-  ['POST', '/api/admin/sql'],
 ];
 
 /** The routes behind `guardAdmin` — the ones a key's status code is pinned on. */

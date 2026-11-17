@@ -204,7 +204,7 @@ catalog and the engine creates its collections when it is enabled.
 ## What is *not* an extension
 
 These live in the engine core, and a document claiming otherwise is out of date:
-**flows** (automation), **backup**, **insights**, **saved queries**, **schema
+**flows** (automation), **backup**, **saved queries**, **schema
 branches**, **tenants**, **collections**, **storage**, **webhooks**,
 **realtime**, **audit**, **notifications**.
 

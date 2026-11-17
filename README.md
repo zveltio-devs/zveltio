@@ -129,7 +129,7 @@ Build your own: `zveltio extension create <name>` scaffolds. `zveltio extension 
 
 Some capabilities are the engine itself rather than an extension — collections,
 storage, webhooks, realtime, audit, notifications, automation flows, backup,
-insights, saved queries, schema branches, tenants — so they are not in that 57.
+saved queries, schema branches, tenants — so they are not in that 57.
 See [What is not an extension](docs/extensions/overview.md#what-is-not-an-extension).
 
 **Data & Content** · `content/pages` (block-based pages and sites, including authenticated portals) · `content/documents` · `content/document-templates` · `content/media` · `content/drafts` · `content/pdf-viewer` · `forms` · `data/import` · `data/export`

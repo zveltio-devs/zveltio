@@ -21,10 +21,8 @@ const PAGES: Array<[string, string]> = [
   ['07-settings', '/admin/settings/'],
   ['08-storage', '/admin/storage/'],
   ['09-flows', '/admin/flows/'],
-  ['10-insights', '/admin/insights/'],
   ['11-audit', '/admin/audit/'],
   ['12-tenants', '/admin/tenants/'],
-  ['13-sql', '/admin/sql/'],
   ['14-account', '/admin/account/'],
 ];
 

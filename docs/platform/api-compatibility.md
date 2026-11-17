@@ -53,10 +53,11 @@ replacement for the whole next major, then disappears.
 paths carry `x-contract: none`:
 
 - `/api/flows`, `/api/edge-functions`, `/api/fn`, `/api/sync`, `/api/electric`;
-- `/api/insights`, `/api/saved-queries` (leaving the engine);
+- `/api/saved-queries` (leaving the engine);
 - `/api/erd` (Studio's own diagram positions);
 - `/api/marketplace` (the operator's install path, moving with the registry);
-- every route already gone and answering 410: `/api/templates`,
+- every route already gone and answering 410: `/api/insights`,
+  `/api/admin/sql`, `/api/templates`,
   `/api/approvals`, `/api/export`, `/api/import`, `/api/media`,
   `/api/briefing`;
 - `/ext/*`: an extension route's contract is the extension's own version, not

@@ -25,7 +25,7 @@ import { notificationsRoutes } from './notifications.js';
 import { healthRoutes } from './health.js';
 import { flowsRoutes } from './flows.js';
 import { tenantsRoutes } from './tenants.js';
-import { goneRoutes } from './gone.js';
+import { goneRoutes, removedRoutes } from './gone.js';
 // graphql → extensions/developer/graphql
 // drafts → extensions/content/drafts
 // documents → extensions/content/documents
@@ -41,8 +41,6 @@ import { validationRoutes } from './validation.js';
 import { backupRoutes } from './backup.js';
 import { savedQueriesRoutes } from './saved-queries.js';
 import { schemaBranchesRoutes } from './schema-branches.js';
-import { insightsRoutes } from './insights.js';
-import { sqlEditorRoutes } from './sql-editor.js';
 import { erdLayoutRoutes } from './erd-layout.js';
 import { initDDLQueue } from '../lib/data/index.js';
 import {
@@ -79,7 +77,6 @@ import { configStepUp } from '../middleware/config-step-up.js';
 // /api/drafts           → extensions/content/drafts
 // /api/media            → extensions/content/media
 // /api/graphql          → extensions/developer/graphql
-// /api/insights         → extensions/analytics/insights
 // /api/quality          → extensions/analytics/quality
 // /api/saved-queries    → extensions/developer/saved-queries
 // /api/export           → extensions/data/export
@@ -106,11 +103,7 @@ interface RoutesContext {
    * tenant transaction. Three kinds, and each has a reason rather than a
    * preference:
    *
-   *  - it sets transaction-level properties of its own (`insights` and the SQL
-   *    editor issue SET TRANSACTION READ ONLY and a statement_timeout, which
-   *    must not be imposed on the whole request);
-   *  - it runs SQL nobody wrote in this codebase, which may fail and, in
-   *    Postgres, would abort the shared transaction along with the request;
+   *  - it runs DDL or reads global metadata the request role may not touch;
    *  - it continues after the response (`backup`, flow execution), by which
    *    time the request transaction is committed and gone.
    *
@@ -387,8 +380,7 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // Users management (admin)
   // `poolDb` as a third argument: deleting a user revokes their sessions, and
-  // `session` is off-limits to the request's `zveltio_rls` role. Same shape as
-  // `insightsRoutes(poolDb, auth)` and `backupRoutes(poolDb, auth)` below.
+  // `session` is off-limits to the request's `zveltio_rls` role.
   app.route('/api/users', usersRoutes(db, auth, poolDb));
 
   // Permissions / Casbin (admin)
@@ -484,8 +476,11 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // Data Quality Dashboard — moved to extensions/analytics/quality
 
-  // Analytics Insights — promoted to core (used to live in extensions/analytics/insights)
-  app.route('/api/insights', insightsRoutes(poolDb, auth));
+  // Insights ran caller-written SQL, which can rewrite the `zveltio.*` settings
+  // RLS reads (ADR 0058 d1). Its tables stay one release (ADR 0051).
+  const insightsGone =
+    'Insights was removed (ADR 0051): it ran SQL written by the caller, which can rewrite the tenant settings row-level security reads (ADR 0058). Its tables are kept for one release; draw charts with a view/2 `chart` over /api/data/:collection/aggregate.';
+  app.route('/api/insights', removedRoutes(insightsGone));
 
   // Briefing (receivables) — owned by extensions/crm (`GET /ext/crm/briefing`).
   // Transactions are no longer a core invariant; bare BaaS has nothing to chase.
@@ -497,8 +492,10 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // Schema Branches — promoted to core (was extensions/developer/schema-branches)
   app.route('/api/schema', schemaBranchesRoutes(db, auth));
 
-  // Ad-hoc SQL editor — admin-only, audited
-  app.route('/api/admin/sql', sqlEditorRoutes(poolDb, auth));
+  // The SQL editor ran the caller's SQL as the engine's role, past RLS (ADR 0049 slice 4, ADR 0058 d1).
+  const sqlGone =
+    'The SQL editor was removed (ADR 0049, ADR 0058): no SQL written by a caller runs in the engine. Run SQL with a database client and your own database credentials.';
+  app.route('/api/admin/sql', removedRoutes(sqlGone));
 
   // Application templates — the templates/* official extensions, installed from
   // the catalog (ADR 0049); each declares its collections, the engine creates them.

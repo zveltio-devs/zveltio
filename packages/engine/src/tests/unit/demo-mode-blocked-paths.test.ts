@@ -58,12 +58,6 @@ describe('demo mode', () => {
     expect(await blocked('DELETE', '/api/users/u-1')).toBe(true);
   });
 
-  it('blocks the SQL editor', async () => {
-    // The route refuses DROP DATABASE and DROP SCHEMA, which is a long way
-    // from safe on an instance with open sign-up.
-    expect(await blocked('POST', '/api/admin/sql')).toBe(true);
-  });
-
   it('blocks API key creation and deletion', async () => {
     expect(await blocked('POST', '/api/admin/api-keys')).toBe(true);
     expect(await blocked('DELETE', '/api/admin/api-keys/k-1')).toBe(true);
@@ -83,8 +77,8 @@ describe('demo mode', () => {
     // exactly the handler their plain spelling reaches. The gate has to be
     // looking at the same string the router looked at, or one escaped letter
     // walks past every rule in the list.
-    expect(await blocked('POST', '/api/admin/%73ql')).toBe(true);
-    expect(await blocked('POST', '/api/%61dmin/sql')).toBe(true);
+    expect(await blocked('POST', '/api/admin/%6Digrate')).toBe(true);
+    expect(await blocked('POST', '/api/%61dmin/migrate')).toBe(true);
     expect(await blocked('POST', '/api/b%61ckup')).toBe(true);
     expect(await blocked('GET', '/api/backup/abc-123/%64ownload')).toBe(true);
     expect(await blocked('PATCH', '/api/%75sers/u-1')).toBe(true);

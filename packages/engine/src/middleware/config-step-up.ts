@@ -8,11 +8,10 @@
  *
  * One classification for the whole configuration API (`config-routes.ts`),
  * checked here, not per handler. Configuration is what the Console does (ADR 0006 §2: schema, roles,
- * permissions, extensions, settings, users, tenants, flows, webhooks, backups,
- * SQL — insights panels and the ad-hoc query included). What a person does in the App is not: their own profile, sessions and
+ * permissions, extensions, settings, users, tenants, flows, webhooks, backups).
+ * What a person does in the App is not: their own profile, sessions and
  * factors (`/api/me`, `/api/auth`), data (`/api/data`, `/api/sync`, `/api/rpc/:fn`,
- * `/api/storage`, `/api/revisions`), notifications, saved queries, running an
- * insights panel, and their own ERD layout, which changes only their own view of the diagram.
+ * `/api/storage`, `/api/revisions`), notifications, saved queries, and their own ERD layout, which changes only their own view of the diagram.
  *
  * Who passes:
  * - a session with its window open;

@@ -67,7 +67,6 @@ d('configuration mutations need the step-up window', () => {
       ['PUT', '/api/settings/site_name', { value: 'x' }],
       ['POST', '/api/collections', { name: `${COLL}_x`, fields: [] }],
       ['DELETE', '/api/users/nobody', undefined],
-      ['POST', '/api/insights/query', { query: 'SELECT 1' }],
     ] as const) {
       const res = await send(method, path, body);
       expect(res.status).toBe(403);
@@ -84,7 +83,6 @@ d('configuration mutations need the step-up window', () => {
 
     await passkeyStepUp(req, cookie, pk, 'config', origin);
     expect((await send('POST', '/api/permissions/cache/invalidate', {})).status).toBe(200);
-    expect((await send('POST', '/api/insights/query', { query: 'SELECT 1' })).status).toBe(200);
   });
 
   it('every mutating /api route is configuration or a named App surface', () => {
@@ -95,7 +93,6 @@ d('configuration mutations need the step-up window', () => {
       '/api/auth', // own sessions and factors
       '/api/data',
       '/api/erd', // own diagram layout
-      '/api/insights', // running a panel; saved queries
       '/api/invitations', // accepting one (creating one is /api/users)
       '/api/me',
       '/api/notifications',
@@ -123,10 +120,5 @@ d('configuration mutations need the step-up window', () => {
     expect(isConfigMutation('DELETE', '/api/rpc/abc')).toBe(true);
     expect(isConfigMutation('GET', '/api/collections')).toBe(false);
     expect(isConfigMutation('POST', '/api/collectionsx')).toBe(false);
-    expect(isConfigMutation('POST', '/api/insights/dashboards')).toBe(true);
-    expect(isConfigMutation('PATCH', '/api/insights/panels/p1')).toBe(true);
-    expect(isConfigMutation('POST', '/api/insights/panels/p1/execute')).toBe(false);
-    expect(isConfigMutation('POST', '/api/insights/saved-queries')).toBe(false);
-    expect(isConfigMutation('POST', '/api/insights/saved-queries/q1/execute')).toBe(false);
   });
 });

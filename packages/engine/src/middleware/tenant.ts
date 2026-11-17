@@ -142,11 +142,10 @@ const TXN_SKIP_PREFIXES = [
   // point: the cost is not the request transaction, it is holding it while
   // reaching for another connection.
   //
-  // Skipping is safe here because none of the four relies on the request's GUC.
-  // `insights` and `flows` open a short `withTenantIsolation` of their own around
-  // each query on a policed table (never while holding one and reaching for
-  // another); `backup` and `sql-editor` are instance-level tools with no tenant
-  // scope at all.
+  // Skipping is safe here because neither relies on the request's GUC. `flows`
+  // opens a short `withTenantIsolation` of its own around each query on a
+  // policed table (never while holding one and reaching for another); `backup`
+  // is an instance-level tool with no tenant scope at all.
   //
   // `/api/users` is deliberately NOT here. It takes `poolDb` as a THIRD
   // argument, used only to revoke sessions on delete, and runs everything else
@@ -156,10 +155,8 @@ const TXN_SKIP_PREFIXES = [
   // `check-pooldb-txn-skip.ts` keeps this list and `routes/index.ts` in
   // agreement, so a router moved onto `poolDb` tomorrow cannot reintroduce the
   // standstill silently.
-  '/api/insights',
   '/api/flows',
   '/api/backup',
-  '/api/admin/sql',
 
   // Schema as code: export, plan and apply read and change global metadata,
   // and apply creates tables and builds indexes CONCURRENTLY — the reason
