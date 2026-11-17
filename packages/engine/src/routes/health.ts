@@ -1,3 +1,4 @@
+import { isProduction } from '../lib/operational-modes.js';
 import { unlink, writeFile } from 'node:fs/promises';
 import { requestSession } from '../middleware/session-prefetch.js';
 import { refuseWithoutSession } from '../lib/admin-guard.js';
@@ -108,7 +109,7 @@ export function healthRoutes(db: Database, auth?: any): Hono {
     // surfaces them (ADR 0058 d4 removed DEMO_MODE_ALLOW_IN_PROD). The
     // banner still shows ("demo_mode: true"), so the misconfiguration is
     // visible — we just don't hand out the passwords.
-    const exposeCreds = demoMode && process.env.NODE_ENV !== 'production';
+    const exposeCreds = demoMode && !isProduction();
 
     return c.json(
       {

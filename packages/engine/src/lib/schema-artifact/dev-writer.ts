@@ -9,6 +9,7 @@
  * is known, and records it as applied: this database already ran it.
  */
 
+import { isProduction } from '../operational-modes.js';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { MiddlewareHandler } from 'hono';
@@ -21,7 +22,7 @@ import { type MigrationOp, migrationChecksum } from './plan.js';
 /** The directory to write, or null when the writer is off. Read per call. */
 export function schemaDir(): string | null {
   const dir = process.env.ZVELTIO_SCHEMA_DIR;
-  return dir && process.env.NODE_ENV !== 'production' ? dir : null;
+  return dir && !isProduction() ? dir : null;
 }
 
 let pool: Database | null = null;

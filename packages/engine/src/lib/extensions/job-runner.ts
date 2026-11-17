@@ -32,6 +32,7 @@
  * 2026-11-05, Deno 2.9.8: dies at 32 GiB, starts at 1.1 TiB).
  */
 
+import { isProduction } from '../operational-modes.js';
 import { chmodSync, mkdtempSync, readFileSync } from 'node:fs';
 import { connect, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -264,7 +265,7 @@ const BOOTSTRAP_URL = `data:text/javascript;base64,${Buffer.from(RUNNER_BOOTSTRA
  */
 export function jobPlacement(): 'runner' | 'process' {
   const t = extensionTransport();
-  if (t === 'process' && process.env.NODE_ENV === 'production') {
+  if (t === 'process' && isProduction()) {
     throw new Error(
       'in production a Deno job runs only on the extension runner; ZVELTIO_EXT_TRANSPORT=process ' +
         "would run it under the engine's uid: unset it",

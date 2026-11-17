@@ -44,7 +44,7 @@ import {
   buildSandboxSsrfGuardSource,
 } from '../security/url-validator.js';
 import { runnerInterpreterArgs, runningAsCompiledBinary } from './runner-sentinel.js';
-import { modeValue } from '../operational-modes.js';
+import { isProduction, modeValue } from '../operational-modes.js';
 import {
   createEgressBridge,
   EGRESS_LIMITS,
@@ -1258,7 +1258,7 @@ function toRunResult(o: Outcome, duration_ms: number): RunResult {
 export function edgeTransport(
   env: Record<string, string | undefined> = process.env,
 ): 'process' | 'runner' {
-  if (env.NODE_ENV !== 'development' && env.NODE_ENV !== 'test') return 'runner';
+  if (isProduction(env)) return 'runner';
   return modeValue('ZVELTIO_EDGE_TRANSPORT', env) === 'runner' ? 'runner' : 'process';
 }
 

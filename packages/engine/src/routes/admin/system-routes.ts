@@ -1,3 +1,4 @@
+import { isProduction } from '../../lib/operational-modes.js';
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
@@ -565,7 +566,7 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
 
   // POST /explain — EXPLAIN ANALYZE a Kysely query (admin only, dev/staging only)
   app.post('/explain', async (c) => {
-    if (process.env.NODE_ENV === 'production') {
+    if (isProduction()) {
       return c.json({ error: 'EXPLAIN endpoint is disabled in production' }, 403);
     }
 

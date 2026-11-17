@@ -1,3 +1,4 @@
+import { isProduction } from './operational-modes.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import {
   getCurrentTenantTrx,
@@ -436,7 +437,7 @@ export async function initAuth(db: Database) {
         .filter(Boolean)
     : localOrigins;
 
-  if (!process.env.CORS_ORIGINS && process.env.NODE_ENV === 'production') {
+  if (!process.env.CORS_ORIGINS && isProduction()) {
     console.warn(
       '[auth] CORS_ORIGINS is not set in production — falling back to ' +
         `auto-detected origins (${localOrigins.length} entries). Set ` +
@@ -513,10 +514,11 @@ export async function initAuth(db: Database) {
   // better-auth's auto-detect on baseURL. Auto-detect treats `https://`
   // as production but mis-classifies tunnels (cloudflared, ngrok) and
   // anything served behind a reverse proxy that terminates TLS upstream
-  // of the engine. Operators set NODE_ENV=production for live deploys;
+  // of the engine. Every NODE_ENV but development/test, unset included, is
+  // production here (ADR 0058, `isProduction`);
   // CROSS_DOMAIN_AUTH=true switches SameSite to None for setups where
   // Studio and engine run on different origins.
-  const inProd = process.env.NODE_ENV === 'production';
+  const inProd = isProduction();
   const crossDomainAuth = process.env.CROSS_DOMAIN_AUTH === 'true';
   const advancedCookieConfig = {
     defaultCookieAttributes: {

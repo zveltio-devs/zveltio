@@ -8,6 +8,9 @@
  * the register reads a registered variable (`.NAME` or `['NAME']`) — the
  * register must stay the only reader, so a new hatch cannot exist without an
  * entry. A read through a helper taking the name as an argument is not seen.
+ * It also fails on a `NODE_ENV` compared with `'production'` outside the
+ * register: unset is production (ADR 0058, owner 2026-11-17), and such a
+ * comparison reads unset as development — every guard asks `isProduction()`.
  */
 
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -47,6 +50,14 @@ function withTable(doc: string): string {
   return doc.slice(0, a) + table() + doc.slice(b + END.length);
 }
 
+// `NODE_ENV === 'production'`, `!= "production"`, `'production' !== env.NODE_ENV`, `['NODE_ENV']` too.
+const PROD = `['"\`]production['"\`]`;
+const NODE_ENV = `(?:\\b(?:NODE_ENV|nodeEnv)\\b|\\[\\s*['"\`]NODE_ENV['"\`]\\s*\\])`;
+const PROD_COMPARE = new RegExp(
+  `${NODE_ENV}\\s*[!=]==?\\s*${PROD}|${PROD}\\s*[!=]==?\\s*[\\w.$?]*${NODE_ENV}`,
+  'g',
+);
+
 /** Engine code, tests and fixtures aside, that reads a registered variable. */
 function directReads(): string[] {
   const names = (Object.entries(MODES) as [string, Mode][])
@@ -69,6 +80,8 @@ function directReads(): string[] {
           .replace(/^\s*\/\*[\s\S]*?\*\//gm, '')
           .replace(/(^|\s)\/\/[^\n]*/g, '$1');
         for (const m of code.matchAll(re)) out.push(`${relative(ROOT, p)}: ${m[1] ?? m[2]}`);
+        for (const m of code.matchAll(PROD_COMPARE))
+          out.push(`${relative(ROOT, p)}: ${m[0]} (ask isProduction())`);
       }
     }
   };
@@ -91,7 +104,7 @@ if (process.argv.includes('--check')) {
   const reads = directReads();
   if (reads.length > 0) {
     console.error(
-      '[operational-modes] FAIL — read outside the register; use modeValue() from lib/operational-modes.ts:',
+      '[operational-modes] FAIL — read outside the register; use modeValue() or isProduction() from lib/operational-modes.ts:',
     );
     for (const r of reads) console.error(`  ${r}`);
     failed = true;

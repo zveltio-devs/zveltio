@@ -16,7 +16,7 @@
 
 import { sql } from 'kysely';
 import { activePoolMax, type Database } from '../db/index.js';
-import { modeValue } from './operational-modes.js';
+import { isProduction, modeValue } from './operational-modes.js';
 
 export interface ProductionGuardViolation {
   /** The variable at fault, so the operator can act without reading source. */
@@ -34,7 +34,7 @@ export interface ProductionGuardViolation {
 export function productionGuardViolations(
   env: Record<string, string | undefined>,
 ): ProductionGuardViolation[] {
-  if (env.NODE_ENV !== 'production') return [];
+  if (!isProduction(env)) return [];
 
   const violations: ProductionGuardViolation[] = [];
 

@@ -1,3 +1,4 @@
+import { isProduction } from '../lib/operational-modes.js';
 import { afterRequestSettles } from './tenant.js';
 import type { MiddlewareHandler } from 'hono';
 import type { Database } from '../db/index.js';
@@ -29,7 +30,7 @@ export function slowQueryMiddleware(poolDb: Database): MiddlewareHandler {
       };
 
       // Log to console in dev
-      if (process.env.NODE_ENV !== 'production') {
+      if (!isProduction()) {
         console.warn('[slow-query]', entry);
       }
 
