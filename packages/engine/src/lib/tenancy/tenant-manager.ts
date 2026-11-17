@@ -162,6 +162,7 @@ import {
   type TenantScope,
   tenantScopeQuery,
 } from './tenant-scope.js';
+import { currentAuthSecret } from '../security/index.js';
 
 export { activeMembership };
 
@@ -1011,7 +1012,7 @@ export async function warnIfDbRoleBypassesRls(
 // Protects cached tenant data against tampering by an attacker with Valkey
 // write access (e.g. activating a banned tenant). Pattern mirrors the god-role cache in permissions.ts.
 function _tenantHmac(key: string, value: string): string {
-  const secret = process.env.BETTER_AUTH_SECRET;
+  const secret = currentAuthSecret();
   if (!secret) {
     throw new Error(
       'BETTER_AUTH_SECRET is not set — tenant cache HMAC would use an empty key, providing no integrity protection. Set this environment variable before starting the server.',

@@ -239,6 +239,7 @@ services:
       PORT: 3000
       NODE_ENV: production
       BETTER_AUTH_SECRET: \${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in .env}
+      BETTER_AUTH_SECRETS: \${BETTER_AUTH_SECRETS:-}
       # Production refuses to boot without it (lib/startup-guards.ts): it is the
       # origin written into password-reset and verification mail.
       BETTER_AUTH_URL: \${BETTER_AUTH_URL:?Set BETTER_AUTH_URL in .env to the URL browsers use to reach this instance}
@@ -438,6 +439,7 @@ services:
       PORT: 3000
       NODE_ENV: production
       BETTER_AUTH_SECRET: \${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in .env}
+      BETTER_AUTH_SECRETS: \${BETTER_AUTH_SECRETS:-}
       # Production refuses to boot without it (lib/startup-guards.ts): it is the
       # origin written into password-reset and verification mail.
       BETTER_AUTH_URL: \${BETTER_AUTH_URL:?Set BETTER_AUTH_URL in .env to the URL browsers use to reach this instance}

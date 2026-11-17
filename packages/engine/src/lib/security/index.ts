@@ -13,3 +13,4 @@ export * from './csv.js';
 export * from './ws-origin.js';
 export * from './client-ip.js';
 export * from './loggable-request.js';
+export * from './auth-secret.js';

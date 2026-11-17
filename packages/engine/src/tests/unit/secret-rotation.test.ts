@@ -21,6 +21,7 @@ import { decodeSigned, encodeSigned } from '../../lib/tenancy/signed-cache.js';
 const OLD = 'old-secret-0123456789abcdef0123456789abcdef';
 const NEW = 'new-secret-0123456789abcdef0123456789abcdef';
 const previous = process.env.BETTER_AUTH_SECRET;
+const previousList = process.env.BETTER_AUTH_SECRETS;
 const rotate = (to: string) => {
   process.env.BETTER_AUTH_SECRET = to;
 };
@@ -28,6 +29,8 @@ const rotate = (to: string) => {
 afterEach(() => {
   if (previous === undefined) delete process.env.BETTER_AUTH_SECRET;
   else process.env.BETTER_AUTH_SECRET = previous;
+  if (previousList === undefined) delete process.env.BETTER_AUTH_SECRETS;
+  else process.env.BETTER_AUTH_SECRETS = previousList;
 });
 
 describe('rotating BETTER_AUTH_SECRET', () => {
@@ -61,5 +64,39 @@ describe('rotating BETTER_AUTH_SECRET', () => {
     rotate(NEW);
     expect(await hashApiKey(`zvk_${'a'.repeat(32)}`)).not.toBe(key);
     expect(await hmacAuthSecret('scim-token')).not.toBe(token);
+  });
+});
+
+// ADR 0058 decision 7: with BETTER_AUTH_SECRETS, what the engine signs uses the
+// list's current (first) secret only. BETTER_AUTH_SECRET=<old> stays set beside
+// the list as Better Auth's legacy decrypt key, and must not keep keying these.
+describe('BETTER_AUTH_SECRETS: engine signatures use the current secret only', () => {
+  const listRotate = () => {
+    rotate(OLD);
+    process.env.BETTER_AUTH_SECRETS = `2:${NEW},1:${OLD}`;
+  };
+
+  it('refuses what the old secret signed, though it is still listed and still legacy', async () => {
+    rotate(OLD);
+    const raw = encodeSigned('rls', 'rls:policies:x', []);
+    const token = sealToken({ id: 'r1' }, 'aad');
+    const exp = Math.floor(Date.now() / 1000) + 3600;
+    const sig = signKey('uploads/a.txt', exp);
+    const key = await hashApiKey(`zvk_${'a'.repeat(32)}`);
+    listRotate();
+    expect(decodeSigned('rls', 'rls:policies:x', raw)).toBeNull();
+    expect(openToken(token, 'aad')).toBeUndefined();
+    expect(verifySignedKey('uploads/a.txt', exp, sig)).toBe(false);
+    expect(await hashApiKey(`zvk_${'a'.repeat(32)}`)).not.toBe(key);
+  });
+
+  it('signs with the current secret: the same as BETTER_AUTH_SECRET=<new> alone', async () => {
+    listRotate();
+    const raw = encodeSigned('rls', 'rls:policies:x', []);
+    const key = await hashApiKey(`zvk_${'a'.repeat(32)}`);
+    delete process.env.BETTER_AUTH_SECRETS;
+    rotate(NEW);
+    expect(decodeSigned('rls', 'rls:policies:x', raw)).toEqual([]);
+    expect(await hashApiKey(`zvk_${'a'.repeat(32)}`)).toBe(key);
   });
 });
