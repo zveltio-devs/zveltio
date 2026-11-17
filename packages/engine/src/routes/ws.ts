@@ -24,7 +24,7 @@ import {
   stillInTenant,
 } from '../lib/tenancy/index.js';
 import type { Database } from '../db/index.js';
-import { inOrder, readScope, type ReadScope } from '../lib/data/index.js';
+import { inOrder, realtimeScope, type RealtimeScope } from '../lib/data/index.js';
 
 /**
  * The database handle `wsRoutes` was given.
@@ -94,7 +94,7 @@ interface WSConnection {
    * subscription; an entity check is async, so `pending` keeps delivery in
    * write order while one runs.
    */
-  access: Map<string, ReadScope>;
+  access: Map<string, RealtimeScope>;
   /** Delivery queue while an async entity-access verdict is pending. */
   pending?: Promise<void>;
 }
@@ -278,7 +278,7 @@ async function resolveSocketAccess(conn: WSConnection, collection: string): Prom
   return true;
 }
 
-function lookupSocketAccess(conn: WSConnection, collection: string): Promise<ReadScope> {
+function lookupSocketAccess(conn: WSConnection, collection: string): Promise<RealtimeScope> {
   // A failed lookup throws; it is never caught here as `[]` / `null`. That
   // used to read as "nothing to filter", so the socket then received every row
   // and column the caller's rules hide. The role is readScope's to resolve, as
@@ -286,7 +286,7 @@ function lookupSocketAccess(conn: WSConnection, collection: string): Promise<Rea
   const db = wsDb;
   if (!db) throw new Error('[ws] no database handle');
   return runWithDomain(conn.tenantId ?? DEFAULT_TENANT_ID, () =>
-    readScope(db, collection, conn.user, conn.authType),
+    realtimeScope(db, collection, conn.user, conn.authType, conn.tenantId),
   );
 }
 
@@ -744,12 +744,6 @@ export function broadcastEvent(
         stale.push({ channel, connId });
         continue;
       }
-      // Strict tenant isolation — drop the message rather than deliver
-      // it cross-tenant. NULL is treated as a distinct value so
-      // single-tenant connections aren't fed multi-tenant traffic and
-      // vice-versa.
-      if ((conn.tenantId ?? null) !== (tenantId ?? null)) continue;
-
       // The subscriber's own row policies and column permissions, applied by
       // the same helpers the REST and SSE paths use. Without them this door
       // delivered rows the API would have filtered and columns it would have
@@ -761,6 +755,10 @@ export function broadcastEvent(
       // latest rule change, or while the bus is down, delivers nothing either.
       const scope = conn.access.get(collection);
       if (!scope || !realtimeScopeCurrent(scope.generation)) continue;
+      // The tenants this socket reads, as `GET` reads them (DR-33): its own and,
+      // by its reach, the subtree or list. Never another tenant's write; NULL
+      // matches only NULL.
+      if (!scope.reaches(tenantId ?? null)) continue;
       if (partial && scope.entityChecks) continue;
       inOrder(conn, scope.admits(data), () => {
         // Again at send: one queued behind an async verdict may outlive its scope.

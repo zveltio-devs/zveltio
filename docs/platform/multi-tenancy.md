@@ -468,6 +468,16 @@ the reach names the parent (`list` or `org`). The unused per-collection opt-in
 for that (`zvd_collections.inherit_down` and the ancestor set behind it) was
 removed by migration 078.
 
+**Realtime follows the same reach** (DR-33, ADR 0058 decision 6). A WebSocket
+or SSE subscriber hears a write when the write's tenant is in the reach it
+reads through `GET` — a `subtree` member in a parent hears the children's
+writes, a god hears every tenant, an API key only its own. The reach is
+resolved with the subscription's read gate, under the access generation. The
+tree and the reach change by SQL only, with no event, so `reconcileRules`
+fingerprints `parent_id`, `status`, `read_scope` and `scope_list`: within one
+reconcile tick (30–60 s) a change re-resolves every open subscription, and
+until then the old reach applies.
+
 ### Archiving and purging a tenant
 
 `DELETE /api/tenants/:id`, god only, `mode` in the query or a JSON body:
