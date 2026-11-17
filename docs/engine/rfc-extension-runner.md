@@ -167,9 +167,10 @@ worker-isolated extensions as it does when no runner answers.
 ### Edge functions
 
 `lib/edge-functions/subprocess-runner.ts` spawns a process per invocation with a
-minimal environment and a memory ceiling, by default under the engine's uid.
-With `ZVELTIO_EDGE_TRANSPORT=runner` it runs on the same runner placement
-instead, which closes the same-uid gap for edge functions too (step 5).
+minimal environment and a memory ceiling. In production every edge function and
+every flow `run_script` runs on the same runner placement, whatever its egress
+(steps 5 and 10, ADR 0058 decision 2), which closes the same-uid gap for them
+too; the engine's own child is a development placement only.
 
 ### Deno jobs
 
@@ -324,7 +325,7 @@ runner.
      outlives its connection, and that a foreign uid is refused.
    - Egress in compose is all or nothing for the runner: per-extension rules
      (decision 2) exist on bare metal only.
-5. **Done — edge functions on the runner** (opt-in, `ZVELTIO_EDGE_TRANSPORT=runner`):
+5. **Done — edge functions on the runner** (opt-in, `ZVELTIO_EDGE_TRANSPORT=runner`, until step 11):
    - One connection is one invocation. The engine writes a header line,
      `EDGE <memory MiB> <cpu s>`, then the envelope it would have written to a
      local child. The runner tells this from an extension's channel by the
@@ -344,7 +345,7 @@ runner.
    - Its own switch: `ext-runner setup` already sets `ZVELTIO_EXT_TRANSPORT`
      on every bare-metal install, and the runner denies every address, so
      reusing it would have cut edge functions off the network on the next
-     update. The default stays the local child until step 6.
+     update. The default stayed the local child until steps 10 and 11.
    - Proof: `ext-runner-compose.sh` runs `scripts/edge-runner-isolation.ts`
      through `runEdgeFunctionInSubprocess`. As the engine's child the function
      reaches a public URL; on the runner it does not. The function is held
@@ -606,7 +607,7 @@ runner.
       engine stops reading), one FETCH line 2 MiB (past it the invocation is
       killed), 50 requests, 6 in flight; each request ends with the
       invocation's own timeout.
-    - Placement, with `ZVELTIO_EDGE_TRANSPORT` unset: a declared function goes
+    - Placement (superseded by step 11), with `ZVELTIO_EDGE_TRANSPORT` unset: a declared function goes
       where third-party extensions go (`extensionTransport()`: the runner in
       production, a local child in development, which has no runner); an
       undeclared one stays the engine's child with the engine's network, and
@@ -624,9 +625,36 @@ runner.
       a listed metadata address are refused, an undeclared function reaches
       nothing, and with no `ZVELTIO_EDGE_TRANSPORT` a declared function runs
       under a runner uid.
-    - Still open: flow scripts (`script-runner.ts`) declare no egress and stay
-      local; the systemd proof (`ext-runner-systemd.sh`) checks the closed
+    - Still open: the systemd proof (`ext-runner-systemd.sh`) checks the closed
       network only, not the bridge.
+11. **Done — every edge function and flow script on the runner in production**
+    (ADR 0058 decision 2, DR-02). Step 10 left a function that declared no
+    egress as the engine's child: same uid, so code that escaped the JS
+    lockdown could read the engine's `/proc/<pid>/environ` (`DATABASE_URL`,
+    `BETTER_AUTH_SECRET`).
+    - Placement (`edgeTransport()`): every `NODE_ENV` but `development` and
+      `test` — unset included, since a hand-started engine has none — runs
+      every invocation on the runner, whatever its egress;
+      `ZVELTIO_EDGE_TRANSPORT` is not read there, and `=process` stops a
+      production engine at boot (`startup-guards.ts`).
+      `ZVELTIO_EXT_TRANSPORT` no longer moves edge functions. In development
+      and test the engine's child is the named development placement, logged
+      once; `=runner` asks for the runner there.
+    - Egress: a function that declares none has no network on the runner;
+      its `fetch` is refused by the engine with "declares no egress", until it
+      lists its hosts.
+    - Proof: `edge-egress.test.ts` (placement for every `NODE_ENV` and switch;
+      in production an undeclared function and a `runScript` reach the
+      runner and nothing else); `startup-guards.test.ts`;
+      `ext-runner-compose.sh` (the development placement reaches the network;
+      in production, with no switch or with `=process`, an undeclared function
+      runs under a runner uid that reads neither the engine's `.env` nor any
+      process's environment, while the engine's uid reads the engine's);
+      `ext-runner-systemd.sh` runs its held probe with no `NODE_ENV` and no
+      switch.
+    - Still open: bare metal runs every invocation under the one
+      `zveltio-ext-runner@edge` uid, so two concurrent invocations share a uid;
+      containers give each its own.
 
 ## Alternatives considered
 

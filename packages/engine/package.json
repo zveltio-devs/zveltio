@@ -11,7 +11,7 @@
     "build": "bun scripts/gen-embedded-migrations.ts && BUN_MEMORY_LIMIT=4096 bun build src/index.ts --outdir dist --target bun --packages external",
     "build:binary": "bun scripts/build-binary.ts",
     "build:prod": "bun scripts/gen-embedded-migrations.ts && BUN_MEMORY_LIMIT=2048 bun build src/index.ts --outdir dist --target bun --packages external --minify",
-    "dev": "BUN_MEMORY_LIMIT=2048 bun --watch src/index.ts",
+    "dev": "NODE_ENV=development BUN_MEMORY_LIMIT=2048 bun --watch src/index.ts",
     "start": "bun dist/index.js",
     "typecheck": "tsc --noEmit",
     "db:init": "bun src/db/migrate.ts",

@@ -51,7 +51,6 @@ import {
   parseEgress,
   splitFetchLines,
 } from './egress.js';
-import { extensionTransport } from '../worker-extension-transport.js';
 import { chmodSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -1022,12 +1021,12 @@ export async function runEdgeFunctionInSubprocess(
   } catch (err) {
     return { ok: false, error: (err as Error).message, logs: [], duration_ms: 0 };
   }
-  const transport = edgeTransport(egress);
+  const transport = edgeTransport();
   // On the runner every fetch crosses to the engine — an undeclared function's
   // is refused there, with a reason, instead of dying on a closed network. A
   // declared function is held to its list wherever it runs.
   const bridged = transport === 'runner' || egress !== null;
-  if (transport === 'process' && egress === null) warnUndeclaredEgress();
+  if (transport === 'process') noteDevelopmentPlacement();
 
   const budgetMb = opts.memoryLimitMb ?? MEMORY_LIMIT_MB;
   const envelope =
@@ -1070,20 +1069,20 @@ function bridgeFor(
   return { onFetch: b.line, close: b.close, violation: () => violation };
 }
 
-let undeclaredWarningShown = false;
+let developmentPlacementNoted = false;
 /**
- * Transition (RFC step 10): where third-party extensions go to the runner, an
- * edge function that declares no egress still runs as the engine's child, with
- * the engine's network — moving it would cut it off. Said once per process.
+ * The engine's own child is a development placement (ADR 0058 decision 2): no
+ * uid boundary, and an undeclared function keeps the engine's network. Named
+ * once per process, so a log says where the code ran.
  */
-function warnUndeclaredEgress(): void {
-  if (undeclaredWarningShown || extensionTransport() !== 'runner') return;
-  undeclaredWarningShown = true;
+function noteDevelopmentPlacement(): void {
+  if (developmentPlacementNoted) return;
+  developmentPlacementNoted = true;
   console.warn(
-    "[edge-functions] an edge function that declares no egress ran as the engine's child, " +
-      "with the engine's network. Declare the hosts it calls in its egress field " +
-      '(an empty list for none) to move it to the extension runner; ' +
-      'ZVELTIO_EDGE_TRANSPORT=runner moves every function and cuts off the undeclared ones.',
+    `[edge-functions] development placement (NODE_ENV=${process.env.NODE_ENV}): edge functions ` +
+      'and flow scripts run as children of the engine, under its uid, and one that declares no ' +
+      'egress reaches the network. Production runs every one on the extension runner, where ' +
+      'an undeclared fetch is refused.',
   );
 }
 
@@ -1233,33 +1232,33 @@ function toRunResult(o: Outcome, duration_ms: number): RunResult {
   };
 }
 
-// ── The runner placement (RFC extension-runner, step 5) ─────────────────────
+// ── The runner placement (RFC extension-runner, step 5; ADR 0058 d2) ───────
 //
-// `ZVELTIO_EDGE_TRANSPORT=runner` runs each invocation in the extension runner
-// (lib/ext-runner.ts) instead of as the engine's child: under a uid that cannot
-// read the engine's files, environment or process state. One connection is one
-// invocation. The engine writes a header line and the envelope; the runner
-// spawns the same bootstrap under the same ceilings, waits for it, and answers
-// one JSON line carrying what a local spawn would have observed — stdout,
-// stderr, exit code, signal, CPU seconds — so the result is built by the same
-// `toRunResult`. Closing the connection kills the invocation.
-//
-// A separate switch from ZVELTIO_EXT_TRANSPORT on purpose: `ext-runner setup`
-// already sets that one on every bare-metal install, and the runner denies
-// every address until the operator allows one — tying the two would cut edge
-// functions off the network on the next update. Default flip is RFC step 10.
+// Each invocation runs in the extension runner (lib/ext-runner.ts), not as the
+// engine's child: under a uid that cannot read the engine's files, environment
+// or process state. One connection is one invocation. The engine writes a
+// header line and the envelope; the runner spawns the same bootstrap under the
+// same ceilings, waits for it, and answers one JSON line carrying what a local
+// spawn would have observed — stdout, stderr, exit code, signal, CPU seconds —
+// so the result is built by the same `toRunResult`. Closing the connection
+// kills the invocation.
 
 /**
- * Where one invocation runs. `ZVELTIO_EDGE_TRANSPORT` when it names a transport;
- * otherwise (RFC step 10) a function that declares its egress goes where
- * third-party extensions go — the runner in production, a local child on a
- * development machine, which has no runner — and one that declares none stays
- * the engine's child, since the runner's closed network would cut it off.
+ * Where one invocation runs (ADR 0058 decision 2). Every NODE_ENV but
+ * `development` and `test` — unset included, since a hand-started engine has
+ * none — is production here: every edge function and flow script runs on the
+ * runner, whatever its egress, and nothing selects otherwise
+ * (`ZVELTIO_EDGE_TRANSPORT=process` is refused at boot by startup-guards.ts).
+ * In development and test, which have no runner, the engine's child is the
+ * named development placement; `ZVELTIO_EDGE_TRANSPORT=runner` asks for the
+ * runner there too. `env` is read as an object, never as the literal
+ * `process.env.NODE_ENV`, which `bun build` inlines as "development".
  */
-export function edgeTransport(egress: string[] | null = null): 'process' | 'runner' {
-  const t = process.env.ZVELTIO_EDGE_TRANSPORT;
-  if (t === 'runner' || t === 'process') return t;
-  return egress !== null ? extensionTransport() : 'process';
+export function edgeTransport(
+  env: Record<string, string | undefined> = process.env,
+): 'process' | 'runner' {
+  if (env.NODE_ENV !== 'development' && env.NODE_ENV !== 'test') return 'runner';
+  return env.ZVELTIO_EDGE_TRANSPORT === 'runner' ? 'runner' : 'process';
 }
 
 /**

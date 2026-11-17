@@ -180,6 +180,15 @@ describe('Valkey is a requirement, not a preference', () => {
     expect(productionGuardViolations(env)).toEqual([]);
   });
 
+  // ADR 0058 d2: the engine's child would share its uid, and so its environment.
+  it('refuses ZVELTIO_EDGE_TRANSPORT=process; the runner is the only placement', () => {
+    const env = { NODE_ENV: 'production', VALKEY_URL: CACHE, BETTER_AUTH_URL: BASE };
+    const v = productionGuardViolations({ ...env, ZVELTIO_EDGE_TRANSPORT: 'process' });
+    expect(v.map((x) => x.variable)).toEqual(['ZVELTIO_EDGE_TRANSPORT']);
+    expect(v[0]!.message).toContain('BETTER_AUTH_SECRET');
+    expect(productionGuardViolations({ ...env, ZVELTIO_EDGE_TRANSPORT: 'runner' })).toEqual([]);
+  });
+
   it('does not fire outside production', () => {
     // A development box with no Valkey is a normal thing to run, and blocking it
     // would only teach people to set the hatch permanently.

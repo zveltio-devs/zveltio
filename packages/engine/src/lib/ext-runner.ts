@@ -600,7 +600,7 @@ TasksMax=64
 [Install]
 WantedBy=multi-user.target
 `,
-    [`/etc/systemd/system/zveltio-ext-runner@${EDGE_RUNNER_INSTANCE}.service.d/edge.conf`]: `# Written by \`zveltio ext-runner setup\`: edge functions (ZVELTIO_EDGE_TRANSPORT=runner)
+    [`/etc/systemd/system/zveltio-ext-runner@${EDGE_RUNNER_INSTANCE}.service.d/edge.conf`]: `# Written by \`zveltio ext-runner setup\`: edge functions and flow scripts
 # run here, one process per invocation and several at once — a Bun process is
 # about ten tasks, so the template's 64 would cap them near six.
 [Service]

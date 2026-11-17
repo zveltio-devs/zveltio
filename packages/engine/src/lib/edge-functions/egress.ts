@@ -191,7 +191,7 @@ export async function performEgress(
           throw new Error(
             list.length
               ? `[egress] ${u.host} is not in this function's egress (${list.join(', ')})`
-              : '[egress] this function declares no egress',
+              : '[egress] this function declares no egress: list the hosts it calls in its egress field',
           );
         }
         if (onPrivate !== null && u.host !== onPrivate) {
