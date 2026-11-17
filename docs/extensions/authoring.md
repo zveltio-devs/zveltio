@@ -266,6 +266,12 @@ export default defineExtension(['data:write', 'data:system'], {
 - A job acts as the extension, beyond its caller: an extension with jobs lists
   `data:system` in `permissions` (and in `defineExtension`), or `host.enqueue`
   refuses with 500.
+- A job may declare `"schedule": "*/5 * * * *"` (five cron fields, UTC; ADR
+  0048 decision 1): at each occurrence the engine enqueues it once in every
+  active tenant where the extension is active, with input `{}`, no caller and
+  no author, across replicas, and once to catch up after downtime. Its input
+  schema must accept `{}`. Engines from 3.0.0-beta.126; an older one ignores
+  the field. Details in the [developer guide](developer-guide.md), §9.
 - An extension signed with an operator key (level 3, ADR 0056) is declared
   model only: collections, actions, jobs and declared routes; its `register()`
   may use neither its app nor its `ctx`, and raw SQL migrations are refused
