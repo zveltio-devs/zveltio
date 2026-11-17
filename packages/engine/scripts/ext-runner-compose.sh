@@ -15,10 +15,12 @@
 # A connection from a uid other than the engine's is refused (SO_PEERCRED), and
 # an extension's process does not outlive its connection.
 #
-# Edge functions (step 5, edge-runner-isolation.ts): under the engine
-# (ZVELTIO_EDGE_TRANSPORT unset) an edge function reaches the network; with
-# ZVELTIO_EDGE_TRANSPORT=runner it does not, and the uid it runs under — read
-# from outside while the invocation is held — cannot read the engine's .env.
+# Edge functions (step 5, edge-runner-isolation.ts; ADR 0058 d2): in the
+# development placement (NODE_ENV=development) an edge function is the engine's
+# child and reaches the network; in production, with no ZVELTIO_EDGE_TRANSPORT
+# and no egress, it runs on the runner (=process changes nothing), reaches
+# nothing, and the uid it runs under — read from outside while the invocation
+# is held — reads neither the engine's .env nor any process's environment.
 # Step 10: a function that declares its egress goes to the runner by
 # default and reaches a listed host through the engine; an unlisted host, a
 # private address it lists, and a function that lists nothing reach nothing.
@@ -79,13 +81,22 @@ done
 [ "${uids[0]}" != "${uids[1]}" ] || { echo "FAIL: two extensions got the same uid"; fail=1; }
 
 EDGE=/src/packages/engine/scripts/edge-runner-isolation.ts
-out=$(dc exec -T -e PROBE_URL="$URL" engine bun "$EDGE" 2>&1 || true)
+out=$(dc exec -T -e PROBE_URL="$URL" -e NODE_ENV=development engine bun "$EDGE" 2>&1 || true)
 echo "edge process: ${out:0:300}"
-grep -q '"fetch":"HTTP' <<<"$out" \
+grep -q '"transport":"process"' <<<"$out" && grep -q '"fetch":"HTTP' <<<"$out" \
   || { echo "FAIL: an edge function under the engine's uid should reach $URL (probe broken?)"; fail=1; }
-# Held for 10 s: measured from outside while it lives, under its own uid.
+# Positive control for the environ check below: the engine's uid reads the
+# environment of the engine's processes — what its child could do (U1).
+{ dc exec -T engine sh -c 'cat /proc/[0-9]*/environ 2>/dev/null; true' || true; } | grep -aq hunter2-process-env \
+  || { echo "FAIL: the engine's uid reads no engine environment (probe broken?)"; fail=1; }
+out=$(dc exec -T -e PROBE_URL="$URL" -e ZVELTIO_EDGE_TRANSPORT=process engine bun "$EDGE" 2>&1 || true)
+echo "edge =process in production: ${out:0:300}"
+grep -q '"transport":"runner"' <<<"$out" \
+  || { echo "FAIL: ZVELTIO_EDGE_TRANSPORT=process placed a function as the engine's child in production"; fail=1; }
+# Production's default for a function that declares no egress, held for 10 s:
+# measured from outside while it lives, under its own uid.
 edge_out=$(mktemp)
-dc exec -T -e PROBE_URL="$URL" -e PROBE_HOLD_MS=10000 -e ZVELTIO_EDGE_TRANSPORT=runner \
+dc exec -T -e PROBE_URL="$URL" -e PROBE_HOLD_MS=10000 \
   engine bun "$EDGE" >"$edge_out" 2>&1 &
 edge_pid=$!
 # Polled: the invocation may take a moment to start. awk reads to the end (an
@@ -106,6 +117,8 @@ if [ -n "$uid" ]; then
   [ "$uid" -ge 200000 ] || { echo "FAIL: edge function ran as uid $uid"; fail=1; }
   { dc exec -T -u "$uid" ext-runner cat /opt/zveltio/.env 2>/dev/null || true; } | grep -q hunter2 \
     && { echo "FAIL: the edge function's uid $uid reads an engine secret"; fail=1; }
+  { dc exec -T -u "$uid" ext-runner sh -c 'cat /proc/[0-9]*/environ 2>/dev/null; true' || true; } \
+    | grep -aq hunter2 && { echo "FAIL: the edge function's uid $uid reads an engine environment"; fail=1; }
 fi
 wait "$edge_pid" || true
 out=$(cat "$edge_out"); rm -f "$edge_out"

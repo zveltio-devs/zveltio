@@ -34,7 +34,7 @@ runtime for untrusted code.
 
   separate processes, spawned by the engine:
     • worker-isolated extensions   (one process per extension)
-    • edge function invocations    (one process per call, by default)
+    • edge function invocations    (one process per call; on the runner in production)
 ```
 
 **Why a monolith.** The primary deployment is a single organisation
@@ -208,9 +208,12 @@ Ordered from most to least trusted:
    which holds no grants on Better-Auth tables. Without a reachable runner,
    production refuses them. Outside production they run as a child of the
    engine, under its uid — the same protocol, no boundary.
-5. **Edge functions** — a separate process per invocation with a minimal
-   environment and a kernel memory ceiling. One runner: the in-process Worker
-   mode was removed because a thread cannot be given that ceiling.
+5. **Edge functions and flow scripts** — a separate process per invocation with
+   a minimal environment and a kernel memory ceiling, in production always on
+   the extension runner, under a uid that is not the engine's and with no
+   network (ADR 0058); outside production, a child of the engine. The
+   in-process Worker mode was removed because a thread cannot be given that
+   ceiling.
 6. **Authenticated users** — separated from each other by RBAC, row rules and
    column permissions; separated across tenants by Postgres RLS.
 7. **Anonymous requests** — write nothing under `/api/*`. They may read

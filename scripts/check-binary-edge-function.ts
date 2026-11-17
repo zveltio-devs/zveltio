@@ -248,7 +248,14 @@ const buildErr = await new Response(build.stderr).text();
 await build.exited;
 if (build.exitCode !== 0) fail('the probe did not compile', buildErr);
 
-const run = spawn({ cmd: [binary], stdout: 'pipe', stderr: 'pipe' });
+// The development placement: the binary spawns the bootstrap itself, as the
+// runner does in production (ADR 0058 d2) — the same self-exec this proves.
+const run = spawn({
+  cmd: [binary],
+  env: { ...process.env, NODE_ENV: 'development' },
+  stdout: 'pipe',
+  stderr: 'pipe',
+});
 const killer = setTimeout(() => run.kill('SIGKILL'), 60_000);
 const [out, err] = await Promise.all([
   new Response(run.stdout).text(),

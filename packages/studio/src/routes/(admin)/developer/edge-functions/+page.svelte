@@ -15,9 +15,10 @@ type FnFull = FnMeta & { code?: string | null; egress?: string[] | null; path?: 
 
 /**
  * What the function may reach — its `egress`. Saving it is the approval, so the
- * three answers are spelled out rather than folded into an empty field:
- * undeclared keeps the engine's network, `none` and `hosts` move it to the
- * extension runner where the engine performs its fetch, held to the list.
+ * three answers are spelled out rather than folded into an empty field. Every
+ * function runs on the extension runner in production (ADR 0058 d2), where the
+ * engine performs its fetch, held to the list; undeclared and `none` reach
+ * nothing there.
  */
 type EgressMode = 'undeclared' | 'none' | 'hosts';
 
@@ -208,7 +209,7 @@ $effect(() => {
         {/if}
         <span class="w-full opacity-70" role="status">
           {#if egressMode === 'undeclared'}
-            Runs with the engine's network. Declare its hosts to run it isolated.
+            Reaches nothing: a call out is refused until you list its hosts.
           {:else if egressMode === 'none' || egressList.length === 0}
             Can reach: nothing.
           {:else}

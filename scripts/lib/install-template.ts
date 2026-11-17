@@ -161,6 +161,11 @@ class Declared {
         if (max === undefined) delete process.env.DB_POOL_MAX;
         else process.env.DB_POOL_MAX = max;
       }
+      // A declared row rule (gdpr 3.1.0) is written by `createRlsPolicy` on the
+      // pool boot hands to the RLS module; without it the apply throws
+      // "undefined is not an object (evaluating '_db.transaction')".
+      const { initRls } = await import('../../packages/engine/src/lib/tenancy/rls.js');
+      initRls(this.db);
     }
     const files = await readDeclaredCollections(
       name,

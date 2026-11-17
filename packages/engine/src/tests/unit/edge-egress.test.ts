@@ -21,6 +21,7 @@ import {
   serveEdgeConnection,
 } from '../../lib/edge-functions/subprocess-runner.js';
 import { forgetEdgeRunner, routeConnection } from '../../lib/ext-runner.js';
+import { runScript } from '../../lib/script-runner.js';
 
 const REQ: EdgeRequest = { method: 'GET', headers: {}, query: {}, body: null, path: '/' };
 const dir = mkdtempSync(join(tmpdir(), 'zv-edge-egress-test-'));
@@ -272,40 +273,49 @@ describe('egress declarations', () => {
     });
   }, 30_000);
 
-  it('a declared function defaults to where extensions run; an undeclared one stays local', () => {
-    delete process.env.ZVELTIO_EDGE_TRANSPORT;
-    process.env.NODE_ENV = 'production';
-    expect(edgeTransport(['api.allowed.test'])).toBe('runner');
-    expect(edgeTransport([])).toBe('runner');
-    expect(edgeTransport(null)).toBe('process');
-    process.env.NODE_ENV = 'development';
-    expect(edgeTransport(['api.allowed.test'])).toBe('process');
-    process.env.ZVELTIO_EXT_TRANSPORT = 'runner';
-    expect(edgeTransport(['api.allowed.test'])).toBe('runner');
-    // The operator's switch wins both ways.
-    process.env.ZVELTIO_EDGE_TRANSPORT = 'process';
-    expect(edgeTransport(['api.allowed.test'])).toBe('process');
-    process.env.ZVELTIO_EDGE_TRANSPORT = 'runner';
-    expect(edgeTransport(null)).toBe('runner');
+  // ADR 0058 decision 2 (DR-02, finding U1): the engine's own child shares its
+  // uid, so the code in it can read /proc/<engine>/environ — DATABASE_URL,
+  // BETTER_AUTH_SECRET — behind nothing but the JS lockdown. Outside development
+  // and test nothing places an invocation there: not a missing egress, not a
+  // switch, not an unset NODE_ENV.
+  it('outside development and test every invocation goes to the runner', () => {
+    process.env.ZVELTIO_EXT_TRANSPORT = 'process';
+    for (const nodeEnv of ['production', undefined, 'staging']) {
+      if (nodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = nodeEnv;
+      for (const t of [undefined, 'process', 'runner']) {
+        if (t === undefined) delete process.env.ZVELTIO_EDGE_TRANSPORT;
+        else process.env.ZVELTIO_EDGE_TRANSPORT = t;
+        expect(`${nodeEnv}/${t}: ${edgeTransport()}`).toBe(`${nodeEnv}/${t}: runner`);
+      }
+    }
+    // The development placement: the engine's child unless the runner is asked for.
+    for (const nodeEnv of ['development', 'test']) {
+      process.env.NODE_ENV = nodeEnv;
+      delete process.env.ZVELTIO_EDGE_TRANSPORT;
+      expect(edgeTransport()).toBe('process');
+      process.env.ZVELTIO_EDGE_TRANSPORT = 'runner';
+      expect(edgeTransport()).toBe('runner');
+    }
   });
 
-  it('by default, a declared function crosses the runner in production', async () => {
+  it('in production an undeclared function and a flow script run on the runner and reach nothing', async () => {
     delete process.env.ZVELTIO_EDGE_TRANSPORT;
     process.env.NODE_ENV = 'production';
-    // The runner socket goes away: a declared function now fails to reach it,
-    // which proves it was sent there, and an undeclared one still runs locally.
-    process.env.ZVELTIO_EXT_RUNNER_SOCKET = join(dir, 'missing.sock');
-    const declared = await call({
-      egress: 'api.allowed.test',
-      url: 'https://api.allowed.test/',
-    });
-    expect(declared).toEqual({ error: expect.stringContaining('missing.sock') });
-    const undeclared = await runEdgeFunctionInSubprocess(
-      'async function handler() { return 7; }',
-      REQ,
-      {},
-      5000,
+    const fn = await call({ url: 'https://api.allowed.test/' });
+    expect(fn.denied).toContain('declares no egress');
+    const script = await runScript(
+      "try { await fetch('https://api.allowed.test/'); return 'reached'; } catch (e) { return e.message; }",
     );
-    expect(undeclared).toMatchObject({ ok: true, response: { body: 7 } });
+    expect(script.output).toContain('declares no egress');
+    expect(seen).toEqual([]);
+    // The runner goes away: both now fail to reach it, which proves they were
+    // sent there and not run as the engine's child.
+    process.env.ZVELTIO_EXT_RUNNER_SOCKET = join(dir, 'missing.sock');
+    forgetEdgeRunner();
+    expect(await call({ url: 'https://api.allowed.test/' })).toEqual({
+      error: expect.stringContaining('missing.sock'),
+    });
+    expect((await runScript('return 7;')).error).toContain('missing.sock');
   }, 20_000);
 });

@@ -141,6 +141,20 @@ export function productionGuardViolations(
     });
   }
 
+  // ADR 0058 decision 2: production runs every edge function and flow script on
+  // the extension runner (edgeTransport() ignores this). Refused by name, like
+  // ZVELTIO_EXT_TRANSPORT=process for an extension, so nobody believes it works.
+  if (env.ZVELTIO_EDGE_TRANSPORT === 'process') {
+    violations.push({
+      variable: 'ZVELTIO_EDGE_TRANSPORT',
+      message:
+        'set to `process`, which would run edge functions and flow scripts as children of the ' +
+        "engine, under its uid, where they can read the engine's environment (DATABASE_URL, " +
+        'BETTER_AUTH_SECRET) through /proc. Production runs them on the extension runner only; ' +
+        'unset it.',
+    });
+  }
+
   if (!env.BETTER_AUTH_URL) {
     violations.push({
       variable: 'BETTER_AUTH_URL',

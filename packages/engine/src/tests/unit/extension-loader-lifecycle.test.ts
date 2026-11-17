@@ -9,7 +9,8 @@ import type { ExtensionContext } from '../../lib/extensions/internals.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
 const noApp = {} as unknown as Hono;
-let savedNodeEnv: string | undefined;
+// Starts as the run's value: a test that never saved it must not unset it (unset reads as production).
+let savedNodeEnv: string | undefined = process.env.NODE_ENV;
 
 afterEach(() => {
   if (savedNodeEnv === undefined) delete process.env.NODE_ENV;

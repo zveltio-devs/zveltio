@@ -2,7 +2,8 @@
  * Isolation probe for edge functions on the runner (RFC extension-runner,
  * step 5). Plays the engine: runs one edge function through
  * `runEdgeFunctionInSubprocess`, as the edge route does, over whichever
- * transport ZVELTIO_EDGE_TRANSPORT selects. The function stays alive for
+ * placement `edgeTransport()` picks (the runner outside development and test,
+ * ADR 0058 d2). The function stays alive for
  * PROBE_HOLD_MS, then tries to reach PROBE_URL through the sandboxed fetch.
  * PROBE_EGRESS, when set, is the function's egress, comma separated (step 10).
  * Prints one JSON line: { transport, fetch }.
@@ -19,7 +20,6 @@
  * nothing.
  */
 
-import { parseEgress } from '../src/lib/edge-functions/egress.js';
 import {
   drainRunnerPool,
   edgeTransport,
@@ -56,6 +56,6 @@ if (!res.ok) {
   process.exit(1);
 }
 // Where the engine sent it; the caller checks the uid from outside.
-const transport = edgeTransport(parseEgress(egress));
+const transport = edgeTransport();
 console.log(JSON.stringify({ transport, ...(res.response?.body as object) }));
 process.exit(0);

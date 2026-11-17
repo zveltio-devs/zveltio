@@ -82,6 +82,10 @@ function setupDb(existing: string[] = []): CannedDb {
   return db;
 }
 
+// The run's NODE_ENV, put back after each test: unset reads as production,
+// and every file after this one inherited it (ADR 0058 d2 edge placement).
+const runNodeEnv = process.env.NODE_ENV;
+
 beforeEach(() => {
   workHandlers.clear();
   jobsByQueue.clear();
@@ -94,7 +98,8 @@ beforeEach(() => {
 afterEach(async () => {
   await stopDDLQueue();
   delete process.env.DATABASE_URL;
-  delete process.env.NODE_ENV;
+  if (runNodeEnv === undefined) delete process.env.NODE_ENV;
+  else process.env.NODE_ENV = runNodeEnv;
 });
 
 describe('initDDLQueue with mocked pg-boss', () => {

@@ -377,13 +377,18 @@ Table names are also validated — user-created collections are prefixed with `z
 
 #### Edge Function Sandbox
 
-User-defined edge functions run in an isolated Bun worker with:
+User-defined edge functions and flow `run_script` steps run one Bun process per
+invocation, in production always on the extension runner (ADR 0058; details in
+[security-model.md](security-model.md)):
 
-- **Memory limit:** 64MB watchdog (50ms check interval, kills worker if exceeded)
-- **SSRF blocked:** `safeFetch` replaces global `fetch`
-- **Globals blocked:** `process`, `Bun`, `require`, `globalThis`, `eval`, `Function`, `__proto__`
-- **Prototype frozen** at worker startup (prevents prototype pollution)
-- **Timeout:** configurable per function
+- **Placement:** a uid of its own that cannot read the engine's files,
+  environment or processes, and no network; `ZVELTIO_EDGE_TRANSPORT=process` is
+  refused at boot
+- **Egress:** `fetch` crosses to the engine, only to the hosts in the function's
+  `egress` field, through the SSRF guard; a function that lists none is refused
+- **Memory and CPU:** kernel ceilings (`EDGE_MEMORY_LIMIT_MB`, `EDGE_CPU_LIMIT_S`)
+- **Globals blocked:** `process`, `Bun`, `require`, `globalThis`, `eval`, `Function`, `__proto__`; `import()` refused
+- **Timeout:** configurable per function, enforced with `SIGKILL`
 
 #### Encrypted Secrets at Rest
 

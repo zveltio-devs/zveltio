@@ -16,7 +16,7 @@
 #   - two extensions run under two different uids, neither the engine's, and
 #     one cannot write into the other's runner directory;
 #   - the engine user may start its runners through polkit and no other unit;
-#   - an edge function (ZVELTIO_EDGE_TRANSPORT=runner, step 5) runs in the
+#   - an edge function (step 5; by default, ADR 0058 d2) runs in the
 #     `edge` instance: no address, a uid that is not the engine's and cannot
 #     read the engine's .env (measured from outside while the invocation lives);
 #   - its egress goes through the engine: a listed host answers, an unlisted
@@ -105,10 +105,12 @@ check "engine user may not manage other units" 'grep -qiE "access denied|authent
 # The process-transport half of this probe is in ext-runner-compose.sh: run by
 # a compiled binary as `bun`, a local spawn would start an engine instead.
 # Held for 10 s, so the invocation's uid is read from outside while it lives:
-# the JS lockdown leaves the function itself no way to the filesystem.
+# the JS lockdown leaves the function itself no way to the filesystem. No
+# NODE_ENV, no ZVELTIO_EDGE_TRANSPORT and no egress: a hand-started engine's
+# function still goes to the runner (ADR 0058 d2).
 edge_out=$(mktemp)
 sudo -u zveltio env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/tmp \
-  BUN_BE_BUN=1 PROBE_URL="$URL" PROBE_HOLD_MS=10000 ZVELTIO_EDGE_TRANSPORT=runner \
+  BUN_BE_BUN=1 PROBE_URL="$URL" PROBE_HOLD_MS=10000 \
   "${DIR}/zveltio" "${DIR}/edge-probe.mjs" >"$edge_out" 2>&1 &
 edge_pid=$!
 # Polled: the engine starts the instance on first use.

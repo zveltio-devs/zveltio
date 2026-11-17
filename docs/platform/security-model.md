@@ -162,8 +162,9 @@ Generate with: `openssl rand -hex 32`.
 ## Edge functions / scripts sandbox
 
 User-supplied JavaScript (edge-functions, flow `run_script` steps) runs
-in a Bun Worker with **`lockdownGlobals()`** applied before user code
-executes:
+in a Bun process of its own — in production always on the extension runner,
+under a uid that is not the engine's (ADR 0058, below) — with
+**`lockdownGlobals()`** applied before user code executes:
 
 - `Bun`, `process`, `Worker`, `Function`, `eval`, `require`, `module`,
   `exports`, `__dirname`, `__filename`, `importScripts` are replaced
@@ -186,8 +187,9 @@ executes:
 - Egress: an edge function lists the hosts it calls in its `egress` column, a
   flow `run_script` step in the `egress` list of its config (same format:
   lower-case `host` or `host:port`). A declared list is served through the
-  engine's egress bridge and nothing else is reached; on the extension runner a
-  script that declares nothing reaches nothing.
+  engine's egress bridge and nothing else is reached. In production a function
+  or script that declares nothing reaches nothing: its `fetch` is refused with
+  "declares no egress" until it lists its hosts.
 
 ## Extension isolation — what it does and does not guarantee
 
@@ -258,21 +260,24 @@ The engine spawns a fresh Bun process per invocation (`Bun.spawn`) with:
   `tls.serverName`) so a name cannot resolve twice and answer differently the
   second time.
 
-All of that runs under the engine's uid, so a function that escapes the JS
-lockdown can read what the engine can. The extension runner runs an invocation
-under another uid with no access to the engine's files, environment or
-processes, and with no network (RFC extension-runner, steps 5 and 10): its
-`fetch` crosses to the engine, which performs it through the SSRF guard and only
-to the hosts the function lists in its `egress` field — saved by the admin who
-saves the function, which is the approval, validated at save and audited on
-every change.
-A function that lists its egress runs there by default wherever third-party
-extensions do; one that lists nothing stays the engine's child until it does,
-or until `ZVELTIO_EDGE_TRANSPORT=runner` moves every function.
+As the engine's child, all of that would run under the engine's uid, and a
+function that escaped the JS lockdown could read what the engine can — its
+`/proc/<pid>/environ` included, which holds `DATABASE_URL` and
+`BETTER_AUTH_SECRET`. So in production every edge function and every flow
+`run_script` runs on the extension runner, whatever its egress (ADR 0058
+decision 2): under another uid with no access to the engine's files,
+environment or processes, and with no network (RFC extension-runner, steps 5
+and 10). Its `fetch` crosses to the engine, which performs it through the SSRF
+guard and only to the hosts the function lists in its `egress` field — saved by
+the admin who saves the function, which is the approval, validated at save and
+audited on every change. A function that lists nothing is refused when it calls
+out, until it lists its hosts. `ZVELTIO_EDGE_TRANSPORT=process` stops a
+production engine at boot. The engine's child remains only as the named
+development placement (`NODE_ENV` `development` or `test`, logged once); an
+unset `NODE_ENV` is production here.
 
-Trade-off: ~30 ms per-spawn vs. ~1 ms for Worker. Use Worker (the
-default) for admin-authored edge functions, subprocess for marketplace
-/ end-user-authored code.
+On bare metal every invocation shares the `zveltio-ext-runner@edge` instance's
+uid; containers give each invocation a uid of its own.
 
 ---
 
