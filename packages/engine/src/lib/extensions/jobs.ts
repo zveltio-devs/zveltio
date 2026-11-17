@@ -23,7 +23,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { CompiledQuery } from 'kysely';
+import { CompiledQuery, sql } from 'kysely';
 import type { z } from 'zod';
 import type {
   ExtensionJob,
@@ -36,6 +36,7 @@ import type {
 import { getDb } from '../../db/index.js';
 import type { Database } from '../../db/index.js';
 import { auditLog } from '../audit.js';
+import { isExtensionActiveAnywhere, isExtensionActiveForTenant } from './activation.js';
 import {
   dataApiRead,
   dataApiWriteDetached,
@@ -91,6 +92,8 @@ export interface CompiledJob {
   /** The `publicRoutes` entries that may enqueue it (`fromPublicRoutes`), compiled as the gate's. */
   fromPublicRoutes: readonly RegExp[];
   retry: { limit: number; backoff: boolean };
+  /** The manifest's `schedule` (ADR 0048 decision 1): a cron the engine enqueues it on. */
+  schedule?: string;
   /** Inline: the module's implementation, run in the engine. */
   run?: ExtensionJob;
   /** In the Deno runner (ADR 0022): the verified `jobs.js` and the run's ceilings. */
@@ -173,6 +176,18 @@ const runnerDownWarned = new Set<string>();
 export const jobQueueName = (extName: string, job: string): string => `ext.${extName}.${job}`;
 
 /**
+ * Where the clock's ticks land (ADR 0048 decision 1): one pg-boss schedule per
+ * scheduled job, keyed `<extension>/<job>`, sends a tick here, and `tick` turns
+ * it into one job per tenant. pg-boss's timekeeper decides when: across
+ * replicas it sends each occurrence once, and after downtime it sends one
+ * catch-up (`missed: 'once'`), not one per missed occurrence.
+ */
+export const SCHEDULE_QUEUE = 'zv.ext-schedule';
+export const scheduleKey = (extName: string, job: string): string => `${extName}/${job}`;
+/** The pg-boss instance whose ticks this process works; a restarted queue works them again. */
+let ticking: JobQueue | null = null;
+
+/**
  * `engine/jobs.js` of the extension at `extDir`, when the manifest's
  * `integrity.jobsSha256` vouches for it; null when either is missing. Throws on
  * a mismatch: the bundle was changed after it was packed. Read once, at load:
@@ -236,6 +251,7 @@ export function compileJobs(
     writes: new Set(j.writes),
     fromPublicRoutes: (j.fromPublicRoutes ?? []).map(compilePattern),
     retry: j.retry,
+    ...(j.schedule ? { schedule: j.schedule } : {}),
   });
   // What it declares decides, not its name (ADR 0022 decision 1): egress exists
   // only in the runner, so a job that declares any runs there, first-party too.
@@ -306,6 +322,13 @@ export function registerJobs(
       working.clear();
       for (const name of registered.keys()) work(boss, name);
       await Promise.all([...working.values()].map((w) => w.ready));
+      if (ticking !== boss) {
+        await boss.createQueue(SCHEDULE_QUEUE, QUEUE_RETENTION);
+        await boss.work<{ extName: string; job: string }>(SCHEDULE_QUEUE, ([j]) =>
+          runOutsideTenantContext(() => tick(boss, j!.data)),
+        );
+        ticking = boss;
+      }
     });
     return;
   }
@@ -432,6 +455,72 @@ function work(boss: JobQueue, extName: string): void {
       warn(extName, err);
     });
   }
+  void syncSchedules(boss, extName).catch((err: Error) => warn(extName, err));
+}
+
+/**
+ * Write `extName`'s schedules as this load declares them: an upsert per
+ * scheduled job, and a removal for one of its jobs no longer scheduled. Not
+ * undone at unload: an unload here (a restart, a reload) leaves the other
+ * replicas running it. A disabled or removed extension's schedule is dropped
+ * by its next tick (`tick`).
+ */
+async function syncSchedules(boss: JobQueue, extName: string): Promise<void> {
+  const jobs = registered.get(extName)?.jobs;
+  if (!jobs) return;
+  await boss.createQueue(SCHEDULE_QUEUE, QUEUE_RETENTION);
+  const keep = new Set<string>();
+  for (const def of jobs.values()) {
+    if (!def.schedule) continue;
+    const key = scheduleKey(extName, def.name);
+    keep.add(key);
+    await boss.schedule(
+      SCHEDULE_QUEUE,
+      def.schedule,
+      { extName, job: def.name },
+      // A tick is never retried: one that failed after its jobs committed would queue them twice.
+      { key, tz: 'UTC', missed: 'once', retryLimit: 0 },
+    );
+  }
+  for (const s of await boss.getSchedules(SCHEDULE_QUEUE)) {
+    const owned = (s.data as { extName?: unknown } | null)?.extName === extName;
+    if (owned && !keep.has(s.key)) await boss.unschedule(SCHEDULE_QUEUE, s.key);
+  }
+}
+
+/**
+ * One occurrence of a job's schedule: the job, enqueued once in each active
+ * tenant where the extension is active, in one transaction, so a tick queues
+ * every tenant's or none. No caller and no author: the job is the actor with
+ * no identity (ADR 0040), as one a public route enqueues.
+ */
+async function tick(boss: JobQueue, { extName, job }: { extName: string; job: string }) {
+  const db = getDb();
+  const def = registered.get(extName)?.jobs.get(job);
+  if (!def?.schedule) {
+    // Not loaded on this replica, or this version does not schedule it. Turned
+    // off everywhere (disabled, uninstalled, purged): its schedule goes too.
+    if (!(await isExtensionActiveAnywhere(db, extName))) {
+      await boss.unschedule(SCHEDULE_QUEUE, scheduleKey(extName, job));
+    }
+    return;
+  }
+  const tenants = await sql<{ id: string }>`
+    SELECT id::text AS id FROM zv_tenants WHERE status = 'active' ORDER BY created_at
+  `.execute(db);
+  const active: string[] = [];
+  for (const { id } of tenants.rows) {
+    if (await isExtensionActiveForTenant(db, extName, id)) active.push(id);
+  }
+  if (active.length === 0) return;
+  const refuse = (why: string): never => {
+    throw new Error(`${extName}: the schedule of job "${job}" could not enqueue it: ${why}`);
+  };
+  await db.transaction().execute(async (trx) => {
+    for (const tenantId of active) {
+      await sendJob(extName, job, {}, refuse, trx, tenantId, `ext:${extName}:schedule`, null);
+    }
+  });
 }
 
 /**
