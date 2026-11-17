@@ -174,7 +174,7 @@ export async function extensionDevCommand(opts: ExtensionDevOptions = {}): Promi
   if (probe.status === 404) {
     console.error(
       c.red(
-        '\n  Engine returned 404 on /__zveltio_dev_reload. Is NODE_ENV=production? The endpoint is dev-only.',
+        '\n  Engine returned 404 on /__zveltio_dev_reload: the endpoint is mounted only under NODE_ENV=development or test (unset is production). Restart the engine with NODE_ENV=development.',
       ),
     );
     process.exit(1);
