@@ -9,6 +9,7 @@
  */
 
 import { decryptWithKeyring, encryptWithKeyring } from '../security/index.js';
+import { modeValue } from '../operational-modes.js';
 
 const ENC_PREFIX = 'enc:v1:';
 
@@ -122,7 +123,7 @@ export async function maybeEncrypt(value: unknown, isEncrypted: boolean): Promis
     // (PII / ANSVSA / SAF-T). Silently persisting it in the clear is a data
     // downgrade, so refuse the write — the same posture as BETTER_AUTH_SECRET.
     // An operator who genuinely wants the old degraded behavior must opt in.
-    if (process.env.ZVELTIO_ALLOW_PLAINTEXT_ENCRYPTED_FIELDS === '1') {
+    if (modeValue('ZVELTIO_ALLOW_PLAINTEXT_ENCRYPTED_FIELDS') === '1') {
       warnMissingKeyOnce();
       return value;
     }

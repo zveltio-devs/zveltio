@@ -4,6 +4,7 @@ import { getCache, RATE_LIMIT_CONFIG_CHANGED_EVENT, realtimeBus } from '../lib/r
 import { resolveClientIp } from '../lib/security/index.js';
 import type { Database } from '../db/index.js';
 import { tenantId } from '../lib/route-db.js';
+import { modeValue } from '../lib/operational-modes.js';
 import { apiKeyActsIn, onAfterCommit } from '../lib/tenancy/index.js';
 
 // In-process cache for DB-loaded rate limit configs (TTL: 60s)
@@ -507,7 +508,7 @@ export function ipMatches(ip: string, list: Cidr): boolean {
 let _allowList: Cidr | null = null;
 let _denyList: Cidr | null = null;
 function allowList(): Cidr {
-  if (_allowList === null) _allowList = parseCidrList(process.env.RATE_LIMIT_ALLOWLIST);
+  if (_allowList === null) _allowList = parseCidrList(modeValue('RATE_LIMIT_ALLOWLIST'));
   return _allowList;
 }
 function denyList(): Cidr {

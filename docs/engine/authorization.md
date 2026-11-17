@@ -235,7 +235,6 @@ come from Casbin alone, `member` included); the policies read that set. A statem
 | a worker-isolated extension's statement in a request | the requesting user's grants — never the bypass, never another tenant |
 | an extension's work with no caller (its own `ctx.internals.withTenantIsolation`, a per-tenant schedule, a listener, a worker statement outside a request) | nothing — unless the extension holds `data:system`, whose work in `withTenantIsolation` is system inside the tenant. It is an actor with no identity (see below) |
 | inside `ctx.internals.asSystem(collections, fn)` | those collections (capability `data:system`, audited) |
-| an extension listed in `ZVELTIO_COLLECTION_RLS_EXEMPT` | all — a temporary bridge, warned at boot, removed at 3.0.0 GA |
 
 Tenant isolation and the row rules apply in every case; "system" is always
 system **inside** the tenant.
@@ -437,9 +436,8 @@ no role, as a job with no author. A rule on `user_id`, `user_email` or
 `user_role` therefore keeps no row for that work: it reads none, an insert is
 refused, an update or delete touches none. `author neq user_id` is decided on
 `''` by the rule's operator, so that work cannot decide a row either. A
-`static:` rule binds as for anyone. `data:system` and
-`ZVELTIO_COLLECTION_RLS_EXEMPT` answer the collection question only; neither
-gives the rows a row rule withholds. An extension that must write a row on a
+`static:` rule binds as for anyone. `data:system` answers the collection
+question only; it gives none of the rows a row rule withholds. An extension that must write a row on a
 user's behalf does it as that user: an action, `asSystem` inside a route, or a
 job with an author. Only the engine's own work (tenant purge, boot reconcile)
 has no actor.

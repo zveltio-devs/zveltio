@@ -294,7 +294,6 @@ GITHUB_CLIENT_SECRET=abc123...
 | `ZVELTIO_EXTENSIONS` | — | Comma-separated list of extensions to load |
 | `EXTENSIONS_DIR` | *(see resolution order)* | Directory containing extension packages on disk |
 | `ZVELTIO_EXTENSIONS_PATH` | — | Optional **additional** directory scanned for extra extensions (CI) |
-| `ZVELTIO_COLLECTION_RLS_EXEMPT` | — | Comma-separated extension names that run **without** collection permissions in the database, as the system inside each tenant (tenant isolation, row rules and the table guard still apply: it exempts from no row rule, and where the extension works with no caller a rule on `user_id`, `user_email` or `user_role` keeps no row, ADR 0040). A bridge for extensions not yet adapted to R1 — they should use `ctx.internals.asSystem` instead. Warned at every boot, reported in `/api/health/deep` as `collectionPermissionExemptions`; needs per-extension database roles (CREATEROLE). Removed at 3.0.0 GA. The engine's own routes are never exempt. |
 
 ### `EXTENSIONS_DIR` resolution
 
@@ -350,7 +349,6 @@ EXTENSIONS_DIR=/app/extensions
 | `BACKUP_DB_USER` | unset | Role `pg_dump` connects as. **Required on a hardened install**: the engine's own role is bound by `FORCE ROW LEVEL SECURITY`, so `pg_dump` as the engine fails on a virgin database. Create a role with `BYPASSRLS`, used for nothing else — see [DISASTER-RECOVERY.md](disaster-recovery.md). Unset falls back to the engine's own credentials. |
 | `BACKUP_DB_PASSWORD` | unset | Password for `BACKUP_DB_USER`. Only read when that is set. |
 | `ZVELTIO_FAIL_CLOSED_TENANT` | unset (closed) | A query with no tenant context sees **no rows** and may write none — the default since migration 123 (DR-03), held by the database itself, so it also binds a connection the engine never configured. `=0` is the opt-out: boot stores `zveltio.fail_closed_tenant = 'off'` on the database (ALTER DATABASE, as the database owner) and such a query sees and writes the **default tenant** again; the engine warns at every boot while it is set. Removing it resets the stored value; a stored `'off'` the engine cannot reset refuses the boot. Any value but `0` is closed. |
-| `ZVELTIO_ALLOW_UNENFORCED_RLS` | unset | Escape hatch when the engine role can bypass RLS and `zveltio_rls` is unavailable. Required to start in production in that state; only defensible on single-tenant installs. |
 
 In multi-tenant mode, tenants are resolved from:
 1. `X-Tenant-Slug` request header
@@ -384,27 +382,49 @@ network, a migration window — and they are collected in one place because the
 question "what can weaken this deployment?" deserves an answer that is a list
 rather than a grep.
 
-None of them is set by default. On a hardened install, all of them should be
-absent, and `env | grep ZVELTIO_ALLOW` should print nothing.
+None of them is on by default. On a hardened install every one of them is off —
+`NODE_ENV=production`, the rest absent — and the engine says so: it warns at
+every boot for each mode that is on, and for each removed variable still set.
+The table is generated from the register in
+`packages/engine/src/lib/operational-modes.ts`, which is also the only code that
+reads these variables (ADR 0058). **removed**: nothing reads it any more;
+**dated**: kept until the version named; **permanent**: kept;
+**delegated**: not a variable, an exemption an admin gives row by row;
+**pending**: a Console setting that becomes a dated variable;
+**platform**: the platform's variable, classified here.
 
-| Variable | What it turns off | When it is defensible |
-|----------|-------------------|-----------------------|
-| `ZVELTIO_ALLOW_PLAINTEXT_ENCRYPTED_FIELDS` | Refusing to write a field marked `encrypted: true` when `FIELD_ENCRYPTION_KEY` is unset. With `=1` the value is stored in the clear. | Never on an install holding PII. A development database, or a deliberate migration off encryption. |
-| `ZVELTIO_ALLOW_UNENFORCED_RLS` | Refusing to start when the engine's own role can bypass RLS and `zveltio_rls` is unavailable. | Single-tenant installs, where there is no second tenant to leak to. |
-| `ZVELTIO_FAIL_CLOSED_TENANT=0` | The closed tenant fallback: with `=0` a query with no tenant context reads and writes the default tenant's rows instead of none. | A single-tenant install whose own code (an extension's background work, a script on the engine's role) reads tenant tables without a tenant, until that code sets one. |
-| `ZVELTIO_ALLOW_MIGRATION_DIVERGENCE` | Refusing to start against a schema newer than the binary. | A rollback window you are actively supervising. |
-| `ZVELTIO_ALLOW_MISSING_DB` | Gates and the harness lane refusing to run without a database, rather than passing having checked nothing. | A lint-only CI job that genuinely has no Postgres. |
-| `ZVELTIO_EDGE_TRANSPORT` | Where edge function invocations and flow `run_script` steps run in **development** (`NODE_ENV=development` or `test`): unset or `process`, a child of the engine, under the engine's user — the named development placement, logged once, no boundary; `=runner`, the extension runner. In production — every other `NODE_ENV`, unset included — every invocation runs on the extension runner ([RFC](../engine/rfc-extension-runner.md), steps 5 and 10; ADR 0058) whatever its egress, and `=process` stops the engine at boot: the `zveltio-ext-runner@edge` instance on bare metal, the runner container (`ZVELTIO_EXT_RUNNER_SOCKET`) in compose and Helm, under a uid that cannot read the engine's files, environment or processes, with no network. On the runner a function's `fetch` crosses to the engine, which performs it with the SSRF guard and only to the hosts in its `egress` (a column of the function, set in Studio; exact `host` on the scheme's default port, or `host:port`; every redirect hop checked again; 1 MiB request and 5 MiB response bodies, 50 requests and 6 in flight per invocation); a function that declares no egress is refused until it lists its hosts. Same ceilings (`EDGE_MEMORY_LIMIT_MB`, `EDGE_CPU_LIMIT_S`, below 1024 MiB floored: the runner has no per-invocation cgroup), same results; no pre-spawned pool. | `=runner` on a development machine that has a runner. Never in production, where it changes nothing and `=process` is refused. |
-| `METRICS_ALLOW_UNAUTHENTICATED` | `/metrics` refusing anonymous callers when no `METRICS_TOKEN` is set. | A Prometheus scraper on a private network. |
-| `RATE_LIMIT_ALLOWLIST` | Rate limiting, for the listed CIDRs. | An internal load generator, or a known reverse proxy. |
-| `RATE_LIMIT_DENYLIST` | Nothing — it TIGHTENS. Comma-separated CIDRs refused before any handler runs. Listed here beside its twin so the pair is never found half-configured. | Blocking a known abusive range at the edge. |
-| `ZVELTIO_REGISTRATION_ENABLED` | The refusal to self-register (`registration_disabled`). Opens `POST /api/auth/sign-up/email` to anyone. | An instance that is genuinely meant to accept public sign-ups. |
+<!-- BEGIN generated by scripts/gen-operational-modes.ts — edit the register, not this table -->
 
-Three more do the opposite — they make the engine STRICTER, and are worth knowing
+| Mode | What it turns off | When it is defensible | Class | Removal |
+|------|-------------------|-----------------------|-------|---------|
+| `ZVELTIO_COLLECTION_RLS_EXEMPT` | Was: the listed extensions ran without collection permissions in the database. Removed — no extension is exempt, and a membership of `zveltio_coll_exempt` granted before the upgrade admits nothing (migration 125). | Never. Adapt the extension (`ctx.internals.asSystem`). | removed | removed (ADR 0058) |
+| `ZVELTIO_ALLOW_UNENFORCED_RLS` | Was: starting in production when the engine role bypasses RLS and `zveltio_rls` is unavailable. Removed — that boot is refused. | Never. Run the engine as a plain role, or let migration 030 create `zveltio_rls`. | removed | removed (ADR 0058) |
+| `DEMO_MODE_ALLOW_IN_PROD` | Was: the demo account credentials on `/api/health` in production. Removed — production never publishes them. | Never. | removed | removed (ADR 0058) |
+| `ALLOW_INSECURE_LDAP` | Refusing plaintext LDAP binds (auth/ldap): with `true` or `1`, passwords cross the network in the clear. | A directory on a private network that cannot do LDAPS or StartTLS yet. | dated | 3.1.0 |
+| `ZVELTIO_ALLOW_PLAINTEXT_ENCRYPTED_FIELDS` | Refusing to write a field marked `encrypted: true` when `FIELD_ENCRYPTION_KEY` is unset. With `=1` the value is stored in the clear. | Never on an install holding PII. A development database, or a deliberate migration off encryption. | dated | 3.1.0 |
+| `ZVELTIO_FAIL_CLOSED_TENANT` | The closed tenant fallback: with `=0` a query with no tenant context reads and writes the default tenant's rows instead of none. | A single-tenant install whose own code (an extension's background work, a script on the engine's role) reads tenant tables without a tenant, until that code sets one. | dated | 3.1.0 |
+| `ZVELTIO_SINGLE_INSTANCE` | The production refusal to run without `VALKEY_URL`: with `=1` one instance runs without a cache, instances heartbeat in `zv_instances` and only the newest serves. | Exactly one engine process. | permanent | permanent |
+| `REQUIRE_EXTENSION_SIGNATURES` | Refusing an extension archive without a registry signature. With `=false` a missing signature is a warning; until the registry-signed tier lands an unsigned directory named like a first-party extension also loads inline (U3). | A private mirror that does not sign yet. | permanent | permanent, once the registry-signed tier lands (U3) |
+| `ZVELTIO_EXT_TRANSPORT` | With `=process`, a worker-isolated extension runs as a child of the engine, under its uid. Refused in production (`NODE_ENV=production`), where it runs on the extension runner. | Development without a runner. | permanent | permanent |
+| `ZVELTIO_EDGE_TRANSPORT` | Where edge function invocations and flow `run_script` steps run in **development** (`NODE_ENV=development` or `test`): unset or `process`, a child of the engine, under the engine's user — the named development placement, logged once, no boundary; `=runner`, the extension runner. In production — every other `NODE_ENV`, unset included — every invocation runs on the extension runner ([RFC](../engine/rfc-extension-runner.md), steps 5 and 10; ADR 0058) whatever its egress, and `=process` stops the engine at boot: the `zveltio-ext-runner@edge` instance on bare metal, the runner container (`ZVELTIO_EXT_RUNNER_SOCKET`) in compose and Helm, under a uid that cannot read the engine's files, environment or processes, with no network. On the runner a function's `fetch` crosses to the engine, which performs it with the SSRF guard and only to the hosts in its `egress` (a column of the function, set in Studio; exact `host` on the scheme's default port, or `host:port`; every redirect hop checked again; 1 MiB request and 5 MiB response bodies, 50 requests and 6 in flight per invocation); a function that declares no egress is refused until it lists its hosts. Same ceilings (`EDGE_MEMORY_LIMIT_MB`, `EDGE_CPU_LIMIT_S`, below 1024 MiB floored: the runner has no per-invocation cgroup), same results; no pre-spawned pool. | `=runner` on a development machine that has a runner. Never in production, where it changes nothing and `=process` is refused. | permanent | permanent |
+| `ZVELTIO_ALLOW_MIGRATION_DIVERGENCE` | Refusing to start against a schema newer than the binary. | A rollback window you are actively supervising. | permanent | permanent |
+| `ZVELTIO_ALLOW_MISSING_DB` | Gates and the harness lane refusing to run without a database, rather than passing having checked nothing. Never read by a running engine. | A lint-only CI job that genuinely has no Postgres. | permanent | permanent |
+| `METRICS_ALLOW_UNAUTHENTICATED` | `/metrics` refusing anonymous callers when no `METRICS_TOKEN` is set. | A Prometheus scraper on a private network. | permanent | permanent |
+| `RATE_LIMIT_ALLOWLIST` | Rate limiting, for the listed CIDRs. | An internal load generator, or a known reverse proxy. | permanent | permanent |
+| `ZVELTIO_REGISTRATION_ENABLED` | The refusal to self-register (`registration_disabled`). `1` or `true` opens `POST /api/auth/sign-up/email` to anyone; any other non-empty value closes it, whatever the Console says. | An instance that is genuinely meant to accept public sign-ups. | permanent | permanent |
+| `NODE_ENV` | Anything but `production` — unset included — turns off the production refusals: `productionGuardViolations` (no cache, `CORS_ORIGINS=*`, …), the RLS-unenforceable refusal, the extension-runner requirement, Secure session cookies, the admin gate on `/api/openapi.json`, and mounts the unauthenticated `POST /__zveltio_dev_reload`. Edge placement alone reads unset as production (ADR 0058 d2). Its readers are not routed through the register. | `development` or `test` on a machine that serves nobody. Set `NODE_ENV=production` on every deployment. | platform | permanent |
+| `zv_api_keys.rls_bypass` | An API key that reads past row rules, within its issuer's own `data:view_all` (ADR 0028, 0037). Set per key by an admin who holds it; never by a variable. | A service key that must read whole collections, such as an export. | delegated | permanent |
+| `auth/ldap tlsVerify=false` | LDAPS certificate verification (auth/ldap), set from the Console. | A directory with a self-signed certificate. Leaves the Console for an environment variable with a date (DR-10 slice B). | pending | moves to the environment (DR-10 slice B) |
+| `auth/saml audience=false` | The SAML assertion audience check (auth/saml), set from the Console. | An identity provider that sends a wrong audience. Leaves the Console for an environment variable with a date (DR-10 slice B). | pending | moves to the environment (DR-10 slice B) |
+
+<!-- END generated: operational modes -->
+
+Four more do the opposite — they make the engine STRICTER, and are worth knowing
 for the same reason:
 
 | Variable | What it tightens |
 |----------|------------------|
+| `RATE_LIMIT_DENYLIST` | Comma-separated CIDRs refused before any handler runs. The twin of `RATE_LIMIT_ALLOWLIST` above; keep the pair configured together. |
 | `ZVELTIO_STRICT_TENANT_SCOPE` | A query against a tenant-scoped table outside tenant context throws instead of falling back. |
 | `ZVELTIO_REQUIRE_CATALOG` | An unreachable extension registry blocks the load instead of degrading to the local catalogue. |
 | `ZVELTIO_REQUIRE_REVOCATION_CHECK` | An unreachable registry blocks extension loading instead of warning. |

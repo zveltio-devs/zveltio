@@ -10,8 +10,8 @@
 //   - the database's answer is `checkPermission`'s, role chains included;
 //   - the engine's own work (no actor) and a bypassing caller are unaffected;
 //   - an extension's statement gets the actor's rights, nothing without an
-//     actor, its collections inside `asSystem`, and everything only when the
-//     operator exempts it — which never exempts an engine route;
+//     actor, and its collections inside `asSystem` — never an exemption
+//     (ADR 0058 d4 removed ZVELTIO_COLLECTION_RLS_EXEMPT);
 //   - an anonymous request gets the tenant's `public` grants, in its tenant only.
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { Hono } from 'hono';
@@ -20,6 +20,7 @@ import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import {
   _resetExtensionDbRoleForTests,
+  extensionDbRoleNames,
   grantExtensionDbRole,
 } from '../../lib/extensions/ext-db-role.js';
 import { createRestrictedDb } from '../../lib/extensions/extension-context.js';
@@ -384,19 +385,25 @@ d('collection permissions in the database (R1)', () => {
     }
   });
 
-  it('exempts a listed extension, and never an engine route', async () => {
+  it('exempts no extension: not by the removed variable, not by a membership granted before (ADR 0058 d4)', async () => {
+    // ZVELTIO_COLLECTION_RLS_EXEMPT granted `zveltio_coll_exempt` to the
+    // extension's roles, and a GRANT outlives the variable: a database exempted
+    // before the upgrade kept the exemption with nothing left to name it.
     const ext = createRestrictedDb(() => getCurrentTenantTrx() ?? db, EXT, new Set());
-    process.env.ZVELTIO_COLLECTION_RLS_EXEMPT = `other-ext, ${EXT}`;
+    const { role } = extensionDbRoleNames(
+      (await sql<{ d: string }>`SELECT current_database() AS d`.execute(db)).rows[0]!.d,
+      EXT,
+    );
+    process.env.ZVELTIO_COLLECTION_RLS_EXEMPT = EXT;
     try {
       await grantExtensionDbRole(db, EXT, new Set());
-      expect(await attempt(undefined, () => count(ext as unknown as Database))).toBe(2);
-      // The engine's own statement for the same user is still refused.
-      expect(await attempt(await identityOf(U.nobody), (t) => count(t))).toBe(0);
+      await sql.raw(`GRANT zveltio_coll_exempt TO ${role}`).execute(db);
+      expect(await attempt(undefined, () => count(ext as unknown as Database))).toBe(0);
+      expect(await attempt(undefined, () => inserts(ext as unknown as Database))).toBe(false);
     } finally {
       delete process.env.ZVELTIO_COLLECTION_RLS_EXEMPT;
-      await grantExtensionDbRole(db, EXT, new Set());
+      await sql.raw(`REVOKE zveltio_coll_exempt FROM ${role}`).execute(db);
     }
-    expect(await attempt(undefined, () => count(ext as unknown as Database))).toBe(0);
   });
 
   it('a temporary pg_roles cannot exempt a worker (migration 069)', async () => {

@@ -774,6 +774,27 @@ const CASES: Case[] = [
     body: 'export function total(row: { amount: string }) {\n  return row.amount + 1;\n}\n',
   },
   {
+    // A registered operational mode read outside the register (ADR 0058 d4):
+    // the register must stay the only reader, as `env.NAME` here shows.
+    gate: 'gen-operational-modes (direct read)',
+    expect: 'read outside the register',
+    cmd: 'bun run scripts/gen-operational-modes.ts --check',
+    file: 'packages/engine/src/lib/__gate_probe_modes.ts',
+    body:
+      'export function plant(env: Record<string, string | undefined>): boolean {\n' +
+      "  return env.ZVELTIO_SINGLE_INSTANCE === '1';\n" +
+      '}\n',
+  },
+  {
+    // The register changed and the docs table was not regenerated.
+    gate: 'gen-operational-modes (stale table)',
+    expect: 'does not match the register',
+    cmd: 'bun run scripts/gen-operational-modes.ts --check',
+    file: 'packages/engine/src/lib/operational-modes.ts',
+    mode: 'append',
+    body: "\nObject.assign(MODES.ZVELTIO_SINGLE_INSTANCE, { when: 'planted by audit-gates' });\n",
+  },
+  {
     // An environment variable read by the engine and documented nowhere. The
     // plant is a NEW name, because the gate is a ratchet over a baseline that is
     // currently empty — the 59 that existed are all documented now.

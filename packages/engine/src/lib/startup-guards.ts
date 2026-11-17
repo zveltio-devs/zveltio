@@ -16,6 +16,7 @@
 
 import { sql } from 'kysely';
 import { activePoolMax, type Database } from '../db/index.js';
+import { modeValue } from './operational-modes.js';
 
 export interface ProductionGuardViolation {
   /** The variable at fault, so the operator can act without reading source. */
@@ -71,7 +72,7 @@ export function productionGuardViolations(
   // one process says so with ZVELTIO_SINGLE_INSTANCE=1; the instances then
   // check each other through Postgres and only the newest serves
   // (lib/runtime/single-instance.ts), so the in-process caches are correct.
-  if (!env.VALKEY_URL && env.ZVELTIO_SINGLE_INSTANCE !== '1') {
+  if (!env.VALKEY_URL && modeValue('ZVELTIO_SINGLE_INSTANCE', env) !== '1') {
     violations.push({
       variable: 'VALKEY_URL',
       message:
@@ -144,7 +145,7 @@ export function productionGuardViolations(
   // ADR 0058 decision 2: production runs every edge function and flow script on
   // the extension runner (edgeTransport() ignores this). Refused by name, like
   // ZVELTIO_EXT_TRANSPORT=process for an extension, so nobody believes it works.
-  if (env.ZVELTIO_EDGE_TRANSPORT === 'process') {
+  if (modeValue('ZVELTIO_EDGE_TRANSPORT', env) === 'process') {
     violations.push({
       variable: 'ZVELTIO_EDGE_TRANSPORT',
       message:

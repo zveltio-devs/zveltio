@@ -4,8 +4,8 @@
  * A row rule on a caller value stands down where `zveltio.actor` is not `on`,
  * for the engine's own work. Extension code ran there too, in four places: its
  * own `ctx.internals.withTenantIsolation`, a per-tenant cron, a listener, and a
- * worker statement with no caller. So a `data:system` extension (or one the
- * operator exempted from collection permissions) read every row under
+ * worker statement with no caller. So a `data:system` extension (or, before
+ * ADR 0058 removed the exemption, one the operator exempted) read every row under
  * `* created_by eq user_id` and wrote, updated and deleted another user's row,
  * and decided a row under ADR 0016's `order_author neq user_id`.
  *
@@ -242,7 +242,7 @@ d('extension work with no caller is an actor with no identity (ADR 0040)', () =>
   const viaWorker = (text: string, inTenant: boolean, reach: boolean) =>
     new Promise<HostToWorkerMessage>((resolve) => {
       const managed = {
-        // No role of its own: the shared `zveltio_worker`, which no exemption reaches.
+        // `reach`: its own role; otherwise the shared `zveltio_worker`.
         name: reach ? WORKER : `${WORKER}x`,
         worker: { postMessage: resolve, terminate: () => {} },
         invokeTenants: new Map([['inv-1', { tenantId: TENANT, actor: undefined }]]),
@@ -336,8 +336,8 @@ d('extension work with no caller is an actor with no identity (ADR 0040)', () =>
 
     _resetExtensionDbRoleForTests();
     await grantExtensionDbRole(db, EXT, new Set());
-    // The worker reaches collections through the operator's exemption.
-    process.env.ZVELTIO_COLLECTION_RLS_EXEMPT = WORKER;
+    // Its own role: a worker with no caller reached collections only through
+    // the operator's exemption, which ADR 0058 removed.
     await grantWorkerDbRole(db, WORKER, new Set());
     // The cron runs where the extension is on: this tenant alone.
     await sql`INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled)
@@ -392,7 +392,6 @@ d('extension work with no caller is an actor with no identity (ADR 0040)', () =>
       .execute(db)
       .catch(() => {});
     await revokeExtensionDbRoles(db, LISTENER, true).catch(() => {});
-    delete process.env.ZVELTIO_COLLECTION_RLS_EXEMPT;
     clearExtensionBroadcasts(EXT);
     await sql`DELETE FROM zv_extension_registry WHERE name = ${EXT}`.execute(db).catch(() => {});
     invalidateActivationCache();
@@ -438,13 +437,14 @@ d('extension work with no caller is an actor with no identity (ADR 0040)', () =>
     expect(await workerProbe(OWN, false)).toEqual(NONE);
   });
 
-  it('a worker statement with no caller: collection permissions answer as before', async () => {
-    expect(await workerProbe(FREE, true, false)).toEqual(NONE);
-    expect(await workerProbe(FREE, false, false)).toEqual(NONE);
-    // No invocation is no tenant: the fallback is closed (DR-03), so even a
-    // collection the worker reaches answers nothing. It read the default tenant.
-    expect(await workerProbe(FREE, false)).toEqual(NONE);
-    expect(await workerProbe(FREE)).toEqual(ONE);
-    expect(await workerProbe(STATIC)).toEqual(ONE);
+  it('a worker statement with no caller reaches no collection: there is no exemption (ADR 0058 d4)', async () => {
+    // Before: its own role, exempted, read and wrote FREE and STATIC.
+    for (const coll of [FREE, STATIC]) {
+      for (const inTenant of [true, false]) {
+        for (const reach of [true, false]) {
+          expect(await workerProbe(coll, inTenant, reach)).toEqual(NONE);
+        }
+      }
+    }
   });
 });

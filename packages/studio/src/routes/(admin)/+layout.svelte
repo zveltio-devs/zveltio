@@ -50,7 +50,6 @@ import Slot from '#lib/components/common/Slot.svelte';
 import ToastContainer from '#lib/components/common/ToastContainer.svelte';
 import StepUpModal from '#lib/components/common/StepUpModal.svelte';
 import UpdateBanner from '#lib/components/common/UpdateBanner.svelte';
-import CollectionRlsExemptBanner from '#lib/components/common/CollectionRlsExemptBanner.svelte';
 import CommandPalette from '#lib/components/common/CommandPalette.svelte';
 import TenantSwitcher from '#lib/components/layout/TenantSwitcher.svelte';
 import KeyboardMap from '#lib/components/common/KeyboardMap.svelte';
@@ -312,6 +311,5 @@ async function signOut() {
 <ToastContainer />
 <StepUpModal />
 <UpdateBanner />
-<CollectionRlsExemptBanner />
 <CommandPalette open={cmdOpen} onclose={() => (cmdOpen = false)} navItems={paletteNavItems} />
 <KeyboardMap open={keysOpen} onclose={() => (keysOpen = false)} />

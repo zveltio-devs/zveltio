@@ -13,7 +13,7 @@ import {
 } from '../db/migrations/index.js';
 import { getCache, realtimeBus } from '../lib/runtime/index.js';
 import { isDDLQueueStarted } from '../lib/data/index.js';
-import { collectionRlsExemptionStatus, extensionLoader } from '../lib/extensions/index.js';
+import { extensionLoader } from '../lib/extensions/index.js';
 import { reconcileFailures, requireInstanceAdmin } from '../lib/tenancy/index.js';
 import { storageConfig } from '../lib/storage/index.js';
 import { emailCaseUniquenessProblem } from '../lib/identity.js';
@@ -104,14 +104,11 @@ export function healthRoutes(db: Database, auth?: any): Hono {
 
     // Guardrail: an operator who left DEMO_MODE=true in a production
     // .env would otherwise publish disposable credentials to the world
-    // via the unauthenticated /api/health endpoint. Refuse to surface
-    // demo credentials when NODE_ENV=production AND
-    // DEMO_MODE_ALLOW_IN_PROD isn't explicitly set. The banner still
-    // shows ("demo_mode: true"), so the misconfiguration is visible —
-    // we just don't hand out the passwords.
-    const inProd = process.env.NODE_ENV === 'production';
-    const demoInProdAllowed = process.env.DEMO_MODE_ALLOW_IN_PROD === 'true';
-    const exposeCreds = demoMode && (!inProd || demoInProdAllowed);
+    // via the unauthenticated /api/health endpoint. Production never
+    // surfaces them (ADR 0058 d4 removed DEMO_MODE_ALLOW_IN_PROD). The
+    // banner still shows ("demo_mode: true"), so the misconfiguration is
+    // visible — we just don't hand out the passwords.
+    const exposeCreds = demoMode && process.env.NODE_ENV !== 'production';
 
     return c.json(
       {
@@ -378,22 +375,9 @@ export function healthRoutes(db: Database, auth?: any): Hono {
         version: ENGINE_VERSION,
         timestamp: new Date().toISOString(),
         checks,
-        // Extensions running without collection permissions in the database
-        // (ZVELTIO_COLLECTION_RLS_EXEMPT). Not a failed check — the operator
-        // chose it — but always visible, so it cannot become permanent quietly.
-        collectionPermissionExemptions: collectionRlsExemptionStatus(),
       },
       allOk ? 200 : 503,
     );
-  });
-
-  // GET /api/health/collection-exemptions — the extensions running without
-  // collection permissions in the database, for the Studio admin banner. Instance
-  // admin, like /deep: it names what this deployment runs and how it is weakened.
-  app.get('/collection-exemptions', async (c) => {
-    if (!(await requireAuth(c))) return refuseWithoutSession(c);
-    if (!(await requireAdmin(c))) return c.json({ error: 'Forbidden' }, 403);
-    return c.json(collectionRlsExemptionStatus());
   });
 
   // GET /api/health/update-check — check for new engine release (auth-gated).

@@ -1484,7 +1484,6 @@
   "wh.testNamed": "A(z) {name} webhook tesztelése",
   "wh.timeout": "Időkorlát",
   "wh.timeoutHint": "ezredmásodperc (1000–30000)",
-  "shell.collection_rls_exempt": "{count} bővítmény fut gyűjteményjogosultságok nélkül az adatbázisban: {names}. Igazítsa át őket, és vegye ki őket a ZVELTIO_COLLECTION_RLS_EXEMPT listából — a mentesség a 3.0.0-val megszűnik.",
   "stepUp.userVerificationOrCode": "Ez a jelszókulcs egy érintést igazolt, de nem a személyazonosságodat. Állíts be PIN-kódot, vagy kapcsold be az ujjlenyomatos vagy arcfelismerős feloldást a biztonsági kulcsodon, vagy add meg a hitelesítő alkalmazásod kódját.",
   "stepUp.orCodeLabel": "Vagy egy kód a hitelesítő alkalmazásodból",
   "passkeys.passwordWrong": "A jelszó nem helyes.",
