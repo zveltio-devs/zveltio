@@ -188,6 +188,10 @@ judge against nothing. Transition rules sit outside rule groups.
    A `catalog.json` override no longer makes a name first-party. Still by name:
    levels 0–2 come from the bundled catalogue or the registry's answer, until
    the registry signs the tier with each archive.
+   *U3 (ADR 0058):* inline needs the registry's archive signature, kept with the
+   files at download and re-verified against them at every load; in production
+   an unsigned directory never runs inline, whatever its name
+   ([signatures](../extensions/signatures.md#what-runs-inline-u3)).
    *Slice 4:* level 3 is declared model only — no `register()` surface, no
    `ctx.db` or other `ctx` request over the runner bridge, no SQL migrations —
    re-verified before every respawn, and listed and enabled through the

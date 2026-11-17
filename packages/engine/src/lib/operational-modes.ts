@@ -115,10 +115,11 @@ export const MODES = {
     class: 'permanent',
     weakens:
       'Refusing an extension archive without a registry signature. With `=false` a missing ' +
-      'signature is a warning; until the registry-signed tier lands an unsigned directory named ' +
-      'like a first-party extension also loads inline (U3).',
+      'signature is a warning and the archive installs, but it is unsigned: in production it ' +
+      'never runs inline, whatever its name — only on the extension runner, as community code ' +
+      '(worker-isolated and bundled), or not at all (U3).',
     when: 'A private mirror that does not sign yet.',
-    removal: 'permanent, once the registry-signed tier lands (U3)',
+    removal: 'permanent',
     on: is('false'),
   },
   ZVELTIO_EXT_TRANSPORT: {
@@ -197,7 +198,9 @@ export const MODES = {
     weakens:
       '`development` or `test` turns off the production refusals: `productionGuardViolations` ' +
       '(no cache, `CORS_ORIGINS=*`, …), the RLS-unenforceable refusal, the extension-runner ' +
-      'requirement and edge placement, Secure session cookies, the admin gate on ' +
+      'requirement and edge placement, inline code only on a registry signature (an unsigned ' +
+      'source checkout runs inline when the catalogue names it first-party), Secure session ' +
+      'cookies, the admin gate on ' +
       '`/api/openapi.json`, the demo credentials kept off `/api/health`, and mounts the ' +
       'unauthenticated `POST /__zveltio_dev_reload`. Every other value — unset included — is ' +
       'production (ADR 0058, owner 2026-11-17): a hand-started engine without it boots as ' +
