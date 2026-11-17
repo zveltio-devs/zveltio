@@ -116,6 +116,7 @@ table zv_api_keys
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
   col is_active                      boolean NOT NULL DEFAULT true
   col key_hash                       text NOT NULL
+  col key_hash_version               integer
   col key_prefix                     text NOT NULL
   col last_ip                        text
   col last_used_at                   timestamp with time zone

@@ -171,8 +171,7 @@ BETTER_AUTH_URL=https://api.yourdomain.com
 
 `BETTER_AUTH_SECRET` keys more than sessions. Replacing it outright is
 **destructive for API keys and TOTP**. `BETTER_AUTH_SECRETS` (below) keeps TOTP
-through a rotation; API keys are still destroyed until they carry a secret
-version (ADR 0058 decision 7, not shipped yet).
+and API keys through a rotation.
 `FIELD_ENCRYPTION_KEY` and `MAIL_ENCRYPTION_KEY` are separate keys; encrypted
 and `secret` fields are not affected.
 
@@ -181,7 +180,7 @@ What happens when the **current** secret changes:
 | Use (engine file) | After rotation | Operator action |
 |---|---|---|
 | Session cookies and CLI bearer tokens (Better Auth signs them) | Every session ends; `get-session` answers `null` | None: people sign in again |
-| API keys, `zvk_…` (`lib/security/api-key-hash.ts`, an HMAC under the secret) | **Destroyed**: every key answers 401. The SCIM token is an API key (ADR 0045) | Re-issue each key, hand it to its integration, delete the old row |
+| API keys, `zvk_…` (`lib/security/api-key-hash.ts`, an HMAC under the secret) | Kept while the secret that wrote the key's hash stays listed in `BETTER_AUTH_SECRETS` or stays `BETTER_AUTH_SECRET` (below); the first use rewrites the hash under the current secret. Otherwise **destroyed**: the key answers 401. The SCIM token is an API key (ADR 0045) | Re-issue each lost key, hand it to its integration, delete the old row |
 | TOTP secret and backup codes (Better Auth encrypts them with the secret) | Kept when the old secret stays listed in `BETTER_AUTH_SECRETS` (below). Otherwise **destroyed**: a TOTP user passes the password step and then gets 500 on `verify-totp` and on `verify-backup-code`; they cannot sign in | Reset the user's factors (`POST /api/users/:id/factors/reset`, with a step-up); they sign in with their password and enrol again. A god whose only factor was TOTP uses `RECOVERY_TOKEN` |
 | Token hashes an extension stored through `deriveTokenHash` (`lib/security/keyring.ts` `hmacAuthSecret`) | **Destroyed**: they no longer match | Re-issue those tokens (no first-party extension uses it) |
 | Sealed list and sync cursors (`lib/data/query-parse.ts`, ADR 0021) | Refused; the walk restarts from page 1, a sync pull from the start | None |
@@ -223,6 +222,12 @@ never prints a secret.
   except Better Auth's own) uses the current secret **only**. A cache entry,
   cursor or file URL signed under an older listed secret is refused, never
   trusted.
+- One exception on the verifying side: an API key. Its stored hash is looked
+  up under every secret the engine holds (each listed entry, then
+  `BETTER_AUTH_SECRET`). A key found under one that is not current is rewritten
+  under the current one on that request, and `zv_api_keys.key_hash_version`
+  records which listed version wrote each hash (NULL: `BETTER_AUTH_SECRET`). A
+  key that has not been used since a rotation still depends on its old secret.
 - Beside the list, `BETTER_AUTH_SECRET` is only Better Auth's legacy key: it
   decrypts the untagged TOTP secrets and backup codes written before the list
   existed. Nothing else uses it. Keep it set to the value those rows were
@@ -239,20 +244,27 @@ Routine rotation, every replica at each step:
    restart changes nothing a client sees; every replica now knows `<new>`.
 2. When every replica runs step 1: `BETTER_AUTH_SECRETS=2:<new>,1:<old>`.
    `<new>` becomes current, with the consequences in the table: sessions end,
-   cursors restart, file URLs are asked again, cache entries are misses and
-   **API keys must be re-issued** (procedure step 4 above). TOTP keeps working:
-   both versions decrypt on every replica. While the restart rolls, replicas
+   cursors restart, file URLs are asked again and cache entries are misses.
+   API keys keep working, and each is rewritten under `<new>` on its first use.
+   TOTP keeps working: both versions decrypt on every replica. While the restart rolls, replicas
    on different current secrets refuse each other's cookies, cursors and file
    URLs; it ends when the last one restarts.
 3. Keep `1:<old>` listed while any TOTP row is tagged `$ba$1$`
-   (`SELECT count(*) FROM "twoFactor" WHERE secret LIKE '$ba$1$%'`). Removing it
-   destroys those enrolments, as in the table.
+   (`SELECT count(*) FROM "twoFactor" WHERE secret LIKE '$ba$1$%'`) and while
+   any API key you want to keep is not yet on version 2:
+   `SELECT id, name, last_used_at FROM zv_api_keys WHERE is_active AND key_hash_version IS DISTINCT FROM 2`.
+   Those are keys not used since step 2. Removing `1:<old>` destroys those
+   enrolments and those keys, as in the table, unless `BETTER_AUTH_SECRET` is
+   still `<old>`: an API key also verifies under that variable. Ask each key's
+   owner to use it once, or re-issue it.
 
 A **leaked** secret is not a rotation: listing the leaked value keeps it
 decrypting the TOTP secrets it wrote, and an attacker with the database and
 the value has those factors. Until the leak procedure ships (re-encrypt under
 the new secret, then reset factors; ADR 0058 decision 7), follow the outright
-replacement above: new secret only, factors reset.
+replacement above: new secret only, factors reset. The leaked value leaves both
+`BETTER_AUTH_SECRETS` and `BETTER_AUTH_SECRET`; an API key hashed under it then
+answers 401 and is re-issued.
 
 #### API Key Security
 
