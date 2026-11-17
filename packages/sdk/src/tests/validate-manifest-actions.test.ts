@@ -44,6 +44,19 @@ describe('manifest actions and jobs', () => {
     expect(errors({ jobs: [{ ...job, retry: { backoff: 'yes' } }] })).toHaveLength(1);
   });
 
+  it('takes a five-field cron schedule on a data:system extension (ADR 0048 d1)', () => {
+    const sys = { permissions: ['data:system'] };
+    for (const schedule of ['*/5 * * * *', '0 3 * * 1-5', '0,30 8-18 1 1,7 0']) {
+      expect(errors({ ...sys, jobs: [{ ...job, schedule }] }), schedule).toEqual([]);
+    }
+    for (const schedule of ['@hourly', '* * * *', '0 0 * * * *', '61 * * * *', '*/0 * * * *', 5]) {
+      expect(errors({ ...sys, jobs: [{ ...job, schedule }] }), String(schedule)).toHaveLength(1);
+    }
+    expect(errors({ jobs: [{ ...job, schedule: '* * * * *' }] })).toEqual([
+      'job "notify": a scheduled job runs with no caller, which needs the data:system capability',
+    ]);
+  });
+
   it('takes fromPublicRoutes naming publicRoutes entries only (ADR 0018)', () => {
     const hooked = { ...job, fromPublicRoutes: ['/webhooks/stripe'] };
     expect(errors({ jobs: [hooked], publicRoutes: ['/webhooks/stripe'] })).toEqual([]);
