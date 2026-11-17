@@ -1,7 +1,6 @@
 {
   "routes": [
     "ai",
-    "developer/graphql",
     "storage/cloud"
   ],
   "libs": [
@@ -9,7 +8,6 @@
     "content/pages",
     "content/pdf-viewer",
     "crm",
-    "developer/graphql",
     "finance/invoicing",
     "geospatial/postgis",
     "storage/cloud"
