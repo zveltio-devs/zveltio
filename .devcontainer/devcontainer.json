@@ -44,6 +44,6 @@
   "workspaceFolder": "/workspace",
   "containerEnv": {
     "EXTENSIONS_DIR": "/workspace/zveltio-extensions",
-    "ZVELTIO_EXTENSIONS": "graphql,edge-functions,storage/cloud"
+    "ZVELTIO_EXTENSIONS": "edge-functions,storage/cloud"
   }
 }

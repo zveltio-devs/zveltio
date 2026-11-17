@@ -399,7 +399,7 @@ vector or tags).
 - `422` `aggregate_too_costly` — the statement ran past its fixed 5 s ceiling;
   narrow the filter.
 
-Not cached, not in GraphQL, MCP or realtime.
+Not cached, not in MCP or realtime.
 
 ### POST /api/data/:collection
 
@@ -1123,8 +1123,8 @@ The extension's own permission checks for the key are answered from the same
 entry (an action it asks by name, such as `settle`, must be named there too)
 and then asked of the key's issuer for the resource itself, as the extension
 asks a session. An extension may check collections against the key's
-collection scopes instead, as developer/graphql does: there the `$ext` entry
-admits the endpoint and grants no collection. It too must be named. A 401 means no key, or one that is
+collection scopes instead: there the `$ext` entry admits the endpoint and
+grants no collection. It too must be named. A 401 means no key, or one that is
 unknown, revoked, expired or of another tenant; a 403, a valid key without the
 scope or a route not declared for keys.
 

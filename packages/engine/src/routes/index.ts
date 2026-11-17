@@ -26,7 +26,7 @@ import { healthRoutes } from './health.js';
 import { flowsRoutes } from './flows.js';
 import { tenantsRoutes } from './tenants.js';
 import { goneRoutes, removedRoutes } from './gone.js';
-// graphql → extensions/developer/graphql
+// graphql → removed from the 1.0 catalogue (ADR 0058 d8)
 // drafts → extensions/content/drafts
 // documents → extensions/content/documents
 // media → extensions/content/media (410 shim below; do not remount a dual door)
@@ -75,7 +75,7 @@ import { configStepUp } from '../middleware/config-step-up.js';
 // /api/approvals        → extensions/workflow/approvals
 // /api/drafts           → extensions/content/drafts
 // /api/media            → extensions/content/media
-// /api/graphql          → extensions/developer/graphql
+// /api/graphql          → removed (ADR 0058 d8)
 // /api/quality          → extensions/analytics/quality
 // /api/saved-queries    → extensions/developer/saved-queries
 // /api/export           → extensions/data/export
@@ -468,7 +468,7 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // Database backups — moved to extensions/operations/backup
 
-  // GraphQL auto-generated API — moved to extensions/developer/graphql
+  // GraphQL auto-generated API — removed from the 1.0 catalogue (ADR 0058 d8)
 
   // Content Draft/Publish Workflow — moved to extensions/content/drafts
 

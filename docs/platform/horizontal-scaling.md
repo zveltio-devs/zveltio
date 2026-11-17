@@ -34,7 +34,7 @@ http {
     server {
         listen 80;
 
-        # Standard REST API, GraphQL & Admin Panel traffic
+        # Standard REST API & Admin Panel traffic
         location / {
             proxy_pass http://zveltio_engine;
             proxy_set_header Host $host;
