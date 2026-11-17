@@ -25,7 +25,7 @@ import {
   type RealtimePrincipal,
   type RealtimeUser,
 } from '../lib/data/index.js';
-import { inOrder, readScope, type ReadScope } from '../lib/data/index.js';
+import { inOrder, realtimeScope, type RealtimeScope } from '../lib/data/index.js';
 import { getCache, ORIGIN_ID } from '../lib/runtime/index.js';
 
 // Standard channel names (mirrors old-repo CHANNELS for SDK compatibility)
@@ -88,9 +88,9 @@ interface StreamSub {
    * used to have none: `access` was empty and the fan-out delivered every row
    * and column of every collection.
    */
-  lazyAccess: Map<string, Promise<ReadScope>>;
+  lazyAccess: Map<string, Promise<RealtimeScope>>;
   /** The gate for one collection, for `user` as it is now. */
-  resolveOne: (collection: string) => Promise<ReadScope>;
+  resolveOne: (collection: string) => Promise<RealtimeScope>;
   /** Delivery queue while an async verdict is pending (`inOrder`). */
   pending?: Promise<void>;
   /** The session or API key the stream opened with — `closeUnauthenticatedSse` re-asks it. */
@@ -113,7 +113,7 @@ function mayHearEverything(user: RealtimeUser): Promise<boolean> {
 }
 
 /** The read gate per collection the stream delivers. */
-type StreamAccess = Map<string, ReadScope>;
+type StreamAccess = Map<string, RealtimeScope>;
 
 /**
  * What a stream's access means for delivery, comparable across two lookups.
@@ -343,8 +343,8 @@ function matchesFilters(
 
 /**
  * Broadcast a data event — applies per-subscription filtering before
- * sending. `tenantId` constrains delivery to subscribers that opened
- * their stream under the same tenant; pass `null` only for legacy
+ * sending. `tenantId` constrains delivery to subscribers whose reach
+ * includes that tenant (`RealtimeScope.reaches`); pass `null` only for legacy
  * single-tenant deployments. Without this scoping, a subscriber to
  * `contacts` in tenant A would receive every contact write made in
  * every tenant (the SSE stream and the cache channel name both use
@@ -377,15 +377,12 @@ export function broadcastDataEvent(
 
   for (const [, subs] of connections) {
     for (const sub of subs) {
-      // Strict tenant scoping. Cross-tenant delivery is a data leak,
-      // so we require equality (no NULL-matches-anything).
-      if ((sub.tenantId ?? null) !== (tenantId ?? null)) continue;
       if (!matchesSub(sub, collection, record)) continue;
 
       // The subscriber's read gate — row policies, extension alters, entity
       // access and column permissions, as on the REST list path. Without it the
       // stream delivered rows and columns the API would have withheld.
-      const write = (scope: ReadScope) => {
+      const write = (scope: RealtimeScope) => {
         // Again at send: one queued behind an async verdict may outlive its scope.
         if (!realtimeScopeCurrent(scope.generation)) return;
         const visible = scope.shape(record);
@@ -399,9 +396,12 @@ export function broadcastDataEvent(
       };
       // A scope from before the latest rule change, or while the bus is down,
       // delivers nothing until the sweep re-resolves it.
+      // Each path asks `reaches`: the write's tenant must be one this stream
+      // reads, as `GET` reads it (DR-33) — never another tenant's write, and
+      // NULL matches only NULL.
       const scope = sub.access.get(collection);
       if (scope) {
-        if (realtimeScopeCurrent(scope.generation)) {
+        if (realtimeScopeCurrent(scope.generation) && scope.reaches(tenantId ?? null)) {
           if (!partial || !scope.entityChecks)
             inOrder(sub, scope.admits(record), () => write(scope));
         }
@@ -414,11 +414,14 @@ export function broadcastDataEvent(
           lazy.catch(() => sub.lazyAccess.delete(collection));
           sub.lazyAccess.set(collection, lazy);
         }
-        let resolved: ReadScope | undefined;
+        let resolved: RealtimeScope | undefined;
         const verdict = lazy.then((s) => {
           resolved = s;
           return (
-            realtimeScopeCurrent(s.generation) && (!partial || !s.entityChecks) && s.admits(record)
+            realtimeScopeCurrent(s.generation) &&
+            s.reaches(tenantId ?? null) &&
+            (!partial || !s.entityChecks) &&
+            s.admits(record)
           );
         });
         inOrder(sub, verdict, () => write(resolved!));
@@ -773,8 +776,8 @@ export function realtimeRoutes(_db: Database, _auth: any): Hono {
     // lookup is refused (500), as the REST list path refuses on the same error.
     // The sweep calls it again outside this request, under the stream's tenant,
     // with the key's grants as they are then.
-    const scopeFor = (who: RealtimeUser, col: string): Promise<ReadScope> =>
-      readScope(_db, col, who, authType);
+    const scopeFor = (who: RealtimeUser, col: string): Promise<RealtimeScope> =>
+      realtimeScope(_db, col, who, authType, tenantId);
     const resolveAccess = async (who: RealtimeUser): Promise<StreamAccess> => {
       const access: StreamAccess = new Map();
       for (const col of new Set(collections.map((x) => x.split(':')[0]!))) {

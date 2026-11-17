@@ -29,6 +29,7 @@ import {
   matchesRlsFilters,
   principalReadFilters,
   principalRole,
+  shapeTenantReach,
   type ColumnAccess,
   type RolePrincipal,
 } from '../tenancy/index.js';
@@ -105,6 +106,38 @@ export async function readScope(
   const rls = await getRlsFilters(collection, user, authType, 'read');
   const columns = await getColumnAccess(db, collection, role, user);
   return scopeOf(db, collection, user, rls, columns, generation);
+}
+
+/** A realtime door's gate: the read gate plus the tenants whose writes it hears. */
+export interface RealtimeScope extends ReadScope {
+  /** Whether a write made in `tenantId` is one this caller reads (DR-33). */
+  reaches(tenantId: string | null): boolean;
+}
+
+/**
+ * `readScope` for a realtime subscription opened in `tenantId`: a write is
+ * delivered when its tenant is in the reach `GET` reads (ADR 0058 decision 6),
+ * not only when it equals the subscriber's. The reach is resolved after the
+ * generation is taken, so a tree or reach change — `reconcileRules`
+ * fingerprints them — makes this scope stale like a rule change, and the sweep
+ * re-resolves it. `null` (no tenant) matches only `null`.
+ */
+export async function realtimeScope(
+  db: Database,
+  collection: string,
+  user: ReadUser,
+  authType: 'session' | 'api_key' | 'anonymous',
+  tenantId: string | null,
+): Promise<RealtimeScope> {
+  const scope = await readScope(db, collection, user, authType);
+  const reach =
+    tenantId === null
+      ? []
+      : await shapeTenantReach(db, authType === 'session' ? user.id : null, tenantId);
+  return Object.assign(scope, {
+    reaches: (t: string | null) =>
+      t === null || tenantId === null ? t === tenantId : reach === 'all' || reach.includes(t),
+  });
 }
 
 /**

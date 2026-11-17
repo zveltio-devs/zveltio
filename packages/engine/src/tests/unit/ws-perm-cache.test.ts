@@ -14,10 +14,10 @@ import {
   wsRoutes,
   _wsPermCacheForTests,
 } from '../../routes/ws.js';
-import type { ReadScope } from '../../lib/data/read-scope.js';
+import type { RealtimeScope } from '../../lib/data/read-scope.js';
 
 /** A read gate that admits every row and hides no column. */
-const openScope = (table: string): ReadScope => ({
+const openScope = (table: string): RealtimeScope => ({
   table,
   // Current whenever asked: these probes are not about a rule change.
   get generation() {
@@ -32,6 +32,7 @@ const openScope = (table: string): ReadScope => ({
   admits: () => true,
   shape: (row) => row,
   readable: () => true,
+  reaches: () => true,
 });
 
 describe('WS subscribe decisions', () => {

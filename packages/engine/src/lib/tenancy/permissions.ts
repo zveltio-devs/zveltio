@@ -2225,16 +2225,33 @@ export function reconcilePolicies(): Promise<boolean> {
   return run.catch(() => false);
 }
 
-/** `zvd_rls_policies` + `zvd_column_permissions` as last seen by `reconcileRules`. */
+/**
+ * `zvd_rls_policies` + `zvd_column_permissions`, and the tenant tree and reach,
+ * as last seen by `reconcileRules`.
+ */
 let _rulesFingerprint: string | null = null;
 
+/**
+ * The tree and the reach (`parent_id`, `status`, `read_scope`, `scope_list`)
+ * decide which tenants a realtime subscriber hears (DR-33), and change by SQL
+ * only, with no event. They are summed as row hashes, not aggregated in order:
+ * memberships can be many, and this runs every tick on every instance.
+ */
 async function rulesFingerprint(): Promise<string> {
   const r = await sql<{ fp: string | null }>`
     SELECT md5(coalesce((SELECT string_agg(row_to_json(p)::text, E'\n' ORDER BY p.id)
                          FROM zvd_rls_policies p), '')
             || E'\n--\n' ||
                coalesce((SELECT string_agg(row_to_json(c)::text, E'\n' ORDER BY c.id)
-                         FROM zvd_column_permissions c), '')) AS fp
+                         FROM zvd_column_permissions c), '')
+            || E'\n--\n' ||
+               (SELECT count(*) || ':' || coalesce(sum(hashtextextended(
+                         concat_ws('|', t.id, t.parent_id, t.status), 0)), 0)
+                  FROM zv_tenants t)
+            || E'\n--\n' ||
+               (SELECT count(*) || ':' || coalesce(sum(hashtextextended(
+                         concat_ws('|', u.id, u.read_scope, u.scope_list), 0)), 0)
+                  FROM zv_tenant_users u)) AS fp
   `.execute(_db);
   return r.rows[0]?.fp ?? '';
 }
