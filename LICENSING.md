@@ -2,8 +2,8 @@
 
 Zveltio is open source. The server is licensed under the **GNU Affero General
 Public License v3.0 only** (AGPL-3.0-only); the pieces you build your own
-software with are licensed under **MIT**. Copyright © 2026 DaRe IT Systems
-S.R.L.
+software with are licensed under **MIT**. Copyright © 2026 Liviu Marian
+Iordache.
 
 | Part | Where | Licence |
 |---|---|---|
@@ -38,7 +38,7 @@ any licence, including a proprietary one.
 
 **You cannot accept the AGPL** (company policy, an embedded or OEM product, a
 hosted offering that keeps its changes private): a commercial licence is
-available from DaRe IT Systems S.R.L. — `licensing@zveltio.com`.
+available from the copyright holder, Liviu Marian Iordache — `licensing@zveltio.com`.
 
 ## Zveltio Extension Exception
 
@@ -68,5 +68,5 @@ is "built on Zveltio" or "compatible with Zveltio" is fine.
 ## Contributing
 
 Contributions are accepted under the [Contributor License Agreement](CLA.md),
-which lets DaRe IT Systems S.R.L. keep offering Zveltio under both the AGPL and
+which lets the copyright holder keep offering Zveltio under both the AGPL and
 a commercial licence. You keep the copyright in your contribution.

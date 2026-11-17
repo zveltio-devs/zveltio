@@ -373,7 +373,7 @@ If you build something on Zveltio that helps your business, the only thing we as
 
 ## The platform behind your business. Build it. Plug it in. Own it forever.
 
-Zveltio is a product of [DaRe IT Systems S.R.L.](https://dareit.ro) — based in Romania, open to the world.
+Zveltio is created and owned by Liviu Marian Iordache, supported by [DaRe IT Systems S.R.L.](https://dareit.ro) — based in Romania, open to the world.
 
 Built with [Claude](https://claude.com/claude-code).
 
