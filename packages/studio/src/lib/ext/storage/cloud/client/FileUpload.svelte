@@ -1,29 +1,16 @@
-<script lang="ts" module>
-  /** The engine's stored file, as `POST /api/storage/upload` answers it. */
-  export interface UploadedFile {
-    id: string;
-    original_name: string;
-    mimetype: string;
-    size: number;
-    visibility: 'personal' | 'tenant';
-    /** A public upload's bare URL; a private one's signed URL, which expires. */
-    url: string | null;
-  }
-</script>
-
 <script lang="ts">
   import { Upload, LoaderCircle, CheckCircle } from '@lucide/svelte';
 
   interface Props {
     /** Base URL of your Zveltio engine, e.g. 'https://api.myapp.com' */
     engineUrl?: string;
+    collection?: string;
+    field?: string;
     accept?: string;
-    /** A folder of the signed-in user's tenant to store the file in. */
-    folderId?: string;
-    onUploaded?: (file: UploadedFile) => void;
+    onUploaded?: (url: string) => void;
   }
 
-  let { engineUrl, accept = '*', folderId, onUploaded }: Props = $props();
+  let { engineUrl, collection, field, accept = '*', onUploaded }: Props = $props();
 
   function resolveEngineUrl() {
     if (engineUrl) return engineUrl;
@@ -35,32 +22,43 @@
   let progress = $state(0);
   let done = $state(false);
 
-  // The engine's own upload, as the signed-in user (session cookie): its size,
-  // quota and type checks apply, and the file is private to them.
   async function upload(file: File) {
     uploading = true;
     done = false;
     progress = 0;
 
     try {
-      const form = new FormData();
-      form.append('file', file);
-      if (folderId) form.append('folder_id', folderId);
-      const stored = await new Promise<UploadedFile>((resolve, reject) => {
+      // 1. Get presigned URL from Engine
+      const res = await fetch(`${resolveEngineUrl()}/api/storage/presign`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filename: file.name,
+          contentType: file.type,
+          collection,
+          field,
+        }),
+      });
+
+      if (!res.ok) throw new Error('Failed to get upload URL');
+      const { uploadUrl, fileUrl } = await res.json();
+
+      // 2. Upload directly to S3 (bypasses engine)
+      await new Promise<void>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.upload.onprogress = (e) => {
           if (e.lengthComputable) progress = Math.round((e.loaded / e.total) * 100);
         };
-        xhr.onload = () =>
-          xhr.status === 201 ? resolve(JSON.parse(xhr.responseText).file) : reject(new Error(`Upload failed: ${xhr.status}`));
+        xhr.onload = () => (xhr.status >= 200 && xhr.status < 300) ? resolve() : reject(new Error(`Upload failed: ${xhr.status}`));
         xhr.onerror = () => reject(new Error('Network error'));
-        xhr.open('POST', `${resolveEngineUrl()}/api/storage/upload`);
-        xhr.withCredentials = true;
-        xhr.send(form);
+        xhr.open('PUT', uploadUrl);
+        xhr.setRequestHeader('Content-Type', file.type);
+        xhr.send(file);
       });
 
       done = true;
-      onUploaded?.(stored);
+      onUploaded?.(fileUrl);
     } catch (e) {
       console.error('Upload failed:', e);
     } finally {

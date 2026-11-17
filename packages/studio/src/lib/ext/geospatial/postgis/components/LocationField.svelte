@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { mapTiles } from '#lib/map-tiles.js';
  import { onMount, onDestroy } from 'svelte';
  import L from 'leaflet';
  import 'leaflet/dist/leaflet.css';
@@ -50,10 +49,9 @@ import { MapPin, Navigation, X } from '@lucide/svelte';
  });
 
  map = L.map(mapElement).setView([lat, lng], defaultZoom);
- // The operator chooses the tile server (ADR 0043); null = no tiles.
- void Promise.resolve(mapTiles()).then((t) => {
-   if (t && map) L.tileLayer(t.url, { attribution: t.attribution }).addTo(map);
- });
+ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+ attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+ }).addTo(map);
 
  if (value?.lat !== undefined && value?.lng !== undefined) {
  marker = L.marker([value.lat, value.lng]).addTo(map);
