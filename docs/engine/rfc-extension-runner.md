@@ -364,9 +364,10 @@ runner.
        all invocations together;
      - no pre-spawned pool on the runner: each invocation pays the spawn
        (~30 ms) the local pool saves;
-     - on bare metal every invocation shares the `edge` instance's uid, so two
-       invocations running at once are not isolated from each other (in
-       containers each gets its own uid);
+     - every invocation runs under a uid of its own: in containers from
+       `ZVELTIO_EXT_RUNNER_UID_BASE`, on bare metal from 400000 (the `edge`
+       drop-in starts the runner as root with only CAP_SETUID, CAP_SETGID and
+       CAP_KILL; ADR 0058 amendment);
      - egress is the runner's: closed until the operator opens the `edge`
        instance or the runner container's network. (Step 10: the runner keeps
        it closed, and a function's `fetch` crosses to the engine.)
@@ -652,9 +653,10 @@ runner.
       process's environment, while the engine's uid reads the engine's);
       `ext-runner-systemd.sh` runs its held probe with no `NODE_ENV` and no
       switch.
-    - Still open: bare metal runs every invocation under the one
-      `zveltio-ext-runner@edge` uid, so two concurrent invocations share a uid;
-      containers give each its own.
+    - Bare metal gives each invocation a uid of its own too (ADR 0058
+      amendment): the `edge` drop-in runs the runner as root with three
+      capabilities and `ZVELTIO_EXT_RUNNER_UID_BASE=400000`;
+      `ext-runner-systemd.sh` holds two invocations and reads two uids.
 
 ## Alternatives considered
 
