@@ -469,6 +469,7 @@ const SECTIONS: Section[] = [
       `${E}lib/extensions/collection-rls-exempt.ts`,
       `${E}lib/extensions/tenant-facts.ts`,
       `${E}lib/extensions/actions.ts`,
+      `${E}lib/extensions/inline-lag.ts`,
       // GET /api/actions lists what the action route admits (ADR 0029).
       `${E}routes/actions.ts`,
       `${E}lib/extensions/jobs.ts`,
