@@ -16,7 +16,10 @@
  *
  * Everything the engine signs or keys itself — Valkey cache signatures, sealed
  * cursors, local file URLs, API-key and extension token hashes — uses the
- * current secret only: an entry signed under any other secret is refused.
+ * current secret only: an entry signed under any other secret is refused. One
+ * exception on the verifying side: an API key whose stored hash an older held
+ * secret wrote still verifies, and is rewritten under the current one on that
+ * use (`apiKeyHashCandidates`, migration 126).
  */
 
 export interface VersionedSecret {

@@ -99,6 +99,7 @@ export interface ZvApiKeysTable {
   tenant_id: Generated<string>;
   rls_bypass: Generated<boolean>;
   member_issued: Generated<boolean>;
+  key_hash_version: number | null;
 }
 
 export interface ZvAuditLogTable {

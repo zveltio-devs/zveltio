@@ -6,14 +6,15 @@
  * the engine side of that table: everything signed or sealed under the old
  * secret is refused under the new one — never trusted, never a thrown error
  * (a cache entry is a miss, a cursor restarts, a file URL is refused) — and the
- * two stored hashes no longer match, which is why every API key and every
- * extension token hash must be re-issued. Better Auth's own uses (session
+ * two stored hashes no longer match: an extension token hash must be re-issued,
+ * and so must an API key unless its old secret stays held (`apiKeyHashCandidates`,
+ * harness api-key-secret-rotation.test.ts). Better Auth's own uses (session
  * cookies, the TOTP secret and backup codes) were run live; see the doc.
  */
 
 import { afterEach, describe, expect, it } from 'bun:test';
 import { openToken, sealToken } from '../../lib/data/query-parse.js';
-import { hashApiKey } from '../../lib/security/api-key-hash.js';
+import { apiKeyHashCandidates, hashApiKey } from '../../lib/security/api-key-hash.js';
 import { hmacAuthSecret } from '../../lib/security/keyring.js';
 import { signKey, verifySignedKey } from '../../lib/storage/local-driver.js';
 import { decodeSigned, encodeSigned } from '../../lib/tenancy/signed-cache.js';
@@ -98,5 +99,36 @@ describe('BETTER_AUTH_SECRETS: engine signatures use the current secret only', (
     rotate(NEW);
     expect(decodeSigned('rls', 'rls:policies:x', raw)).toEqual([]);
     expect(await hashApiKey(`zvk_${'a'.repeat(32)}`)).toBe(key);
+  });
+
+  it('verifies an API key under every held secret, current first, and under no other', async () => {
+    const raw = `zvk_${'a'.repeat(32)}`;
+    const under = async (secret: string) => {
+      delete process.env.BETTER_AUTH_SECRETS;
+      rotate(secret);
+      return hashApiKey(raw);
+    };
+    const [oldHash, newHash, legacyHash] = [
+      await under(OLD),
+      await under(NEW),
+      await under('legacy-0123456789abcdef0123456789abcdef'),
+    ];
+    // Beside the list BETTER_AUTH_SECRET is held too, with version null.
+    process.env.BETTER_AUTH_SECRETS = `2:${NEW},1:${OLD}`;
+    expect(await apiKeyHashCandidates(raw)).toEqual([
+      { hash: newHash, version: 2 },
+      { hash: oldHash, version: 1 },
+      { hash: legacyHash, version: null },
+    ]);
+    // A listed value is not tried twice.
+    rotate(OLD);
+    expect(await apiKeyHashCandidates(raw)).toEqual([
+      { hash: newHash, version: 2 },
+      { hash: oldHash, version: 1 },
+    ]);
+    // Dropped from the list and not the single secret: no longer a candidate.
+    process.env.BETTER_AUTH_SECRETS = `2:${NEW}`;
+    rotate(NEW);
+    expect(await apiKeyHashCandidates(raw)).toEqual([{ hash: newHash, version: 2 }]);
   });
 });

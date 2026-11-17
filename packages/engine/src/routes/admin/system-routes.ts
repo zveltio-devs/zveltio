@@ -14,7 +14,7 @@ import {
 } from '../../lib/tenancy/index.js';
 import { csvCell } from '../../lib/security/index.js';
 import { apiKeyUsable, escapeLike, memberKeyScopeRefusal } from '../../lib/data/index.js';
-import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
+import { currentApiKeyHashVersion, generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import { invalidateColumnPermCache } from '../../lib/tenancy/index.js';
 import { fieldTypeRegistry } from '../../lib/data/index.js';
 import { DDLManager, enqueueDDLJob, readableRevisions } from '../../lib/data/index.js';
@@ -172,6 +172,7 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
         .values({
           name,
           key_hash: keyHash,
+          key_hash_version: currentApiKeyHashVersion(),
           key_prefix: prefix,
           // See lib/jsonb.ts — the second writer of this column, and it had
           // the same defect.

@@ -183,6 +183,8 @@ export interface ZvApiKeysTable {
   id: Generated<string>;
   name: string;
   key_hash: string;
+  // The BETTER_AUTH_SECRETS version that wrote key_hash; null = BETTER_AUTH_SECRET (126)
+  key_hash_version: number | null;
   key_prefix: string;
   // JSONB columns: stored as plain unknown because the Bun.SQL dialect
   // expects callers to pass JSON.stringify(...) values (see admin route

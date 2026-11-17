@@ -33,7 +33,7 @@ import {
   requireInstanceAdmin,
   runWithDomain,
 } from '../tenancy/index.js';
-import { hashApiKey, isWellFormedApiKey } from '../security/index.js';
+import { apiKeyHashCandidates, isWellFormedApiKey } from '../security/index.js';
 import type { RequestUser } from './types.js';
 
 /** Authenticate request — session or API key. */
@@ -178,15 +178,50 @@ export function requestApiKey(c: Context): string | null {
 export async function findApiKey(db: Database, rawKey: string): Promise<ZvApiKeyRow | null> {
   // No query for a string no key can match: `generateApiKey` owns the shape.
   if (!isWellFormedApiKey(rawKey)) return null;
-  const hash = await hashApiKey(rawKey);
+  // Under every secret the engine holds, in one indexed lookup: a key hashed
+  // under a secret that is no longer current still verifies (ADR 0058 d7).
+  const candidates = await apiKeyHashCandidates(rawKey);
   const apiKey = await usableApiKeys(db)
     .selectAll('zv_api_keys')
-    .where('key_hash', '=', hash)
+    .where(
+      'key_hash',
+      'in',
+      candidates.map((c) => c.hash),
+    )
     .executeTakeFirst();
 
   if (!apiKey) return null;
   if (apiKeyExpired(apiKey)) return null;
+  const current = candidates[0]!;
+  if (apiKey.key_hash !== current.hash || apiKey.key_hash_version !== current.version) {
+    void rehashApiKey(apiKey.id, apiKey.key_hash, current);
+  }
   return apiKey;
+}
+
+/**
+ * Rewrite a key's hash under the current secret, so it survives its old secret
+ * leaving `BETTER_AUTH_SECRETS`. Conditional on the hash it was found under: of
+ * two requests racing, one writes and the other matches no row. Not awaited and
+ * through the pool, as `last_used_at` is: the caller may hold the tenant
+ * transaction (whose RLS sees one tenant's keys), and a failure must not refuse
+ * a key that verified — the next use tries again.
+ */
+async function rehashApiKey(
+  id: string,
+  foundHash: string,
+  current: { hash: string; version: number | null },
+): Promise<void> {
+  try {
+    await getDb()
+      .updateTable('zv_api_keys')
+      .set({ key_hash: current.hash, key_hash_version: current.version })
+      .where('id', '=', id)
+      .where('key_hash', '=', foundHash)
+      .execute();
+  } catch (err) {
+    console.error('[findApiKey] rehash under the current secret failed:', err);
+  }
 }
 
 /**

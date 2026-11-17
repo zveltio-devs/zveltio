@@ -23,7 +23,7 @@ import {
 import { DDLManager } from '../lib/data/index.js';
 import { getCache } from '../lib/runtime/index.js';
 import { auditLog } from '../lib/audit.js';
-import { generateApiKey, hashApiKey } from '../lib/security/index.js';
+import { currentApiKeyHashVersion, generateApiKey, hashApiKey } from '../lib/security/index.js';
 import { toJsonb } from '../lib/jsonb.js';
 import type { RequestUser } from './data.js';
 import { invalidateRateLimitCache } from '../middleware/rate-limit.js';
@@ -96,6 +96,7 @@ async function mintApiKey(
     .values({
       ...fields,
       key_hash: keyHash,
+      key_hash_version: currentApiKeyHashVersion(),
       key_prefix: rawKey.substring(0, 12),
       // `::text::jsonb`, not `JSON.stringify` alone — see lib/jsonb.ts.
       // Bound as a plain string this landed as a jsonb STRING, so
