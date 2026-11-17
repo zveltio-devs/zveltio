@@ -6,7 +6,7 @@
  * whole table. Tenant B could not take a value tenant A held, was refused over a
  * row RLS hides from it, and could probe for another company's emails or codes
  * through the refusal. The key is `UNIQUE (tenant_id, code)` now — on create,
- * on the DDL-queue addField, on the add-field route and on a schema-branch merge.
+ * on the DDL-queue addField and on the add-field route.
  */
 
 import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
@@ -92,30 +92,6 @@ d('a unique field is unique per tenant', () => {
       body: JSON.stringify(field('sku', true)),
     });
     expect(added.status).toBeLessThan(300);
-    // Road 4: a schema-branch merge (small table: the dynamicAddColumn road).
-    const created = await app.request('/api/schema/branches', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', cookie },
-      body: JSON.stringify({ name: `uniq-${SFX}` }),
-    });
-    expect(created.status).toBe(201);
-    const { branch, schema } = (await created.json()) as { branch: { id: string }; schema: string };
-    const change = await app.request(`/api/schema/branches/${branch.id}/changes`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', cookie },
-      body: JSON.stringify({
-        type: 'add_field',
-        payload: { collection: COLLECTION, field: field('tag', true) },
-      }),
-    });
-    expect(change.status).toBeLessThan(300);
-    const merged = await app.request(`/api/schema/branches/${branch.id}/merge`, {
-      method: 'POST',
-      headers: { cookie },
-    });
-    expect(((await merged.json()) as { errors: string[] }).errors).toEqual([]);
-    await db.deleteFrom('zv_schema_branches').where('id', '=', branch.id).execute();
-    await sql`DROP SCHEMA IF EXISTS ${sql.id(schema)} CASCADE`.execute(db);
   }, 60_000);
 
   afterAll(async () => {
@@ -125,7 +101,7 @@ d('a unique field is unique per tenant', () => {
     await sql`DROP TABLE IF EXISTS ${sql.id(FOREIGN)}`.execute(db);
   });
 
-  for (const column of ['code', 'ref', 'sku', 'tag']) {
+  for (const column of ['code', 'ref', 'sku']) {
     it(`${column}: the same value in two tenants is two rows, twice in one tenant is refused`, async () => {
       expect(await put(column, 'X-1', TENANT_A)).toBe('ok');
       expect(await put(column, 'X-1', TENANT_B)).toBe('ok');
@@ -143,7 +119,6 @@ d('a unique field is unique per tenant', () => {
       'UNIQUE (tenant_id, code)',
       'UNIQUE (tenant_id, ref)',
       'UNIQUE (tenant_id, sku)',
-      'UNIQUE (tenant_id, tag)',
     ]);
   });
 

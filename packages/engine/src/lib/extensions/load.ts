@@ -73,7 +73,7 @@ export const RETIRED_EXTENSIONS: Readonly<Record<string, string>> = {
   'developer/saved-queries': 'the engine serves saved queries (/api/saved-queries)',
   'analytics/insights': 'insights was removed (ADR 0051)',
   'operations/backup': 'the engine serves backups (/api/backup)',
-  'developer/schema-branches': 'the engine serves schema branches',
+  'developer/schema-branches': 'schema branches were removed (ADR 0049)',
   search: 'the engine serves full-text search (search= on the data API)',
 };
 

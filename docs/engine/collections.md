@@ -228,17 +228,14 @@ the engine does not implement — refuses every write that sets its field, with
 422 `<field>: a validation rule on this field cannot be evaluated`. The log
 names the rule and the reason. Fix the rule or set `is_active = false`.
 
-## Schema Branches
+## Changing the schema safely
 
-Before making breaking schema changes in production, create a branch:
-
-1. Go to **Studio → Schema Branches**
-2. Create a branch from `main`
-3. Apply changes on the branch
-4. Preview the diff
-5. Merge when ready
-
-See [Schema Branches](/architecture) for details.
+Schema branches were removed (ADR 0049); `/api/schema/branches` answers 410.
+Keep the schema as files in git and change it there: `zveltio schema pull`
+writes the instance's schema to files, a branch in git holds the change,
+`zveltio schema diff` shows the steps against an instance, and
+`zveltio schema apply` applies them — to a staging instance first, then to
+production. See [rfc-schema-as-code.md](rfc-schema-as-code.md).
 
 ## Time Travel
 

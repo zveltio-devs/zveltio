@@ -40,7 +40,6 @@ import { validationRoutes } from './validation.js';
 // work out of the box on a fresh install instead of requiring marketplace install.
 import { backupRoutes } from './backup.js';
 import { savedQueriesRoutes } from './saved-queries.js';
-import { schemaBranchesRoutes } from './schema-branches.js';
 import { erdLayoutRoutes } from './erd-layout.js';
 import { initDDLQueue } from '../lib/data/index.js';
 import {
@@ -57,7 +56,7 @@ import {
 import { slowQueryMiddleware } from '../middleware/slow-query.js';
 import { godAuditMiddleware } from '../middleware/god-audit.js';
 import { requestLogMiddleware } from '../middleware/request-log.js';
-import { previewEnvMiddleware } from '../middleware/preview-env.js';
+import { problem } from '../lib/problem.js';
 import { tracingMiddleware } from '../middleware/tracing.js';
 import { demoModeMiddleware } from '../middleware/demo-mode.js';
 import { listSignInProviders } from '../lib/extensions/index.js';
@@ -294,8 +293,16 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // ── Step-up on every configuration mutation (ADR 0006) — before the routes ─
   app.use('/api/*', configStepUp(auth));
 
-  // ── Preview environments — X-Preview-Token switches PostgreSQL search_path ─
-  app.use('/api/data/*', previewEnvMiddleware(db));
+  // ── Schema branches and their previews are gone (ADR 0049 slice 4) ────────
+  // A preview token used to switch the data API onto a branch's schema. Ignored
+  // now, it would send that client's reads and writes to the live tables, so a
+  // request still carrying one is refused rather than served from `public`.
+  const branchesGone =
+    'Schema branches and their previews were removed (ADR 0049): change the schema with `zveltio schema apply`, from a schema file kept in git.';
+  app.use('/api/data/*', async (c, next) => {
+    if (c.req.header('x-preview-token')) throw problem('gone', 410, branchesGone);
+    await next();
+  });
 
   // Step-up tokens, and the gates on adding or removing a sign-in factor
   // (routes/step-up.ts). Before the Better Auth catch-all below.
@@ -451,8 +458,6 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
 
   // Extension marketplace — moved to extensionLoader.registerMarketplace() in bootstrap
 
-  // Schema branches — promoted to core; see the mount below.
-
   // API documentation portal — moved to extensions/developer/api-docs
 
   // Media library — files, folders and uploads are the engine's /api/storage;
@@ -489,8 +494,9 @@ export async function registerCoreRoutes(app: Hono, ctx: RoutesContext): Promise
   // Database backups + PITR — promoted to core (was extensions/operations/backup)
   app.route('/api/backup', backupRoutes(poolDb, auth));
 
-  // Schema Branches — promoted to core (was extensions/developer/schema-branches)
-  app.route('/api/schema', schemaBranchesRoutes(db, auth));
+  // Schema branches were a second way to change the schema beside schema as code
+  // (ADR 0049). `zv_schema_branches` and the branch schemas are kept one release.
+  app.route('/api/schema/branches', removedRoutes(branchesGone));
 
   // The SQL editor ran the caller's SQL as the engine's role, past RLS (ADR 0049 slice 4, ADR 0058 d1).
   const sqlGone =

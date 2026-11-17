@@ -336,32 +336,6 @@ d('an extension declares its collections; the engine creates and owns them', () 
       ),
     ).rejects.toThrow(/names collection decl_tasks, which does not exist/);
     expect(await fields(TASKS)).toEqual(['title']);
-    // Nor a schema branch's merge.
-    const made = (await (
-      await call('POST', '/api/schema/branches', { name: 'declcol' })
-    ).json()) as {
-      branch: { id: string };
-      schema: string;
-    };
-    try {
-      const at = `/api/schema/branches/${made.branch.id}`;
-      await call('POST', `${at}/changes`, {
-        type: 'remove_field',
-        payload: { collection: TASKS, field: 'title' },
-      });
-      await call('POST', `${at}/changes`, {
-        type: 'add_field',
-        payload: { collection: TASKS, field: text('extra') },
-      });
-      const merged = (await (await call('POST', `${at}/merge`)).json()) as { errors: string[] };
-      expect(merged.errors.filter((e) => /belongs to extension "hello-ext"/.test(e))).toHaveLength(
-        2,
-      );
-      expect(await fields(TASKS)).toEqual(['title']);
-    } finally {
-      await sql`DELETE FROM zv_schema_branches WHERE id = ${made.branch.id}`.execute(db);
-      await sql`DROP SCHEMA IF EXISTS ${sql.id(made.schema)} CASCADE`.execute(db);
-    }
 
     // The operator's own collection: the same doors are open, and a relation into the owned one.
     expect((await call('PATCH', `/api/collections/${PLAIN}`, { displayName: 'P' })).status).toBe(
@@ -606,23 +580,9 @@ d('an extension declares its collections; the engine creates and owns them', () 
     expect((await post('disable')).status).toBe(200);
     expect((await post('activate')).status).toBe(200);
 
-    // The operator drops its own field, through the route and through a branch merge.
+    // The operator drops its own fields.
     await status(await call('DELETE', field(`${P}memo`)), 200);
-    const made = (await (
-      await call('POST', '/api/schema/branches', { name: 'declcol2' })
-    ).json()) as { branch: { id: string }; schema: string };
-    try {
-      const at = `/api/schema/branches/${made.branch.id}`;
-      await call('POST', `${at}/changes`, {
-        type: 'remove_field',
-        payload: { collection: TASKS, field: `${P}req` },
-      });
-      const merged = (await (await call('POST', `${at}/merge`)).json()) as { errors: string[] };
-      expect(merged.errors).toEqual([]);
-    } finally {
-      await sql`DELETE FROM zv_schema_branches WHERE id = ${made.branch.id}`.execute(db);
-      await sql`DROP SCHEMA IF EXISTS ${sql.id(made.schema)} CASCADE`.execute(db);
-    }
+    await status(await call('DELETE', field(`${P}req`)), 200);
     expect(await fields(TASKS)).toEqual(['due', 'title', `${P}plain_id`]);
     await extensionLoader.unload(NAME);
 

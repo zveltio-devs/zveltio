@@ -16,11 +16,7 @@ export type ReconcileStep =
   | 'ext_tenant_rls'
   | 'row_rules'
   | 'column_guards'
-  | 'column_seals'
-  // A schema-branch preview's copy of a table, re-mirrored from `public` on a
-  // column rule, row rule or field change (`refreshBranchProtections`); keyed
-  // `<schema>.<table>`.
-  | 'branch_protections';
+  | 'column_seals';
 
 const byStep = new Map<ReconcileStep, Map<string, string>>();
 

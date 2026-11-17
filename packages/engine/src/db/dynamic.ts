@@ -5,7 +5,6 @@
 // All identifiers (table names, column names) are sanitized before use to
 // prevent SQL injection via Kysely's sql.id() which handles quoting.
 
-import { AsyncLocalStorage } from 'node:async_hooks';
 import { sql } from 'kysely';
 import type { RawBuilder } from 'kysely';
 import type { Database } from './index.js';
@@ -179,22 +178,12 @@ export async function readSource(
   db: Database,
   table: string,
 ): Promise<{ from: string; view: string | null; version: RawBuilder<unknown> }> {
-  const info = await readInfo(db, table);
-  // A preview reads the branch schema's copy of the table, which the view in
-  // `public` does not read: the table, then, as before the view.
-  const view = previewing.getStore() ? null : info.view;
+  const { view, version } = await readInfo(db, table);
   return {
     from: view ? `${view} as ${table}` : table,
     view,
-    version: sql.raw(view ? info.version : ''),
+    version: sql.raw(version),
   };
-}
-
-const previewing = new AsyncLocalStorage<string>();
-
-/** Run a request under a schema-branch preview (`middleware/preview-env.ts`): `readSource` reads the tables. */
-export function withPreviewSchema<T>(schema: string, fn: () => T): T {
-  return previewing.run(schema, fn);
 }
 
 /** Forget a table's readable columns and view — its fields, grants or rules changed. */

@@ -157,9 +157,11 @@ for it. Planned on this rule, in order: `/api/templates` becomes
 collections-only official extensions (done); the data API gains aggregates;
 `/api/insights` goes (done: charts are a view/2 `chart`, ADR 0051) and
 `/api/saved-queries` moves to Studio; `/api/admin/sql` (done, ADR 0058) and
-`/api/schema/branches` are removed. No SQL written by a caller runs in the
-engine: run SQL as an operator with a database client and credentials of your
-own (`psql "$DATABASE_URL"`), and change the schema with `zveltio schema apply`. Flows stay until after 1.0-rc.1. Each removal is a
+`/api/schema/branches` (done) are removed. No SQL written by a caller runs in
+the engine: run SQL as an operator with a database client and credentials of
+your own (`psql "$DATABASE_URL"`). The schema changes in one way, schema as
+code: a schema file kept in git, applied with `zveltio schema apply` (the
+branch is a git branch). Flows stay until after 1.0-rc.1. Each removal is a
 `BREAKING` CHANGELOG entry when it lands.
 
 ---

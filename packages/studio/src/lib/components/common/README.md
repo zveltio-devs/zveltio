@@ -53,8 +53,8 @@ roadmap).
 ### `CrudListPage.svelte` — standard list shell
 
 For pages that follow the **list + primary action + create modal** pattern
-(Collections, Webhooks, Users, API Keys, Flows, Schema Branches, Tenants,
-Zones, Views, Backup — all 10 use this). Wraps PageHeader, optional
+(Collections, Webhooks, Users, API Keys, Flows, Tenants,
+Zones, Views, Backup — all 9 use this). Wraps PageHeader, optional
 SearchBar, loading spinner, EmptyState, and Pagination into one shell so
 empty states are visually consistent across the admin.
 
@@ -153,7 +153,7 @@ local-state pattern unless a deep-link use case exists.
 
 - **Modal**: creating a NEW item with a small, focused form (1-6 fields).
   Edits inline. Lives on the list page. — Webhooks, API Keys, Users,
-  Schema Branches, Backups.
+  Backups.
 - **Dedicated page (`/<resource>/[id]`)**: editing an EXISTING item that
   has its own tabs (data + schema + settings), nested resources, or rich
   editors (collections, flows with step builder, edge functions).

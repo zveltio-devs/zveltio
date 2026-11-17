@@ -21,7 +21,6 @@ import {
   Download,
   Workflow,
   Package,
-  GitBranch,
   Plug,
   Building2,
   Images,
@@ -238,11 +237,6 @@ const RAW_NAV: NavGroup[] = [
         href: resolve(`rpc`),
         icon: Zap,
         labelKey: 'nav.rpcFunctions',
-      },
-      {
-        href: resolve(`schema-branches`),
-        icon: GitBranch,
-        labelKey: 'nav.schemaBranches',
       },
 
       {

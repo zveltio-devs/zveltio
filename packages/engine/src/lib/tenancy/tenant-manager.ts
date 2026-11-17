@@ -1247,8 +1247,7 @@ export function getTenantSchemaName(tenantSlug: string): string {
 
 /**
  * Register a named environment in zv_environments. It gets no Postgres schema:
- * nothing reads one (per-environment isolation is the preview `branch_*`
- * schemas), and `tenant_<a>_<x>` also spelled tenant `a-x`'s. Rows from before
+ * nothing reads one, and `tenant_<a>_<x>` also spelled tenant `a-x`'s. Rows from before
  * migration 043 may still name one; purge drops it.
  */
 export async function provisionEnvironment(
@@ -2107,8 +2106,9 @@ export async function ensureRlsEnforcementRole(db: Database): Promise<void> {
         -- A preview token is a credential too (migration 068): every column of
         -- zv_schema_branches but that one. The loop above just granted the table
         -- whole, and a column grant means nothing beside a table grant, so the
-        -- table grant goes and the columns come back one by one. The lookup runs
-        -- through zveltio_preview_branch(), which reads the token as its owner.
+        -- table grant goes and the columns come back one by one. Schema branches
+        -- are gone (ADR 0049); the table and zveltio_preview_branch() stay one
+        -- release, unread, and keep their grants until a migration drops them.
         IF to_regclass('public.zv_schema_branches') IS NOT NULL THEN
           REVOKE SELECT ON public.zv_schema_branches FROM zveltio_rls;
           EXECUTE (

@@ -207,7 +207,7 @@ describe('reindexInvalid', () => {
 
 describe('runAddField', () => {
   /**
-   * The schema-branch merge and schema apply add fields through here, and
+   * Schema apply adds fields through here (the schema-branch merge did too), and
    * nothing upstream checked `is_managed`: `addField` altered a BYOD table.
    */
   it('refuses an unmanaged (BYOD) collection before any DDL', async () => {

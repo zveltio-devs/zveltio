@@ -5,16 +5,16 @@
  * The table carries every protection the engine puts on one (LV-12): a sealed
  * column, a column permission (masking view and column guard), a row rule, a
  * unique key, and foreign keys in both directions. A field is then added
- * through a schema-branch merge — `runAddField`, the road that once copied a
- * large table and swapped it in — and the whole catalog of the table is
- * compared before and after (`catalogState`).
+ * through `runAddField` — schema apply's road, which once copied a large table
+ * and swapped it in — and the whole catalog of the table is compared before
+ * and after (`catalogState`).
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { DDLManager } from '../../lib/data/index.js';
+import { DDLManager, runAddField } from '../../lib/data/index.js';
 import {
   catalogState,
   createGodSession,
@@ -125,26 +125,9 @@ d('a field added in place keeps every protection of its table', () => {
     // Sealed: no request role is granted the password column.
     expect(before.filter((l) => l.startsWith('04 column acl|pw:'))).toEqual([]);
 
-    const { branch, schema } = (await post('/api/schema/branches', { name: `hafp-${SFX}` })) as {
-      branch: { id: string };
-      schema: string;
-    };
-    try {
-      await post(`/api/schema/branches/${branch.id}/changes`, {
-        type: 'add_field',
-        payload: { collection: MAIN, field: text('note') },
-      });
-      // A unique one too: its key is built CONCURRENTLY and attached (DR-37).
-      await post(`/api/schema/branches/${branch.id}/changes`, {
-        type: 'add_field',
-        payload: { collection: MAIN, field: text('sku', { unique: true }) },
-      });
-      const merged = await post(`/api/schema/branches/${branch.id}/merge`, {});
-      expect(merged.errors).toEqual([]);
-    } finally {
-      await db.deleteFrom('zv_schema_branches').where('id', '=', branch.id).execute();
-      await sql`DROP SCHEMA IF EXISTS ${sql.id(schema)} CASCADE`.execute(db);
-    }
+    await runAddField(db, MAIN, text('note') as never);
+    // A unique one too: its key is built CONCURRENTLY and attached (DR-37).
+    await runAddField(db, MAIN, text('sku', { unique: true }) as never);
 
     const after = await catalogState(db, TABLE);
     const added = after.filter((l) => !before.includes(l));

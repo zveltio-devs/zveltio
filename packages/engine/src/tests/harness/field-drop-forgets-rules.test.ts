@@ -7,7 +7,7 @@
  * by a row rule written for different data, validated by a rule nobody set.
  *
  * Three paths drop a field: `dropField` (the route, schema migrations),
- * `DDLManager.removeField` (the DDL queue, schema-branch merge, extensions) and
+ * `DDLManager.removeField` (the DDL queue, extensions) and
  * deleting a relation (its FK column).
  */
 

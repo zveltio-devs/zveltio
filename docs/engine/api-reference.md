@@ -99,7 +99,7 @@ The client names the action, confirms it, and sends the token it gets back as
 **Configuration window.** Every configuration mutation — any non-GET request under
 `/api/admin`, `/api/api-keys`, `/api/backup`, `/api/collections`, `/api/flows`,
 `/api/marketplace`, `/api/permissions` (except `/bootstrap`), `/api/relations`,
-`/api/schema`, `/api/settings`, `/api/tenants`, `/api/users`,
+`/api/settings`, `/api/tenants`, `/api/users`,
 `/api/webhooks`, and the function registry under `/api/rpc` (calling `POST
 /api/rpc/:fn` is not) — also needs the session's step-up window: any successful
 `verify` opens it for 5 minutes from then (not extended by use). Without it the answer
