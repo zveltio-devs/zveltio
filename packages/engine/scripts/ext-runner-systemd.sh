@@ -133,6 +133,7 @@ for _ in 1 2 3 4 5 6 7 8; do
   [ "$(wc -w <<<"$UEDGES")" -ge 2 ] && break
 done
 UEDGE=$(awk '{print $1}' <<<"$UEDGES")
+[ -n "$UEDGES" ] || sudo journalctl -u zveltio-ext-runner@edge.service -n 40 --no-pager -o cat || true
 check "two held edge invocations run under two uids of their own" \
   '[ "$(wc -w <<<"$UEDGES")" -ge 2 ] && [ "$UEDGE" != "$UE" ]'
 check "the edge runner holds only CAP_SETUID, CAP_SETGID and CAP_KILL" \
