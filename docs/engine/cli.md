@@ -103,8 +103,8 @@ zveltio rollback
 
 Create a recovery override account: a `god` user, over HTTP against a running
 engine. On a fresh install use the engine binary's `create-god` instead (see
-[installation.md](../platform/installation.md#2-create-admin-account)): it writes
-the account directly and needs neither route below. This command reaches the
+[installation.md](../platform/installation.md#2-create-admin-account)): it signs
+the account up through better-auth in-process and needs neither route below. This command reaches the
 engine through two public routes that a default install keeps shut:
 
 1. The account is created through `POST /api/auth/sign-up/email`, which answers

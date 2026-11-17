@@ -79,6 +79,15 @@ d('recovery bootstrap (in-process)', () => {
     expect(status).toBe(401);
   });
 
+  it('promotes, never creates: an unknown email is refused and no account appears', async () => {
+    // ADR 0056 d4: a leaked RECOVERY_TOKEN alone must not be an instance takeover.
+    const stranger = `recovery-stranger-${Date.now()}@test.local`;
+    const { status } = await bootstrap(TOKEN, stranger);
+    expect(status).toBe(404);
+    const rows = await sql`SELECT 1 FROM "user" WHERE lower(email) = ${stranger}`.execute(db);
+    expect(rows.rows).toHaveLength(0);
+  });
+
   it('records the refusal, because a failed attempt here IS the attack', async () => {
     const rows = await db
       .selectFrom('zv_audit_log')
