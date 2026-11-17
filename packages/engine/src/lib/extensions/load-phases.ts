@@ -343,6 +343,8 @@ export async function enforcePublisherTier(
   manifest: ExtensionManifest | null,
   /** The operator key its directory signature verified against (ADR 0056 d1), if any. */
   operatorKeyId: string | null = null,
+  /** Its files are the archive the registry signed, verified at this load (`verifyRegistrySignedDir`). */
+  registrySigned = false,
 ): Promise<PhaseResult<void>> {
   // marketplace-policy.md §2 enforcement: publisher tier governs
   // whether an extension may run inline. The registry catalog
@@ -384,6 +386,22 @@ export async function enforcePublisherTier(
     return refuseAnyCollection(extName, manifest, 'runs in worker isolation') ?? ok;
   }
   if (inlineForTests) return ok;
+
+  // U3 (ADR 0056 amendment 4, ADR 0058): only the registry's signature, kept
+  // with the files and re-verified at this load, lets code run inline — never
+  // the name. An unsigned directory (installed with
+  // REQUIRE_EXTENSION_SIGNATURES=false, put there by hand, a source checkout)
+  // is not first-party, whatever the catalogue says of its name. Development
+  // and test (`NODE_ENV`) keep the catalogue's word, to run a source checkout.
+  if (!registrySigned && isProduction()) {
+    const msg =
+      `Extension "${extName}" is not signed by the registry (no registry signature kept with its ` +
+      `files holds at load), so it is not first-party whatever its name, and only first-party ` +
+      `code runs in the engine. Install it from the registry, or pack it with engine.isolation ` +
+      `"worker" (bundled) to run it on the extension runner. Your own extension: sign it with a ` +
+      `key on OPERATOR_PUBLIC_KEYS_JSON — docs/extensions/signatures.md#your-own-extensions-level-3.`;
+    return { ok: false, logLevel: 'error', logArgs: [`❌ ${msg}`], lastLoadError: msg };
+  }
 
   // `requireRemote` makes fetchRegistryCatalog throw instead of silently
   // degrading to the local catalog — without it the fail-closed branch below is

@@ -15,6 +15,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'path';
 import {
   bundledCatalogEntry,
@@ -26,7 +27,15 @@ import { tryAdvisoryLock } from '../../db/advisory-lock.js';
 import type { Database } from '../../db/index.js';
 import { purgeExtensionData } from './migration-runner.js';
 import { modeValue } from '../operational-modes.js';
-import { parseSignature, verifySignature, SignatureMissingError } from '../security/index.js';
+import {
+  type ExtensionSignature,
+  extensionDirListing,
+  parseSignature,
+  REGISTRY_SIGNED_DIR,
+  SignatureInvalidError,
+  SignatureMissingError,
+  verifySignature,
+} from '../security/index.js';
 
 // ── Registry catalog cache ────────────────────────────────────────────────────
 // Default points at the Cloudflare Worker registry (registry.zveltio.com).
@@ -218,13 +227,16 @@ export function signaturesRequired(): boolean {
  *   - `REQUIRE_EXTENSION_SIGNATURES=false`    → a missing signature logs a
  *     warning and proceeds. An INVALID signature still throws either way — a
  *     present-but-broken signature is never accepted.
+ *
+ * Answers the verified signature, or null for a missing one let through: the
+ * download keeps the first with the files, and nothing unsigned runs inline (U3).
  */
 async function verifyArchiveSignature(
   extensionName: string,
   downloadUrl: string,
   headers: Record<string, string>,
   archive: Uint8Array,
-): Promise<void> {
+): Promise<ExtensionSignature | null> {
   // Signatures are REQUIRED by default as of beta.37. The flag stays as an
   // escape hatch (`REQUIRE_EXTENSION_SIGNATURES=false`) for a private mirror
   // that does not sign yet; the supported way to trust another signer is
@@ -266,12 +278,13 @@ async function verifyArchiveSignature(
     console.warn(
       `[signature] ${extensionName}: no signature.sig found — install proceeded because REQUIRE_EXTENSION_SIGNATURES=false`,
     );
-    return;
+    return null;
   }
 
   const parsed = parseSignature(sigBody, extensionName);
   await verifySignature(archive, parsed, extensionName);
   console.log(`🔐 Extension "${extensionName}": signature verified (keyId=${parsed.keyId})`);
+  return parsed;
 }
 
 /**
@@ -389,15 +402,16 @@ export async function downloadExtension(
   // S1-01: signature verification. Try to fetch `<download_url>.sig` next to
   // the archive. The registry publishes the sig file as a sibling of the
   // tarball. Missing-signature behaviour is gated by REQUIRE_EXTENSION_SIGNATURES.
-  await verifyArchiveSignature(entry.name, downloadUrl, headers, new Uint8Array(buf));
+  const signature = await verifyArchiveSignature(
+    entry.name,
+    downloadUrl,
+    headers,
+    new Uint8Array(buf),
+  );
 
   // Only now: bytes that failed a check above leave nothing on disk.
   const destDir = join(destBase, entry.name);
   mkdirSync(destDir, { recursive: true });
-
-  // Magic-number sniffing — content-type from R2/Cloudflare can be unreliable.
-  const isZip = buf[0] === 0x50 && buf[1] === 0x4b && buf[2] === 0x03 && buf[3] === 0x04;
-  const isGzip = buf[0] === 0x1f && buf[1] === 0x8b;
 
   const fs = await import('fs');
   const path = await import('path');
@@ -416,6 +430,134 @@ export async function downloadExtension(
       fs.rmSync(p, { recursive: true, force: true });
   }
   const stageDir = fs.mkdtempSync(join(destDir, '_stage-'));
+  const sourceDir = await extractArchive(entry.name, buf, stageDir);
+
+  // Move every entry from sourceDir into destDir (replacing any prior files).
+  for (const e of fs.readdirSync(sourceDir)) {
+    const src = path.join(sourceDir, e);
+    const dst = path.join(destDir, e);
+    try {
+      fs.rmSync(dst, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
+    fs.renameSync(src, dst);
+  }
+  try {
+    fs.rmSync(stageDir, { recursive: true, force: true });
+  } catch {
+    /* ignore */
+  }
+
+  // U3: what the registry signed stays with the files, so every load can check
+  // them against it (`verifyRegistrySignedDir`). An unsigned archive keeps none,
+  // and none from an older version may vouch for it.
+  const kept = join(destDir, REGISTRY_SIGNED_DIR);
+  fs.rmSync(kept, { recursive: true, force: true });
+  if (signature) {
+    fs.mkdirSync(kept);
+    fs.writeFileSync(join(kept, 'archive'), buf);
+    fs.writeFileSync(join(kept, 'archive.sig'), JSON.stringify(signature));
+  }
+
+  console.log(`✅ Extension "${entry.name}" extracted to ${destDir}`);
+  return { archiveSha256: actualArchiveSha };
+}
+
+/**
+ * The registry key that signed the archive `extDir` was extracted from, while
+ * its files are still exactly that archive's; null when it keeps no registry
+ * signature (an unsigned download, a directory put there by hand, a source
+ * checkout). This, never the name, is what lets an extension run inline (U3,
+ * ADR 0056 amendment 4).
+ *
+ * Re-verified at every load: the signature against the registry keys (never an
+ * operator key), every file against the archive, and the name in the archive's
+ * manifest against the name it loads as — another extension's signed archive
+ * copied under a first-party name is not that extension. Extension directories
+ * nested inside it are not its files and are left out.
+ *
+ * @throws SignatureInvalidError when a kept signature does not hold: such a
+ *         directory is refused, never loaded as if it were unsigned.
+ */
+export async function verifyRegistrySignedDir(
+  extName: string,
+  extDir: string,
+): Promise<string | null> {
+  const kept = join(extDir, REGISTRY_SIGNED_DIR);
+  if (!existsSync(join(kept, 'archive.sig'))) return null;
+  const refuse = (detail: string) => new SignatureInvalidError(extName, detail);
+  let archive: Uint8Array;
+  let raw: unknown;
+  try {
+    archive = new Uint8Array(readFileSync(join(kept, 'archive')));
+    raw = JSON.parse(readFileSync(join(kept, 'archive.sig'), 'utf8'));
+  } catch (err) {
+    throw refuse(`${REGISTRY_SIGNED_DIR}/ is unreadable: ${(err as Error).message}`);
+  }
+  const signature = parseSignature(raw, extName);
+  await verifySignature(archive, signature, extName);
+
+  // Extracted again at every load: about 5 ms an extension (57 first-party, 271 ms).
+  const stage = mkdtempSync(join(tmpdir(), 'zveltio-verify-'));
+  try {
+    const signed = await extractArchive(extName, archive, stage);
+    const want = new Map<string, string>();
+    const have = new Map<string, string>();
+    try {
+      extensionDirListing(signed, extName, '', want);
+      extensionDirListing(extDir, extName, '', have);
+    } catch (err) {
+      throw refuse((err as Error).message);
+    }
+    const nested = nestedExtensions(extDir, extName);
+    for (const path of have.keys()) {
+      if (
+        path.startsWith(`${REGISTRY_SIGNED_DIR}/`) ||
+        nested.some((n) => path.startsWith(`${n}/`))
+      )
+        have.delete(path);
+    }
+    const differs = [...new Set([...want.keys(), ...have.keys()])]
+      .sort()
+      .find((path) => want.get(path) !== have.get(path));
+    if (differs !== undefined) {
+      const what = !have.has(differs) ? 'is missing' : !want.has(differs) ? 'was added' : 'changed';
+      throw refuse(
+        `"${differs}" ${what} since the download: the directory no longer matches the archive ` +
+          `the registry signed (key "${signature.keyId}"). Reinstall it from the registry.`,
+      );
+    }
+    let named: unknown;
+    try {
+      named = JSON.parse(readFileSync(join(signed, 'manifest.json'), 'utf8')).name;
+    } catch {
+      named = undefined;
+    }
+    if (named !== extName) {
+      throw refuse(
+        `the archive the registry signed names ${JSON.stringify(named)}, not "${extName}": ` +
+          `another extension's files do not load under this name`,
+      );
+    }
+  } finally {
+    rmSync(stage, { recursive: true, force: true });
+  }
+  return signature.keyId;
+}
+
+/**
+ * Extract `buf` (ZIP or gzip tar, by its magic number) into the empty `stageDir`.
+ * Answers the directory holding its files: a single top-level folder is unwrapped.
+ * Refuses a symbolic link anywhere in it. `stageDir` is removed on failure.
+ */
+async function extractArchive(extName: string, buf: Uint8Array, stageDir: string): Promise<string> {
+  // Magic-number sniffing — content-type from R2/Cloudflare can be unreliable.
+  const isZip = buf[0] === 0x50 && buf[1] === 0x4b && buf[2] === 0x03 && buf[3] === 0x04;
+  const isGzip = buf[0] === 0x1f && buf[1] === 0x8b;
+
+  const fs = await import('fs');
+  const path = await import('path');
   const pkgPath = `${stageDir}${isZip ? '.zip' : '.tar.gz'}`;
   fs.writeFileSync(pkgPath, buf);
 
@@ -438,7 +580,7 @@ export async function downloadExtension(
     } catch {
       /* ignore */
     }
-    throw new Error(`Unknown archive format for "${entry.name}" (expected ZIP or gzip)`);
+    throw new Error(`Unknown archive format for "${extName}" (expected ZIP or gzip)`);
   }
 
   const exitCode = await proc.exited;
@@ -455,9 +597,7 @@ export async function downloadExtension(
     } catch {
       /* ignore */
     }
-    throw new Error(
-      `Extraction failed for "${entry.name}": ${stderr.trim() || `exit ${exitCode}`}`,
-    );
+    throw new Error(`Extraction failed for "${extName}": ${stderr.trim() || `exit ${exitCode}`}`);
   }
 
   // Defense-in-depth against zip-slip / symlink escape: GNU tar/unzip already
@@ -475,7 +615,7 @@ export async function downloadExtension(
           /* ignore */
         }
         throw new Error(
-          `Refusing extension "${entry.name}": archive contains a symlink (${name}) — ` +
+          `Refusing extension "${extName}": archive contains a symlink (${name}) — ` +
             'possible path traversal.',
         );
       }
@@ -495,25 +635,7 @@ export async function downloadExtension(
     if (fs.statSync(only).isDirectory()) sourceDir = only;
   }
 
-  // Move every entry from sourceDir into destDir (replacing any prior files).
-  for (const e of fs.readdirSync(sourceDir)) {
-    const src = path.join(sourceDir, e);
-    const dst = path.join(destDir, e);
-    try {
-      fs.rmSync(dst, { recursive: true, force: true });
-    } catch {
-      /* ignore */
-    }
-    fs.renameSync(src, dst);
-  }
-  try {
-    fs.rmSync(stageDir, { recursive: true, force: true });
-  } catch {
-    /* ignore */
-  }
-
-  console.log(`✅ Extension "${entry.name}" extracted to ${destDir}`);
-  return { archiveSha256: actualArchiveSha };
+  return sourceDir;
 }
 
 /** A new version downloaded beside the old one, to be swapped in when the caller is ready. */

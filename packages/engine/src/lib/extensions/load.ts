@@ -27,6 +27,7 @@ import { QuotaExceededError } from './extension-errors.js';
 import { resolveExtensionsBase } from './extension-paths.js';
 import { recordManifest } from '../tenancy/index.js';
 import { verifyExtensionDir } from '../security/index.js';
+import { verifyRegistrySignedDir } from './extension-download.js';
 import {
   pendingExtensionMigrations,
   pendingMigrationsRefusal,
@@ -123,11 +124,15 @@ export async function loadExtensionFromDir(
     loader.extDirs.set(extName, extDir);
 
     // ADR 0056 d1: an operator's signature is checked at every load, before
-    // anything of the directory is read or trusted. One that does not hold
-    // refuses the load: it never falls back to loading the files unsigned.
+    // anything of the directory is read or trusted, and so is the registry's
+    // signature a download kept with the files (U3: only that lets it run
+    // inline). One that does not hold refuses the load: it never falls back to
+    // loading the files unsigned.
     let operatorKeyId: string | null;
+    let registryKeyId: string | null;
     try {
       operatorKeyId = (await verifyExtensionDir(extName, extDir))?.keyId ?? null;
+      registryKeyId = await verifyRegistrySignedDir(extName, extDir);
     } catch (err) {
       const msg = (err as Error).message;
       console.error(`❌ ${msg}`);
@@ -289,7 +294,12 @@ export async function loadExtensionFromDir(
     // branch returned before reaching it. A non-worker extension is refused
     // here unless its tier is first-party; a worker-isolated, bundled one is
     // loaded by the runner below and never imported in this process.
-    const tierPhase = await enforcePublisherTier(extName, manifest, operatorKeyId);
+    const tierPhase = await enforcePublisherTier(
+      extName,
+      manifest,
+      operatorKeyId,
+      registryKeyId !== null,
+    );
     if (!tierPhase.ok) {
       if (tierPhase.logLevel !== 'none') {
         console[tierPhase.logLevel](...tierPhase.logArgs);
