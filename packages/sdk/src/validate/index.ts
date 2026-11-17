@@ -503,6 +503,24 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
         slotKinds.set(name, kind);
       }
     }
+    // ADR 0048 d1: a clock that enqueues the job, five cron fields in UTC, as the engine reads them.
+    if (j.schedule !== undefined) {
+      if (typeof j.schedule !== 'string' || !isCron(j.schedule)) {
+        out.push(
+          err(
+            'MANIFEST_BAD_JOB',
+            `job "${j.name}": schedule "${String(j.schedule)}" is not a five-field cron expression (minute hour day-of-month month day-of-week; *, n, a-b, a,b and /step; in UTC)`,
+          ),
+        );
+      } else if (!(Array.isArray(obj.permissions) && obj.permissions.includes('data:system'))) {
+        out.push(
+          err(
+            'MANIFEST_BAD_JOB',
+            `job "${j.name}": a scheduled job runs with no caller, which needs the data:system capability`,
+          ),
+        );
+      }
+    }
     const hasEgress =
       (Array.isArray(egress) && egress.length > 0) || (Array.isArray(slots) && slots.length > 0);
     if (!int(j.timeoutSeconds, 1, hasEgress ? 900 : 60)) {
@@ -1345,4 +1363,29 @@ export function validateExtension(input: ValidateExtensionInput): ValidationResu
       peerDeps: Object.keys(input.peerDeps.peerDependencies ?? {}).length,
     },
   };
+}
+
+/** Five cron fields, each `*`, `n`, `a-b` or a list of them, with `/step`; in range. */
+function isCron(expr: string): boolean {
+  const ranges = [
+    [0, 59],
+    [0, 23],
+    [1, 31],
+    [1, 12],
+    [0, 7],
+  ] as const;
+  const fields = expr.trim().split(/\s+/);
+  return (
+    fields.length === 5 &&
+    fields.every((field, i) =>
+      field.split(',').every((part) => {
+        const m = /^(\*|(\d+)(?:-(\d+))?)(?:\/(\d+))?$/.exec(part);
+        if (!m) return false;
+        const [min, max] = ranges[i]!;
+        const lo = m[2] === undefined ? min : Number(m[2]);
+        const hi = m[3] === undefined ? (m[2] === undefined ? max : lo) : Number(m[3]);
+        return lo >= min && hi <= max && lo <= hi && (m[4] === undefined || Number(m[4]) >= 1);
+      }),
+    )
+  );
 }

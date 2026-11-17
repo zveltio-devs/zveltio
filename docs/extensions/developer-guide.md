@@ -853,16 +853,41 @@ named in `calls` and the extension in `dependencies` or
 
 ## 9. Scheduled work
 
-`schedules()` is legacy, and no shipped 2.x extension uses it. The declared
-contract has no schedule (ADR 0048, owner 2026-11-14): periodic work is a job
-an action or a declared route enqueues. To run it on a clock today, a
-scheduler outside the engine (system cron, the platform's cron) calls a
-declared public route that enqueues the job (ADR 0018); a flow with a `cron`
-trigger and a `webhook` step does the same where the engine's URL is a public
-address (the webhook step refuses private ones). When an extension first needs a
-schedule of its own, it comes as `jobs[].schedule` (cron) in the manifest,
-additive in v1: the engine enqueues the job in each tenant that has the
-extension installed. A job, not an action, because a clock has no caller.
+A job declares a clock with `schedule`: five cron fields (minute, hour,
+day of month, month, day of week; `*`, `n`, `a-b`, `a,b` and `/step`), in
+UTC (ADR 0048 decision 1, from 3.0.0-beta.126).
+
+```json
+"jobs": [{
+  "name": "syncAll", "input": { "type": "object", "additionalProperties": false },
+  "reads": ["mail_accounts"], "writes": ["mail_accounts"],
+  "schedule": "*/5 * * * *"
+}]
+```
+
+- At each occurrence the engine enqueues the job once in every active tenant
+  where the extension is active: not in a tenant that turned it off, not in a
+  suspended one, nowhere while it is disabled. One transaction queues every
+  tenant's job or none.
+- The job has no caller and no author, with input `{}`: it acts as the
+  extension within its `reads` and `writes`, and a row rule on a caller value
+  keeps no row for it (ADR 0040). Its run records
+  `enqueuedBy: "ext:<name>:schedule"`.
+- Several replicas enqueue each occurrence once. After downtime the job runs
+  once to catch up, not once per missed occurrence; a schedule written in the
+  middle of a minute runs that minute's occurrence at once.
+- The load refuses an expression it cannot read, a scheduled job without
+  `data:system`, and an input schema that refuses `{}`; `extension validate`
+  checks the first two.
+- A disabled, uninstalled or removed extension's schedule is dropped at its
+  next occurrence. A job the clock queued and the extension then turned off
+  for a tenant still runs, as any queued job does.
+
+A job, not an action: a clock has no caller. A clock someone else keeps (system
+cron, the platform's scheduler) still calls a declared public route that
+enqueues the job (ADR 0018), or a flow with a `cron` trigger and a `webhook`
+step does, where the engine's URL is a public address.
+`schedules()` is legacy, and no shipped 2.x extension uses it.
 
 ## 10. Studio: views, field types, translation
 
@@ -2880,8 +2905,8 @@ making them context-switch.
   be called again on hot-reload. Use `ctx`, not module-level globals.
 - **Don't block the event loop.** Long sync work belongs in a cron job or
   background task.
-- **Don't `setInterval`.** Use `schedules()` instead — observable, cancellable,
-  singleton-safe.
+- **Don't `setInterval`.** Declare `schedule` on a job instead (§9): once per
+  occurrence across replicas, per tenant, stopped with the extension.
 - **Don't pin Hono/Zod/Kysely to a version of your own.** They *are* bundled
   into your artifact — that is the delivery model, and `bundlePeers: true` is
   the only valid configuration — but their types cross the boundary into the

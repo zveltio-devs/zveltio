@@ -16,6 +16,7 @@ import { join } from 'path';
 import { z } from 'zod';
 import { CAPABILITIES, isKnownCapability } from './capabilities.js';
 import { parseEgress, SLOT_NAME_RE } from '../edge-functions/egress.js';
+import { nextCronRun } from '../flows/index.js';
 import viewSchemaJson from '@zveltio/sdk/view/schema.json' with { type: 'json' };
 
 /** Request headers that carry the caller's credentials; never handed to a worker unasked. */
@@ -410,6 +411,15 @@ export const ManifestSchema = z
            */
           memoryMb: z.number().int().min(32).max(512).default(128),
           timeoutSeconds: z.number().int().min(1).max(900).default(60),
+          /**
+           * A clock that enqueues the job (ADR 0048 decision 1): a five-field
+           * cron expression (minute hour day-of-month month day-of-week), in
+           * UTC. At each occurrence the engine enqueues the job once in every
+           * active tenant where the extension is active, with input `{}`, no
+           * caller and no author (ADR 0040). After downtime it runs once to
+           * catch up, not once per missed occurrence.
+           */
+          schedule: z.string().optional(),
         }),
       )
       .default([]),
@@ -650,6 +660,31 @@ export const ManifestSchema = z
           });
         }
         slotKinds.set(name, kind);
+      }
+      if (j.schedule !== undefined) {
+        // The clock enqueues it with input `{}`, as the extension, in every tenant.
+        let acceptsEmpty = true;
+        try {
+          const schema = z.fromJSONSchema(j.input as Parameters<typeof z.fromJSONSchema>[0]);
+          acceptsEmpty = schema.safeParse({}).success;
+        } catch {
+          // Reported by inputSchemaIssue above.
+        }
+        // Null too for one that never fires (`0 0 30 2 *`).
+        const issue = !nextCronRun(j.schedule)
+          ? `schedule "${j.schedule}" is not a five-field cron expression that fires (minute hour day-of-month month day-of-week; *, n, a-b, a,b and /step; in UTC)`
+          : !m.permissions.includes('data:system')
+            ? 'a scheduled job runs with no caller, which needs the data:system capability'
+            : !acceptsEmpty
+              ? 'a scheduled job is enqueued with input {}, which its input schema must accept'
+              : null;
+        if (issue) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['jobs', i, 'schedule'],
+            message: `job "${j.name}": ${issue}`,
+          });
+        }
       }
       if (j.egress.length === 0 && j.egressSlots.length === 0 && j.timeoutSeconds > 60) {
         ctx.addIssue({

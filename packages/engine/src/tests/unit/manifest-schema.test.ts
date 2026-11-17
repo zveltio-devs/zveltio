@@ -184,6 +184,38 @@ describe('ManifestSchema — extension-api v1 actions and jobs', () => {
     expect(ManifestSchema.safeParse(invented).success).toBe(false);
   });
 
+  it('takes a five-field cron schedule on a job of a data:system extension (ADR 0048 d1)', () => {
+    const issues = (schedule: string, extra: Record<string, unknown> = {}) => {
+      const r = ManifestSchema.safeParse({
+        ...v1,
+        permissions: ['data:system'],
+        jobs: [{ ...v1.jobs[0], schedule, ...extra }],
+        ...('permissions' in extra ? { permissions: extra.permissions } : {}),
+      });
+      return r.success ? [] : r.error.issues.map((i) => i.message);
+    };
+    expect(ManifestSchema.parse(v1).jobs[0].schedule).toBeUndefined();
+    expect(issues('*/5 * * * *')).toEqual([]);
+    expect(issues('0 3 * * 1-5')).toEqual([]);
+    for (const bad of [
+      '@hourly',
+      '* * * *',
+      '0 0 * * * *',
+      '61 * * * *',
+      'every 5 minutes',
+      '0 0 30 2 *',
+    ]) {
+      expect(issues(bad)[0], bad).toContain('is not a five-field cron expression');
+    }
+    expect(issues('* * * * *', { permissions: [] })[0]).toContain(
+      'needs the data:system capability',
+    );
+    const needsInput = {
+      input: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } },
+    };
+    expect(issues('* * * * *', needsInput)[0]).toContain('input {}');
+  });
+
   it('takes fromPublicRoutes naming publicRoutes entries only (ADR 0018)', () => {
     const hooked = (route: string) => ({
       ...v1,
