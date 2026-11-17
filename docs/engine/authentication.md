@@ -213,6 +213,19 @@ filled in yet is still listed; its route answers 503 until they are.
 - **`redirect`**: send the browser to `url` (optionally `?redirect=/path`, a
   relative path to land on). It comes back signed in.
 
+The checks that authenticate the provider itself are not a tenant setting
+(ADR 0058 decision 4): `auth/ldap` always verifies an LDAPS certificate and
+`auth/saml` always checks the assertion audience, whatever a tenant
+administrator saves. A directory with a self-signed certificate is trusted by
+giving the engine its CA (`NODE_EXTRA_CA_CERTS=/path/to/ca.pem`); an identity
+provider that sends another audience is matched with the `audience` setting.
+Only the operator turns either check off, for every tenant, with
+`ZVELTIO_ALLOW_UNVERIFIED_LDAPS=1` or `ZVELTIO_ALLOW_SAML_ANY_AUDIENCE=1` —
+dated modes, removed in 3.1.0 (see
+[Escape hatches](../platform/configuration.md#escape-hatches)). The stored fields that used to
+turn them off (`tls_verify`, `audience_check`) are ignored since auth/ldap 4.0.0
+and auth/saml 3.0.0, which log once when they meet one.
+
 ## Directory provisioning from extensions
 
 An identity provider that manages people — Entra ID or Okta over SCIM

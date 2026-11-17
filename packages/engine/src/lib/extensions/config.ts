@@ -187,10 +187,26 @@ export function buildExtensionConfig(
      * Permits plaintext LDAP binds. Extension-specific and only meaningful to
      * auth/ldap; it lives here because it is an operator/deployment decision
      * expressed in the environment, not a per-tenant setting. New
-     * extension-specific switches belong in extension settings, not here.
+     * extension-specific switches belong in extension settings, not here —
+     * unless, like the two below, they switch off a check a tenant admin must
+     * not be able to switch off (ADR 0058 d4): those are dated operational modes.
      */
     get allowInsecureLdap(): boolean {
       const v = modeValue('ALLOW_INSECURE_LDAP');
+      return v === '1' || v === 'true';
+    },
+    /**
+     * Skips LDAPS certificate verification (auth/ldap), for every tenant. An
+     * environment hatch with a date (ADR 0058 d4): it was the Console field
+     * `tls_verify`, which any tenant admin could turn off.
+     */
+    get allowUnverifiedLdaps(): boolean {
+      const v = modeValue('ZVELTIO_ALLOW_UNVERIFIED_LDAPS');
+      return v === '1' || v === 'true';
+    },
+    /** Skips the SAML audience check (auth/saml), for every tenant. As above: was `audience_check`. */
+    get allowSamlAnyAudience(): boolean {
+      const v = modeValue('ZVELTIO_ALLOW_SAML_ANY_AUDIENCE');
       return v === '1' || v === 'true';
     },
     get objectStorage(): ObjectStorageConfig | undefined {
