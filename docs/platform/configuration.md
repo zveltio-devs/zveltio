@@ -316,6 +316,20 @@ EXTENSIONS_DIR=/home/you/zveltio-extensions
 > marketplace install artifacts, not the source repo. Stale installs can lag
 > behind `zveltio-extensions`. Prefer `EXTENSIONS_DIR` pointing at the clone.
 
+**First boot needs the npm registry.** Extensions import `hono`, `zod`,
+`kysely` and `@hono/zod-validator` by name, and the compiled binary does not
+expose its own copies. At boot, if `<EXTENSIONS_DIR>/node_modules/hono` is
+missing, the engine creates `EXTENSIONS_DIR` if needed, writes a
+`package.json` there with the engine's own version ranges, and runs
+`bun install`; without `bun` on the `PATH`, or when it fails (the log says
+which, with its last error line), it downloads the four tarballs from
+`registry.npmjs.org` at the versions the engine was built against. A boot
+that cannot do either logs `Core package install failed` and keeps running,
+but an extension with engine routes then does not load. On an air-gapped host,
+populate `<EXTENSIONS_DIR>/node_modules` beforehand (`bun install` in that
+directory on a connected machine, then copy it). Worker-isolated extensions'
+jobs also need Deno: see `ZVELTIO_DENO_PATH`.
+
 ### Format
 
 ```env

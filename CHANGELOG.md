@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Fixed — on a fresh install the core packages extensions import were never installed.** At first boot the engine writes a `package.json` into `EXTENSIONS_DIR` and installs `hono`, `zod`, `kysely` and `@hono/zod-validator` there; when that directory did not exist yet, the write threw `ENOENT`, the boot logged `Core dep install failed (non-fatal)`, and an extension with engine routes then failed to load. The directory is now created first. A `bun install` that ran and failed was also logged as `bun CLI unavailable`; the log now gives its exit code and last error line. `docs/platform/configuration.md` says that first boot needs the npm registry and how to prepare an air-gapped host.
+
 ## [3.0.0-beta.127] - 2026-11-18
 
 **Two-factor rows move to the current auth secret at boot (DR-17 slice 3).** Better Auth decrypts a `"twoFactor"` value (TOTP secret, backup codes) with whichever secret wrote it and never rewrites it, so the old secret had to stay in `BETTER_AUTH_SECRETS` for as long as any enrolment lived and a rotation never finished. With `BETTER_AUTH_SECRETS` set, every boot now re-encrypts each row not under the current version, with Better Auth's own functions. A value no held secret decrypts is never written; those users are warned at every boot (up to 20 ids). A value tagged with a version this replica does not hold (a replica that skipped rotation step 1) is left untouched and warned once per version with the remedy, instead of reporting working users as needing a reset. Without the list nothing is re-encrypted. `docs/platform/security.md` rotation step 3 and the stale-replica symptoms are rewritten; the leaked-secret procedure is new there.
