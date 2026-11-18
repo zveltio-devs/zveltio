@@ -82,6 +82,63 @@ describe('ensureExtensionCoreDeps', () => {
   });
 });
 
+describe('ensureExtensionCoreDeps on a fresh install', () => {
+  function stubBunInstall(exitCode: number, onRun: () => void = () => {}): () => void {
+    const originalSpawn = Bun.spawn;
+    Bun.spawn = ((cmd: string[]) => {
+      if (cmd[0] === 'bun' && cmd[1] === 'install') {
+        onRun();
+        return {
+          exited: Promise.resolve(exitCode),
+          stdout: new ReadableStream(),
+          stderr: new Response('error: lockfile is frozen\n').body,
+        } as ReturnType<typeof Bun.spawn>;
+      }
+      return originalSpawn(cmd as never);
+    }) as typeof Bun.spawn;
+    return () => {
+      Bun.spawn = originalSpawn;
+    };
+  }
+
+  it('creates a missing EXTENSIONS_DIR before writing package.json', async () => {
+    const missing = join(extBase, 'not-yet', 'extensions');
+    const restore = stubBunInstall(0, () =>
+      mkdirSync(join(missing, 'node_modules', 'hono'), { recursive: true }),
+    );
+    try {
+      await ensureExtensionCoreDeps(missing);
+      expect(existsSync(join(missing, 'package.json'))).toBe(true);
+      expect(existsSync(join(missing, 'node_modules', 'hono'))).toBe(true);
+    } finally {
+      restore();
+    }
+  });
+
+  it('logs why bun install failed instead of calling bun unavailable', async () => {
+    const restore = stubBunInstall(1);
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response('offline', { status: 503 })) as unknown as typeof fetch;
+    const logs: string[] = [];
+    const originalLog = console.log;
+    const originalWarn = console.warn;
+    console.log = (...a: unknown[]) => logs.push(a.join(' '));
+    console.warn = () => {};
+    try {
+      await ensureExtensionCoreDeps(extBase);
+    } finally {
+      console.log = originalLog;
+      console.warn = originalWarn;
+      globalThis.fetch = originalFetch;
+      restore();
+    }
+    const line = logs.find((l) => l.includes('fetching tarballs'));
+    expect(line).toContain('bun install exited 1 (error: lockfile is frozen)');
+    expect(line).not.toContain('unavailable');
+  });
+});
+
 describe('CORE_NPM_PACKAGES', () => {
   it('lists the four engine runtime packages extensions may import', () => {
     expect(CORE_NPM_PACKAGES).toEqual(['hono', 'zod', 'kysely', '@hono/zod-validator']);

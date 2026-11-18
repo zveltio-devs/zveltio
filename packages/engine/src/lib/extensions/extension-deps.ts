@@ -45,6 +45,9 @@ export async function ensureExtensionCoreDeps(extBase: string): Promise<void> {
     return;
   }
 
+  // A fresh install has no EXTENSIONS_DIR yet: writing package.json into it
+  // threw ENOENT and no core package was ever installed.
+  mkdirSync(extBase, { recursive: true });
   const pkgJsonPath = join(extBase, 'package.json');
   if (!existsSync(pkgJsonPath)) {
     writeFileSync(
@@ -64,13 +67,14 @@ export async function ensureExtensionCoreDeps(extBase: string): Promise<void> {
 
   console.log('[extensions] Installing core packages (first-time setup)…');
 
-  if (await tryBunInstall(extBase)) {
+  const bunFailure = await tryBunInstall(extBase);
+  if (bunFailure === null) {
     console.log('[extensions] Core packages installed via bun.');
     maybeSymlinkNodeModules(extBase);
     return;
   }
 
-  console.log('[extensions] bun CLI unavailable; fetching tarballs from npm registry…');
+  console.log(`[extensions] ${bunFailure}; fetching tarballs from npm registry…`);
   try {
     await installCorePackagesFromNpm(extBase);
     console.log('[extensions] Core packages installed via npm tarball fetch.');
@@ -84,19 +88,24 @@ export async function ensureExtensionCoreDeps(extBase: string): Promise<void> {
   maybeSymlinkNodeModules(extBase);
 }
 
-async function tryBunInstall(cwd: string): Promise<boolean> {
+/** null when `bun install` succeeded, else why it did not, for the log. */
+async function tryBunInstall(cwd: string): Promise<string | null> {
+  let proc: ReturnType<typeof Bun.spawn>;
   try {
-    const proc = Bun.spawn(['bun', 'install'], {
-      cwd,
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
-    const exitCode = await proc.exited;
-    return exitCode === 0;
+    proc = Bun.spawn(['bun', 'install'], { cwd, stdout: 'pipe', stderr: 'pipe' });
   } catch {
     // ENOENT — bun not on PATH (typical for compiled-binary production installs)
-    return false;
+    return 'bun CLI unavailable';
   }
+  const exitCode = await proc.exited;
+  if (exitCode === 0) return null;
+  // Bounded: a child that left the pipe open must not stall boot.
+  const stderr = await Promise.race([
+    new Response(proc.stderr as ReadableStream).text().catch(() => ''),
+    Bun.sleep(1000).then(() => ''),
+  ]);
+  const last = stderr.trim().split('\n').pop() ?? '';
+  return `bun install exited ${exitCode}${last ? ` (${last.slice(0, 200)})` : ''}`;
 }
 
 export const CORE_NPM_PACKAGES = ['hono', 'zod', 'kysely', '@hono/zod-validator'];
