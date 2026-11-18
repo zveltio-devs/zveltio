@@ -175,6 +175,72 @@ d('god is enforced by the database (in-process)', () => {
       expect(message).toContain('already has a god');
     });
 
+    it('refuses the second of two promotions that race, not only one that comes later', async () => {
+      // DR-TASKS (s6): the trigger asked "is there a god?" under each writer's
+      // own snapshot, so two transactions promoting different users on an
+      // instance with no god each saw none, and both committed. The recovery
+      // bootstrap is such a writer; only createFirstAdmin took a lock.
+      const raceA = `race-a-${STAMP}`;
+      const raceB = `race-b-${STAMP}`;
+      for (const id of [raceA, raceB]) {
+        await sql`
+          INSERT INTO "user" (id, email, name, role, "emailVerified", "createdAt", "updatedAt")
+          VALUES (${id}, ${`${id}@test.local`}, ${id}, 'member', true, now(), now())
+        `.execute(db);
+      }
+      await sql`UPDATE "user" SET role = 'member' WHERE id = ${godId}`.execute(db);
+      try {
+        let firstPromoted!: () => void;
+        let commitFirst!: () => void;
+        const promoted = new Promise<void>((r) => (firstPromoted = r));
+        const mayCommit = new Promise<void>((r) => (commitFirst = r));
+        const first = db.transaction().execute(async (trx) => {
+          await sql`UPDATE "user" SET role = 'god' WHERE id = ${raceA}`.execute(trx);
+          firstPromoted();
+          await mayCommit;
+        });
+        await promoted;
+
+        let secondPid = 0;
+        let settled = false;
+        const second = db.transaction().execute(async (trx) => {
+          secondPid = (await sql<{ pid: number }>`SELECT pg_backend_pid() AS pid`.execute(trx))
+            .rows[0]!.pid;
+          await sql`UPDATE "user" SET role = 'god' WHERE id = ${raceB}`.execute(trx);
+        });
+        second.then(
+          () => (settled = true),
+          () => (settled = true),
+        );
+        // The first commits only once the second has either finished or is
+        // waiting on it: committing earlier would let the second see the first
+        // god and refuse even without any lock, proving nothing.
+        for (let i = 0; i < 200 && !settled; i++) {
+          if (secondPid) {
+            const w = await sql<{ w: string | null }>`
+              SELECT wait_event_type AS w FROM pg_stat_activity WHERE pid = ${secondPid}
+            `.execute(db);
+            if (w.rows[0]?.w === 'Lock') break;
+          }
+          await Bun.sleep(25);
+        }
+        commitFirst();
+        const [a, b] = await Promise.allSettled([first, second]);
+
+        expect(a.status).toBe('fulfilled');
+        expect(b.status).toBe('rejected');
+        expect(String((b as PromiseRejectedResult).reason?.message)).toContain('already has a god');
+        const gods = await sql<{ id: string }>`SELECT id FROM "user" WHERE role = 'god'`.execute(
+          db,
+        );
+        expect(gods.rows.map((r) => r.id)).toEqual([raceA]);
+      } finally {
+        await sql`UPDATE "user" SET role = 'member' WHERE id IN (${raceA}, ${raceB})`.execute(db);
+        await sql`DELETE FROM "user" WHERE id IN (${raceA}, ${raceB})`.execute(db);
+        await sql`UPDATE "user" SET role = 'god' WHERE id = ${godId}`.execute(db);
+      }
+    });
+
     it('lets the existing god be updated without tripping over itself', async () => {
       // An UPDATE that leaves a god a god is not a second god — the obvious
       // trigger gets this wrong and locks the only account out of its own row.

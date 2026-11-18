@@ -136,6 +136,7 @@ import m117 from './sql/123_fail_closed_tenant_by_default.sql' with { type: 'tex
 import m118 from './sql/124_remove_flow_query_db.sql' with { type: 'text' };
 import m119 from './sql/125_no_collection_rls_exemption.sql' with { type: 'text' };
 import m120 from './sql/126_api_key_hash_version.sql' with { type: 'text' };
+import m121 from './sql/127_one_god_serialized.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -260,4 +261,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '124_remove_flow_query_db.sql': m118,
   '125_no_collection_rls_exemption.sql': m119,
   '126_api_key_hash_version.sql': m120,
+  '127_one_god_serialized.sql': m121,
 };
