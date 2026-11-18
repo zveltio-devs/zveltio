@@ -271,6 +271,7 @@ const SECTIONS: Section[] = [
       `${E}lib/security/sso-session.ts`,
       `${E}lib/security/auth-secret.ts`,
       `${E}lib/security/api-key-hash.ts`,
+      `${E}lib/security/two-factor-reencrypt.ts`,
       `${E}lib/security/keyring.ts`,
       `${E}lib/security/index.ts`,
       `${E}lib/security/loggable-request.ts`,
