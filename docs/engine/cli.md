@@ -211,9 +211,11 @@ a single segment, and must match the one given. The directory must be signed
 on the copy, against `OPERATOR_PUBLIC_KEYS_JSON` when this shell has it, else
 your own key in `~/.zveltio/keys`. The engine verifies it once more at every
 load, against its own `OPERATOR_PUBLIC_KEYS_JSON`. Then enable it with
-`zveltio extensions enable <name>`: the marketplace lists a signed directory in
-`EXTENSIONS_DIR` though no catalogue names it, and listing it in
-`ZVELTIO_EXTENSIONS` instead loads it active for no tenant.
+`zveltio extensions enable <name>`: the marketplace lists a directory in
+`EXTENSIONS_DIR` though no catalogue names it — signed, with its key; unsigned or
+with a signature that does not hold, with why it cannot be enabled — and listing
+it in `ZVELTIO_EXTENSIONS` instead loads it active for no tenant (`extensions
+list` shows it installed, not active).
 
 | Option | Default | Description |
 |--------|---------|-------------|

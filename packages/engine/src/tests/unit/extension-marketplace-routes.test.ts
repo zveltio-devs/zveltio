@@ -391,7 +391,24 @@ describe('registerMarketplaceRoutes (unit)', () => {
     }
   });
 
-  it('GET /api/marketplace lists no directory whose signature does not hold (ADR 0056; a valid one: harness ext-operator-signed)', async () => {
+  it('GET /api/marketplace: loaded from ZVELTIO_EXTENSIONS with no registry row is neither enabled nor running (LV-05)', async () => {
+    // Active for no firm (activation.ts): /ext answers 404 and /api/actions is
+    // empty, so the list must not call it enabled or running.
+    writeExtOnDisk(extBase, CATALOG_ENTRY.name);
+    isActiveMock.mockImplementation(() => true);
+    const res = await mountRoutes(db, extBase).request('/api/marketplace', {
+      headers: adminHeaders,
+    });
+    const body = (await res.json()) as { extensions: Array<Record<string, unknown>> };
+    expect(body.extensions.find((e) => e.name === CATALOG_ENTRY.name)).toMatchObject({
+      is_installed: true,
+      is_enabled: false,
+      is_running: false,
+      needs_restart: false,
+    });
+  });
+
+  it('GET /api/marketplace lists a directory no catalogue names with its signature state; enable refuses one that has none that holds (ADR 0056; a valid one: harness ext-operator-signed)', async () => {
     const put = (name: string, manifest: Record<string, unknown>, signed: boolean) => {
       mkdirSync(join(extBase, name), { recursive: true });
       writeFileSync(join(extBase, name, 'manifest.json'), JSON.stringify(manifest));
@@ -404,12 +421,29 @@ describe('registerMarketplaceRoutes (unit)', () => {
     );
     put('acme/unsigned', { name: 'acme/unsigned', version: '1.0.0' }, false);
     put('acme/renamed', { name: 'acme/other', version: '1.0.0' }, true);
-    const res = await mountRoutes(db, extBase).request('/api/marketplace', {
-      headers: adminHeaders,
-    });
-    const names = ((await res.json()) as { extensions: { name: string; version: string }[] })
+    const app = mountRoutes(db, extBase);
+    const res = await app.request('/api/marketplace', { headers: adminHeaders });
+    const listed = ((await res.json()) as { extensions: Array<Record<string, unknown>> })
       .extensions;
-    expect(names.some((e) => e.name.startsWith('acme/'))).toBe(false);
+    const own = (n: string) => listed.find((e) => e.name === n);
+    expect(own('acme/renamed')).toBeUndefined();
+    expect(own('acme/unsigned')).toMatchObject({
+      operator_key_id: null,
+      publisher_tier: 'community',
+      is_installed: false,
+    });
+    expect(String(own('acme/unsigned')?.enable_refusal)).toContain('zveltio extension sign');
+    expect(own('acme/invoices')).toMatchObject({ operator_key_id: null });
+    expect(String(own('acme/invoices')?.enable_refusal)).toContain('signature.json');
+
+    const enable = await app.request('/api/marketplace/acme/unsigned/enable', {
+      method: 'POST',
+      headers: { ...adminHeaders, 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    expect(enable.status).toBe(422);
+    expect(((await enable.json()) as { error: string }).error).toContain('zveltio extension sign');
+    expect(db.executed(/insert into "zv_extension_registry"/i)).toHaveLength(0);
   });
 
   it('POST install returns 404 when the extension is absent from the catalog', async () => {

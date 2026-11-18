@@ -79,9 +79,13 @@ export async function extensionsListCommand(opts: {
       const needsRestart = ext.needs_restart ? ' ⚠️ restart needed' : '';
       const update = ext.update_available ? ` ⬆️ ${ext.catalog_version} available` : '';
       const name = (ext.displayName || ext.name).padEnd(32);
+      // An extension of your own in EXTENSIONS_DIR (ADR 0056 d1): the key it is
+      // signed with, or why it cannot be enabled.
+      const own = ext.operator_key_id ? ` (yours, signed with key ${ext.operator_key_id})` : '';
       console.log(
-        `  ${status} ${name} v${ext.installed_version || ext.version || '?'}  ${ext.description || ''}${needsRestart}${update}`,
+        `  ${status} ${name} v${ext.installed_version || ext.version || '?'}  ${ext.description || ''}${own}${needsRestart}${update}`,
       );
+      if (ext.enable_refusal) console.log(`     ⚠️  ${ext.enable_refusal}`);
     }
     console.log('');
   }

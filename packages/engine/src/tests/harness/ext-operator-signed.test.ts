@@ -29,7 +29,7 @@ import type { Database } from '../../db/index.js';
 import * as extensionDownload from '../../lib/extensions/extension-download.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
 import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
-import { operatorSignedEntries } from '../../lib/extensions/extension-marketplace-routes.js';
+import { ownExtensionEntries } from '../../lib/extensions/extension-marketplace-routes.js';
 import { extensionDirListing } from '../../lib/security/index.js';
 import { ensureWorkerRuntimeOnDisk } from '../../lib/ext-runner.js';
 import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extension-host.js';
@@ -163,23 +163,20 @@ d('an operator-signed extension (ADR 0056 s3)', () => {
     }
   }, 60_000);
 
-  it('marketplace lists a signed directory at any depth, and not one whose signature fails', async () => {
+  it('marketplace lists a signed directory at any depth with its key, and one whose signature fails with why', async () => {
     const deep = `s3${STAMP}/list/deep`;
     const bent = `s3${STAMP}/list/bent`;
     sign(write(deep));
     sign(write(bent));
     appendFileSync(join(base, bent, 'engine', 'index.js'), '\n// changed after signing\n');
-    const warn = spyOn(console, 'warn');
-    try {
-      const listed = (await operatorSignedEntries(base, new Set())).map((e) => e.name);
-      expect(listed).toContain(deep);
-      expect(listed).not.toContain(bent);
-      expect((await operatorSignedEntries(base, new Set([deep]))).map((e) => e.name)).not.toContain(
-        deep,
-      );
-    } finally {
-      warn.mockRestore();
-    }
+    const listed = await ownExtensionEntries(base, new Set());
+    expect(listed.find((e) => e.name === deep)).toMatchObject({ operator_key_id: KEY });
+    expect(listed.find((e) => e.name === deep)?.enable_refusal).toBeUndefined();
+    expect(listed.find((e) => e.name === bent)).toMatchObject({ operator_key_id: null });
+    expect(listed.find((e) => e.name === bent)?.enable_refusal).toContain('does not hold');
+    expect((await ownExtensionEntries(base, new Set([deep]))).map((e) => e.name)).not.toContain(
+      deep,
+    );
   });
 
   it('refuses a key not on the operator list — no fallback to loading it unsigned', async () => {

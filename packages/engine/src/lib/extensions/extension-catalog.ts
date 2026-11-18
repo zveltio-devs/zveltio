@@ -36,6 +36,13 @@ export interface ExtensionCatalogEntry {
    * official → first-party, otherwise → community.
    */
   publisher_tier?: 'first-party' | 'verified' | 'community';
+  /**
+   * Set only on a directory in EXTENSIONS_DIR that no catalogue names (ADR 0056
+   * d1): the operator key its `signature.json` holds against, or null when it
+   * has none that holds — then `enable_refusal` says why and what to do.
+   */
+  operator_key_id?: string | null;
+  enable_refusal?: string;
 }
 
 /**

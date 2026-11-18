@@ -225,6 +225,32 @@ describe('enforcePublisherTier — fast paths', () => {
     }
   });
 
+  it('an own extension refused inline is told what its manifest says and every way to run (LV-05)', async () => {
+    const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockResolvedValue([]);
+    try {
+      // Declares worker but is not bundled: the refusal used to read as if it ran there.
+      const r = await enforcePublisherTier('acme/own', {
+        name: 'acme/own',
+        version: '1.0.0',
+        engine: { isolation: 'worker', bundled: false },
+      } as never);
+      expect(r.ok).toBe(false);
+      if (r.ok) return;
+      expect(r.lastLoadError).toContain(
+        'its manifest has engine.isolation "worker" and engine.bundled false',
+      );
+      expect(r.lastLoadError).toContain('zveltio extension pack');
+      expect(r.lastLoadError).toContain('zveltio extension sign`) and enable it');
+      expect(r.lastLoadError).toContain('OPERATOR_PUBLIC_KEYS_JSON');
+      expect(r.lastLoadError).not.toContain('Republish');
+      const bare = await enforcePublisherTier('acme/own', { name: 'acme/own' } as never);
+      expect(bare.ok).toBe(false);
+      if (!bare.ok) expect(bare.lastLoadError).toContain('engine.isolation unset');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('ZVELTIO_REQUIRE_CATALOG=1 with catalog fetch failure → PhaseFail', async () => {
     const prevRequire = process.env.ZVELTIO_REQUIRE_CATALOG;
     process.env.ZVELTIO_REQUIRE_CATALOG = '1';
