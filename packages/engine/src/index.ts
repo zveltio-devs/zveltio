@@ -1255,6 +1255,10 @@ async function bootstrap() {
   // 2. Auth
   const auth = await initAuth(db);
   console.log('✅ Auth initialized');
+  // Two-factor rows written under an older auth secret move to the current one,
+  // so a rotation can drop the old secret (DR-17).
+  const { reencryptTwoFactorRowsAtBoot } = await import('./lib/security/index.js');
+  await reencryptTwoFactorRowsAtBoot(db);
 
   // 2b. Tenant manager — must be initialized before routes handle requests
   initTenantManager(db);

@@ -181,7 +181,7 @@ What happens when the **current** secret changes:
 |---|---|---|
 | Session cookies and CLI bearer tokens (Better Auth signs them) | Every session ends; `get-session` answers `null` | None: people sign in again |
 | API keys, `zvk_…` (`lib/security/api-key-hash.ts`, an HMAC under the secret) | Kept while the secret that wrote the key's hash stays listed in `BETTER_AUTH_SECRETS` or stays `BETTER_AUTH_SECRET` (below); the first use rewrites the hash under the current secret. Otherwise **destroyed**: the key answers 401. The SCIM token is an API key (ADR 0045) | Re-issue each lost key, hand it to its integration, delete the old row |
-| TOTP secret and backup codes (Better Auth encrypts them with the secret) | Kept when the old secret stays listed in `BETTER_AUTH_SECRETS` (below). Otherwise **destroyed**: a TOTP user passes the password step and then gets 500 on `verify-totp` and on `verify-backup-code`; they cannot sign in | Reset the user's factors (`POST /api/users/:id/factors/reset`, with a step-up); they sign in with their password and enrol again. A god whose only factor was TOTP uses `RECOVERY_TOKEN` |
+| TOTP secret and backup codes (Better Auth encrypts them with the secret) | Kept when the old secret stays listed in `BETTER_AUTH_SECRETS` (below); the next boot re-encrypts them under the current secret. Otherwise **destroyed**: a TOTP user passes the password step and then gets 500 on `verify-totp` and on `verify-backup-code`; they cannot sign in | Reset the user's factors (`POST /api/users/:id/factors/reset`, with a step-up); they sign in with their password and enrol again. A god whose only factor was TOTP uses `RECOVERY_TOKEN` |
 | Token hashes an extension stored through `deriveTokenHash` (`lib/security/keyring.ts` `hmacAuthSecret`) | **Destroyed**: they no longer match | Re-issue those tokens (no first-party extension uses it) |
 | Sealed list and sync cursors (`lib/data/query-parse.ts`, ADR 0021) | Refused; the walk restarts from page 1, a sync pull from the start | None |
 | Signed local file URLs (`lib/storage/local-driver.ts`) | 403 until the client asks for a new one (they live 1 h, 24 h after upload) | None |
@@ -231,9 +231,19 @@ never prints a secret.
 - Beside the list, `BETTER_AUTH_SECRET` is only Better Auth's legacy key: it
   decrypts the untagged TOTP secrets and backup codes written before the list
   existed. Nothing else uses it. Keep it set to the value those rows were
-  written under until they are re-encrypted (a one-time pass, ADR 0058
-  decision 7, not shipped yet). Count them with
-  `SELECT count(*) FROM "twoFactor" WHERE secret NOT LIKE '$ba$%'`.
+  written under until they are re-encrypted (below). Count them with
+  `SELECT count(*) FROM "twoFactor" WHERE secret NOT LIKE '$ba$%' OR "backupCodes" NOT LIKE '$ba$%'`.
+- Every boot, while the list is set, re-encrypts each TOTP secret and set of
+  backup codes not tagged with the current version, with Better Auth's own
+  cipher, and logs `re-encrypted N two-factor row(s)`
+  (`lib/security/two-factor-reencrypt.ts`, ADR 0058 decision 7). A value that
+  no held secret decrypts is left as it is, and every boot names its user in a
+  warning (`decrypt under no secret`): reset that user's factors. A row that
+  changes while the pass runs (a backup code used, 2FA turned off, another
+  replica's pass) is skipped and retried on the next boot. Because the pass
+  writes the current version into every row, step 1 below must reach every
+  replica before step 2: a replica that does not hold the current version
+  cannot read the rows any more.
 
 Routine rotation, every replica at each step:
 
@@ -249,19 +259,24 @@ Routine rotation, every replica at each step:
    TOTP keeps working: both versions decrypt on every replica. While the restart rolls, replicas
    on different current secrets refuse each other's cookies, cursors and file
    URLs; it ends when the last one restarts.
-3. Keep `1:<old>` listed while any TOTP row is tagged `$ba$1$`
-   (`SELECT count(*) FROM "twoFactor" WHERE secret LIKE '$ba$1$%'`) and while
+3. The step 2 restarts re-encrypt the two-factor rows under `<new>`. When the
+   last replica runs step 2, restart one replica once more: a step 1 replica
+   may have enrolled someone under `<old>` meanwhile. Keep `1:<old>`
+   listed, and `BETTER_AUTH_SECRET=<old>`, until
+   `SELECT count(*) FROM "twoFactor" WHERE secret NOT LIKE '$ba$2$%' OR "backupCodes" NOT LIKE '$ba$2$%'`
+   counts only the users the boot warning named (reset their factors), and while
    any API key you want to keep is not yet on version 2:
    `SELECT id, name, last_used_at FROM zv_api_keys WHERE is_active AND key_hash_version IS DISTINCT FROM 2`.
    Those are keys not used since step 2. Removing `1:<old>` destroys those
-   enrolments and those keys, as in the table, unless `BETTER_AUTH_SECRET` is
-   still `<old>`: an API key also verifies under that variable. Ask each key's
-   owner to use it once, or re-issue it.
+   keys, as in the table, unless `BETTER_AUTH_SECRET` is still `<old>`: an API
+   key also verifies under that variable. Ask each key's owner to use it once,
+   or re-issue it. Then drop `1:<old>` and set `BETTER_AUTH_SECRET` to `<new>`.
 
 A **leaked** secret is not a rotation: listing the leaked value keeps it
 decrypting the TOTP secrets it wrote, and an attacker with the database and
 the value has those factors. Until the leak procedure ships (re-encrypt under
-the new secret, then reset factors; ADR 0058 decision 7), follow the outright
+the new secret, then reset factors; ADR 0058 decision 7; the boot pass above
+is the re-encryption half), follow the outright
 replacement above: new secret only, factors reset. The leaked value leaves both
 `BETTER_AUTH_SECRETS` and `BETTER_AUTH_SECRET`; an API key hashed under it then
 answers 401 and is re-issued.

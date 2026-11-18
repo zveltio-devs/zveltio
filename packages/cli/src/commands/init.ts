@@ -255,6 +255,8 @@ export async function initCommand(name: string = '.', _opts: { template?: string
       'DATABASE_URL=postgresql://zveltio:CHANGE_ME@localhost:5432/dbname',
       'PORT=3000',
       'BETTER_AUTH_SECRET=CHANGE_ME_use_random_32+_chars',
+      '# To rotate it, never just replace it: list old and new in',
+      '# BETTER_AUTH_SECRETS=<version>:<secret>,... (Zveltio docs: platform/security, rotation).',
       'VALKEY_URL=redis://localhost:6379',
       'S3_ENDPOINT=http://localhost:8333',
       'S3_BUCKET=zveltio',
