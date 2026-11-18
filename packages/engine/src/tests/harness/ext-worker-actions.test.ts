@@ -10,6 +10,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -23,6 +24,9 @@ import type { ExtensionContext } from '../../lib/extensions/internals.js';
 import { ManifestSchema } from '../../lib/extensions/manifest-schema.js';
 import { invalidateActivationCache } from '../../lib/extensions/activation.js';
 import { forgetActions } from '../../lib/extensions/actions.js';
+import { jobQueueName, unregisterJobs } from '../../lib/extensions/jobs.js';
+import { getStorage } from '../../lib/storage/index.js';
+import { type FileActor, storeFile } from '../../lib/stored-files.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { getAuth } from '../../lib/auth.js';
 import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extension-host.js';
@@ -37,6 +41,7 @@ import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import {
   asDefaultTenant,
   asEveryTenant,
+  asTenant,
   createMemberSession,
   dropTestCollection,
   forgetRuleObjects,
@@ -52,6 +57,7 @@ const OTHER = `wact_other_${STAMP}`;
 const RES = `wact_res_${STAMP}`;
 const EXT = `wact${STAMP}`;
 const BAD = `wactb${STAMP}`;
+const DEP = `wactd${STAMP}`;
 
 const labelInput = {
   type: 'object',
@@ -101,11 +107,30 @@ export default {
       }
     },
     zone: async (_input, host) => host.timezone,
+    // The members of ActionHost beyond collections, each a call over the channel.
+    readFile: async (input, host) => {
+      const f = await host.files.read(input.id);
+      return { name: f.name, bytes: Array.from(f.bytes), isBytes: f.bytes instanceof Uint8Array };
+    },
+    putFile: async (_input, host) => host.files.put(new Uint8Array([7, 8, 9])),
+    queue: async (input, host) => host.enqueue('noop', { n: input.n }),
+    relay: async (input, host) => host.actions.run('${DEP}', 'echo', input),
   },
   async register(app) {
     // A route of its own on the action's path: the engine's is mounted first.
     app.post('/actions/:name', (c) => c.json({ intercepted: true }, 418));
   },
+};
+`;
+
+// A worker extension's jobs run in the Deno runner, from their own file.
+const JOBS_JS = 'export default { noop: async () => {} };\n';
+
+const depEntry = `
+export default {
+  name: '${DEP}',
+  actions: { echo: async (input) => ({ echoed: input.label }) },
+  async register() {},
 };
 `;
 
@@ -222,9 +247,16 @@ d('a worker-isolated extension’s actions run in its worker, decided by the eng
       input,
       ...more,
     });
+    await load(DEP, depEntry, { resources: [RES], actions: [declare('echo')] });
+    mkdirSync(join(base, EXT, 'engine'), { recursive: true });
+    writeFileSync(join(base, EXT, 'engine', 'jobs.js'), JOBS_JS);
     await load(EXT, entry, {
-      permissions: ['data:write'],
+      integrity: { jobsSha256: createHash('sha256').update(JOBS_JS).digest('hex') },
+      // `data:system`: a job acts beyond its caller (ADR 0047).
+      permissions: ['data:write', 'data:system', 'files'],
       resources: [RES],
+      dependencies: [{ name: DEP }],
+      jobs: [{ name: 'noop', input: { type: 'object' }, retry: { limit: 0 } }],
       actions: [
         declare('addItem', labelInput, { reads: [C], writes: [C] }),
         declare('addThenRefuse', labelInput, { writes: [C] }),
@@ -233,6 +265,10 @@ d('a worker-isolated extension’s actions run in its worker, decided by the eng
         declare('sneak', undefined, { writes: [C] }),
         declare('caughtThenRethrown', labelInput, { writes: [C] }),
         declare('zone'),
+        declare('readFile'),
+        declare('putFile'),
+        declare('queue', undefined, { enqueues: ['noop'] }),
+        declare('relay', undefined, { calls: [`${DEP}.echo`] }),
       ],
     });
     invalidateActivationCache();
@@ -242,16 +278,33 @@ d('a worker-isolated extension’s actions run in its worker, decided by the eng
     invalidateActivationCache();
     if (saved.transport === undefined) delete process.env.ZVELTIO_EXT_TRANSPORT;
     else process.env.ZVELTIO_EXT_TRANSPORT = saved.transport;
-    for (const n of [EXT, BAD]) {
+    for (const n of [EXT, BAD, DEP]) {
       forgetActions(n);
       await getWorkerHost(app)
         .stop(n)
         .catch(() => undefined);
     }
+    await unregisterJobs(EXT);
     _resetWorkerHostForTests();
     if (base) rmSync(base, { recursive: true, force: true });
     if (!db) return;
     await forgetRuleObjects(db, RES);
+    const files = await asEveryTenant(db, (trx) =>
+      trx
+        .selectFrom('zv_media_files')
+        .select(['id', 'storage_path'])
+        .where('created_by', '=', member.userId)
+        .execute(),
+    );
+    for (const f of files) {
+      await getStorage()
+        .delete(f.storage_path)
+        .catch(() => undefined);
+    }
+    await asEveryTenant(db, (trx) =>
+      trx.deleteFrom('zv_media_files').where('created_by', '=', member.userId).execute(),
+    );
+    await sql`DELETE FROM pgboss.job WHERE name = ${jobQueueName(EXT, 'noop')}`.execute(db);
     await sql`DELETE FROM zv_extension_registry WHERE name LIKE ${`${EXT.slice(0, 4)}%${STAMP}`}`.execute(
       db,
     );
@@ -339,6 +392,65 @@ d('a worker-isolated extension’s actions run in its worker, decided by the eng
     expect(((await res.json()) as { result: string }).result).toBe(
       await effectiveTimeZone(db, DEFAULT_TENANT_ID),
     );
+  });
+
+  // The members of ActionHost the collections tests above do not reach, each over
+  // the runner channel: the inline semantics are `ext-action-files.test.ts`.
+  it('host.files.read hands the action the bytes of a file the request handed', async () => {
+    const actor: FileActor = {
+      tenantId: DEFAULT_TENANT_ID,
+      principalId: member.userId,
+      author: member.userId,
+      apiKeyRow: null,
+      seesAll: false,
+    };
+    const made = await asTenant(db, DEFAULT_TENANT_ID, (trx) =>
+      storeFile(trx, actor, { name: 'made.txt', bytes: new Uint8Array([5, 5, 5]) }),
+    );
+    if (!('file' in made)) throw new Error(`fixture refused: ${made.body.error}`);
+    const id = made.file.id;
+    const res = await act('readFile', { id, $files: { read: [id] } }, member.cookie);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { result: unknown }).result).toEqual({
+      name: 'made.txt',
+      bytes: [5, 5, 5],
+      isBytes: true,
+    });
+  });
+
+  it('host.files.put stores the bytes the worker sent, as the caller', async () => {
+    const name = `wput-${STAMP}.bin`;
+    const res = await act('putFile', { $files: { write: { name, maxBytes: 3 } } }, member.cookie);
+    expect(res.status).toBe(200);
+    const { result } = (await res.json()) as { result: { id: string; name: string; size: number } };
+    expect(result).toMatchObject({ name, size: 3 });
+    const row = await asEveryTenant(db, (trx) =>
+      trx
+        .selectFrom('zv_media_files')
+        .select(['created_by', 'storage_path'])
+        .where('id', '=', result.id)
+        .executeTakeFirst(),
+    );
+    expect(row?.created_by).toBe(member.userId);
+    const stored = await getStorage().get(row!.storage_path);
+    expect(Array.from(stored?.bytes ?? [])).toEqual([7, 8, 9]);
+  });
+
+  it('host.enqueue queues the declared job with the input, once the request commits', async () => {
+    const res = await act('queue', { n: 41 }, member.cookie);
+    expect(res.status).toBe(200);
+    const queued = await sql<{ data: { input?: unknown } }>`
+      SELECT data FROM pgboss.job WHERE name = ${jobQueueName(EXT, 'noop')}`.execute(db);
+    expect(queued.rows.length).toBe(1);
+    expect(JSON.stringify(queued.rows[0]!.data)).toContain('"n":41');
+  });
+
+  it('host.actions.run runs a dependency’s action and hands back its result', async () => {
+    const res = await act('relay', { label: 'over-the-channel' }, member.cookie);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { result: unknown }).result).toEqual({
+      echoed: 'over-the-channel',
+    });
   });
 
   it('refuses to load when the manifest and the module disagree, in the worker', async () => {
