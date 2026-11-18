@@ -217,7 +217,8 @@ extension; the engine refuses an extension whose two lists differ.
   "reads": ["transactions"], "writes": ["transactions"],
   "enqueues": ["sendReceipt"]
 }],
-"jobs": [{ "name": "sendReceipt", "input": { "type": "object" }, "retry": { "limit": 3 } }]
+"jobs": [{ "name": "sendReceipt", "input": { "type": "object" },
+           "reads": ["transactions"], "retry": { "limit": 3 } }]
 ```
 
 ```ts
@@ -239,7 +240,13 @@ export default defineExtension(['data:write', 'data:system'], {
       return { id };
     },
   },
-  jobs: { async sendReceipt(input, host) { /* network I/O is fine here */ } },
+  jobs: {
+    async sendReceipt(input, host) {
+      // A job reaches only its own `reads`/`writes`, not the action's.
+      const tx = await host.collections.read('transactions', (input as { id: string }).id);
+      // network I/O is fine here
+    },
+  },
 });
 ```
 
