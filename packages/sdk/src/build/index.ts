@@ -101,8 +101,7 @@ function resolvePackageRoot(pkg: string, searchPaths: string[]): string {
   throw new Error(`Cannot find package root for "${pkg}"`);
 }
 
-function resolvePackageEsmEntry(pkg: string, resolveFromDir: string): string {
-  const searchPaths = resolveSearchPaths(resolveFromDir);
+function resolvePackageEsmEntry(pkg: string, searchPaths: string[]): string {
   const root = resolvePackageRoot(pkg, searchPaths);
   const pkgJsonPath = join(root, 'package.json');
   const manifest = JSON.parse(readFileSync(pkgJsonPath, 'utf8')) as {
@@ -141,8 +140,14 @@ export function createExtensionBundleResolvePlugin(resolveFromDir: string): BunP
     setup(build) {
       for (const pkg of EXTENSION_BUNDLE_CORE_DEPS) {
         const filter = new RegExp(`^${escapeRegExp(pkg)}$`);
-        build.onResolve({ filter }, () => ({
-          path: resolvePackageEsmEntry(pkg, resolveFromDir),
+        // From the importing file first, as Bun's own resolver does: the
+        // SDK's own `hono` / `kysely` sit beside the SDK, which is not under
+        // the extension root when the SDK is linked from a checkout (DR-28).
+        build.onResolve({ filter }, (args) => ({
+          path: resolvePackageEsmEntry(pkg, [
+            ...(args.importer ? [dirname(args.importer)] : []),
+            ...resolveSearchPaths(resolveFromDir),
+          ]),
         }));
       }
     },

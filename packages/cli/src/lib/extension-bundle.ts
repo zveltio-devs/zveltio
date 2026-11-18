@@ -51,10 +51,17 @@ export async function bundleExtensionEngine(opts: ExtensionBundleOptions): Promi
     }),
     naming: `${entryBase}.[ext]`,
     ...(opts.target ? { target: opts.target } : {}),
+    // Return the logs instead of throwing a bare `AggregateError: Bundle
+    // failed`, which hid the cause (DR-28).
+    throw: false,
   });
 
   if (!result.success) {
-    const messages = result.logs.map((l) => l.message).join('\n');
+    const messages = result.logs
+      .map((l) =>
+        l.position ? `${l.message}\n    at ${l.position.file}:${l.position.line}` : l.message,
+      )
+      .join('\n');
     throw new Error(messages || 'Bun.build failed');
   }
 

@@ -51,6 +51,26 @@ No `studio/dist/`, no per-extension `vite.config.ts` or `package.json`, no
 ADR 0042; a screen that needs code is a front-end package outside the
 extension, see [ui-model.md](ui-model.md#a-screen-that-needs-code)).
 
+### Building against a checkout of the SDK
+
+Outside the monorepo, `extension create` writes a `package.json` that pins
+`@zveltio/sdk` to the CLI's version. When that version is not on npm (a
+pre-release, or your own checkout), link the SDK from a checkout instead of
+running `bun install`:
+
+```bash
+# in the zveltio checkout
+bun install && bun --cwd=packages/sdk run build && bun --cwd=packages/cli run build
+# in the extension folder
+mkdir -p node_modules/@zveltio
+ln -s /path/to/zveltio/packages/sdk node_modules/@zveltio/sdk
+bun /path/to/zveltio/packages/cli/dist/index.js extension pack
+```
+
+The SDK's own dependencies (`hono`, `kysely`) come from the checkout's
+`node_modules`, beside the linked SDK: `extension pack` resolves them from the
+importing file, as `bun build` does.
+
 ## `manifest.json`
 
 `@zveltio/sdk` ships the manifest's JSON Schema as
