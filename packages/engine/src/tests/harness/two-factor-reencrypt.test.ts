@@ -14,6 +14,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { type SecretConfig, symmetricDecrypt, symmetricEncrypt } from 'better-auth/crypto';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { auth } from '../../lib/auth.js';
 import { reencryptTwoFactorRows } from '../../lib/security/two-factor-reencrypt.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
@@ -159,7 +160,70 @@ d('two-factor re-encryption under the current secret (DR-17)', () => {
     });
   });
 
-  it('does nothing without BETTER_AUTH_SECRETS: there is no version to tag with', async () => {
+  it('encrypts legacy plaintext backup codes under the current version', async () => {
+    process.env.BETTER_AUTH_SECRET = OLD;
+    process.env.BETTER_AUTH_SECRETS = `2:${NEW},1:${OLD}`;
+    await inRolledBackTxn(async (trx) => {
+      const secret = await enc(NEW_ONLY, TOTP);
+      await seed(trx, {
+        // Stored before `storeBackupCodes: 'encrypted'`: a JSON array in the clear.
+        [u('plain')]: { secret, backupCodes: CODES },
+        [u('plain-old')]: { secret: await enc(OLD, TOTP), backupCodes: CODES },
+        // Neither ciphertext nor a list of codes: left alone, reported.
+        [u('junk')]: { secret, backupCodes: '{"a":1}' },
+      });
+      const first = await reencryptTwoFactorRows(trx);
+      expect(first.undecryptable).toEqual([u('junk')]);
+      expect(first.reencrypted).toBe(2);
+      const after = await read(trx);
+      for (const id of [u('plain'), u('plain-old')]) {
+        expect(after[id]!.backupCodes.startsWith('$ba$2$')).toBe(true);
+        expect(await symmetricDecrypt({ key: NEW_ONLY, data: after[id]!.backupCodes })).toBe(CODES);
+        expect(await symmetricDecrypt({ key: NEW_ONLY, data: after[id]!.secret })).toBe(TOTP);
+      }
+      expect(after[u('junk')]!.backupCodes).toBe('{"a":1}');
+    });
+  });
+
+  it('without BETTER_AUTH_SECRETS, encrypts plaintext backup codes so Better Auth reads them', async () => {
+    // Better Auth's own read path, on committed rows: it decrypts with the
+    // config it booted with (the harness BETTER_AUTH_SECRET, no list).
+    process.env.BETTER_AUTH_SECRET = saved.single;
+    delete process.env.BETTER_AUTH_SECRETS;
+    const id = u('ba');
+    const secret = await enc(saved.single!, TOTP);
+    await sql`INSERT INTO "user" (id, name, email) VALUES (${id}, ${id}, ${`${id}@tfa.test`})`.execute(
+      db,
+    );
+    try {
+      await sql`INSERT INTO "twoFactor" (id, secret, "backupCodes", "userId")
+                VALUES (${`tf-${id}`}, ${secret}, ${CODES}, ${id})`.execute(db);
+      // Server-only endpoint: present at runtime, absent from the inferred type.
+      const api = auth.api as unknown as {
+        viewBackupCodes(a: { body: { userId: string } }): Promise<{ backupCodes: string[] }>;
+      };
+      const view = () => api.viewBackupCodes({ body: { userId: id } });
+      // A plaintext array is not ciphertext: Better Auth's decrypt throws on it.
+      await expect(view()).rejects.toThrow();
+
+      const result = await reencryptTwoFactorRows(db);
+      expect(result.undecryptable).not.toContain(id);
+      const [row] = (
+        await sql<{ secret: string; backupCodes: string }>`
+          SELECT secret, "backupCodes" FROM "twoFactor" WHERE "userId" = ${id}`.execute(db)
+      ).rows;
+      expect(row!.secret).toBe(secret);
+      expect(row!.backupCodes).not.toBe(CODES);
+      expect((await view()).backupCodes).toEqual(JSON.parse(CODES));
+      // A rerun changes nothing.
+      await reencryptTwoFactorRows(db);
+      expect((await view()).backupCodes).toEqual(JSON.parse(CODES));
+    } finally {
+      await sql`DELETE FROM "user" WHERE id = ${id}`.execute(db);
+    }
+  });
+
+  it('does nothing else without BETTER_AUTH_SECRETS: there is no version to tag with', async () => {
     process.env.BETTER_AUTH_SECRET = OLD;
     delete process.env.BETTER_AUTH_SECRETS;
     await inRolledBackTxn(async (trx) => {

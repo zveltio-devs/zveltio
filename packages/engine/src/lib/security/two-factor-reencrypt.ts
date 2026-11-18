@@ -17,7 +17,12 @@
  *   retries; it is never overwritten with a stale value.
  * - `"twoFactor"` is one global table (no tenant schema holds one), so a single
  *   pass covers every tenant.
- * - Without `BETTER_AUTH_SECRETS` there is no version to tag with: nothing runs.
+ * - Plaintext backup codes: rows enrolled before `storeBackupCodes: 'encrypted'`
+ *   (lib/auth.ts) hold the bare JSON array, which Better Auth's decrypt throws
+ *   on, so those codes did not work. The pass encrypts such a value under the
+ *   current key, with or without `BETTER_AUTH_SECRETS`.
+ * - Without `BETTER_AUTH_SECRETS` there is no version to tag with: nothing else
+ *   is rewritten (Better Auth reads every untagged value with the one secret).
  */
 
 import { type SecretConfig, symmetricDecrypt, symmetricEncrypt } from 'better-auth/crypto';
@@ -34,24 +39,50 @@ export interface TwoFactorReencryptResult {
   skipped: number;
 }
 
+/**
+ * Backup codes stored before `storeBackupCodes: 'encrypted'` (lib/auth.ts) are
+ * the bare JSON array Better Auth wrote. Ciphertext is hex or `$ba$`-tagged,
+ * so it never parses as one.
+ */
+function isPlaintextCodes(value: string): boolean {
+  try {
+    const codes: unknown = JSON.parse(value);
+    return Array.isArray(codes) && codes.every((c) => typeof c === 'string');
+  } catch {
+    return false;
+  }
+}
+
 export async function reencryptTwoFactorRows(db: Database): Promise<TwoFactorReencryptResult> {
   const result: TwoFactorReencryptResult = { reencrypted: 0, undecryptable: [], skipped: 0 };
   const { secrets, legacy } = readAuthSecrets();
-  if (!secrets) return result;
-  const key: SecretConfig = {
-    keys: new Map(secrets.map((s) => [s.version, s.value])),
-    currentVersion: secrets[0]!.version,
-    legacySecret: legacy,
-  };
-  const tag = `$ba$${key.currentVersion}$`;
+  // The key Better Auth writes with: the list when set, else the one secret
+  // (readAuthSecrets throws when neither is set).
+  const key: SecretConfig | string = secrets
+    ? {
+        keys: new Map(secrets.map((s) => [s.version, s.value])),
+        currentVersion: secrets[0]!.version,
+        legacySecret: legacy,
+      }
+    : legacy!;
+  const tag = secrets ? `$ba$${secrets[0]!.version}$` : null;
 
   const { rows } = await sql<{ id: string; userId: string; secret: string; backupCodes: string }>`
     SELECT id, "userId", secret, "backupCodes" FROM "twoFactor"
-     WHERE secret NOT LIKE ${`${tag}%`} OR "backupCodes" NOT LIKE ${`${tag}%`}
+     WHERE ${
+       tag
+         ? sql`secret NOT LIKE ${`${tag}%`} OR "backupCodes" NOT LIKE ${`${tag}%`}`
+         : sql`"backupCodes" LIKE '[%'`
+     }
   `.execute(db);
 
-  const rewrite = async (value: string): Promise<string | null> => {
-    if (value.startsWith(tag)) return value;
+  const rewrite = async (value: string, column: 'secret' | 'backupCodes') => {
+    if (column === 'backupCodes' && isPlaintextCodes(value)) {
+      return symmetricEncrypt({ key, data: value });
+    }
+    // Without the list, Better Auth reads every untagged value with the one
+    // secret: nothing but plaintext backup codes needs writing.
+    if (!tag || value.startsWith(tag)) return value;
     try {
       return await symmetricEncrypt({ key, data: await symmetricDecrypt({ key, data: value }) });
     } catch {
@@ -60,8 +91,8 @@ export async function reencryptTwoFactorRows(db: Database): Promise<TwoFactorRee
   };
 
   for (const row of rows) {
-    const secret = await rewrite(row.secret);
-    const backupCodes = await rewrite(row.backupCodes);
+    const secret = await rewrite(row.secret, 'secret');
+    const backupCodes = await rewrite(row.backupCodes, 'backupCodes');
     if (secret === null || backupCodes === null) result.undecryptable.push(row.userId);
     // Each column that decrypted moves on its own: a TOTP secret still waits on
     // its old version only if it, not its neighbour, fails to decrypt.
