@@ -811,6 +811,14 @@ A stream ends when its session or key stops authenticating (sign-out, revoke, ex
 deactivated) or when a change to its permissions — or to the key's scopes — takes away a read it
 uses; reconnect to get the collections it still may read.
 
+**Row rules decide each event on the record as written.** Over SSE and the WebSocket
+(`/api/ws`) alike, a subscriber gets an insert or update only when its row rules let it read the
+new record, and a delete only when they let it read the deleted one. An update that moves a record
+out of a subscriber's rules — another owner, a status its rules exclude — sends that subscriber
+nothing, the same answer as for a record it never saw. A client that keeps records from events
+holds such a record until it reads again: re-read with `GET /api/data` on reconnect, and on a
+timer if records can leave a reader's rules while it stays connected.
+
 **Query parameters:**
 
 | Parameter | Description |
