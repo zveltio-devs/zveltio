@@ -2,7 +2,7 @@
  * initAuth trusted-origins + cookie posture (lib/auth.ts).
  */
 
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import type { Database } from '../../db/index.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
@@ -30,6 +30,18 @@ mock.module('os', () => ({
   networkInterfaces: mockedNetworkInterfaces,
   default: { ...realOs, networkInterfaces: mockedNetworkInterfaces },
 }));
+
+// mock.module is process-wide in bun: put the real Better Auth back after this
+// file, or a later file that needs it (auth-secret.test.ts) gets these stubs,
+// depending on the order CI happens to list the files in.
+const realAuthModules = {
+  'better-auth': { ...(await import('better-auth')) },
+  'better-auth/plugins': { ...(await import('better-auth/plugins')) },
+  '@better-auth/passkey': { ...(await import('@better-auth/passkey')) },
+};
+afterAll(() => {
+  for (const [name, real] of Object.entries(realAuthModules)) mock.module(name, () => real);
+});
 
 mock.module('better-auth', () => ({
   betterAuth: (opts: BetterAuthOptions) => {
