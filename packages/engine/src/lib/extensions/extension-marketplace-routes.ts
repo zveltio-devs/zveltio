@@ -82,11 +82,13 @@ import type { ExtensionLoader } from './extension-loader.js';
 /**
  * ADR 0056 d1: an operator's own extension, copied into EXTENSIONS_DIR by
  * `zveltio install --path`, is in no catalogue, so it could be neither listed
- * nor enabled. Each directory there carrying a `signature.json` is an entry,
- * from its manifest, listed only when its signature holds against the operator
- * key list. The load an enable starts verifies it again.
+ * nor enabled. Each directory there whose manifest names it is an entry. One
+ * whose `signature.json` holds against the operator key list carries that key
+ * and is enabled like any other (the load verifies it again). Any other is
+ * listed with `operator_key_id: null` and the reason, which enable answers with
+ * (LV-05: it was simply absent, and enable said "not found in catalog").
  */
-export async function operatorSignedEntries(
+export async function ownExtensionEntries(
   base: string,
   listed: ReadonlySet<string>,
 ): Promise<ExtensionCatalogEntry[]> {
@@ -109,28 +111,45 @@ export async function operatorSignedEntries(
         if (depth < 4) await walk(name, depth + 1);
         continue;
       }
-      if (listed.has(name) || !existsSync(join(dir, DIR_SIGNATURE_FILE))) continue;
+      if (listed.has(name)) continue;
+      let m: Record<string, unknown>;
       try {
-        // Listed only when its signature holds, so the name, version and
-        // permissions shown (and the version revocation is checked against)
-        // are the ones the operator signed. The load verifies it again.
-        if (!(await verifyExtensionDir(name, dir))) continue;
-        const m = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'));
-        if (m?.name !== name) continue;
-        out.push({
-          name,
-          displayName: typeof m.displayName === 'string' ? m.displayName : name,
-          description: typeof m.description === 'string' ? m.description : '',
-          category: typeof m.category === 'string' ? m.category : 'custom',
-          version: typeof m.version === 'string' ? m.version : '0.0.0',
-          author: typeof m.author === 'string' ? m.author : '',
-          tags: [],
-          permissions: Array.isArray(m.permissions) ? m.permissions : [],
-          is_official: false,
-        });
-      } catch (err) {
-        console.warn(`[marketplace] ${name} not listed: ${(err as Error).message}`);
+        m = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'));
+      } catch {
+        continue;
       }
+      if (m?.name !== name) continue;
+      // Only a signature that holds makes the entry enable-able, so the version
+      // revocation is checked against is the one the operator signed; the rest
+      // is refused at enable before anything reads it.
+      let keyId: string | null = null;
+      let refusal: string | undefined;
+      const sign =
+        `Sign it with your own key (\`zveltio extension sign --dir <its directory> --key-id <id>\`), ` +
+        `put that key on this engine's OPERATOR_PUBLIC_KEYS_JSON and enable it: it runs at level 3 ` +
+        `(private), docs/extensions/signatures.md#your-own-extensions-level-3. If it came from the ` +
+        `registry, the registry's catalogue lists it once it answers.`;
+      const where = `"${name}" is in EXTENSIONS_DIR but in no catalogue this engine reads`;
+      try {
+        keyId = (await verifyExtensionDir(name, dir))?.keyId ?? null;
+        if (keyId === null)
+          refusal = `${where}, and it is not signed (no ${DIR_SIGNATURE_FILE}). ${sign}`;
+      } catch (err) {
+        refusal = `${where}, and its ${DIR_SIGNATURE_FILE} does not hold: ${(err as Error).message}. ${sign}`;
+      }
+      out.push({
+        name,
+        displayName: typeof m.displayName === 'string' ? m.displayName : name,
+        description: typeof m.description === 'string' ? m.description : '',
+        category: typeof m.category === 'string' ? m.category : 'custom',
+        version: typeof m.version === 'string' ? m.version : '0.0.0',
+        author: typeof m.author === 'string' ? m.author : '',
+        tags: [],
+        permissions: Array.isArray(m.permissions) ? m.permissions : [],
+        is_official: false,
+        operator_key_id: keyId,
+        ...(refusal ? { enable_refusal: refusal } : {}),
+      });
     }
   };
   await walk('', 1);
@@ -156,8 +175,21 @@ export function registerMarketplaceRoutes(
   const fetchCatalog: typeof fetchRegistryCatalog = async (...args) => {
     const catalog = await deps.fetchRegistryCatalog(...args);
     const listed = new Set(catalog.map((e) => e.name));
-    return [...catalog, ...(await operatorSignedEntries(resolveExtensionsBase(), listed))];
+    return [...catalog, ...(await ownExtensionEntries(resolveExtensionsBase(), listed))];
   };
+  /** Own directory with no signature that holds: listed, never installed or enabled (LV-05). */
+  const refuseOwn = (c: Context, entry: ExtensionCatalogEntry) =>
+    entry.enable_refusal === undefined
+      ? null
+      : c.json(
+          {
+            success: false,
+            hot_loaded: false,
+            error: entry.enable_refusal,
+            message: entry.enable_refusal,
+          },
+          422,
+        );
   const fetchChangelog = deps.fetchRegistryChangelog ?? fetchRegistryChangelog;
   const spendStepUp = deps.requireStepUp ?? requireStepUp;
   // Admin-only guard
@@ -542,8 +574,12 @@ export function registerMarketplaceRoutes(
           };
         })(),
         is_installed: dbEntry?.is_installed ?? runtimeActive,
-        is_enabled: dbEntry?.is_enabled ?? runtimeActive,
-        is_running: runtimeActive && !crashDisabled.has(entry.name),
+        // Enabled and running as `activation.ts` decides: a registry row on, for
+        // some firm (the enabled row wins the merge above). Loaded with no such row
+        // (ZVELTIO_EXTENSIONS) it acts for no firm — /ext answers 404 — so it is
+        // neither, and the list offers Enable (LV-05).
+        is_enabled: dbEntry?.is_enabled === true,
+        is_running: runtimeActive && dbEntry?.is_enabled === true && !crashDisabled.has(entry.name),
         files_on_disk: filesOnDisk,
         installed_version,
         catalog_version: entry.version,
@@ -621,6 +657,8 @@ export function registerMarketplaceRoutes(
       const catalog = await fetchCatalog();
       const entry = catalog.find((e) => e.name === name);
       if (!entry) return c.json({ error: 'Extension not found in catalog' }, 404);
+      const refused = refuseOwn(c, entry);
+      if (refused) return refused;
 
       // A signature proves the artifact came from the registry; it says nothing
       // about whether the registry still stands behind it. Check before any
@@ -1061,6 +1099,8 @@ export function registerMarketplaceRoutes(
       const catalog = await fetchCatalog();
       const entry = catalog.find((e) => e.name === name);
       if (!entry) return c.json({ error: 'Extension not found in catalog' }, 404);
+      const refused = refuseOwn(c, entry);
+      if (refused) return refused;
 
       // Checked again here, not only at install: an extension installed last
       // month is revoked today, and enable is the moment its code starts

@@ -34,12 +34,17 @@ zveltio keys export my-org-2026                       # → OPERATOR_PUBLIC_KEYS
 zveltio extensions enable acme/invoices               # needs a second factor (step-up)
 ```
 
-The marketplace lists every directory in `EXTENSIONS_DIR` that carries a
-`signature.json` (from its manifest; the signature itself is checked when it
-loads), so it is enabled like any other extension: `zveltio extensions enable`,
-Studio's marketplace, or `POST /api/marketplace/<name>/enable` with a step-up
-token. Enabling it is what makes it act for the tenants; a name listed only in
-`ZVELTIO_EXTENSIONS` is loaded but active for none. Its actions and collections
+The marketplace lists every directory in `EXTENSIONS_DIR` whose manifest names
+it, though no catalogue does. One whose `signature.json` holds against
+`OPERATOR_PUBLIC_KEYS_JSON` shows that key (`operator_key_id`; `zveltio
+extensions list` prints "yours, signed with key …") and is enabled like any
+other extension: `zveltio extensions enable`, Studio's marketplace, or
+`POST /api/marketplace/<name>/enable` with a step-up token; the load verifies
+the signature again. One that is unsigned, or whose signature does not hold, is
+listed with `operator_key_id: null` and the reason (`enable_refusal`), and
+install and enable answer 422 with it. Enabling is what makes it act for the
+tenants; a name listed only in `ZVELTIO_EXTENSIONS` is loaded but active for
+none, and the list shows it installed, not enabled or running. Its actions and collections
 then follow the engine's grants: by default `tenant_member` holds them, and a
 new account has only `member` until it is given that role
 (`POST /api/permissions/roles`) or another that holds the grants.

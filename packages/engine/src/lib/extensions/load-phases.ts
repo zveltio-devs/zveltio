@@ -439,17 +439,23 @@ export async function enforcePublisherTier(
     const catEntry = catalog.find((e) => e.name === extName);
     const tier = catEntry ? resolvePublisherTier(catEntry) : 'community';
     if (!tierAllowsInline(tier)) {
-      const what = catEntry
-        ? `is a ${tier} submission`
-        : `is not in the marketplace catalog (treated as ${tier})`;
-      const msg =
-        `Extension "${extName}" ${what} but does ` +
-        `not run in worker isolation (engine.isolation: "worker", bundled). Per ` +
-        `marketplace-policy.md §2, ${tier} extensions must run in ` +
-        `worker isolation. Republish with isolation: "worker" (bundled). Your own ` +
-        `extension: pack it with isolation "worker", sign it with a key on ` +
-        `OPERATOR_PUBLIC_KEYS_JSON (\`zveltio extension sign\`) and it loads at level 3 — ` +
-        `docs/extensions/signatures.md#your-own-extensions-level-3.`;
+      // What the manifest says, not what the runner needs: LV-05 read the needed
+      // values, printed where the current ones belong, as its own.
+      const e = manifest?.engine;
+      const declared =
+        `its manifest has engine.isolation ${e?.isolation ? `"${e.isolation}"` : 'unset (inline)'} ` +
+        `and engine.bundled ${e?.bundled === true}`;
+      const pack = `set engine.isolation "worker" and run \`zveltio extension pack\`, which bundles it`;
+      const own =
+        `sign it with a key on OPERATOR_PUBLIC_KEYS_JSON (\`zveltio extension sign\`) and enable ` +
+        `it: it runs at level 3 — docs/extensions/signatures.md#your-own-extensions-level-3.`;
+      const msg = catEntry
+        ? `Extension "${extName}" is a ${tier} submission, so it must run in worker isolation, ` +
+          `on the extension runner (marketplace-policy.md §2), but ${declared}. To run it there, ` +
+          `${pack}, then republish it; if it is your own, ${own}`
+        : `Extension "${extName}" is not in the marketplace catalog, so it is ${tier} code, not ` +
+          `first-party, and must run in worker isolation, on the extension runner, never in the ` +
+          `engine process; but ${declared}. To run it there, ${pack}, ${own}`;
       return {
         ok: false,
         logLevel: 'error',
