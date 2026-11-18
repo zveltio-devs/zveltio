@@ -15,6 +15,7 @@ import { toJsonb } from './jsonb.js';
 import { problem, ProblemException } from './problem.js';
 import { asEngineRole } from './role-window.js';
 import {
+  reconcilePolicies,
   rolePrincipal,
   runOutsideTenantContext,
   runWithDomain,
@@ -416,13 +417,15 @@ export async function runWebhookJob(job: DeliverJob): Promise<void> {
       timeout: wh.timeout || 5000,
     };
     if (!_db) throw new Error('[webhooks] not initialised');
-    envelope.data = await readAsRole(
-      d.tenantId,
-      wh.run_as_role,
-      d.collection,
-      d.data,
-      d.shaped === true,
-    );
+    const read = () =>
+      readAsRole(d.tenantId, wh.run_as_role!, d.collection, d.data, d.shaped === true);
+    envelope.data = await read();
+    // On another instance the grant of a collection created a moment ago may still be on
+    // the bus while its first record's job already runs here. The table is the truth:
+    // bring the model to it and ask once more before dropping the event.
+    // ponytail: one fingerprint query per skipped event; throttle per (role, collection)
+    // if skips are frequent enough for that query to show.
+    if (!envelope.data && (await reconcilePolicies())) envelope.data = await read();
     if (!envelope.data) {
       // The role cannot read this record, so it is not announced (ADR 0004). Counted, not
       // logged: a webhook on every collection would log once per write.
