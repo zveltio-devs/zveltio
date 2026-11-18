@@ -120,6 +120,14 @@ RECOVERY_TOKEN=<same value as the engine> zveltio create-god --email admin@compa
 zveltio create-god --recovery-token <token> --url https://api.yourapp.com
 ```
 
+Without a terminal (a provisioning script), pipe the answers one per line, in
+the order asked: `yes` to the warning, then the password twice (the email and
+name too, unless given as options):
+
+```bash
+printf 'yes\n%s\n%s\n' "$PW" "$PW" | RECOVERY_TOKEN=<token> zveltio create-god --email admin@company.ro --name "Admin"
+```
+
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--url <url>` | `http://localhost:3000` | Engine URL |
@@ -181,7 +189,7 @@ zveltio login --url https://console.example.com
 zveltio logout --url https://console.example.com
 ```
 
-`login` asks for your email, password and, when the account has one, the code from your authenticator app. The CLI keeps the session the engine issues, never the password, in `$XDG_CONFIG_HOME/zveltio/credentials.json` (default `~/.config`, mode 0600), one per engine. The CLI sends a session over `http://` only to `localhost`; any other engine must be `https://`. Signing in again ends the previous session. `logout` ends the session on the engine and removes it from the file, and exits non-zero if the engine did not confirm.
+`login` asks for your email, password and, when the account has one, the code from your authenticator app. Without a terminal, pipe the answers one per line: email (unless `--email`), password, then the code. The CLI keeps the session the engine issues, never the password, in `$XDG_CONFIG_HOME/zveltio/credentials.json` (default `~/.config`, mode 0600), one per engine. The CLI sends a session over `http://` only to `localhost`; any other engine must be `https://`. Signing in again ends the previous session. `logout` ends the session on the engine and removes it from the file, and exits non-zero if the engine did not confirm.
 
 Every marketplace change (install, enable, disable, update) then asks for a fresh authenticator code, the same confirmation the Console asks for. One code confirms one change, so `install`, which installs and then enables, asks twice. Pass `--totp <code>` to give the first code on the command line. A terminal cannot use a passkey, so an account that confirms with a passkey only confirms each change in the browser instead: the CLI prints a short code and a link to the Console (`/admin/cli-sign-in`), opens it, and waits. Check that the code matches, then approve with your passkey or authenticator app. Each request expires after ten minutes and is used once.
 
