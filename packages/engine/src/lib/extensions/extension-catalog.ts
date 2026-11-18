@@ -102,8 +102,8 @@ export function tierAllowsInline(tier: 'first-party' | 'verified' | 'community')
  * Two notes that lived as comments inside the old array, kept because they are
  * not obvious from the data:
  *   - `hello-ext` and `hello-ext-worker` are smoke fixtures used by the release
- *     binary job. Studio filters category `fixture` out of the marketplace UI;
- *     install/enable through the API works because the catalog decides.
+ *     binary job. `GET /api/marketplace` lists a `fixture` entry only once it is
+ *     installed; install/enable by name works because the catalog decides.
  *   - Entries carry no `publisher_tier`. `fetchRegistryCatalog` marks a local
  *     entry official only when the BUNDLED copy lists its name; an entry only an
  *     override file lists is community, which means worker isolation.
