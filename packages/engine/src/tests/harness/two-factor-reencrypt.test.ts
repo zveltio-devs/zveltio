@@ -223,6 +223,39 @@ d('two-factor re-encryption under the current secret (DR-17)', () => {
     }
   });
 
+  // A replica that missed rotation step 1 (it never learned `<new>`) reads rows
+  // the others re-encrypted under `<new>`. Those rows are fine: telling the
+  // operator to reset those users' factors would destroy working enrolments.
+  it('reports rows under a version this replica does not hold apart from undecryptable ones', async () => {
+    process.env.BETTER_AUTH_SECRET = OLD;
+    process.env.BETTER_AUTH_SECRETS = `1:${OLD}`;
+    await inRolledBackTxn(async (trx) => {
+      const v2 = { secret: await enc(NEW_ONLY, TOTP), backupCodes: await enc(NEW_ONLY, CODES) };
+      await seed(trx, { [u('v2')]: v2 });
+      const result = await reencryptTwoFactorRows(trx);
+      expect(result.undecryptable).toEqual([]);
+      expect(result.unheld).toEqual({ 2: [u('v2')] });
+      expect((await read(trx))[u('v2')]).toEqual(v2);
+    });
+  });
+
+  it('a replica on the single secret alone reports tagged rows it cannot read', async () => {
+    process.env.BETTER_AUTH_SECRET = OLD;
+    delete process.env.BETTER_AUTH_SECRETS;
+    await inRolledBackTxn(async (trx) => {
+      await seed(trx, {
+        [u('v1')]: { secret: await enc(tagged(1, OLD), TOTP), backupCodes: await enc(OLD, CODES) },
+      });
+      // Better Auth with a single secret reads no tagged value, even one under that secret.
+      await expect(
+        symmetricDecrypt({ key: OLD, data: (await read(trx))[u('v1')]!.secret }),
+      ).rejects.toThrow();
+      const result = await reencryptTwoFactorRows(trx);
+      expect(result.unheld).toEqual({ 1: [u('v1')] });
+      expect(result.undecryptable).toEqual([]);
+    });
+  });
+
   it('does nothing else without BETTER_AUTH_SECRETS: there is no version to tag with', async () => {
     process.env.BETTER_AUTH_SECRET = OLD;
     delete process.env.BETTER_AUTH_SECRETS;
@@ -234,6 +267,7 @@ d('two-factor re-encryption under the current secret (DR-17)', () => {
       expect(await reencryptTwoFactorRows(trx)).toEqual({
         reencrypted: 0,
         undecryptable: [],
+        unheld: {},
         skipped: 0,
       });
       expect(await read(trx)).toEqual(before);

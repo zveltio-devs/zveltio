@@ -23,6 +23,11 @@
  *   current key, with or without `BETTER_AUTH_SECRETS`.
  * - Without `BETTER_AUTH_SECRETS` there is no version to tag with: nothing else
  *   is rewritten (Better Auth reads every untagged value with the one secret).
+ * - A value tagged with a version this replica does not hold is not
+ *   undecryptable: another replica may hold it. That is a replica that missed
+ *   rotation step 1, or a version retired before its rows were re-encrypted.
+ *   Such rows are reported apart (`unheld`), never as "reset their factors":
+ *   the users fail TOTP on this replica (Better Auth answers 500), maybe only here.
  */
 
 import { type SecretConfig, symmetricDecrypt, symmetricEncrypt } from 'better-auth/crypto';
@@ -35,6 +40,8 @@ export interface TwoFactorReencryptResult {
   reencrypted: number;
   /** Users with a value that no held secret decrypts (left untouched). */
   undecryptable: string[];
+  /** Users per `$ba$<version>$` tag this replica does not hold (left untouched). */
+  unheld: Record<number, string[]>;
   /** Rows changed by someone else between read and write (retried next boot). */
   skipped: number;
 }
@@ -54,7 +61,12 @@ function isPlaintextCodes(value: string): boolean {
 }
 
 export async function reencryptTwoFactorRows(db: Database): Promise<TwoFactorReencryptResult> {
-  const result: TwoFactorReencryptResult = { reencrypted: 0, undecryptable: [], skipped: 0 };
+  const result: TwoFactorReencryptResult = {
+    reencrypted: 0,
+    undecryptable: [],
+    unheld: {},
+    skipped: 0,
+  };
   const { secrets, legacy } = readAuthSecrets();
   // The key Better Auth writes with: the list when set, else the one secret
   // (readAuthSecrets throws when neither is set).
@@ -66,17 +78,24 @@ export async function reencryptTwoFactorRows(db: Database): Promise<TwoFactorRee
       }
     : legacy!;
   const tag = secrets ? `$ba$${secrets[0]!.version}$` : null;
+  const held = new Set(secrets?.map((s) => s.version));
+  // Better Auth's envelope. With the one secret alone it reads no tagged value.
+  const unheldVersion = (value: string) => {
+    const v = /^\$ba\$(\d+)\$/.exec(value)?.[1];
+    return v !== undefined && !held.has(Number(v)) ? Number(v) : null;
+  };
 
   const { rows } = await sql<{ id: string; userId: string; secret: string; backupCodes: string }>`
     SELECT id, "userId", secret, "backupCodes" FROM "twoFactor"
      WHERE ${
        tag
          ? sql`secret NOT LIKE ${`${tag}%`} OR "backupCodes" NOT LIKE ${`${tag}%`}`
-         : sql`"backupCodes" LIKE '[%'`
+         : sql`"backupCodes" LIKE '[%' OR secret LIKE ${'$ba$%'} OR "backupCodes" LIKE ${'$ba$%'}`
      }
   `.execute(db);
 
   const rewrite = async (value: string, column: 'secret' | 'backupCodes') => {
+    if (unheldVersion(value) !== null) return value;
     if (column === 'backupCodes' && isPlaintextCodes(value)) {
       return symmetricEncrypt({ key, data: value });
     }
@@ -91,6 +110,8 @@ export async function reencryptTwoFactorRows(db: Database): Promise<TwoFactorRee
   };
 
   for (const row of rows) {
+    const missing = unheldVersion(row.secret) ?? unheldVersion(row.backupCodes);
+    if (missing !== null) result.unheld[missing] = [...(result.unheld[missing] ?? []), row.userId];
     const secret = await rewrite(row.secret, 'secret');
     const backupCodes = await rewrite(row.backupCodes, 'backupCodes');
     if (secret === null || backupCodes === null) result.undecryptable.push(row.userId);
@@ -109,10 +130,25 @@ export async function reencryptTwoFactorRows(db: Database): Promise<TwoFactorRee
   return result;
 }
 
+function shortList(users: string[]): string {
+  const more = users.length > 20 ? ` and ${users.length - 20} more` : '';
+  return users.slice(0, 20).join(', ') + more;
+}
+
 /** Boot wrapper: reports, never blocks the boot. */
 export async function reencryptTwoFactorRowsAtBoot(db: Database): Promise<void> {
   try {
-    const { reencrypted, undecryptable, skipped } = await reencryptTwoFactorRows(db);
+    const { reencrypted, undecryptable, unheld, skipped } = await reencryptTwoFactorRows(db);
+    for (const [version, users] of Object.entries(unheld)) {
+      console.warn(
+        `⚠️  [auth] ${users.length} two-factor row(s) were written under BETTER_AUTH_SECRETS ` +
+          `version ${version}, which this replica does not hold: those users get 500 on TOTP ` +
+          'and backup codes here. If another replica runs with that version, this replica ' +
+          `missed rotation step 1: add ${version}:<secret> to its BETTER_AUTH_SECRETS and ` +
+          "restart it. If the version was retired, reset those users' factors: " +
+          shortList(users),
+      );
+    }
     if (reencrypted > 0) {
       console.log(
         `✅ [auth] re-encrypted ${reencrypted} two-factor row(s) under the current secret`,
@@ -124,12 +160,10 @@ export async function reencryptTwoFactorRowsAtBoot(db: Database): Promise<void> 
       );
     }
     if (undecryptable.length > 0) {
-      const shown = undecryptable.slice(0, 20).join(', ');
-      const more = undecryptable.length > 20 ? ` and ${undecryptable.length - 20} more` : '';
       console.warn(
         `⚠️  [auth] ${undecryptable.length} two-factor row(s) decrypt under no secret in ` +
           'BETTER_AUTH_SECRETS or BETTER_AUTH_SECRET and were left as they are; those users ' +
-          `cannot pass TOTP or backup codes until their factors are reset: ${shown}${more}`,
+          `cannot pass TOTP or backup codes until their factors are reset: ${shortList(undecryptable)}`,
       );
     }
   } catch (err) {

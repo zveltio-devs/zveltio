@@ -45,7 +45,9 @@ ZVELTIO_KEY_COMMAND="sops -d /opt/zveltio/secrets.enc.env"
   role, Vault AppRole, age key) read access to the secret, nothing else.
 - `.env.kms` is transient state; it is rewritten on every start and removed
   when `ZVELTIO_KEY_COMMAND` is unset. Do not edit it by hand.
-- Key **rotation**: rotate in the KMS, then `systemctl restart zveltio`.
-  (Re-encrypting existing data after a `FIELD_ENCRYPTION_KEY` rotation is a
-  separate, documented operation — the old key must remain available until
-  re-encryption completes.)
+- Key **rotation**: `BETTER_AUTH_SECRET` rotates through `BETTER_AUTH_SECRETS`
+  ([security.md](../platform/security.md#rotating-better_auth_secret)).
+  `FIELD_ENCRYPTION_KEY` and `MAIL_ENCRYPTION_KEY` do **not** rotate: the
+  engine holds one key of each, so a changed key leaves every value sealed
+  under the old one unreadable (an encrypted field reads back as `enc:v1:…`, a
+  mail password fails to decrypt). There is no re-encryption operation yet.
