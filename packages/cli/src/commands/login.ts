@@ -5,7 +5,6 @@
  * Sign the CLI in to an engine as its user (ADR 0011). The password and the
  * authenticator code are asked for, never taken as flags.
  */
-import { createInterface } from 'readline';
 import {
   confirmInBrowser,
   credentialsPath,
@@ -15,7 +14,7 @@ import {
   sessionFor,
   signIn,
 } from '../lib/engine-session.js';
-import { prompt, promptHidden } from '../lib/prompt.js';
+import { promptHidden, promptLine } from '../lib/prompt.js';
 
 const engineUrlOf = (url?: string) => url || process.env.ENGINE_URL || 'http://localhost:3000';
 
@@ -37,9 +36,7 @@ export async function loginCommand(opts: { url?: string; email?: string; web?: b
   }
   let email = opts.email;
   if (!email) {
-    const rl = createInterface({ input: process.stdin, output: process.stdout });
-    email = await prompt(rl, 'Email: ');
-    rl.close();
+    email = await promptLine('Email: ');
   }
   const password = await promptHidden('Password: ');
   try {

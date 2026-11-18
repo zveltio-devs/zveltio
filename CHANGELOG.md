@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Fixed — `zveltio create-god` hung when the password was piped.** Piped input arrives as one chunk; the hidden prompt kept the first line and dropped the rest, so the confirmation prompt waited forever. Every prompt of `create-god` and `login` now reads the next line from one shared buffer (the warning, email and name prompts used readline, which swallowed the rest of a pipe), and a prompt whose input ended refuses instead of waiting. Both commands work from a script, answers one per line (`docs/engine/cli.md`).
+
 **`GET /api/marketplace` no longer offers the release job's smoke fixtures.** The four `hello-ext*` entries (category `fixture`) appeared in `zveltio extensions list` and the Studio marketplace of every install; a comment said Studio filtered them, it did not. They are listed only once installed; install and enable by name are unchanged.
 
 **Fixed — with several instances, the first records of a new collection could be dropped by its webhooks.** The instance that creates a collection writes its default grants and announces them on the bus; a webhook job for a record written right after could run on another instance before that message arrived, find that the webhook's role could not read the record, and count it as skipped. Before skipping, the job now brings its policy model to `zvd_permissions` (the existing reconcile) and reads once more. Harness test `webhooks-grant-race.test.ts`.

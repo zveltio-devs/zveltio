@@ -1,5 +1,4 @@
-import { createInterface } from 'readline';
-import { prompt, promptHidden } from '../lib/prompt.js';
+import { promptHidden, promptLine } from '../lib/prompt.js';
 
 export async function createGodCommand(opts: {
   url?: string;
@@ -23,15 +22,9 @@ export async function createGodCommand(opts: {
   console.log('  • Audit logins for this account separately');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
-  const rlConfirm = createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-  const confirmed = await prompt(
-    rlConfirm,
+  const confirmed = await promptLine(
     'I understand the risks. Create Recovery Override account? (yes/no): ',
   );
-  rlConfirm.close();
 
   if (confirmed.trim().toLowerCase() !== 'yes') {
     console.log('Operation cancelled.');
@@ -40,12 +33,9 @@ export async function createGodCommand(opts: {
 
   console.log(`\nCreating God (super-admin) user at ${engineUrl}\n`);
 
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-
   try {
-    const email = opts.email || (await prompt(rl, 'Email: '));
-    const name = opts.name || (await prompt(rl, 'Name: '));
-    rl.close();
+    const email = opts.email || (await promptLine('Email: '));
+    const name = opts.name || (await promptLine('Name: '));
 
     const password = await promptHidden('Password: ');
     const confirmPassword = await promptHidden('Confirm password: ');
@@ -145,7 +135,6 @@ export async function createGodCommand(opts: {
     }
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   } catch (err: any) {
-    rl.close();
     console.error(`\n❌ Failed to create god user: ${err.message}\n`);
     process.exit(1);
   }
