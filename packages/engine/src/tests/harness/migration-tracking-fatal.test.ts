@@ -11,7 +11,7 @@
  * thrown instead of printed.
  */
 
-import { afterAll, describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sql } from 'kysely';
@@ -57,11 +57,42 @@ const recorded = async (db: Database, version: number): Promise<number> =>
        WHERE version = ${version} AND rolled_back_at IS NULL`.execute(db)
   ).rows[0]?.n ?? 0;
 
+/**
+ * Re-applying 088 writes the CHECK on `zv_flow_steps.type` as 088 had it, which
+ * still admits `query_db`: the later migrations that narrowed it (113, 124) are
+ * recorded and do not run again. Every file after this one then saw the old
+ * CHECK (`flow-query-db-removed` failed whenever it ran later). The test puts
+ * back the definition it found.
+ */
+async function flowTypeCheck(db: Database): Promise<string> {
+  const r = await sql<{ def: string }>`
+    SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
+     WHERE conname = 'zv_flow_steps_type_check'`.execute(db);
+  return r.rows[0]!.def;
+}
+
+async function setFlowTypeCheck(db: Database, def: string): Promise<void> {
+  await sql`ALTER TABLE zv_flow_steps DROP CONSTRAINT IF EXISTS zv_flow_steps_type_check`.execute(
+    db,
+  );
+  await sql
+    .raw(`ALTER TABLE zv_flow_steps ADD CONSTRAINT zv_flow_steps_type_check ${def}`)
+    .execute(db);
+}
+
 d('migration tracking failure', () => {
+  let foundCheck = '';
+
+  beforeAll(async () => {
+    const { db } = await getTestApp();
+    foundCheck = await flowTypeCheck(db);
+  });
+
   afterAll(async () => {
     const { db } = await getTestApp();
     await allowLedgerRow(db);
     await runPending(db);
+    if (foundCheck) await setFlowTypeCheck(db, foundCheck);
   });
 
   it('rolls a transactional migration back and reports it not applied', async () => {
