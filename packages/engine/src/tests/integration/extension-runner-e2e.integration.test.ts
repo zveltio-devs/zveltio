@@ -356,7 +356,7 @@ async function bootEngine(leg: Leg, driver: Driver, transport: Transport): Promi
     NODE_ENV: 'test',
     PORT: String(port),
     ZVELTIO_REGISTRATION_ENABLED: '1',
-    REGISTRY_URL: 'http://127.0.0.1:9',
+    ZVELTIO_REGISTRY_URL: 'http://127.0.0.1:9',
     EXTENSIONS_DIR: leg.base,
     STORAGE_LOCAL_DIR: join(leg.base, '.storage'),
     DB_POOL_MAX: '10',

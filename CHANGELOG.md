@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**`ZVELTIO_REGISTRY_URL` names the extension registry for the engine too.** The CLI already read `ZVELTIO_REGISTRY_URL`, the engine read `REGISTRY_URL`. The engine now reads `ZVELTIO_REGISTRY_URL` first; `REGISTRY_URL` still works, logs a deprecation warning at start, and goes at 3.0.0 (`docs/platform/configuration.md`).
+
 ## [3.0.0-beta.128] - 2026-11-18
 
 **Fixed — `zveltio create-god` hung when the password was piped.** Piped input arrives as one chunk; the hidden prompt kept the first line and dropped the rest, so the confirmation prompt waited forever. Every prompt of `create-god` and `login` now reads the next line from one shared buffer (the warning, email and name prompts used readline, which swallowed the rest of a pipe), and a prompt whose input ended refuses instead of waiting. Both commands work from a script, answers one per line (`docs/engine/cli.md`).

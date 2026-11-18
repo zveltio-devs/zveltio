@@ -40,7 +40,13 @@ import {
 // ── Registry catalog cache ────────────────────────────────────────────────────
 // Default points at the Cloudflare Worker registry (registry.zveltio.com).
 // `apps.zveltio.com` is the marketplace UI (SvelteKit) — it does NOT expose /api/*.
-export const REGISTRY_URL = process.env.REGISTRY_URL || 'https://registry.zveltio.com';
+// `ZVELTIO_REGISTRY_URL` is the name the CLI reads too; `REGISTRY_URL` is the
+// pre-beta.129 engine name, still read (with a warning) until GA.
+if (!process.env.ZVELTIO_REGISTRY_URL && process.env.REGISTRY_URL) {
+  console.warn('[extensions] REGISTRY_URL is deprecated; set ZVELTIO_REGISTRY_URL instead.');
+}
+export const REGISTRY_URL =
+  process.env.ZVELTIO_REGISTRY_URL || process.env.REGISTRY_URL || 'https://registry.zveltio.com';
 const CATALOG_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 let catalogCache: ExtensionCatalogEntry[] | null = null;
 let catalogCacheExpiry = 0;

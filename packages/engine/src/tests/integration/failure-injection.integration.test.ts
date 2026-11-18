@@ -98,7 +98,7 @@ describe.skipIf(skipAll)('H-14 — failure injection', () => {
     const engine = await spawnEngine({
       port: 3200,
       dbUrl: TEST_DB_URL!,
-      extraEnv: { REGISTRY_URL: mock.url, EXTENSIONS_DIR: extDir },
+      extraEnv: { ZVELTIO_REGISTRY_URL: mock.url, EXTENSIONS_DIR: extDir },
     });
     try {
       const install = () =>

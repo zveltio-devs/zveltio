@@ -486,7 +486,7 @@ because it boots many engines against one Postgres — see the note at the top o
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `REGISTRY_URL` | `https://registry.zveltio.com` | Extension registry. Point it at `http://127.0.0.1:9` in tests so nothing dials the real one. |
+| `ZVELTIO_REGISTRY_URL` | `https://registry.zveltio.com` | Extension registry, read by the engine and the CLI. Point it at `http://127.0.0.1:9` in tests so nothing dials the real one. `REGISTRY_URL` (the old engine name) is still read, with a warning, until 3.0.0. |
 | `ZVELTIO_CATALOG_PATH` | bundled catalogue | Path to a `catalog.json` to use instead of the bundled one. It lists what can be installed, never who published it: only a name the bundled catalogue (or the registry) lists is first-party, whatever `is_official` or `publisher_tier` the file sets (ADR 0056). |
 | `OPERATOR_PUBLIC_KEYS_JSON` | unset | The operator's own trusted signing keys, `[{ "keyId", "publicKeyHex" }]` as `zveltio keys export <id>` prints them; kept apart from `REGISTRY_PUBLIC_KEYS_JSON`. An extension directory signed with one (`zveltio extension sign`) loads at level 3, private: verified at every load, on the extension runner, never inline. A key here confers nothing higher, and a directory whose `signature.json` names a key not listed is refused, not loaded unsigned. See [signatures](../extensions/signatures.md#your-own-extensions-level-3). |
 | `ZVELTIO_EXTENSION_DEV_RELOAD` | unset | Enables `POST /__zveltio_dev_reload`, used by `zveltio extension dev`. Never in production. |
