@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**`GET /api/marketplace` no longer offers the release job's smoke fixtures.** The four `hello-ext*` entries (category `fixture`) appeared in `zveltio extensions list` and the Studio marketplace of every install; a comment said Studio filtered them, it did not. They are listed only once installed; install and enable by name are unchanged.
+
 **Fixed — with several instances, the first records of a new collection could be dropped by its webhooks.** The instance that creates a collection writes its default grants and announces them on the bus; a webhook job for a record written right after could run on another instance before that message arrived, find that the webhook's role could not read the record, and count it as skipped. Before skipping, the job now brings its policy model to `zvd_permissions` (the existing reconcile) and reads once more. Harness test `webhooks-grant-race.test.ts`.
 
 **Fixed — on a fresh install the core packages extensions import were never installed.** At first boot the engine writes a `package.json` into `EXTENSIONS_DIR` and installs `hono`, `zod`, `kysely` and `@hono/zod-validator` there; when that directory did not exist yet, the write threw `ENOENT`, the boot logged `Core dep install failed (non-fatal)`, and an extension with engine routes then failed to load. The directory is now created first. A `bun install` that ran and failed was also logged as `bun CLI unavailable`; the log now gives its exit code and last error line. `docs/platform/configuration.md` says that first boot needs the npm registry and how to prepare an air-gapped host.

@@ -525,7 +525,12 @@ export function registerMarketplaceRoutes(
         .map((h) => [h.name, h.disabledReason ?? 'disabled after repeated crashes']),
     );
 
-    const extensions = catalog.map((entry) => {
+    // `fixture` entries are the release job's smoke extensions: listed once
+    // installed, never offered to an operator browsing the catalog.
+    const listed = catalog.filter(
+      (e) => e.category !== 'fixture' || dbMap.get(e.name)?.is_installed || self.isActive(e.name),
+    );
+    const extensions = listed.map((entry) => {
       const dbEntry = dbMap.get(entry.name);
       const runtimeActive = self.isActive(entry.name);
       const extDir = join(extBase, entry.name);

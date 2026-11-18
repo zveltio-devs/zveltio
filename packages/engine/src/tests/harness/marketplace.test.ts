@@ -250,6 +250,16 @@ d('extension marketplace routes (in-process)', () => {
     expect(clear.status).toBeLessThan(600);
   }, 20_000);
 
+  const listedNames = async () => {
+    const res = await app.request('/api/marketplace', { headers: { cookie } });
+    return ((await res.json()) as { extensions: { name: string }[] }).extensions.map((e) => e.name);
+  };
+
+  it('does not offer a smoke fixture that is not installed', async () => {
+    await sql`DELETE FROM zv_extension_registry WHERE name = 'hello-ext-uionly'`.execute(db);
+    expect(await listedNames()).not.toContain('hello-ext-uionly');
+  });
+
   it('installs hello-ext from on-disk files (POST /:name/install)', async () => {
     // The row is written with its manifest: one without it, even for a moment,
     // stops every default grant (`claimsOfOthers`). The trigger refuses that write.
@@ -298,6 +308,10 @@ d('extension marketplace routes (in-process)', () => {
     const body = (await res.json()) as { success?: boolean; hot_loaded?: boolean };
     expect(typeof body).toBe('object');
   }, 30_000);
+
+  it('lists a smoke fixture once it is installed', async () => {
+    expect(await listedNames()).toContain(HELLO_EXT);
+  });
 
   it('reads hello-ext config (GET /:name/config)', async () => {
     ensureHelloExtOnDisk();
@@ -479,6 +493,8 @@ d('extension marketplace routes (in-process)', () => {
 
   it('catalog includes hello-ext with runtime merge fields', async () => {
     ensureHelloExtOnDisk();
+    // Listed once installed: it is a fixture.
+    await app.request(`/api/marketplace/${HELLO_EXT}/install`, post(`/${HELLO_EXT}/install`));
     const res = await app.request('/api/marketplace', { headers: { cookie } });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { extensions: Array<Record<string, unknown>> };
