@@ -173,7 +173,8 @@ BETTER_AUTH_URL=https://api.yourdomain.com
 **destructive for API keys and TOTP**. `BETTER_AUTH_SECRETS` (below) keeps TOTP
 and API keys through a rotation.
 `FIELD_ENCRYPTION_KEY` and `MAIL_ENCRYPTION_KEY` are separate keys; encrypted
-and `secret` fields are not affected.
+and `secret` fields are not affected. Those two keys have no rotation: changing
+one makes every value sealed under it unreadable.
 
 What happens when the **current** secret changes:
 
@@ -243,7 +244,15 @@ never prints a secret.
   replica's pass) is skipped and retried on the next boot. Because the pass
   writes the current version into every row, step 1 below must reach every
   replica before step 2: a replica that does not hold the current version
-  cannot read the rows any more.
+  cannot read the rows any more (`verify-totp` and `verify-backup-code` answer
+  500 there), and an API key rewritten under that version answers 401 there.
+  Its boot warns `written under BETTER_AUTH_SECRETS version N, which this
+  replica does not hold` and names the users, apart from the `decrypt under no
+  secret` warning. Do not reset those users' factors: add `N:<secret>` to that
+  replica and restart it. A replica without the list (`BETTER_AUTH_SECRET`
+  alone) reads no tagged value, so it gives the same warning for every tagged
+  row. Nothing warns about API keys: a replica cannot tell which secret a
+  version number names.
 - Backup codes generated before the engine set `storeBackupCodes: 'encrypted'`
   were stored as a plaintext JSON array, which Better Auth can no longer read
   (`verify-backup-code` fails with a 500). Every boot, with or without the
@@ -258,6 +267,8 @@ Routine rotation, every replica at each step:
    are written as `$ba$1$`.
 1. `BETTER_AUTH_SECRETS=1:<old>,2:<new>`. `<old>` is still current, so a rolling
    restart changes nothing a client sees; every replica now knows `<new>`.
+   A replica added later (autoscaling, a new host) must start from this
+   configuration too.
 2. When every replica runs step 1: `BETTER_AUTH_SECRETS=2:<new>,1:<old>`.
    `<new>` becomes current, with the consequences in the table: sessions end,
    cursors restart, file URLs are asked again and cache entries are misses.
