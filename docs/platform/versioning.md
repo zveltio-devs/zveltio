@@ -51,9 +51,10 @@ The current line is `3.0.0-beta.N`. Each beta raises `N` by one. Leaving beta
 2. **Write the release notes** in `CHANGELOG.md`, under `## [Unreleased]`.
 3. **Open a PR** named `chore/release-3.0.0-beta.N+1` with the commit
    `chore(release): 3.0.0-beta.N+1`. A correct release commit touches exactly
-   **10 files**: eight `package.json`, `Chart.yaml` and `CHANGELOG.md`, plus
-   `catalog.json` and `catalog.md` when an extension changed since the last
-   release. Nine means the chart was not bumped.
+   **11 files**: eight `package.json`, `Chart.yaml`, `bun.lock` and
+   `CHANGELOG.md`, plus `catalog.json` and `catalog.md` when an extension
+   changed since the last release. Ten means the chart or the lockfile was not
+   bumped.
 4. **Before merging**, if the change touched migrations, extension loading or
    anything the compiled binary embeds, build it locally:
    `bun build packages/engine/src/index.ts --compile`, and start it. Bugs that

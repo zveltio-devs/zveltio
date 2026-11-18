@@ -94,3 +94,13 @@ try {
   console.error(`❌ helm chart: could not sync appVersion — ${(err as Error).message}`);
   process.exit(1);
 }
+
+// bun.lock records each workspace package's version. Left alone, the first
+// `bun install` after the release rewrites it, and that diff lands in whatever
+// unrelated PR runs it next.
+const lock = Bun.spawnSync(['bun', 'install', '--lockfile-only'], { cwd: root, stdout: 'ignore' });
+if (lock.exitCode !== 0) {
+  console.error(`❌ bun.lock: could not refresh — ${lock.stderr.toString().trim()}`);
+  process.exit(1);
+}
+console.log('✅ bun.lock: workspace versions refreshed');
