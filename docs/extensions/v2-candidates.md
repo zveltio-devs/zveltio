@@ -229,3 +229,20 @@ first-party users are `analytics/quality`, `content/drafts` and
 
 **What v2 should do.** Decide with DR-09 whether `"*"` stays a first-party
 privilege or becomes something a reviewed third party can be granted.
+
+## 10. `deriveTokenHash` keys on the auth secret — breaking
+
+**What happens.** `ctx.internals.deriveTokenHash` returns an HMAC of a token
+under the current `BETTER_AUTH_SECRET`. It existed so `auth/scim` could store
+SCIM bearer tokens hashed; SCIM tokens became API keys (ADR 0045), and no
+first-party extension calls it any more (checked 2026-11-18). A hash it
+returned matches only while the secret that made it is current: rotating the
+secret (DR-17) leaves every stored hash unmatched, and unlike API keys
+(#1777) the engine cannot rewrite them, because they live in the extension's
+own tables.
+
+**What v1 does.** Nothing. Removing the member or changing its output breaks
+v1; rotation destroys these hashes, as `docs/platform/security.md` says.
+
+**What v2 should do.** Remove `deriveTokenHash`. An extension that stores a
+token issues it as an API key, or hashes it under a secret it declares itself.
