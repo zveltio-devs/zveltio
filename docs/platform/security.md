@@ -272,14 +272,32 @@ Routine rotation, every replica at each step:
    key also verifies under that variable. Ask each key's owner to use it once,
    or re-issue it. Then drop `1:<old>` and set `BETTER_AUTH_SECRET` to `<new>`.
 
-A **leaked** secret is not a rotation: listing the leaked value keeps it
-decrypting the TOTP secrets it wrote, and an attacker with the database and
-the value has those factors. Until the leak procedure ships (re-encrypt under
-the new secret, then reset factors; ADR 0058 decision 7; the boot pass above
-is the re-encryption half), follow the outright
-replacement above: new secret only, factors reset. The leaked value leaves both
-`BETTER_AUTH_SECRETS` and `BETTER_AUTH_SECRET`; an API key hashed under it then
-answers 401 and is re-issued.
+##### A leaked secret
+
+A **leaked** secret is not a rotation: there is no time for the two phases, and
+the leaked value must stop being trusted on every replica at once. It still
+has to decrypt the two-factor rows for one boot, so they can be re-encrypted
+(ADR 0058 decision 7: re-encrypt now, reset factors). On every replica:
+
+1. Generate `<new>` (`openssl rand -hex 32`). Set
+   `BETTER_AUTH_SECRETS=<n>:<new>,<v>:<leaked>`, where `<n>` is a version not
+   used before, and leave `BETTER_AUTH_SECRET` as it is. Stop every replica,
+   then start them all: a replica that does not hold `<new>` cannot read the
+   re-encrypted rows. Everything the engine signs itself (caches, cursors,
+   file URLs) now trusts `<new>` only, and every session ends.
+2. The boot re-encrypts the two-factor rows under `<new>` and logs the count.
+   Check that only the users it warned about remain:
+   `SELECT "userId" FROM "twoFactor" WHERE secret NOT LIKE '$ba$<n>$%' OR "backupCodes" NOT LIKE '$ba$<n>$%'`.
+   Reset their factors (`POST /api/users/:id/factors/reset`).
+3. Remove `<v>:<leaked>` from the list and set `BETTER_AUTH_SECRET=<new>`, then
+   restart every replica. An API key not used since step 1 still has its hash
+   under the leaked value, so it now answers 401: re-issue it, as in the
+   outright replacement above.
+4. If the database or a backup may have leaked with the secret, the old
+   ciphertexts in it decrypt with the leaked value: reset the factors of every
+   user who had them at the time (`SELECT "userId" FROM "twoFactor"` before
+   step 1, or from that backup). API keys stay safe: their stored hash cannot
+   be reversed into the key, even with the secret.
 
 #### API Key Security
 
