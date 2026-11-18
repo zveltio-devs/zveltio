@@ -244,6 +244,12 @@ never prints a secret.
   writes the current version into every row, step 1 below must reach every
   replica before step 2: a replica that does not hold the current version
   cannot read the rows any more.
+- Backup codes generated before the engine set `storeBackupCodes: 'encrypted'`
+  were stored as a plaintext JSON array, which Better Auth can no longer read
+  (`verify-backup-code` fails with a 500). Every boot, with or without the
+  list, encrypts such a value under the current secret, so those codes work
+  again and leave the database in the clear. Count them with
+  `SELECT count(*) FROM "twoFactor" WHERE "backupCodes" LIKE '[%'`.
 
 Routine rotation, every replica at each step:
 
