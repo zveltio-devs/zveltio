@@ -53,6 +53,14 @@ extension, see [ui-model.md](ui-model.md#a-screen-that-needs-code)).
 
 ## `manifest.json`
 
+`@zveltio/sdk` ships the manifest's JSON Schema as
+`@zveltio/sdk/manifest/schema.json`, generated from the schema the engine
+parses. Point your editor at it with
+`"$schema": "./node_modules/@zveltio/sdk/schemas/extension-manifest.schema.json"`
+at the top of `manifest.json`. It checks shapes only; cron syntax, egress
+hosts, capability names and views are checked when the engine loads the
+extension.
+
 ```json
 {
   "name": "business/tasks",

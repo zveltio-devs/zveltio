@@ -317,6 +317,10 @@ jobs:
         # specification (ADR 0042); the types and the published JSON Schema are
         # generated from it. Fails when either is stale.
         run: bun run check:view-spec
+      - name: Extension manifest JSON Schema matches the engine (DR-28)
+        # @zveltio/sdk/manifest/schema.json is generated from the engine's
+        # ManifestSchema. Fails when it is stale.
+        run: bun run check:manifest-schema
       - name: Operational modes have one reader and a generated docs table (ADR 0058)
         run: bun run check:modes
       - name: Import boundaries

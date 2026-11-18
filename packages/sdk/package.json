@@ -51,6 +51,7 @@
       "import": "./dist/view/index.js"
     },
     "./view/schema.json": "./schemas/view-2.schema.json",
+    "./manifest/schema.json": "./schemas/extension-manifest.schema.json",
     "./offline": {
       "types": "./dist/offline/index.d.ts",
       "import": "./dist/offline/index.js"
