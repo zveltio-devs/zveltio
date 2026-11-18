@@ -428,6 +428,15 @@ const CASES: Case[] = [
     body: '\n',
   },
   {
+    // A hand edit, or a schema left behind when ManifestSchema changed.
+    gate: 'gen-manifest-schema (replaced)',
+    expect: 'is stale',
+    cmd: 'bun run scripts/gen-manifest-schema.ts --check',
+    file: 'packages/sdk/schemas/extension-manifest.schema.json',
+    mode: 'replace',
+    body: '{ "type": "object" }\n',
+  },
+  {
     // What the database looks like after a real install, recorded so a change
     // to it has to be deliberate. Touch the record and the comparison fails —
     // which is the whole mechanism.
