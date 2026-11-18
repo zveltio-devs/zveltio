@@ -249,10 +249,7 @@ d('a public route reads as the public role (ADR 0020)', () => {
     ).catch(() => {});
     await dropTestCollection(db, COLL).catch(() => {});
     await sql`DELETE FROM zv_tenants WHERE id = ${B.id}::uuid`.execute(db).catch(() => {});
-    await sql`DELETE FROM zv_rate_limit_configs WHERE key_prefix = 'anon-read'`
-      .execute(db)
-      .catch(() => {});
-    clearLocalRateLimitCache('anon-read');
+    await restoreAnonReadRow().catch(() => {});
   });
 
   it('with no grant, public reads nothing: 403 on both members, no rows', async () => {
@@ -363,6 +360,19 @@ d('a public route reads as the public role (ADR 0020)', () => {
     expect((a.body.records as Rec[]).map((r) => r.title)).toEqual(['pub']);
   });
 
+  /**
+   * Put back the row migration 107 seeds. Deleting it instead left every later
+   * file without it: `rate-limit-config-propagation` checks that each tier has one.
+   */
+  const restoreAnonReadRow = async () => {
+    await sql`INSERT INTO zv_rate_limit_configs (key_prefix, window_ms, max_requests, description)
+              VALUES ('anon-read', 60000, 100, 'Anonymous data API reads, per IP')
+              ON CONFLICT (key_prefix) DO UPDATE SET window_ms = 60000, max_requests = 100`.execute(
+      db,
+    );
+    clearLocalRateLimitCache('anon-read');
+  };
+
   it('charges the anonymous read rate limit once per request, and its refusal throws', async () => {
     await sql`INSERT INTO zv_rate_limit_configs (key_prefix, window_ms, max_requests)
               VALUES ('anon-read', 60000, 2)
@@ -387,8 +397,7 @@ d('a public route reads as the public role (ADR 0020)', () => {
       process.env.NODE_ENV = env.NODE_ENV;
       if (env.TRUSTED_PROXY === undefined) delete process.env.TRUSTED_PROXY;
       else process.env.TRUSTED_PROXY = env.TRUSTED_PROXY;
-      await sql`DELETE FROM zv_rate_limit_configs WHERE key_prefix = 'anon-read'`.execute(db);
-      clearLocalRateLimitCache('anon-read');
+      await restoreAnonReadRow();
     }
   });
 
