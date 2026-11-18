@@ -273,7 +273,7 @@ d('boot and a half-done extension update', () => {
           DATABASE_URL: process.env.TEST_DATABASE_URL,
           DB_POOL_MAX: '2',
           EXTENSIONS_DIR: base,
-          REGISTRY_URL: `http://127.0.0.1:${server?.port}`,
+          ZVELTIO_REGISTRY_URL: `http://127.0.0.1:${server?.port}`,
           REGISTRY_PUBLIC_KEYS_JSON: keys,
         },
         stdout: 'ignore',

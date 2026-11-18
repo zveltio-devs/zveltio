@@ -136,7 +136,7 @@ which only community/unverified publishers are forced into — see
 
 TLS protects the archive *in transit* from `registry.zveltio.com`. The Ed25519
 signature protects against **the registry itself serving tampered bytes** (a
-compromised R2 bucket, a malicious mirror, a bad `REGISTRY_URL` override). It is
+compromised R2 bucket, a malicious mirror, a bad `ZVELTIO_REGISTRY_URL` override). It is
 a defence-in-depth layer *below* the tier/isolation model, not a replacement for
 it.
 
