@@ -1131,9 +1131,17 @@ export async function holdsRole(userId: string, role: string): Promise<boolean> 
 /** The baseline Casbin role every account is given (`g <user> member *`). */
 export const MEMBER_ROLE = 'member';
 
-/** Grant the baseline role. Every path that creates an account calls it. */
+/**
+ * Grant the baseline role. Every path that creates an account calls it.
+ *
+ * A no-op in a process with no live model (`create-god`, `migrate`): the row
+ * itself is written by the trigger on "user" (migration 059), and an enforcer
+ * built later loads it from the table. Only loading it into a model that exists
+ * can fail, and that failure still reaches the caller.
+ */
 export async function grantMemberRole(userId: string): Promise<void> {
-  await (await getEnforcer()).addRoleForUser(userId, MEMBER_ROLE, '*');
+  if (!_enforcer) return;
+  await _enforcer.addRoleForUser(userId, MEMBER_ROLE, '*');
 }
 
 /** Whether a `g` rule is the baseline grant — not power anyone chose to give. */

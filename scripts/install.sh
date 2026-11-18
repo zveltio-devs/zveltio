@@ -16,6 +16,12 @@ set -euo pipefail
 REPO="zveltio-devs/zveltio"
 RELEASES_BASE="https://github.com/${REPO}/releases/download"
 DEFAULT_PORT=3000
+# The admin password length create-god accepts. The engine sets no
+# `minPasswordLength`/`maxPasswordLength` (packages/engine/src/lib/auth.ts,
+# `emailAndPassword`), so these are better-auth's defaults; checked here only
+# so a short password is asked again instead of failing after the prompt.
+ADMIN_PASSWORD_MIN=8
+ADMIN_PASSWORD_MAX=128
 INSTALL_DIR="$(pwd)/zveltio"
 
 # ── Culori ────────────────────────────────────────────────────
@@ -562,10 +568,13 @@ if [[ "$SKIP_INFRA" == "false" ]]; then
           echo -n "  Confirm password: "
           read -rs ADMIN_PASSWORD_CONFIRM </dev/tty
           echo ""
-          if [[ "$ADMIN_PASSWORD" == "$ADMIN_PASSWORD_CONFIRM" ]]; then
+          if [[ "$ADMIN_PASSWORD" != "$ADMIN_PASSWORD_CONFIRM" ]]; then
+            warn "Passwords do not match. Please try again."
+          elif (( ${#ADMIN_PASSWORD} < ADMIN_PASSWORD_MIN || ${#ADMIN_PASSWORD} > ADMIN_PASSWORD_MAX )); then
+            warn "Password must be ${ADMIN_PASSWORD_MIN}-${ADMIN_PASSWORD_MAX} characters. Please try again."
+          else
             break
           fi
-          warn "Passwords do not match. Please try again."
         done
       else
         ADMIN_EMAIL="${ADMIN_EMAIL:-admin@zveltio.local}"
@@ -639,10 +648,13 @@ if [[ "$SKIP_INFRA" == "false" ]]; then
             echo -n "  Confirm password: "
             read -rs ADMIN_PASSWORD_CONFIRM </dev/tty
             echo ""
-            if [[ "$ADMIN_PASSWORD" == "$ADMIN_PASSWORD_CONFIRM" ]]; then
+            if [[ "$ADMIN_PASSWORD" != "$ADMIN_PASSWORD_CONFIRM" ]]; then
+              warn "Passwords do not match. Please try again."
+            elif (( ${#ADMIN_PASSWORD} < ADMIN_PASSWORD_MIN || ${#ADMIN_PASSWORD} > ADMIN_PASSWORD_MAX )); then
+              warn "Password must be ${ADMIN_PASSWORD_MIN}-${ADMIN_PASSWORD_MAX} characters. Please try again."
+            else
               break
             fi
-            warn "Passwords do not match. Please try again."
           done
         else
           ADMIN_EMAIL="${ADMIN_EMAIL:-admin@zveltio.local}"

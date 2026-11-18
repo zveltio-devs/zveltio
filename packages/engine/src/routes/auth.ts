@@ -5,7 +5,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import type { Database } from '../db/index.js';
 import { getEnforcer, getUserRoles, invalidateUserPermCache } from '../lib/tenancy/index.js';
-import { withAuthorizedUserCreation } from '../lib/auth.js';
+import { revokeAllUserSessions, withAuthorizedUserCreation } from '../lib/auth.js';
 import { auditLog } from '../lib/audit.js';
 import { asEngineRole } from '../lib/role-window.js';
 import { hashInvitationToken } from '../lib/security/index.js';
@@ -287,6 +287,13 @@ export function invitationRoutes(db: Database, auth: any): Hono {
           .set({ accepted_at: new Date(), accepted_by: userId })
           .where('id', '=', invite.id)
           .execute();
+
+        // `signUpEmail` signed the new account in, and this route returns no
+        // session (the invitee signs in afterwards), so that one went to
+        // nobody: a live credential no one holds. better-auth has no per-call
+        // switch for it (`autoSignIn` is instance-wide and also governs public
+        // sign-up), so it is revoked here, as `createFirstAdmin` does.
+        await revokeAllUserSessions(trx, userId);
       });
 
       // Bridge to authorization in this tenant's Casbin domain, matching what

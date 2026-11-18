@@ -64,6 +64,7 @@ d('POST /api/invitations/accept', () => {
         db_role: string;
         grants: { role: string; domain: string }[];
         baseline: number;
+        sessions: number;
       }>`
         SELECT
           (SELECT COUNT(*)::int FROM zv_tenant_users m
@@ -81,7 +82,9 @@ d('POST /api/invitations/accept', () => {
               AND NOT (p.v1 = 'member' AND p.v2 = '*')) AS grants,
           (SELECT COUNT(*)::int FROM zvd_permissions p JOIN "user" u ON u.id = p.v0
             WHERE u.email = ${email} AND p.ptype = 'g'
-              AND p.v1 = 'member' AND p.v2 = '*') AS baseline
+              AND p.v1 = 'member' AND p.v2 = '*') AS baseline,
+          (SELECT COUNT(*)::int FROM session s JOIN "user" u ON u.id = s."userId"
+            WHERE u.email = ${email}) AS sessions
       `.execute(db);
       const s = state.rows[0]!;
 
@@ -103,6 +106,9 @@ d('POST /api/invitations/accept', () => {
       expect(s.grants).toEqual([{ role: casbinRole, domain: s.invite_tenant }]);
       // Plus the `member` baseline every account gets at creation.
       expect(s.baseline).toBe(1);
+      // Sign-up signs the new account in, and this route hands that session to
+      // nobody (the invitee signs in afterwards): a live credential no one holds.
+      expect(s.sessions).toBe(0);
     }, 30_000);
   }
 

@@ -61,6 +61,9 @@ d('first admin through better-auth', () => {
     const email = `${PREFIX}-cli@test.local`;
     const { code, stderr } = await createGod(email);
     expect(stderr).not.toContain('create-god refused');
+    // A CLI has no live Casbin model to load the `member` row into: nothing to
+    // warn about (the row is the trigger's, migration 059).
+    expect(stderr).not.toContain('member row not loaded');
     expect(code).toBe(0);
 
     const [user] = await rowsFor(email);
