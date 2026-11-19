@@ -358,8 +358,11 @@ better-auth's sign-up with its password policy, and writes an audit row; it is
 refused once a god exists:
 
 ```bash
-zveltio-engine create-god --email admin@example.com --password '<password>' [--name "Admin"]
+printf '%s' "$PW" | zveltio-engine create-god --email admin@example.com [--name "Admin"]
 ```
+
+The password is read from stdin, so it never appears in argv (`ps`). The older
+`--password '<password>'` argument still works.
 
 Handing the role to another existing account is recovery (`RECOVERY_TOKEN`,
 `POST /api/permissions/bootstrap`), which never creates an account. The developer

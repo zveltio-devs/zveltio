@@ -582,11 +582,11 @@ if [[ "$SKIP_INFRA" == "false" ]]; then
         info "Admin: ${ADMIN_EMAIL} / ${ADMIN_PASSWORD}"
         info "(save these credentials!)"
       fi
-      docker compose -f "$COMPOSE_FILE" run -T --rm \
+      # The password goes through stdin, never argv (visible in `ps`).
+      printf '%s' "$ADMIN_PASSWORD" | docker compose -f "$COMPOSE_FILE" run -T --rm \
         -e DATABASE_URL="postgres://${POSTGRES_USER:-zveltio}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-zveltio}?sslmode=disable" \
         engine create-god \
-        --email "$ADMIN_EMAIL" \
-        --password "$ADMIN_PASSWORD"
+        --email "$ADMIN_EMAIL"
       ok "Admin account created"
     fi
 
@@ -664,9 +664,8 @@ if [[ "$SKIP_INFRA" == "false" ]]; then
         fi
         # Only DATABASE_URL is exported above; create-god signs the account up
         # through better-auth, which needs the secret too.
-        BETTER_AUTH_SECRET="$BETTER_AUTH_SECRET" ./zveltio-engine create-god \
-          --email "$ADMIN_EMAIL" \
-          --password "$ADMIN_PASSWORD"
+        printf '%s' "$ADMIN_PASSWORD" | BETTER_AUTH_SECRET="$BETTER_AUTH_SECRET" ./zveltio-engine create-god \
+          --email "$ADMIN_EMAIL"
         ok "Admin account created"
       fi
 

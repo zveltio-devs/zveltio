@@ -477,9 +477,15 @@ if (_cmd === 'create-god') {
     if (_args[i] === '--password' && _args[i + 1]) _password = _args[i + 1];
     if (_args[i] === '--name' && _args[i + 1]) _name = _args[i + 1];
   }
+  // Without --password the password is read from stdin, so an installer never
+  // puts it in argv, where any local user sees it (`ps`, `docker inspect`).
+  if (!_password && !process.stdin.isTTY) {
+    _password = (await Bun.stdin.text()).replace(/\r?\n$/, '');
+  }
   if (!_email || !_password) {
     console.error(
-      'Usage: zveltio-engine create-god --email <email> --password <password> [--name <name>]',
+      'Usage: zveltio-engine create-god --email <email> [--password <password>] [--name <name>]\n' +
+        '       without --password, the password is read from stdin',
     );
     process.exit(1);
   }
