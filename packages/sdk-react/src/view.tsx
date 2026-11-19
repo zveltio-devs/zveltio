@@ -523,6 +523,7 @@ export function ExtensionView({
     if (out.kind === 'navigate') onNavigate?.(out.view, out.params);
     else if (out.kind === 'view') setShownView(out.view);
     else if (out.kind === 'reveal') setNote(out.value);
+    else if (out.kind === 'redirect') window.location.assign(out.url);
     else if (out.kind === 'file') {
       const { url } = await client.get<{ url: string }>(
         `/api/storage/${encodeURIComponent(out.file)}/signed-url`,

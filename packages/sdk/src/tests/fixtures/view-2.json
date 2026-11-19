@@ -290,6 +290,7 @@
       "inline view": { "view": { "type": "form", "action": "confirm", "fields": ["reason"] } },
       "file": { "file": "f_123" },
       "reveal": { "reveal": "sk_live_abc" },
+      "redirect": { "redirect": "https://logincert.anaf.ro/anaf-oauth2/v1/authorize?client_id=x" },
       "values object": { "total": 42, "currency": "RON" },
       "values scalar": 3,
       "values null": null,
@@ -305,7 +306,9 @@
       },
       "file not a string": { "file": 7 },
       "empty file": { "file": "" },
-      "reveal with values": { "reveal": "k", "total": 1 }
+      "reveal with values": { "reveal": "k", "total": 1 },
+      "redirect not https": { "redirect": "http://a.example/" },
+      "redirect with values": { "redirect": "https://a.example/", "total": 1 }
     }
   }
 }

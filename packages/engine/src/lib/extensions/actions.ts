@@ -25,6 +25,14 @@ import type {
 import { getDb } from '../../db/index.js';
 import { auditLog } from '../audit.js';
 import { problem } from '../problem.js';
+import { egressAllows } from '../edge-functions/egress.js';
+import {
+  declaredCapabilities,
+  declaredSlots,
+  EGRESS_PREFIX,
+  readGranted,
+  slotBindings,
+} from './consent.js';
 import {
   asAdmittedKey,
   gateAdmitsAction,
@@ -222,8 +230,63 @@ export function mountActions(
     } catch (err) {
       throw refusalProblem(err) ?? err;
     }
+    await refuseForeignRedirect(extName, result);
     return c.json({ result: result ?? null });
   });
+}
+
+/**
+ * ADR 0061 decision 1: a `{ "redirect": <URL> }` result sends the caller's
+ * browser to an https host the operator named for this extension (its consented
+ * `egress:<authority>` or a slot binding), nowhere else. Otherwise the request
+ * fails and rolls back: an extension cannot use the engine's origin as an open
+ * redirect.
+ */
+async function refuseForeignRedirect(extName: string, result: unknown): Promise<void> {
+  if (typeof result !== 'object' || result === null || !Object.hasOwn(result, 'redirect')) return;
+  const target = (result as { redirect: unknown }).redirect;
+  // ponytail: a second pool connection while the request holds its transaction,
+  // only for a redirect result (an OAuth start); the consent as recorded now,
+  // as a job's fetch reads it (ADR 0023 d4).
+  const granted = (await readGranted(getDb(), extName)) ?? [];
+  if (!redirectAllowed(granted, declaredEgress.get(extName), target)) {
+    throw problem(
+      'redirect_not_allowed',
+      502,
+      `action of "${extName}" redirects to a URL that is not https on a host the operator named for it`,
+    );
+  }
+}
+
+/** Each loaded extension's declared egress: consent outside it is dropped, as for a job. */
+const declaredEgress = new Map<string, { authorities: Set<string>; slots: Set<string> }>();
+
+/** Record `manifest`'s declared egress authorities and slots, at load. */
+export function declareEgress(extName: string, manifest: unknown): void {
+  declaredEgress.set(extName, {
+    authorities: new Set(declaredCapabilities(manifest).filter((c) => c.startsWith(EGRESS_PREFIX))),
+    slots: declaredSlots(manifest),
+  });
+}
+
+/**
+ * Whether `target` is an https URL, no credentials, on an authority the operator
+ * named for the extension: a consented, still declared `egress:<authority>`, or
+ * the binding of a declared slot.
+ */
+export function redirectAllowed(
+  granted: readonly string[],
+  declared: { authorities: Set<string>; slots: Set<string> } | undefined,
+  target: unknown,
+): boolean {
+  if (!declared || typeof target !== 'string' || !URL.canParse(target)) return false;
+  const url = new URL(target);
+  if (url.protocol !== 'https:' || url.username || url.password) return false;
+  const hosts = [
+    ...granted.filter((c) => declared.authorities.has(c)).map((c) => c.slice(EGRESS_PREFIX.length)),
+    ...[...slotBindings(granted, declared.slots).values()].flatMap((b) => b.authorities),
+  ];
+  return egressAllows(hosts, url);
 }
 
 /**

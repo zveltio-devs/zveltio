@@ -93,6 +93,7 @@ import { gateInternals } from './capabilities.js';
 import {
   type CompiledAction,
   compileActions,
+  declareEgress,
   forgetActions,
   mountActions,
   routeCollections,
@@ -966,6 +967,7 @@ export async function finalizeExtensionLoad(
   // one path that matters (update). See consent.ts.
   // With its jobs' `egress:<authority>` (ADR 0022), consented like any other.
   const declared = declaredCapabilities(manifest);
+  declareEgress(extName, manifest);
   const granted = await readGranted(ctx.db, extName).catch(() => null);
   const { effective, pending, grandfathered } = resolveCapabilities(declared, granted);
   if (pending.length > 0) {
