@@ -69,8 +69,8 @@ let prompt = $state<{
   fields: FormField[];
   values: Record<string, unknown>;
   /** A button's `files.prompt`: the one file the caller picks, uploaded on pick. */
-  file: { label: string; value: FileValue | null } | null;
-  go: (v: Record<string, unknown>, picked: string[]) => Promise<void>;
+  file: { input: string; label: string; value: FileValue | null } | null;
+  go: (v: Record<string, unknown>, picked?: string) => Promise<void>;
   /** Settles the `press` that opened it: after the action, or on close. */
   done: () => void;
 } | null>(null);
@@ -185,15 +185,15 @@ async function press(
   };
   if (!before && !bound(scope)) return void toast.error(m['view.selectFirst']());
   // The view's bound input wins: a prompt never overrides what the view fixed.
-  const go = (asked: Record<string, unknown>, picked: string[] = []): Promise<void> => {
+  const go = (asked: Record<string, unknown>, picked?: string): Promise<void> => {
     const fire = async () => {
       const s = before ? await before(scope) : scope;
       if (!s) return;
       const call = bound(s);
       if (!call) return void toast.error(m['view.selectFirst']());
       // The picked file goes with the ids the view hands (ADR 0052).
-      const files = picked.length
-        ? { ...call.files, read: [...new Set([...(call.files?.read ?? []), ...picked])] }
+      const files = picked
+        ? { ...call.files, read: [...new Set([...(call.files?.read ?? []), picked])] }
         : call.files;
       await run(b.action, { ...asked, ...call.input }, { files });
     };
@@ -216,7 +216,10 @@ async function press(
   };
   // A prompt asks only for what the view did not bind (`validateView` refuses the overlap).
   const ask = (b.prompt ?? []).filter((name) => !Object.hasOwn(b.input ?? {}, name));
-  const file = b.files?.prompt ? { label: t(b.files.prompt), value: null } : null;
+  const fp = b.files?.prompt;
+  const file = fp
+    ? { input: fp.input, label: fp.label ? t(fp.label) : fp.input, value: null }
+    : null;
   if (ask.length === 0 && !file) return go({});
   const input = findAction(actions ?? [], host.ext, b.action)?.input;
   const declared = actionInputFields(input);
@@ -325,9 +328,8 @@ function closePrompt() {
 function submitPrompt() {
   const p = prompt;
   if (!p) return;
-  const picked = p.file ? fileIds(p.file.value) : [];
-  if (p.file && !picked.length)
-    return void toast.error(`${p.file.label}: ${m['common.required']()}`);
+  const picked = p.file ? fileIds(p.file.value)[0] : undefined;
+  if (p.file && !picked) return void toast.error(`${p.file.label}: ${m['common.required']()}`);
   let asked: Record<string, unknown>;
   try {
     asked = formPayload(p.values, p.fields);
@@ -335,6 +337,7 @@ function submitPrompt() {
     toast.error((e as Error).message);
     return; // the dialog stays open to fix the value
   }
+  if (p.file && picked) asked[p.file.input] = picked;
   prompt = null;
   void p.go(asked, picked).finally(p.done);
 }

@@ -274,11 +274,11 @@ const defs: Record<string, Schema> = {
         ...ref('Value'),
         description: "File ids the job may read, or a `file` field's value (its files' ids).",
       },
-      prompt: {
-        ...ref('Text'),
-        description:
-          'Asks the caller for one file, labelled so: the front end uploads it and hands its id with `read`.',
-      },
+      prompt: closed(
+        'Asks the caller for one file: the front end uploads it as the caller and hands its id with `read` and as the input `input`.',
+        { input: ref('Name'), label: ref('Text') },
+        ['input'],
+      ),
       write: closed(
         'The one file the job may store.',
         { name: ref('Value'), maxBytes: ref('Value') },

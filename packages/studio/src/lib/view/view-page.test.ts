@@ -204,7 +204,7 @@ describe('view/2 renderer', () => {
             {
               action: 'archive',
               label: 'Import',
-              files: { read: 'f1', prompt: 'CSV file' },
+              files: { read: 'f1', prompt: { input: 'file', label: 'CSV file' } },
             },
           ],
         },
@@ -224,6 +224,7 @@ describe('view/2 renderer', () => {
     await fireEvent.click(getByText('Confirm'));
     await waitFor(() =>
       expect(post).toHaveBeenCalledWith('/ext/notes/actions/archive', {
+        file: 'f9',
         $files: { read: ['f1', 'f9'] },
       }),
     );

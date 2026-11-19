@@ -1248,8 +1248,20 @@
           "description": "File ids the job may read, or a `file` field's value (its files' ids)."
         },
         "prompt": {
-          "$ref": "#/$defs/Text",
-          "description": "Asks the caller for one file, labelled so: the front end uploads it and hands its id with `read`."
+          "type": "object",
+          "description": "Asks the caller for one file: the front end uploads it as the caller and hands its id with `read` and as the input `input`.",
+          "properties": {
+            "input": {
+              "$ref": "#/$defs/Name"
+            },
+            "label": {
+              "$ref": "#/$defs/Text"
+            }
+          },
+          "required": [
+            "input"
+          ],
+          "additionalProperties": false
         },
         "write": {
           "type": "object",

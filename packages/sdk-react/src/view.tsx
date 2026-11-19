@@ -564,14 +564,15 @@ export function ExtensionView({
       // `files.prompt`: the caller picks one file; it is uploaded and its id handed with `read`.
       const pick = document.createElement('input');
       pick.type = 'file';
-      pick.title = host.t(b.files.prompt);
+      const { input: into, label } = b.files.prompt;
+      pick.title = label ? host.t(label) : into;
       pick.onchange = () => {
         const f = pick.files?.[0];
         if (!f) return;
-        uploadFile(client, f).then(
-          (up) => send({ ...files, read: [...(files?.read ?? []), up.id] }),
-          fail,
-        );
+        uploadFile(client, f).then((up) => {
+          input[into] = up.id;
+          send({ ...files, read: [...(files?.read ?? []), up.id] });
+        }, fail);
       };
       pick.click();
     },
