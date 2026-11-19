@@ -9752,6 +9752,7 @@ table zvd_saft_exports
   col created_at                     timestamp with time zone NOT NULL DEFAULT now()
   col created_by                     text
   col entries_count                  bigint
+  col file_name                      text
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
   col period_end                     date NOT NULL
   col period_start                   date NOT NULL
@@ -16214,6 +16215,7 @@ table zvv_saft_exports
   col created_at                     timestamp with time zone
   col created_by                     text
   col entries_count                  bigint
+  col file_name                      text
   col id                             uuid
   col period_end                     date
   col period_start                   date
