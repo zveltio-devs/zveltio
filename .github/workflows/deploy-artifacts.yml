@@ -58,6 +58,20 @@ jobs:
             --set "networkPolicy.databaseTo[0].ipBlock.cidr=10.0.0.0/8" > restricted.yaml
           ! grep -q 'name: ext-runner$' restricted.yaml || { echo "::error::extRunner.enabled=false still rendered a runner"; exit 1; }
           /tmp/kubeconform -strict -summary default.yaml full.yaml restricted.yaml
+      - name: NetworkPolicy allows the database and cache where they live
+        # kubeconform checks the policy is valid, not what it lets through: a
+        # policy that cut the engine off its database (E09) was valid.
+        run: |
+          A="--set engine.config.betterAuthSecret=x --set engine.config.betterAuthUrl=https://zv.example --set engine.config.valkeyUrl=redis://cache:6379"
+          np() { /tmp/linux-amd64/helm template t charts/zveltio $A -s templates/networkpolicy.yaml "$@"; }
+          fail() { echo "::error::networkpolicy: $1"; exit 1; }
+          d=$(np)
+          for port in 5432 6379 443; do grep -q "port: $port$" <<<"$d" || fail "default allows no TCP $port"; done
+          b=$(np --set postgresql.enabled=true --set postgresql.auth.password=p --set redis.enabled=true)
+          grep -q 'component: postgres$' <<<"$b" || fail "bundled postgres not reached through its pods"
+          grep -q 'component: valkey$' <<<"$b" || fail "bundled valkey not reached through its pods"
+          e=$(np --set 'networkPolicy.databaseTo[0].ipBlock.cidr=10.9.0.0/16')
+          grep -q 'cidr: 10.9.0.0/16$' <<<"$e" || fail "databaseTo not rendered"
       - name: Refuse multi-replica on a ReadWriteOnce claim
         run: |
           A="--set engine.config.betterAuthSecret=x --set engine.config.betterAuthUrl=https://zv.example --set engine.config.valkeyUrl=redis://cache:6379"
