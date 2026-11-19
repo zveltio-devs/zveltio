@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { safeHref } from './sanitize.js';
   let { title = '', subtitle = '', cta_text = '', cta_url = '', image_url = '' } = $props();
 </script>
 
@@ -10,7 +11,7 @@
     <div>
       <h1 class="text-5xl font-bold">{title}</h1>
       {#if subtitle}<p class="py-6">{subtitle}</p>{/if}
-      {#if cta_text}<a href={cta_url} class="btn btn-primary">{cta_text}</a>{/if}
+      {#if cta_text}<a href={safeHref(cta_url)} class="btn btn-primary">{cta_text}</a>{/if}
     </div>
   </div>
 </div>

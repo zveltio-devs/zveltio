@@ -19,6 +19,23 @@ const blocks = (b: any[]) => ({ props: { blocks: b } });
 describe('BlockRenderer', () => {
   afterEach(() => cleanup());
 
+  it('author-typed link and embed URLs never carry javascript:', () => {
+    const js = 'javascript:alert(1)';
+    const { container } = render(
+      BlockRenderer,
+      blocks([
+        { type: 'hero', content: { title: 't', cta_text: 'go', cta_url: js } },
+        { type: 'button', content: { text: 'b', href: js } },
+        { type: 'image', content: { url: 'https://x.test/a.png', link: js } },
+        { type: 'video', content: { url: js } },
+      ]),
+    );
+    const links = [...container.querySelectorAll('a')].map((a) => a.getAttribute('href'));
+    expect(links.length).toBeGreaterThanOrEqual(2);
+    expect(links.every((h) => h === '#')).toBe(true);
+    expect(container.querySelector('iframe')).toBeNull();
+  });
+
   it('text block: keeps formatting but strips <script>', () => {
     const { container } = render(
       BlockRenderer,

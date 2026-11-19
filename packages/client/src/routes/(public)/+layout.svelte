@@ -2,10 +2,14 @@
 // Public site chrome: header with the CMS-managed 'main' menu, footer with
 // 'footer'. Menus come from /ext/content/pages/cms/nav (see +layout.ts);
 // theming is a single accent custom property from public settings.
+import { safeHref } from '@zveltio/ui/blocks/href';
+
 let { data, children } = $props();
 
 type MenuItem = { label: string; slug?: string; url?: string; external?: boolean };
-const hrefOf = (i: MenuItem) => (i.url ? i.url : `/${i.slug === 'home' ? '' : (i.slug ?? '')}`);
+// A menu URL is author-typed: `javascript:` would run on click (Svelte does not filter href).
+const hrefOf = (i: MenuItem) =>
+  i.url ? safeHref(i.url) : `/${i.slug === 'home' ? '' : (i.slug ?? '')}`;
 const main: MenuItem[] = $derived(data.menus?.main ?? []);
 const footer: MenuItem[] = $derived(data.menus?.footer ?? []);
 </script>
