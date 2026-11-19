@@ -474,6 +474,24 @@ warning. Purges run nightly at
 03:00 from the garbage collector (`lib/runtime/garbage-collector.ts`), on one
 replica. Trashed records are purged by the trash scheduler, not by this sweep.
 
+### Audit trail (ADR 0060)
+
+**Today:** `zv_audit_log` rows are written by the engine role, which can also
+update and delete them within its own tenant; nothing detects a changed or
+removed row. Retention is instance-wide (`AUDIT_LOG_RETENTION_DAYS`).
+
+**Target (accepted 2026-11-19, in progress):**
+
+- Fixed guarantees, not settings: the engine role may only insert and read
+  audit rows; rows carry ids, never personal data, so a GDPR erasure deletes
+  the profile and leaves the trail intact; each tenant's rows form a SHA-256
+  hash chain, and a verify endpoint names the first broken link.
+- Operator settings: the retention window (instance-wide, with a per-tenant
+  override for tenants under other jurisdictions; the purge cuts the chain from
+  its oldest end only), and where the chain head is anchored outside the
+  database (file or object storage), so a cut tail with a rewritten chain is
+  still detected.
+
 ---
 
 ## Demo mode
