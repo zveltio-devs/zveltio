@@ -25,7 +25,7 @@
  * reverted by the next build. Scanning both means the gate fires whether the
  * mistake was made at the source or in the copy, and the message says which.
  */
-import { SIBLING_ROOT } from './lib/require-sibling.js';
+import { SIBLING_ROOT, requireSibling } from './lib/require-sibling.js';
 
 const ROOTS = [
   { path: 'packages/studio/src', label: 'Studio', sibling: false },
@@ -67,12 +67,11 @@ const EXTS = ['.svelte', '.ts', '.js'];
 
 for (const root of ROOTS) {
   const exists = await Bun.file(`${root.path}/package.json`).exists();
-  if (!exists && root.sibling) {
-    // The extensions checkout is a sibling and may not be present — in a
-    // release build, for instance. Skipping is correct; failing would tie the
-    // gate to the layout of whoever runs it.
-    console.log(`[studio-api-prefix] ·  ${root.label} not present — skipped.`);
-    continue;
+  if (root.sibling) {
+    // Half the corpus: without it "OK" would mean "found nothing" where the
+    // truth is "could not look". ZVELTIO_ALLOW_MISSING_SIBLING=1 opts out.
+    requireSibling(root.path, 'studio-api-prefix');
+    if (!exists) continue;
   }
 
   const glob = new Bun.Glob('**/*');

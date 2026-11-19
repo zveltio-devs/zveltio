@@ -45,13 +45,16 @@
  *
  * Needs a PostgreSQL it can create databases on (PGHOST/PGUSER/PGPASSWORD, or
  * SEAM_DATABASE_URL) and the sibling extensions checkout. Without either it
- * exits 0 with a note, because the engine repo has to be cloneable on its own.
+ * fails: a snapshot it could not build is not a snapshot that matched. A
+ * checkout with no sibling opts out with ZVELTIO_ALLOW_MISSING_SIBLING=1
+ * (`requireSibling`), and is then compared on nothing, with a warning.
  */
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { SQL } from 'bun';
 import { ADMIN_URL, EXT_ROOT, ROOT, buildInstallTemplate, dbUrl } from './lib/install-template.js';
+import { requireSibling } from './lib/require-sibling.js';
 import { renderInstalledSchema as render } from '../packages/engine/src/db/installed-schema.js';
 
 const SNAPSHOT = join(ROOT, 'packages', 'engine', 'src', 'db', 'installed-schema.snapshot.txt');
@@ -59,19 +62,17 @@ const WRITE = process.argv.includes('--write');
 const DB = `zveltio_snapshot_${process.pid}`;
 
 async function main(): Promise<void> {
-  if (!existsSync(EXT_ROOT)) {
-    console.log('[schema-snapshot] SKIP — no sibling zveltio-extensions checkout.');
-    return;
-  }
+  requireSibling(EXT_ROOT, 'schema-snapshot');
+  if (!existsSync(EXT_ROOT)) return; // opted out above, with a warning
   let admin: SQL;
   try {
     admin = new SQL(ADMIN_URL);
     await admin`SELECT 1`;
   } catch (err) {
-    console.log(
-      `[schema-snapshot] SKIP — no database to build against (${(err as Error).message}).`,
+    console.error(
+      `[schema-snapshot] FAIL — no database to build against (${(err as Error).message}).`,
     );
-    return;
+    process.exit(1);
   }
 
   let text: string;
