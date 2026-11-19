@@ -159,7 +159,7 @@ async function settle(result: unknown) {
       return;
     }
     if (outcome.kind === 'file') return await openFile(outcome.file);
-    // Top-level, never framed: the engine admitted only https on a host the operator named (ADR 0061).
+    // This window, never an iframe: the engine admitted only https on a host the operator named (ADR 0061).
     if (outcome.kind === 'redirect') return void window.location.assign(outcome.url);
     toast.success(m['common.done']());
   } catch (e) {

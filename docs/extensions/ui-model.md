@@ -176,7 +176,7 @@ What the specification holds:
   | `{ "view": { "type": ..., ... } }` | draws the returned view (wizards, computed screens) |
   | `{ "file": "<file id>" }` | hands the caller the stored file |
   | `{ "reveal": "<text>" }` | shows the value once (a key, a secret) |
-  | `{ "redirect": "<https URL>" }` | navigates the whole window there (an OAuth authorize page); the engine answers `502 redirect_not_allowed` unless the URL is https, carries no credentials, and its host is one the operator named for this extension as egress (`egress:<host>` or a slot binding, ADR 0026); never in a frame (ADR 0061) |
+  | `{ "redirect": "<https URL>" }` | navigates its own window there, never an iframe (an OAuth authorize page); the engine answers `502 redirect_not_allowed` unless the URL is https, carries no credentials, and its host is one the extension declares as egress and the operator consented to or bound (`egress:<host>` or a slot binding, ADR 0026; ADR 0061) |
   | anything else: a scalar, a list, an object without `view`, `file`, `reveal` or `redirect` | values; a form's `recalc` merges an object of them |
 
   The five forms are closed: `{ "view": "x.y", "extra": 1 }` is not values but
