@@ -28,9 +28,11 @@
  * Run: `bun run scripts/check-sdui-contract.ts [extensionsDir]`
  */
 
-import { SIBLING_ROOT } from './lib/require-sibling.js';
+import { SIBLING_ROOT, requireSibling } from './lib/require-sibling.js';
 
 const EXT_DIR = process.argv[2] ?? SIBLING_ROOT;
+// An empty or half-cloned directory checked 0 resources and printed OK.
+requireSibling(EXT_DIR, 'sdui-contract');
 
 interface Problem {
   ext: string;

@@ -24,7 +24,16 @@
  */
 
 import { describe, expect, it } from 'bun:test';
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -119,4 +128,108 @@ describe('requireSibling demands a corpus, not a path', () => {
       rmSync(join(root, '..'), { recursive: true, force: true });
     }
   });
+});
+
+/**
+ * Two gates kept their own "skip" past the 2026-08-29 fix and exited 0 with no
+ * sibling: `schema-snapshot` ("SKIP", and it runs in `prepush`) and
+ * `check-studio-api-prefix` ("not present — skipped", then "OK"). Found in the
+ * E02 review, 2026-11-19; in E03 the same day, `check-sdui-contract` ("checked 0
+ * resource(s)", OK) over an empty directory. All three go through `requireSibling`.
+ */
+describe('gates that went around requireSibling', () => {
+  const run = async (script: string, env: Record<string, string>) => {
+    const proc = Bun.spawn(['bun', 'run', join(SCRIPTS, script)], {
+      cwd: REPO,
+      env: { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '', ...env } as never,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const out = (await new Response(proc.stdout).text()) + (await new Response(proc.stderr).text());
+    return { code: await proc.exited, out };
+  };
+  const missing = { EXTENSIONS_ROOT: join(tmpdir(), `no-sibling-${process.pid}`) };
+
+  for (const script of [
+    'schema-snapshot.ts',
+    'check-studio-api-prefix.ts',
+    'check-sdui-contract.ts',
+  ]) {
+    it(`${script} fails without the sibling`, async () => {
+      const { code, out } = await run(script, missing);
+      expect(code).toBe(1);
+      expect(out).toContain('FAIL — no sibling checkout');
+    });
+  }
+
+  it('check-studio-api-prefix passes on its own repo with the opt-out, warning', async () => {
+    const { code, out } = await run('check-studio-api-prefix.ts', {
+      ...missing,
+      ZVELTIO_ALLOW_MISSING_SIBLING: '1',
+    });
+    expect(code).toBe(0);
+    expect(out).toContain('WARNING');
+  });
+});
+
+/**
+ * Studio's `sync-extensions.ts` (run by `prebuild`) over an empty sibling: it
+ * found no extension, then pruned every directory `.synced.json` named and
+ * printed "Done — 0 extension page(s) synced", exit 0. E05 review, 2026-11-19.
+ */
+it('sync-extensions refuses an empty sibling and removes nothing', async () => {
+  const base = mkdtempSync(join(tmpdir(), 'e05-sync-'));
+  try {
+    const studio = join(base, 'zveltio', 'packages', 'studio');
+    const lib = join(studio, 'src', 'lib', 'ext');
+    mkdirSync(join(studio, 'scripts'), { recursive: true });
+    mkdirSync(join(lib, 'kept'), { recursive: true });
+    mkdirSync(join(base, 'zveltio-extensions', 'half', 'cloned'), { recursive: true });
+    copyFileSync(
+      join(REPO, 'packages', 'studio', 'scripts', 'sync-extensions.ts'),
+      join(studio, 'scripts', 'sync-extensions.ts'),
+    );
+    writeFileSync(
+      join(lib, '.synced.json'),
+      JSON.stringify({ routes: [], libs: ['kept'], contributions: [] }),
+    );
+    const proc = Bun.spawn(['bun', 'run', join(studio, 'scripts', 'sync-extensions.ts')], {
+      cwd: studio,
+      env: { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '' } as never,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const out = (await new Response(proc.stdout).text()) + (await new Response(proc.stderr).text());
+    expect(await proc.exited).toBe(1);
+    expect(out).toContain('holds no extension manifest');
+    expect(existsSync(join(lib, 'kept'))).toBe(true);
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+/** The same empty sibling made `merge-extension-messages.ts` rewrite every bundle without extension keys. */
+it('merge-extension-messages refuses an empty sibling and leaves the bundles', async () => {
+  const base = mkdtempSync(join(tmpdir(), 'e05-merge-'));
+  try {
+    const studio = join(base, 'zveltio', 'packages', 'studio');
+    mkdirSync(join(studio, 'messages'), { recursive: true });
+    mkdirSync(join(base, 'zveltio-extensions', 'half'), { recursive: true });
+    cpSync(join(REPO, 'packages', 'studio', 'scripts'), join(studio, 'scripts'), {
+      recursive: true,
+    });
+    writeFileSync(join(studio, 'messages', 'en.json'), '{"ext.key":"kept"}\n');
+    const proc = Bun.spawn(['bun', 'run', join(studio, 'scripts', 'merge-extension-messages.ts')], {
+      cwd: studio,
+      env: { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '' } as never,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const out = (await new Response(proc.stdout).text()) + (await new Response(proc.stderr).text());
+    expect(await proc.exited).toBe(1);
+    expect(out).toContain('holds no extension manifest');
+    expect(readFileSync(join(studio, 'messages', 'en.json'), 'utf8')).toContain('kept');
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
 });
