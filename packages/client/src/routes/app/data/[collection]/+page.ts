@@ -1,5 +1,6 @@
 import { error } from '@sveltejs/kit';
 import { m } from '#lib/i18n.svelte.js';
+import { problemText } from '#lib/engine-fetch.js';
 import { filterParam, filterValue, isSortable, readFilters } from '@zveltio/ui/fields';
 import type { PageLoad } from './$types';
 
@@ -48,11 +49,7 @@ export const load: PageLoad = async ({ fetch, params, parent, url }) => {
   const res = await fetch(`${engineUrl}/api/data/${encodeURIComponent(collection.name)}?${qs}`, {
     credentials: 'include',
   });
-  if (!res.ok)
-    error(
-      res.status,
-      ((await res.json().catch(() => null))?.error as string) ?? m['data.load_failed'](),
-    );
+  if (!res.ok) error(res.status, (await problemText(res)) ?? m['data.load_failed']());
   const body = (await res.json()) as {
     records: Array<Record<string, unknown> & { id: string }>;
     pagination: { total?: number; page: number; limit: number; pages?: number };
