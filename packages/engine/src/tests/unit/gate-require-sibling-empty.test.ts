@@ -125,7 +125,8 @@ describe('requireSibling demands a corpus, not a path', () => {
  * Two gates kept their own "skip" past the 2026-08-29 fix and exited 0 with no
  * sibling: `schema-snapshot` ("SKIP", and it runs in `prepush`) and
  * `check-studio-api-prefix` ("not present — skipped", then "OK"). Found in the
- * E02 review, 2026-11-19. Both now go through `requireSibling`.
+ * E02 review, 2026-11-19; in E03 the same day, `check-sdui-contract` ("checked 0
+ * resource(s)", OK) over an empty directory. All three go through `requireSibling`.
  */
 describe('gates that went around requireSibling', () => {
   const run = async (script: string, env: Record<string, string>) => {
@@ -140,7 +141,11 @@ describe('gates that went around requireSibling', () => {
   };
   const missing = { EXTENSIONS_ROOT: join(tmpdir(), `no-sibling-${process.pid}`) };
 
-  for (const script of ['schema-snapshot.ts', 'check-studio-api-prefix.ts']) {
+  for (const script of [
+    'schema-snapshot.ts',
+    'check-studio-api-prefix.ts',
+    'check-sdui-contract.ts',
+  ]) {
     it(`${script} fails without the sibling`, async () => {
       const { code, out } = await run(script, missing);
       expect(code).toBe(1);
