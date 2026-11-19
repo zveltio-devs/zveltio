@@ -24,7 +24,7 @@
  */
 
 import { describe, expect, it } from 'bun:test';
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -161,4 +161,40 @@ describe('gates that went around requireSibling', () => {
     expect(code).toBe(0);
     expect(out).toContain('WARNING');
   });
+});
+
+/**
+ * Studio's `sync-extensions.ts` (run by `prebuild`) over an empty sibling: it
+ * found no extension, then pruned every directory `.synced.json` named and
+ * printed "Done — 0 extension page(s) synced", exit 0. E05 review, 2026-11-19.
+ */
+it('sync-extensions refuses an empty sibling and removes nothing', async () => {
+  const base = mkdtempSync(join(tmpdir(), 'e05-sync-'));
+  try {
+    const studio = join(base, 'zveltio', 'packages', 'studio');
+    const lib = join(studio, 'src', 'lib', 'ext');
+    mkdirSync(join(studio, 'scripts'), { recursive: true });
+    mkdirSync(join(lib, 'kept'), { recursive: true });
+    mkdirSync(join(base, 'zveltio-extensions', 'half', 'cloned'), { recursive: true });
+    copyFileSync(
+      join(REPO, 'packages', 'studio', 'scripts', 'sync-extensions.ts'),
+      join(studio, 'scripts', 'sync-extensions.ts'),
+    );
+    writeFileSync(
+      join(lib, '.synced.json'),
+      JSON.stringify({ routes: [], libs: ['kept'], contributions: [] }),
+    );
+    const proc = Bun.spawn(['bun', 'run', join(studio, 'scripts', 'sync-extensions.ts')], {
+      cwd: studio,
+      env: { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '' } as never,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const out = (await new Response(proc.stdout).text()) + (await new Response(proc.stderr).text());
+    expect(await proc.exited).toBe(1);
+    expect(out).toContain('holds no extension manifest');
+    expect(existsSync(join(lib, 'kept'))).toBe(true);
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
 });

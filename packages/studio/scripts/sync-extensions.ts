@@ -178,6 +178,14 @@ const syncedContributions: string[] = [];
 
 for (const extRoot of EXT_ROOTS) {
   const extensions = findExtensions(extRoot);
+  // An empty or half-cloned checkout is not "no extensions": read as one, the
+  // prune below deleted every synced page and component and printed Done.
+  if (extensions.length === 0) {
+    console.error(
+      `[sync-ext] FAIL — ${extRoot} holds no extension manifest; nothing synced or removed.`,
+    );
+    process.exit(1);
+  }
 
   for (const extName of extensions) {
     const pagesDir = join(extRoot, extName, 'studio', 'pages');
