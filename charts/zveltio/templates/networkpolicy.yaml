@@ -47,16 +47,32 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    # In-namespace dependencies (Postgres, Valkey).
-    # Database, cache and HTTPS to any destination. `to: podSelector: {}`
-    # meant pods in this namespace only, which blocked the default setup — an
-    # external DATABASE_URL — and the extension registry, which the engine
-    # downloads extensions from on demand.
+    # Postgres and Valkey: the bundled pods when the chart runs them, else the
+    # peers the operator names (`networkPolicy.databaseTo` / `cacheTo`, e.g. the
+    # managed instance's CIDR). Unnamed, an external one is reached at any
+    # address: NetworkPolicy has no host names, and the default setup is an
+    # external DATABASE_URL.
+    {{- range $dep := list (dict "port" 5432 "bundled" .Values.postgresql.enabled "component" "postgres" "to" .Values.networkPolicy.databaseTo) (dict "port" 6379 "bundled" .Values.redis.enabled "component" "valkey" "to" .Values.networkPolicy.cacheTo) }}
     - ports:
         - protocol: TCP
-          port: 5432
-        - protocol: TCP
-          port: 6379
+          port: {{ $dep.port }}
+      {{- if $dep.bundled }}
+      to:
+        - podSelector:
+            matchLabels:
+              {{- include "zveltio.selectorLabels" $ | nindent 14 }}
+              app.kubernetes.io/component: {{ $dep.component }}
+      {{- else if $dep.to }}
+      to:
+        {{- toYaml $dep.to | nindent 8 }}
+      {{- end }}
+    {{- end }}
+    # HTTPS to any destination: the extension registry, webhooks, OAuth
+    # providers, object stores. The ext-runner sidecar shares this pod's
+    # network, so this is its policy too; what keeps an extension off the
+    # network is the runner's seccomp socket ban (ADR 0023), which refuses
+    # every socket family, not this policy.
+    - ports:
         - protocol: TCP
           port: 443
     {{- with .Values.networkPolicy.extraEgress }}

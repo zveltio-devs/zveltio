@@ -304,7 +304,16 @@ networkPolicy:
   #  - namespaceSelector:
   #      matchLabels:
   #        kubernetes.io/metadata.name: ingress-nginx
-  # Extra egress rules — e.g. an external Postgres, SMTP, or an object store.
+  # Where an external Postgres / Valkey lives (NetworkPolicy peers). Ignored
+  # when the chart runs them (`postgresql.enabled`, `redis.enabled`): then only
+  # those pods. Empty: TCP 5432 / 6379 to any address. Name the managed
+  # instance's CIDR in production, so a compromised engine pod cannot reach
+  # other databases in the cluster or the network.
+  databaseTo: []
+  #  - ipBlock:
+  #      cidr: 10.20.0.0/24
+  cacheTo: []
+  # Extra egress rules — e.g. SMTP, or an object store on a port other than 443.
   extraEgress: []
   #  - to:
   #      - ipBlock:

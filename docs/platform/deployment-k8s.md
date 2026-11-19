@@ -94,7 +94,24 @@ persistence:
 
 migrationJob:
   enabled: true  # blue/green deploys benefit from explicit pre-deploy migrate
+
+networkPolicy:
+  ingressFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+  # Where the managed Postgres and Valkey live. Unset, the engine pod may open
+  # TCP 5432 / 6379 to any address. NetworkPolicy takes no host names: give CIDRs.
+  databaseTo:
+    - ipBlock: { cidr: 10.20.0.0/24 }
+  cacheTo:
+    - ipBlock: { cidr: 10.20.1.0/24 }
 ```
+
+The engine pod keeps TCP 443 to any address (extension registry, webhooks,
+OAuth providers, object stores). The extension runner is a sidecar in the same
+pod and shares this policy; what keeps an extension off the network is the
+runner's seccomp socket ban, which refuses every socket family.
 
 Then:
 

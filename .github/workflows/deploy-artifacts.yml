@@ -54,7 +54,8 @@ jobs:
             --set autoscaling.enabled=true --set persistence.accessMode=ReadWriteMany \
             > full.yaml
           grep -q 'name: ext-runner$' default.yaml || { echo "::error::the default renders no extension runner"; exit 1; }
-          $H template t charts/zveltio $A --set extRunner.enabled=false > restricted.yaml
+          $H template t charts/zveltio $A --set extRunner.enabled=false \
+            --set "networkPolicy.databaseTo[0].ipBlock.cidr=10.0.0.0/8" > restricted.yaml
           ! grep -q 'name: ext-runner$' restricted.yaml || { echo "::error::extRunner.enabled=false still rendered a runner"; exit 1; }
           /tmp/kubeconform -strict -summary default.yaml full.yaml restricted.yaml
       - name: Refuse multi-replica on a ReadWriteOnce claim
