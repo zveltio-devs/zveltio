@@ -78,15 +78,19 @@ export default {
       }
       if (op === 'pair') {
         // Two overlapping transactions: A must not see B's uncommitted row.
+        // B peeks once A has committed, not after a fixed sleep: on a slow
+        // runner A's commit landed after B's 600 ms and B saw 0.
         const one = (who, wait, peek) => db.transaction().execute(async () => {
           const [w] = await db.query(WHO);
           const began = Date.now();
           await add(who);
-          await sleep(wait);
+          await wait();
           const [{ n }] = await db.query('SELECT count(*)::int AS n FROM ' + T('rows') + ' WHERE who = $1', peek);
           return { pid: w.pid, sawOther: n, began, ended: Date.now() };
         });
-        const [a, b] = await Promise.all([one('pair-a', 300, 'pair-b'), one('pair-b', 600, 'pair-a')]);
+        const pa = one('pair-a', () => sleep(300), 'pair-b');
+        const pb = one('pair-b', () => pa.catch(() => {}), 'pair-a');
+        const [a, b] = await Promise.all([pa, pb]);
         await log(op, { a, b });
       }
       if (op === 'orphan') {
