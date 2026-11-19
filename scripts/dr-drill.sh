@@ -115,12 +115,16 @@ if time_ms bash -c "set -o pipefail; pg_dump -U '$DRILL_DB_USER' -d '$DRILL_DB' 
 
     # Rows, table by table, for everything that holds data. A dump that
     # restored the schema and lost the contents is the failure this exists for.
+    # Exact counts: reltuples is an estimate beyond ANALYZE's sample (30,000 rows
+    # by default), so a restore missing rows could match and an exact one differ.
+    # pg_dump above ran as this user with row_security off, so RLS filters none
+    # of these counts (a user it would filter could not have dumped).
     ROW_SQL="SELECT string_agg(t || '=' || n, ',' ORDER BY t) FROM (
-               SELECT c.relname AS t, c.reltuples::bigint AS n
+               SELECT c.relname AS t,
+                      (xpath('/row/n/text()', query_to_xml(format('SELECT count(*) AS n FROM %I.%I',
+                        ns.nspname, c.relname), false, true, '')))[1]::text::bigint AS n
                  FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
                 WHERE ns.nspname = 'public' AND c.relkind = 'r') s"
-    psql -U "$DRILL_DB_USER" -d "$SCRATCH_DB" -qc "ANALYZE" >/dev/null 2>&1 || true
-    psql -U "$DRILL_DB_USER" -d "$DRILL_DB" -qc "ANALYZE" >/dev/null 2>&1 || true
     ORIG_ROWS=$(psql -U "$DRILL_DB_USER" -d "$DRILL_DB" -tAc "$ROW_SQL")
     REST_ROWS=$(psql -U "$DRILL_DB_USER" -d "$SCRATCH_DB" -tAc "$ROW_SQL")
     if [[ "$ORIG_ROWS" == "$REST_ROWS" ]]; then
