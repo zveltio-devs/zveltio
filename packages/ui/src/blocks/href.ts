@@ -6,7 +6,7 @@
 export function safeHref(url: unknown): string {
   const s = typeof url === 'string' ? url.trim() : '';
   if (!s) return '#';
-  if (/^(\/(?!\/)|#|\?|\.{1,2}\/)/.test(s)) return s;
+  if (/^(\/(?![/\\])|#|\?|\.{1,2}\/)/.test(s)) return s;
   return /^(https?:|mailto:|tel:)/i.test(s) ? s : '#';
 }
 

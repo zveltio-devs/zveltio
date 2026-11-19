@@ -25,6 +25,8 @@ describe('kit blocks', () => {
       ' JaVaScRiPt:x',
       'data:text/html,x',
       '//evil.test',
+      // A browser reads `/\host` as `//host`.
+      '/\\evil.test',
       '',
       null,
     ])

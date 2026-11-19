@@ -29,7 +29,7 @@
    * top of the server-side scrub in engine/sanitize.ts. Two layers, because
    * this is the payload a visitor's browser executes.
    */
-  import { safeHtml } from './sanitize.js';
+  import { safeFrameSrc, safeHref, safeHtml } from './sanitize.js';
   import CollectionList from './CollectionList.svelte';
   import { bindBlock } from './bind.js';
   import { spanClasses, styleVars } from './responsive.js';
@@ -172,7 +172,7 @@
           <h1 class="text-4xl sm:text-5xl font-bold tracking-tight">{c.title ?? ''}</h1>
           {#if c.subtitle}<p class="mt-4 text-lg opacity-80">{c.subtitle}</p>{/if}
           {#if c.cta_text}
-            <a href={c.cta_url ?? '#'} class="btn btn-primary mt-6">{c.cta_text}</a>
+            <a href={safeHref(c.cta_url)} class="btn btn-primary mt-6">{c.cta_text}</a>
           {/if}
         </div>
 
@@ -192,7 +192,7 @@
         {#if src}
           <figure>
             {#if c.link}
-              <a href={c.link}><img {src} alt={c.alt ?? ''} class="rounded-lg max-w-full h-auto"
+              <a href={safeHref(c.link)}><img {src} alt={c.alt ?? ''} class="rounded-lg max-w-full h-auto"
                 style={c.width ? `width:${c.width}` : undefined} /></a>
             {:else}
               <img {src} alt={c.alt ?? ''} class="rounded-lg max-w-full h-auto"
@@ -203,7 +203,7 @@
         {/if}
 
       {:else if block.type === 'button'}
-        <a href={c.href ?? c.url ?? '#'} class={BTN[c.variant as string] ?? 'btn btn-primary'}>
+        <a href={safeHref(c.href ?? c.url)} class={BTN[c.variant as string] ?? 'btn btn-primary'}>
           {c.label ?? c.text ?? 'Button'}
         </a>
 
@@ -212,7 +212,7 @@
           {#if c.heading}<h2 class="text-2xl font-bold">{c.heading}</h2>{/if}
           {#if c.text}<p class="mt-2 opacity-70">{c.text}</p>{/if}
           {#if c.button_text}
-            <a href={c.button_url ?? '#'} class="{BTN[c.variant as string] ?? 'btn btn-primary'} mt-5">
+            <a href={safeHref(c.button_url)} class="{BTN[c.variant as string] ?? 'btn btn-primary'} mt-5">
               {c.button_text}
             </a>
           {/if}
@@ -236,10 +236,10 @@
         </div>
 
       {:else if block.type === 'video'}
-        {#if c.url}
+        {#if safeFrameSrc(c.url)}
           <figure>
             <div class="aspect-video">
-              <iframe src={c.url} title={c.caption ?? 'video'} class="w-full h-full rounded-lg"
+              <iframe src={safeFrameSrc(c.url)} title={c.caption ?? 'video'} class="w-full h-full rounded-lg"
                 allowfullscreen frameborder="0"></iframe>
             </div>
             {#if c.caption}<figcaption class="text-sm opacity-60 mt-1">{c.caption}</figcaption>{/if}
