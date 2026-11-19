@@ -29,6 +29,8 @@ describe('promptHidden on a pipe', () => {
   it('takes one line per prompt from a single chunk', async () => {
     expect(await piped('pw1\npw2\n')).toEqual(['pw1', 'pw2']);
     expect(await piped('x\r\ny\r\n')).toEqual(['x', 'y']);
+    // The last line need not end in a newline.
+    expect(await piped('pw1\npw2')).toEqual(['pw1', 'pw2']);
   });
 
   it('refuses when the input ends before the second line', async () => {
