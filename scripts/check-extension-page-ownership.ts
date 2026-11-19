@@ -60,7 +60,7 @@ function adminPages(dir: string, acc: string[] = []): string[] {
 /** Every manifest, at whatever depth — `compliance/ro/*` sits one level deeper. */
 function manifests(dir: string, acc: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
-    if (entry === 'node_modules' || entry === '.git') continue;
+    if (entry === 'node_modules' || entry.startsWith('.')) continue;
     const p = join(dir, entry);
     if (statSync(p).isDirectory()) manifests(p, acc);
     else if (entry === 'manifest.json') acc.push(p);

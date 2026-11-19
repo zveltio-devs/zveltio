@@ -42,7 +42,7 @@ function walkRouteFiles(dir: string): string[] {
     return out;
   }
   for (const e of entries) {
-    if (e === 'node_modules' || e === '.git' || e === 'dist' || e === 'build') continue;
+    if (e === 'node_modules' || e.startsWith('.') || e === 'dist' || e === 'build') continue;
     const full = join(dir, e);
     let s;
     try {

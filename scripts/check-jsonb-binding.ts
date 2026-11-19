@@ -147,7 +147,7 @@ function walk(dir: string, keep: (p: string) => boolean, out: string[]): void {
     return;
   }
   for (const e of entries) {
-    if (e === 'node_modules' || e === 'dist' || e === '.git' || e === '.svelte-kit') continue;
+    if (e === 'node_modules' || e === 'dist' || e.startsWith('.')) continue;
     const p = join(dir, e);
     let st: ReturnType<typeof statSync>;
     try {
