@@ -66,27 +66,22 @@ function walkRouteFiles(dir: string): string[] {
 
 function parseRoutes(file: string): Route[] {
   const src = readFileSync(file, 'utf8');
-  const lines = src.split('\n');
   const routes: Route[] = [];
-  // Each `new Hono()` opens a fresh routing scope.
-  const newRouterRe = /new\s+Hono\s*\(/;
-  const routeRe = /\.(get|post|put|patch|delete|all)\(\s*['"]([^'"]+)['"]/;
-  let scope = 0;
-  lines.forEach((ln, i) => {
-    if (newRouterRe.test(ln)) scope++;
-    const m = ln.match(routeRe);
-    if (m) {
-      const path = m[2];
-      if (!path.startsWith('/')) return; // skip c.get('user') etc.
-      routes.push({
-        method: m[1].toUpperCase(),
-        path,
-        line: i + 1,
-        segs: path.split('/').filter(Boolean),
-        scope,
-      });
-    }
-  });
+  // Each `new Hono()` opens a fresh routing scope. The whole source is matched,
+  // not line by line: `app.post(\n  '/x',` is as registered as a one-liner.
+  const routerStarts = [...src.matchAll(/new\s+Hono\s*\(/g)].map((m) => m.index);
+  const routeRe = /\.(get|post|put|patch|delete|all)\(\s*['"]([^'"]+)['"]/g;
+  for (const m of src.matchAll(routeRe)) {
+    const path = m[2];
+    if (!path.startsWith('/')) continue; // skip c.get('user') etc.
+    routes.push({
+      method: m[1].toUpperCase(),
+      path,
+      line: src.slice(0, m.index).split('\n').length,
+      segs: path.split('/').filter(Boolean),
+      scope: routerStarts.filter((i) => i < m.index).length,
+    });
+  }
   return routes;
 }
 
@@ -94,13 +89,17 @@ function parseRoutes(file: string): Route[] {
 // later, same method, same scope, same segment count) when every P
 // segment is identical to S or is a `:param`, and S is fully static.
 function shadows(p: Route, s: Route): boolean {
-  if (p.method !== s.method) return false;
+  // `.all()` answers every method, so it shadows a later route of any method.
+  if (p.method !== s.method && p.method !== 'ALL') return false;
   if (p.scope !== s.scope) return false;
   if (p.segs.length !== s.segs.length) return false;
   if (s.segs.some((x) => x.startsWith(':'))) return false; // S must be static
   let hasParam = false;
   for (let i = 0; i < p.segs.length; i++) {
     if (p.segs[i].startsWith(':')) {
+      // `:id{[0-9a-f-]{36}}` only captures what its pattern matches.
+      const re = /\{(.+)\}$/.exec(p.segs[i]);
+      if (re && !new RegExp(`^(?:${re[1]})$`).test(s.segs[i])) return false;
       hasParam = true;
       continue;
     }

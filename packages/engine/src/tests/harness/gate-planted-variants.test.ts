@@ -985,3 +985,46 @@ describe('check-record-attached-reads sees every way a route names the table', (
     expect((await verdict('  // reads zv_notes elsewhere\n  return c.json(1);')).code).toBe(0);
   });
 });
+
+// ─── route-collision-check (E02) ─────────────────────────────────────────────
+
+describe('route-collision-check sees the registrations the formatter wraps', () => {
+  const GATE = 'route-collision-check.ts';
+
+  // The gate refuses to run without a sibling holding a manifest.
+  async function verdict(routes: string): Promise<{ code: number; out: string }> {
+    const r = fakeRoot(GATE);
+    write(r, '../zveltio-extensions/x/manifest.json', '{}');
+    write(r, 'packages/engine/src/routes/probe.ts', `const app = new Hono();\n${routes}`);
+    try {
+      return await run(r, GATE);
+    } finally {
+      rmSync(join(r, '..'), { recursive: true, force: true });
+    }
+  }
+
+  it('catches a param route written over several lines', async () => {
+    const { code, out } = await verdict(
+      "app.get(\n  '/:id',\n  (c) => c.text('x'),\n);\napp.get('/dlq', (c) => c.text('y'));\n",
+    );
+    expect(out).toContain('GET /dlq (line 6) is unreachable');
+    expect(code).toBe(1);
+  });
+
+  it('catches an .all() param route shadowing another method', async () => {
+    const { code } = await verdict("app.all('/:id', h);\napp.post('/stats', h);\n");
+    expect(code).toBe(1);
+  });
+
+  it('does not flag a static segment the param pattern cannot capture', async () => {
+    const { code } = await verdict(
+      "app.delete('/r/:id{[0-9a-f-]{36}}', h);\napp.delete('/r/hierarchy', h);\n",
+    );
+    expect(code).toBe(0);
+  });
+
+  it('still flags one the pattern does capture', async () => {
+    const { code } = await verdict("app.get('/x/:n{[0-9]+}', h);\napp.get('/x/42', h);\n");
+    expect(code).toBe(1);
+  });
+});
