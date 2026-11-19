@@ -10,3 +10,10 @@ export function engineFetch(f: typeof fetch): typeof fetch {
       init,
     )) as typeof fetch;
 }
+
+/** The message of an engine error response: its problem `detail`, or a legacy `error`. */
+export async function problemText(res: Response): Promise<string | undefined> {
+  const body = (await res.json().catch(() => null)) as { detail?: unknown; error?: unknown } | null;
+  const text = body?.detail ?? body?.error;
+  return typeof text === 'string' && text ? text : undefined;
+}
