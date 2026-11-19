@@ -107,10 +107,12 @@ export type Button = {
 
 export type Buttons = Button[];
 
-/** Stored files the caller hands the action's job (`$files`, ADR 0032). */
+/** Stored files the caller hands the action, or its job (`$files`, ADR 0032 and 0052). */
 export type FileHandoff = {
   /** File ids the job may read, or a `file` field's value (its files' ids). */
   read?: Value;
+  /** Asks the caller for one file, labelled so: the front end uploads it and hands its id with `read`. */
+  prompt?: Text;
   /** The one file the job may store. */
   write?: {
     name: Value;

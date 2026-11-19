@@ -186,6 +186,49 @@ describe('view/2 renderer', () => {
     );
   }, 60_000);
 
+  it('`files.prompt` asks for one file, uploads it and hands its id with `read`', async () => {
+    post.mockImplementation(async (url: string) =>
+      url === '/api/storage/upload'
+        ? { file: { id: 'f9', original_name: 'rows.csv', size: '3', mimetype: 'text/csv' } }
+        : { result: null },
+    );
+    const { default: ViewPage } = await import('./ViewPage.svelte');
+    const { container, getByText } = render(ViewPage, {
+      props: {
+        ext: 'notes',
+        view: {
+          type: 'list',
+          collection: 'notes',
+          fields: ['title'],
+          actions: [
+            {
+              action: 'archive',
+              label: 'Import',
+              files: { read: 'f1', prompt: 'CSV file' },
+            },
+          ],
+        },
+      },
+    });
+    await waitFor(() => expect(getByText('Import')).toBeTruthy());
+    await fireEvent.click(getByText('Import'));
+    await waitFor(() => expect(getByText('CSV file')).toBeTruthy());
+    // No file picked: the dialog stays, nothing is sent.
+    await fireEvent.click(getByText('Confirm'));
+    expect(post.mock.calls.some(([u]) => u === '/ext/notes/actions/archive')).toBe(false);
+    const input = container.ownerDocument.querySelector('input[type="file"]') as HTMLInputElement;
+    const csv = new File(['a,b'], 'rows.csv', { type: 'text/csv' });
+    Object.defineProperty(input, 'files', { value: [csv], configurable: true });
+    await fireEvent.change(input);
+    await waitFor(() => expect(getByText('rows.csv')).toBeTruthy());
+    await fireEvent.click(getByText('Confirm'));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith('/ext/notes/actions/archive', {
+        $files: { read: ['f1', 'f9'] },
+      }),
+    );
+  }, 60_000);
+
   it('falls back to the generated list for a kind it does not draw', async () => {
     const { default: ViewPage } = await import('./ViewPage.svelte');
     const { container } = render(ViewPage, {

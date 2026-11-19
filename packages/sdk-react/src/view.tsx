@@ -17,7 +17,7 @@
  * other than `count` reads `GET /api/data/:collection/aggregate` (ADR 0050).
  */
 import { type ReactNode, useEffect, useState } from 'react';
-import type { ZveltioClient } from '@zveltio/sdk';
+import { uploadFile, type ZveltioClient } from '@zveltio/sdk';
 import {
   actionPath,
   type Button,
@@ -553,12 +553,27 @@ export function ExtensionView({
         if (v === null) return;
         input[name] = v;
       }
-      client
-        .post<{ result?: unknown }>(
-          actionPath(extension, b.action),
-          files ? { ...input, $files: files } : input,
-        )
-        .then((r) => act(r?.result ?? null), fail);
+      const send = (f: typeof files) =>
+        client
+          .post<{ result?: unknown }>(
+            actionPath(extension, b.action),
+            f ? { ...input, $files: f } : input,
+          )
+          .then((r) => act(r?.result ?? null), fail);
+      if (!b.files?.prompt) return void send(files);
+      // `files.prompt`: the caller picks one file; it is uploaded and its id handed with `read`.
+      const pick = document.createElement('input');
+      pick.type = 'file';
+      pick.title = host.t(b.files.prompt);
+      pick.onchange = () => {
+        const f = pick.files?.[0];
+        if (!f) return;
+        uploadFile(client, f).then(
+          (up) => send({ ...files, read: [...(files?.read ?? []), up.id] }),
+          fail,
+        );
+      };
+      pick.click();
     },
     save: (n, values, button) => {
       setNote(null);

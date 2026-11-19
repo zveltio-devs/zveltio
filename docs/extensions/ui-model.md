@@ -140,8 +140,10 @@ What the specification holds:
   - `files`: the stored files the request hands the action, or its job
     (`$files`, ADR 0032 and 0052). `read` is a value of file ids or a `file` field's value (its
     files' ids are handed; an empty one hands nothing), `write` names the one
-    file the action or its job may store (`name`, `maxBytes`). The engine checks each file as
-    the caller.
+    file the action or its job may store (`name`, `maxBytes`), and `prompt` asks
+    the caller for one file, labelled so: the front end uploads it as the caller
+    and hands its id with `read` (an import's CSV). The button does not run
+    without it. The engine checks each file as the caller.
 - **A detail's `onOpen`** runs an action once for each record the detail
   shows that meets its `when` (marking a message read). Its result is not
   shown; a failure is reported.
@@ -225,7 +227,7 @@ result names.
 It draws `list`, `detail`, `form`, `stat`, `split` and `tabs`; any other kind
 through `fallbackFor`. It shows what Studio shows as not drawn yet (a collection
 form's `lines`) and does not yet hold a button's
-`busyWhen`; a button's `prompt` and `confirm`
+`busyWhen`; a button's `prompt`, `confirm` and `files.prompt`
 use the browser's own dialogs. It carries no class names but `zv-*` hooks and a
 `data-kind` on each view, so styling is the front end's. CI draws every
 `view/2` page of the extensions catalogue with it on the server
