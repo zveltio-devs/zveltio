@@ -176,12 +176,18 @@ runs this step for you). It needs `DATABASE_URL` and `BETTER_AUTH_SECRET` (both 
 the install's `.env`):
 
 ```bash
+read -rs PW   # type the password; it stays out of argv and shell history
+
 # Installed binary (sudo: it reads the install's .env)
-sudo zveltio create-god --email admin@your-org.com --password '<password>'
+printf '%s' "$PW" | sudo zveltio create-god --email admin@your-org.com
 
 # Or Docker
-docker compose run --rm engine create-god --email admin@your-org.com --password '<password>'
+printf '%s' "$PW" | docker compose run -T --rm engine create-god --email admin@your-org.com
 ```
+
+Without `--password`, the command reads the password from stdin (one trailing
+newline is dropped). `--password '<password>'` still works, but any local user
+sees an argument while the command runs (`ps`), and it lands in shell history.
 
 The password is checked against the sign-up policy (8 to 128 characters) and
 refused otherwise. The command is refused once the instance has its god: handing
@@ -191,8 +197,7 @@ account and never creates one. The creation writes a `user.created` audit row
 (`metadata.reason = "first_admin"`). `--name` sets the display name (default: the
 part of the email before `@`).
 
-The password is passed as an argument, so it lands in shell history; clear it
-afterwards. The developer CLI's `zveltio create-god` (package `@zveltio/cli`) is a
+The developer CLI's `zveltio create-god` (package `@zveltio/cli`) is a
 different command: it works over HTTP and is meant for recovery, see
 [cli.md](../engine/cli.md#zveltio-create-god).
 

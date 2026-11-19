@@ -21,9 +21,13 @@ const PREFIX = `first-admin-${Date.now()}`;
 const PASSWORD = 'FirstAdmin123!';
 const ENGINE = join(import.meta.dir, '../../index.ts');
 
-async function createGod(email: string, password = PASSWORD) {
-  const proc = Bun.spawn(['bun', ENGINE, 'create-god', '--email', email, '--password', password], {
+// `stdin: true` passes the password as the installer does: through stdin, with
+// the trailing newline `echo` adds, never in argv.
+async function createGod(email: string, password = PASSWORD, { stdin = false } = {}) {
+  const args = ['bun', ENGINE, 'create-god', '--email', email];
+  const proc = Bun.spawn(stdin ? args : [...args, '--password', password], {
     env: { ...process.env, NATIVE_DATABASE_URL: '' },
+    stdin: stdin ? new Blob([`${password}\n`]) : 'ignore',
     stdout: 'pipe',
     stderr: 'pipe',
   });
@@ -59,7 +63,7 @@ d('first admin through better-auth', () => {
   it('create-god makes a god that signs in through better-auth, and records it', async () => {
     await noGod();
     const email = `${PREFIX}-cli@test.local`;
-    const { code, stderr } = await createGod(email);
+    const { code, stderr } = await createGod(email, PASSWORD, { stdin: true });
     expect(stderr).not.toContain('create-god refused');
     // A CLI has no live Casbin model to load the `member` row into: nothing to
     // warn about (the row is the trigger's, migration 059).
