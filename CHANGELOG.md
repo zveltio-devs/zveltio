@@ -4,6 +4,10 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.129] - 2026-11-19
+
+**A view/2 action button may ask the caller for one file (ADR 0052 slice 2).** A button's `files` gains `prompt: { input, label? }`: Studio adds a file input to the action's prompt dialog, uploads the picked file as the caller, and hands its id both with `$files.read` and as the input `input`, so the action reads it through `host.files.read(id)`. The button does not run without the file, and `validateView` refuses an `input` the button already binds. The React reference renderer opens the browser's file picker. This is what lets `data/import` 3.0.0 take a CSV from a Studio user (`docs/extensions/ui-model.md`).
+
 **`ZVELTIO_REGISTRY_URL` names the extension registry for the engine too.** The CLI already read `ZVELTIO_REGISTRY_URL`, the engine read `REGISTRY_URL`. The engine now reads `ZVELTIO_REGISTRY_URL` first; `REGISTRY_URL` still works, logs a deprecation warning at start, and goes at 3.0.0 (`docs/platform/configuration.md`).
 
 ## [3.0.0-beta.128] - 2026-11-18
