@@ -444,7 +444,7 @@ const defs: Record<string, Schema> = {
   View: { anyOf: VIEW_KINDS.map(ref) },
   ActionResult: {
     description:
-      'What an action returns, as a front end reads it (ADR 0042 decision 4). An object with `view`, `file` or `reveal` is one of the closed forms; anything else is values.',
+      'What an action returns, as a front end reads it (ADR 0042 decision 4). An object with `view`, `file`, `reveal` or `redirect` is one of the closed forms; anything else is values.',
     anyOf: [
       closed(
         'Opens a view (a navigation).',
@@ -467,18 +467,28 @@ const defs: Record<string, Schema> = {
         { reveal: { type: 'string', minLength: 1 } },
         ['reveal'],
       ),
+      closed(
+        'Sends the browser, top-level, to an https URL on a host the operator named for the extension (ADR 0061); the engine refuses any other.',
+        { redirect: { type: 'string', pattern: '^https://' } },
+        ['redirect'],
+      ),
       ref('ActionValues'),
     ],
   },
   ActionValues: {
     description:
-      'Values: a scalar, a list, or an object without `view`, `file` or `reveal` (a form `recalc` merges an object of them).',
+      'Values: a scalar, a list, or an object without `view`, `file`, `reveal` or `redirect` (a form `recalc` merges an object of them).',
     anyOf: [
       { type: ['string', 'number', 'boolean', 'null'] },
       { type: 'array', items: {} },
       {
         type: 'object',
-        properties: { view: { not: {} }, file: { not: {} }, reveal: { not: {} } },
+        properties: {
+          view: { not: {} },
+          file: { not: {} },
+          reveal: { not: {} },
+          redirect: { not: {} },
+        },
       },
     ],
   },

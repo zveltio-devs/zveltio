@@ -219,7 +219,7 @@ describe('actions', () => {
     }
   });
 
-  it('reads a result as navigation, view, file, reveal or values', () => {
+  it('reads a result as navigation, view, file, reveal, redirect or values', () => {
     expect(readActionResult({ view: 'mail.compose', params: { draft_id: 'd' } })).toEqual({
       kind: 'navigate',
       view: 'mail.compose',
@@ -228,6 +228,12 @@ describe('actions', () => {
     expect(readActionResult({ view: { type: 'list', collection: 'x' } }).kind).toBe('view');
     expect(readActionResult({ file: 'f1' })).toEqual({ kind: 'file', file: 'f1' });
     expect(readActionResult({ reveal: 'k' })).toEqual({ kind: 'reveal', value: 'k' });
+    expect(readActionResult({ redirect: 'https://a.example/x' })).toEqual({
+      kind: 'redirect',
+      url: 'https://a.example/x',
+    });
+    // Only https: anything else is invalid, never a navigation.
+    expect(readActionResult({ redirect: 'javascript:alert(1)' }).kind).toBe('invalid');
     expect(readActionResult({ total: 3 })).toEqual({ kind: 'values', values: { total: 3 } });
     expect(readActionResult(null)).toEqual({ kind: 'values', values: null });
     // A tagged object that is none of the closed forms is not values: no guessing.

@@ -2036,7 +2036,7 @@
       ]
     },
     "ActionResult": {
-      "description": "What an action returns, as a front end reads it (ADR 0042 decision 4). An object with `view`, `file` or `reveal` is one of the closed forms; anything else is values.",
+      "description": "What an action returns, as a front end reads it (ADR 0042 decision 4). An object with `view`, `file`, `reveal` or `redirect` is one of the closed forms; anything else is values.",
       "anyOf": [
         {
           "type": "object",
@@ -2100,12 +2100,26 @@
           "additionalProperties": false
         },
         {
+          "type": "object",
+          "description": "Sends the browser, top-level, to an https URL on a host the operator named for the extension (ADR 0061); the engine refuses any other.",
+          "properties": {
+            "redirect": {
+              "type": "string",
+              "pattern": "^https://"
+            }
+          },
+          "required": [
+            "redirect"
+          ],
+          "additionalProperties": false
+        },
+        {
           "$ref": "#/$defs/ActionValues"
         }
       ]
     },
     "ActionValues": {
-      "description": "Values: a scalar, a list, or an object without `view`, `file` or `reveal` (a form `recalc` merges an object of them).",
+      "description": "Values: a scalar, a list, or an object without `view`, `file`, `reveal` or `redirect` (a form `recalc` merges an object of them).",
       "anyOf": [
         {
           "type": [
@@ -2129,6 +2143,9 @@
               "not": {}
             },
             "reveal": {
+              "not": {}
+            },
+            "redirect": {
               "not": {}
             }
           }

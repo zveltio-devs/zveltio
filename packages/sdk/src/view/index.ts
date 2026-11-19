@@ -110,6 +110,7 @@ export type ActionOutcome =
   | { kind: 'view'; view: View }
   | { kind: 'file'; file: string }
   | { kind: 'reveal'; value: string }
+  | { kind: 'redirect'; url: string }
   | { kind: 'values'; values: unknown }
   | { kind: 'invalid'; issues: ViewIssue[] };
 
@@ -131,6 +132,9 @@ export function readActionResult(result: unknown): ActionOutcome {
   if (isObj(r) && 'file' in r && typeof r.file === 'string') return { kind: 'file', file: r.file };
   if (isObj(r) && 'reveal' in r && typeof r.reveal === 'string') {
     return { kind: 'reveal', value: r.reveal };
+  }
+  if (isObj(r) && 'redirect' in r && typeof r.redirect === 'string') {
+    return { kind: 'redirect', url: r.redirect };
   }
   return { kind: 'values', values: result };
 }

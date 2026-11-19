@@ -25,6 +25,8 @@ import type {
 import { getDb } from '../../db/index.js';
 import { auditLog } from '../audit.js';
 import { problem } from '../problem.js';
+import { egressAllows, parseEgress } from '../edge-functions/egress.js';
+import { EGRESS_PREFIX, parseSlotBinding, readGranted } from './consent.js';
 import {
   asAdmittedKey,
   gateAdmitsAction,
@@ -222,8 +224,46 @@ export function mountActions(
     } catch (err) {
       throw refusalProblem(err) ?? err;
     }
+    await refuseForeignRedirect(extName, result);
     return c.json({ result: result ?? null });
   });
+}
+
+/**
+ * ADR 0061 decision 1: a `{ "redirect": <URL> }` result sends the caller's
+ * browser to an https host the operator named for this extension (its consented
+ * `egress:<authority>` or a slot binding), nowhere else. Otherwise the request
+ * fails and rolls back: an extension cannot use the engine's origin as an open
+ * redirect.
+ */
+async function refuseForeignRedirect(extName: string, result: unknown): Promise<void> {
+  if (typeof result !== 'object' || result === null || !Object.hasOwn(result, 'redirect')) return;
+  const target = (result as { redirect: unknown }).redirect;
+  if (!redirectAllowed((await readGranted(getDb(), extName)) ?? [], target)) {
+    throw problem(
+      'redirect_not_allowed',
+      502,
+      `action of "${extName}" redirects to a URL that is not https on a host the operator named for it`,
+    );
+  }
+}
+
+/** Whether `target` is an https URL, no credentials, on an authority `granted` names as egress. */
+export function redirectAllowed(granted: readonly string[], target: unknown): boolean {
+  if (typeof target !== 'string' || !URL.canParse(target)) return false;
+  const url = new URL(target);
+  if (url.protocol !== 'https:' || url.username || url.password) return false;
+  const hosts = granted.flatMap((cap) => {
+    const bound = parseSlotBinding(cap);
+    if (bound) return bound.authorities;
+    if (!cap.startsWith(EGRESS_PREFIX)) return [];
+    try {
+      return parseEgress([cap.slice(EGRESS_PREFIX.length)]) ?? [];
+    } catch {
+      return [];
+    }
+  });
+  return egressAllows(hosts, url);
 }
 
 /**
