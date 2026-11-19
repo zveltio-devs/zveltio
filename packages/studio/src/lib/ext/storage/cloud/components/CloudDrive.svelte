@@ -2,8 +2,9 @@
 /**
  * The drive: the engine's stored files, through its own `/api/storage` as the
  * signed-in user — browse by folder, upload, download, delete, share with the
- * firm, quota. What it adds is this extension's: a new version through its
- * route, favorites in `cloud_favorites`. Every refusal is the engine's.
+ * firm, quota. What it adds is this extension's: a new version (the upload,
+ * then the `addFileVersion` action handed it), favorites in `cloud_favorites`.
+ * Every refusal is the engine's.
  */
 import { onMount } from 'svelte';
 import { Download, Folder, FolderPlus, History, Star, Trash2, Upload, Users } from '@lucide/svelte';
@@ -54,7 +55,7 @@ async function load() {
   quota = await api.get<{ used_bytes: number; quota_bytes: number | null }>('/api/storage/quota').catch(() => null);
 }
 
-async function send(path: string, file: File, extra: Record<string, string> = {}) {
+async function send(path: string, file: File, extra: Record<string, string> = {}): Promise<{ file?: { id: string } }> {
   const form = new FormData();
   form.append('file', file);
   for (const [k, v] of Object.entries(extra)) form.append(k, v);
@@ -63,6 +64,7 @@ async function send(path: string, file: File, extra: Record<string, string> = {}
     const body = await res.json().catch(() => ({}));
     throw new Error(body.detail ?? body.error ?? `${res.status}`);
   }
+  return res.json();
 }
 
 async function run(fn: () => Promise<unknown>) {
@@ -84,7 +86,17 @@ function upload(list: File[]) {
 }
 function newVersion(file: File | undefined) {
   const id = versionOf;
-  if (id && file) run(() => send(`/ext/storage/cloud/files/${id}/versions`, file, folderField()));
+  if (id && file) {
+    run(async () => {
+      const { file: stored } = await send('/api/storage/upload', file, folderField());
+      if (!stored) throw new Error(t('storage.cloud.error', 'Failed'));
+      await api.post('/ext/storage/cloud/actions/addFileVersion', {
+        file_id: id,
+        file: stored.id,
+        $files: { read: [stored.id] },
+      });
+    });
+  }
 }
 function newFolder() {
   const name = prompt(t('storage.cloud.folderName', 'Folder name'))?.trim();
