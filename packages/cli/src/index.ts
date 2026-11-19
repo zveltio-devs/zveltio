@@ -374,7 +374,9 @@ keys
 
 keys
   .command('export <keyId>')
-  .description('Print the public key as a trusted-key JSON entry for REGISTRY_PUBLIC_KEYS_JSON')
+  .description(
+    'Print the public key as a trusted-key JSON entry (for OPERATOR_PUBLIC_KEYS_JSON or REGISTRY_PUBLIC_KEYS_JSON)',
+  )
   .action((keyId: string) => keysExportCommand(keyId));
 
 // ── zveltio admin marketplace ────────────────────────────────────────────────
