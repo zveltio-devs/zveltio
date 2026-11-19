@@ -76,3 +76,24 @@ export function safeHtml(html: unknown): string {
     ALLOWED_URI_REGEXP: /^(?:https?:|mailto:|tel:|#|\/)/i,
   });
 }
+
+/**
+ * A link target an author typed, safe for `href`: same-site paths, fragments,
+ * queries and http(s)/mailto/tel URLs pass; anything else (`javascript:`,
+ * `data:`, `vbscript:`) becomes `#`. Svelte does not filter `href`, and the
+ * engine scrubs only the HTML fields, so a `cta_url` of `javascript:…` ran in
+ * every visitor's browser on click. `/\host` is refused like `//host`: a
+ * browser reads both as another site.
+ */
+export function safeHref(url: unknown): string {
+  const s = typeof url === 'string' ? url.trim() : '';
+  if (!s) return '#';
+  if (/^(\/(?![/\\])|#|\?|\.{1,2}\/)/.test(s)) return s;
+  return /^(https?:|mailto:|tel:)/i.test(s) ? s : '#';
+}
+
+/** An embed URL safe for `<iframe src>`: http(s) only, else nothing is framed. */
+export function safeFrameSrc(url: unknown): string | null {
+  const s = typeof url === 'string' ? url.trim() : '';
+  return /^https?:\/\//i.test(s) ? s : null;
+}
