@@ -62,8 +62,6 @@ const NO_TXN_MODULES = new Set([
   'openapi.ts',
   'collections.ts',
   'relations.ts',
-  'schema.ts',
-  'templates.ts',
   'tenants.ts',
 ]);
 
