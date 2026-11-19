@@ -68,7 +68,7 @@
       const res = await fetchRows(url);
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        error = json.error ?? `HTTP ${res.status}`;
+        error = json.detail ?? json.error ?? `HTTP ${res.status}`;
         return;
       }
       rows = json.records ?? [];
