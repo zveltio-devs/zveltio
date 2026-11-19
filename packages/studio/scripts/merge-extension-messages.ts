@@ -101,6 +101,25 @@ if (!hasDevSibling && !hasInstalledDir) {
   process.exit(0);
 }
 
+// An empty or half-cloned sibling is not "every extension left": regenerated
+// from it, the bundles lost every extension key.
+const holdsManifest = (dir: string, depth: number): boolean =>
+  readdirSync(dir, { withFileTypes: true }).some(
+    (e) =>
+      (e.isFile() && e.name === 'manifest.json') ||
+      (depth > 0 &&
+        e.isDirectory() &&
+        !e.name.startsWith('.') &&
+        e.name !== 'node_modules' &&
+        holdsManifest(join(dir, e.name), depth - 1)),
+  );
+if (hasDevSibling && !holdsManifest(DEV_SIBLING, 2)) {
+  console.error(
+    `[i18n:merge] FAIL — ${DEV_SIBLING} holds no extension manifest; bundles left untouched.`,
+  );
+  process.exit(1);
+}
+
 console.log(
   `[i18n:merge] source: ${hasDevSibling ? 'dev sibling (authoritative regen)' : `installed dir overlay (${INSTALLED_DIR})`}`,
 );

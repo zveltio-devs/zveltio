@@ -24,7 +24,16 @@
  */
 
 import { describe, expect, it } from 'bun:test';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -194,6 +203,32 @@ it('sync-extensions refuses an empty sibling and removes nothing', async () => {
     expect(await proc.exited).toBe(1);
     expect(out).toContain('holds no extension manifest');
     expect(existsSync(join(lib, 'kept'))).toBe(true);
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+/** The same empty sibling made `merge-extension-messages.ts` rewrite every bundle without extension keys. */
+it('merge-extension-messages refuses an empty sibling and leaves the bundles', async () => {
+  const base = mkdtempSync(join(tmpdir(), 'e05-merge-'));
+  try {
+    const studio = join(base, 'zveltio', 'packages', 'studio');
+    mkdirSync(join(studio, 'messages'), { recursive: true });
+    mkdirSync(join(base, 'zveltio-extensions', 'half'), { recursive: true });
+    cpSync(join(REPO, 'packages', 'studio', 'scripts'), join(studio, 'scripts'), {
+      recursive: true,
+    });
+    writeFileSync(join(studio, 'messages', 'en.json'), '{"ext.key":"kept"}\n');
+    const proc = Bun.spawn(['bun', 'run', join(studio, 'scripts', 'merge-extension-messages.ts')], {
+      cwd: studio,
+      env: { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '' } as never,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const out = (await new Response(proc.stdout).text()) + (await new Response(proc.stderr).text());
+    expect(await proc.exited).toBe(1);
+    expect(out).toContain('holds no extension manifest');
+    expect(readFileSync(join(studio, 'messages', 'en.json'), 'utf8')).toContain('kept');
   } finally {
     rmSync(base, { recursive: true, force: true });
   }
