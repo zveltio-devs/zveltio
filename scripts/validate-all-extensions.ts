@@ -38,7 +38,7 @@ const CLI = join(import.meta.dir, '../packages/cli/src/index.ts');
 
 function findManifests(dir: string, acc: string[] = []): string[] {
   for (const ent of readdirSync(dir)) {
-    if (ent === 'node_modules' || ent === '.git') continue;
+    if (ent === 'node_modules' || ent.startsWith('.')) continue;
     const p = join(dir, ent);
     const st = statSync(p);
     if (st.isDirectory()) findManifests(p, acc);

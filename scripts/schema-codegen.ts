@@ -115,7 +115,7 @@ function walkSql(start: string): string[] {
       continue;
     }
     for (const name of entries) {
-      if (name === 'node_modules' || name === '.git' || name === 'dist' || name === 'build')
+      if (name === 'node_modules' || name.startsWith('.') || name === 'dist' || name === 'build')
         continue;
       const full = join(dir, name);
       let s;

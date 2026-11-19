@@ -29,7 +29,7 @@ const PASS = process.env.TEST_PASS ?? 'Test12345';
 
 function findManifests(dir: string, acc: string[] = []): string[] {
   for (const ent of readdirSync(dir)) {
-    if (ent === 'node_modules' || ent === '.git') continue;
+    if (ent === 'node_modules' || ent.startsWith('.')) continue;
     const p = join(dir, ent);
     if (statSync(p).isDirectory()) findManifests(p, acc);
     else if (ent === 'manifest.json') acc.push(p);
