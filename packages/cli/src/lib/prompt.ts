@@ -38,7 +38,9 @@ async function readLine(question: string, hidden: boolean): Promise<string> {
   }
   return new Promise((resolve, reject) => {
     const stdin = process.stdin;
-    let value = '';
+    // A last line with no newline after it (`printf 'pw\npw'`) is the start of this value.
+    let value = pending;
+    pending = '';
     const done = (finish: () => void) => {
       stdin.setRawMode?.(false);
       stdin.pause();
