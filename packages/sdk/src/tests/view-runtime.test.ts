@@ -138,6 +138,14 @@ describe('cross-key checks', () => {
     );
     expect(r.ok ? [] : r.issues.map((i) => i.path)).toEqual(['/rowActions/0/prompt/0']);
   });
+
+  it('refuses a file prompt whose input the button binds', () => {
+    const button = (input: Record<string, unknown>) =>
+      doc({ rowActions: [{ action: 'load', input, files: { prompt: { input: 'file' } } }] });
+    const r = validateView(button({ file: $.record('id') }));
+    expect(r.ok ? [] : r.issues.map((i) => i.path)).toEqual(['/rowActions/0/files/prompt/input']);
+    expect(validateView(button({ id: $.record('id') })).ok).toBe(true);
+  });
 });
 
 describe('matches', () => {

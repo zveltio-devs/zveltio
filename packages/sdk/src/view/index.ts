@@ -56,7 +56,8 @@ const CONDITION_LISTS = new Set(['filter', 'when', 'emphasisWhen', 'busyWhen']);
  * - the data API takes one value per field and operator (`{"f":{"gt":1,"lt":9}}`),
  *   so a condition list that gives the same pair twice cannot be sent whole: one
  *   of the two would be dropped and the list would answer wider than written;
- * - a button's `prompt` never names an input its `input` already binds.
+ * - a button's `prompt` (and its `files.prompt`) never names an input its
+ *   `input` already binds.
  */
 function crossChecks(v: unknown, path: string, out: ViewIssue[]): void {
   if (Array.isArray(v)) {
@@ -73,6 +74,13 @@ function crossChecks(v: unknown, path: string, out: ViewIssue[]): void {
           message: 'names an input the button already sets',
         });
       }
+    });
+  }
+  const filePrompt = isObj(v.files) && isObj(v.files.prompt) ? v.files.prompt.input : undefined;
+  if (typeof filePrompt === 'string' && isObj(v.input) && Object.hasOwn(v.input, filePrompt)) {
+    out.push({
+      path: `${path}/files/prompt/input`,
+      message: 'names an input the button already sets',
     });
   }
   for (const [k, x] of Object.entries(v)) {

@@ -267,17 +267,25 @@ const defs: Record<string, Schema> = {
     ],
   },
   Buttons: arrayOf(ref('Button'), 1),
-  FileHandoff: closed("Stored files the caller hands the action's job (`$files`, ADR 0032).", {
-    read: {
-      ...ref('Value'),
-      description: "File ids the job may read, or a `file` field's value (its files' ids).",
+  FileHandoff: closed(
+    'Stored files the caller hands the action, or its job (`$files`, ADR 0032 and 0052).',
+    {
+      read: {
+        ...ref('Value'),
+        description: "File ids the job may read, or a `file` field's value (its files' ids).",
+      },
+      prompt: closed(
+        'Asks the caller for one file: the front end uploads it as the caller and hands its id with `read` and as the input `input`.',
+        { input: ref('Name'), label: ref('Text') },
+        ['input'],
+      ),
+      write: closed(
+        'The one file the job may store.',
+        { name: ref('Value'), maxBytes: ref('Value') },
+        ['name'],
+      ),
     },
-    write: closed(
-      'The one file the job may store.',
-      { name: ref('Value'), maxBytes: ref('Value') },
-      ['name'],
-    ),
-  }),
+  ),
   ListView: kind(
     'list',
     'Rows of a collection.',

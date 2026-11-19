@@ -12,6 +12,7 @@ import { resolve } from '$app/paths';
 import {
   type Button,
   type Change,
+  fileIds,
   readActionResult,
   resolveFiles,
   resolveInput,
@@ -30,6 +31,7 @@ import SchemaForm from '#lib/components/common/SchemaForm.svelte';
 import {
   actionInputFields,
   type FileHandoff,
+  type FileValue,
   findAction,
   formPayload,
   openFile,
@@ -41,6 +43,7 @@ import {
   viewHref,
   WHOLE,
 } from './engine.js';
+import ViewFiles from './ViewFiles.svelte';
 import ViewNode from './ViewNode.svelte';
 
 interface Props {
@@ -65,7 +68,9 @@ const { confirmState, askConfirm, runConfirmAction, cancelConfirm } = createExte
 let prompt = $state<{
   fields: FormField[];
   values: Record<string, unknown>;
-  go: (v: Record<string, unknown>) => Promise<void>;
+  /** A button's `files.prompt`: the one file the caller picks, uploaded on pick. */
+  file: { input: string; label: string; value: FileValue | null } | null;
+  go: (v: Record<string, unknown>, picked?: string) => Promise<void>;
   /** Settles the `press` that opened it: after the action, or on close. */
   done: () => void;
 } | null>(null);
@@ -180,13 +185,17 @@ async function press(
   };
   if (!before && !bound(scope)) return void toast.error(m['view.selectFirst']());
   // The view's bound input wins: a prompt never overrides what the view fixed.
-  const go = (asked: Record<string, unknown>): Promise<void> => {
+  const go = (asked: Record<string, unknown>, picked?: string): Promise<void> => {
     const fire = async () => {
       const s = before ? await before(scope) : scope;
       if (!s) return;
       const call = bound(s);
       if (!call) return void toast.error(m['view.selectFirst']());
-      await run(b.action, { ...asked, ...call.input }, { files: call.files });
+      // The picked file goes with the ids the view hands (ADR 0052).
+      const files = picked
+        ? { ...call.files, read: [...new Set([...(call.files?.read ?? []), picked])] }
+        : call.files;
+      await run(b.action, { ...asked, ...call.input }, { files });
     };
     if (!b.confirm) return fire();
     settleConfirm();
@@ -207,7 +216,11 @@ async function press(
   };
   // A prompt asks only for what the view did not bind (`validateView` refuses the overlap).
   const ask = (b.prompt ?? []).filter((name) => !Object.hasOwn(b.input ?? {}, name));
-  if (ask.length === 0) return go({});
+  const fp = b.files?.prompt;
+  const file = fp
+    ? { input: fp.input, label: fp.label ? t(fp.label) : fp.input, value: null }
+    : null;
+  if (ask.length === 0 && !file) return go({});
   const input = findAction(actions ?? [], host.ext, b.action)?.input;
   const declared = actionInputFields(input);
   // A list or an object the action declares has no prompt input: refused, never sent as text.
@@ -223,7 +236,7 @@ async function press(
     toFormField(declared.find((f) => f.name === name) ?? { name, type: 'text' }),
   );
   return new Promise<void>((resolve) => {
-    prompt = { fields, values: {}, go, done: resolve };
+    prompt = { fields, values: {}, file, go, done: resolve };
   });
 }
 
@@ -315,6 +328,8 @@ function closePrompt() {
 function submitPrompt() {
   const p = prompt;
   if (!p) return;
+  const picked = p.file ? fileIds(p.file.value)[0] : undefined;
+  if (p.file && !picked) return void toast.error(`${p.file.label}: ${m['common.required']()}`);
   let asked: Record<string, unknown>;
   try {
     asked = formPayload(p.values, p.fields);
@@ -322,8 +337,9 @@ function submitPrompt() {
     toast.error((e as Error).message);
     return; // the dialog stays open to fix the value
   }
+  if (p.file && picked) asked[p.file.input] = picked;
   prompt = null;
-  void p.go(asked).finally(p.done);
+  void p.go(asked, picked).finally(p.done);
 }
 
 const host = $state<ViewHost>({
@@ -361,7 +377,16 @@ $effect.pre(() => {
 
 {#if prompt}
   <Modal open={true} size="md" onClose={closePrompt} onSubmit={submitPrompt}>
-    <SchemaForm formId={`view:${ext}:prompt`} schema={{ id: `view:${ext}:prompt`, fields: prompt.fields }} bind:values={prompt.values} />
+    {#if prompt.fields.length}
+      <SchemaForm formId={`view:${ext}:prompt`} schema={{ id: `view:${ext}:prompt`, fields: prompt.fields }} bind:values={prompt.values} />
+    {/if}
+    {#if prompt.file}
+      {@const file = prompt.file}
+      <div class="form-control mt-2">
+        <label class="label" for={`view:${ext}:prompt:file`}><span class="label-text">{file.label}</span></label>
+        <ViewFiles id={`view:${ext}:prompt:file`} value={file.value} onchange={(v) => (file.value = Array.isArray(v) ? (v[0] ?? null) : v)} />
+      </div>
+    {/if}
     <div class="flex justify-end mt-4"><button type="submit" class="btn btn-primary btn-sm">{m['common.confirm']()}</button></div>
   </Modal>
 {/if}
