@@ -26,9 +26,12 @@
  *   - **The primary database registers a raw pool** for the worker-extension
  *     SQL bridge, which reserves a connection and runs `unsafe(sql, params)`.
  *
- * No plan recycling is needed: `pg` sends unnamed statements, so there is no
- * client-side plan cache to go stale after a migration. The parameter-type
- * cache is cleared on the same signal (`recycleActivePool`).
+ * `recycleActivePool` replaces the pool, as it does `Bun.SQL`'s. Not for plans:
+ * `pg` sends unnamed statements, so none goes stale after a migration. For what
+ * a connection reads once, when it opens: the database's settings. The boot
+ * resets a stored `zveltio.fail_closed_tenant = 'off'` and then recycles; a
+ * connection opened before that kept 'off', and served contextless queries the
+ * default tenant's rows (DR-03). The parameter-type cache goes with it.
  */
 import pg from 'pg';
 import {
@@ -132,9 +135,14 @@ class PgConnection implements DatabaseConnection {
   }
 }
 
+/** The pool in use; `recycle` swaps it. */
+interface PoolSlot {
+  current: pg.Pool;
+}
+
 class PgDriver implements Driver {
   constructor(
-    readonly pool: pg.Pool,
+    readonly slot: PoolSlot,
     readonly primary: boolean,
   ) {}
 
@@ -142,7 +150,7 @@ class PgDriver implements Driver {
 
   async acquireConnection(): Promise<DatabaseConnection> {
     try {
-      return new PgConnection(await this.pool.connect());
+      return new PgConnection(await this.slot.current.connect());
     } catch (err) {
       throw normalizePgError(err);
     }
@@ -172,12 +180,12 @@ class PgDriver implements Driver {
 
   async destroy(): Promise<void> {
     if (this.primary) registerActivePool(null);
-    await this.pool.end();
+    await this.slot.current.end();
   }
 }
 
 /** The worker bridge's view of a `pg` pool. */
-function rawPool(pool: pg.Pool): RawPool {
+function rawPool(slot: PoolSlot, newPool: () => pg.Pool): RawPool {
   // Bun's result array carries the affected-row count as `.count`; the bridge
   // forwards it, so this view carries `rowCount` the same way.
   const rows = <T>(r: pg.QueryResult): T[] => {
@@ -186,7 +194,7 @@ function rawPool(pool: pg.Pool): RawPool {
     return last?.rowCount == null ? out : Object.assign(out, { count: last.rowCount });
   };
   const once = async <T>(text: string, params?: unknown[]): Promise<T[]> => {
-    const client = await pool.connect().catch((err) => {
+    const client = await slot.current.connect().catch((err) => {
       throw normalizePgError(err);
     });
     try {
@@ -198,7 +206,7 @@ function rawPool(pool: pg.Pool): RawPool {
   return {
     unsafe: once,
     reserve: async () => {
-      const client = await pool.connect().catch((err) => {
+      const client = await slot.current.connect().catch((err) => {
         throw normalizePgError(err);
       });
       return {
@@ -207,7 +215,14 @@ function rawPool(pool: pg.Pool): RawPool {
         release: () => client.release(),
       };
     },
-    recycle: async () => clearParamTypeCache(),
+    // New pool first, so a query arriving meanwhile finds one. The old pool
+    // closes its idle clients now and each checked-out one on release.
+    recycle: async () => {
+      clearParamTypeCache();
+      const old = slot.current;
+      slot.current = newPool();
+      void old.end().catch(() => {});
+    },
   };
 }
 
@@ -218,38 +233,42 @@ export function createPgDialect(config: PgDialectConfig): Dialect {
     /^(postgres(?:ql)?:\/\/[^@]*@)localhost([:/])/i,
     '$1127.0.0.1$2',
   );
-  const pool = new pg.Pool({
-    connectionString,
-    max: config.max ?? 20,
-    idleTimeoutMillis: config.idleTimeoutMs ?? 300_000,
-    connectionTimeoutMillis: ACQUIRE_TIMEOUT_MS,
-    // `date` (OID 1082) as midnight UTC, as `Bun.SQL` reads it. `pg` builds a
-    // local-midnight Date, so on a server whose TZ is east of UTC the ISO day
-    // came out one earlier ("2026-10-20" read as 2026-10-19T21:00Z in Bucharest).
-    // Per pool, not `pg.types`: that is process-wide and pg-boss shares it.
-    types: {
-      getTypeParser: ((oid: number, format?: 'text' | 'binary') =>
-        oid === 1082 && format !== 'binary'
-          ? (v: string) => new Date(`${v}T00:00:00Z`)
-          : pg.types.getTypeParser(oid, format as 'text')) as typeof pg.types.getTypeParser,
-    },
-  });
-  // A client whose backend dies (terminated, idle-in-transaction timeout) emits
-  // `error`. With no listener, a checked-out client's event is thrown out of
-  // the socket handler instead of failing the query that waits on it.
-  pool.on('error', (err) => {
-    console.warn('[pg] idle client error:', err.message);
-  });
-  pool.on('connect', (client) => {
-    client.on('error', (err) => {
-      console.warn('[pg] client error:', err.message);
+  const newPool = () => {
+    const pool = new pg.Pool({
+      connectionString,
+      max: config.max ?? 20,
+      idleTimeoutMillis: config.idleTimeoutMs ?? 300_000,
+      connectionTimeoutMillis: ACQUIRE_TIMEOUT_MS,
+      // `date` (OID 1082) as midnight UTC, as `Bun.SQL` reads it. `pg` builds a
+      // local-midnight Date, so on a server whose TZ is east of UTC the ISO day
+      // came out one earlier ("2026-10-20" read as 2026-10-19T21:00Z in Bucharest).
+      // Per pool, not `pg.types`: that is process-wide and pg-boss shares it.
+      types: {
+        getTypeParser: ((oid: number, format?: 'text' | 'binary') =>
+          oid === 1082 && format !== 'binary'
+            ? (v: string) => new Date(`${v}T00:00:00Z`)
+            : pg.types.getTypeParser(oid, format as 'text')) as typeof pg.types.getTypeParser,
+      },
     });
-  });
-  if (config.primary) registerActivePool(rawPool(pool));
+    // A client whose backend dies (terminated, idle-in-transaction timeout) emits
+    // `error`. With no listener, a checked-out client's event is thrown out of
+    // the socket handler instead of failing the query that waits on it.
+    pool.on('error', (err) => {
+      console.warn('[pg] idle client error:', err.message);
+    });
+    pool.on('connect', (client) => {
+      client.on('error', (err) => {
+        console.warn('[pg] client error:', err.message);
+      });
+    });
+    return pool;
+  };
+  const slot: PoolSlot = { current: newPool() };
+  if (config.primary) registerActivePool(rawPool(slot, newPool));
   return {
     createAdapter: () => new PostgresAdapter(),
     createIntrospector: (db) => new PostgresIntrospector(db),
     createQueryCompiler: () => new PostgresQueryCompiler(),
-    createDriver: () => new PgDriver(pool, config.primary === true),
+    createDriver: () => new PgDriver(slot, config.primary === true),
   };
 }
