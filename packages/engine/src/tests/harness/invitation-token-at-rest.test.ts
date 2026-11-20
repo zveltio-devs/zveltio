@@ -99,6 +99,11 @@ d('invitation token at rest', () => {
     await db
       .transaction()
       .execute(async (trx) => {
+        // 038 rewrote audit rows before migration 129 made the trail append-only
+        // for every role; replayed today, it needs the owner's trigger off — before
+        // the INSERT below, whose chain link is a pending trigger event that
+        // refuses any ALTER TABLE until COMMIT.
+        await sql`ALTER TABLE zv_audit_log DISABLE TRIGGER zv_audit_log_append_only`.execute(trx);
         const ins = await sql<{ id: string }>`
           INSERT INTO zv_invitations (email, role, token, expires_at, tenant_id)
           VALUES (${email}, 'member', ${plain}, NOW() + INTERVAL '1 day', '00000000-0000-0000-0000-000000000001'::uuid)

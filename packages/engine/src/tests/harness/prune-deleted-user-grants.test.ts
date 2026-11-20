@@ -26,7 +26,7 @@ import { parseMigrationFile } from '../../db/migrations/index.js';
 import { rerunMigration } from '../fixtures/rerun-migration.js';
 import { getEnforcer, reconcilePolicies } from '../../lib/tenancy/index.js';
 import {
-  asEveryTenant,
+  asAuditOwner,
   forgetRuleObjects,
   getTestApp,
   harnessAvailable,
@@ -115,7 +115,7 @@ d('migration 017 prunes only the rows of users deleted before #670', () => {
     await sql`DELETE FROM zvd_permissions WHERE v0 = ANY(${SUBJECTS}) OR v2 = ${RESOURCE}`
       .execute(db)
       .catch(() => {});
-    await asEveryTenant(
+    await asAuditOwner(
       db,
       sql`DELETE FROM zv_audit_log WHERE event_type = 'user.deleted'
                AND resource_id = ANY(${[...SUBJECTS, 'tenant_viewer']})`,

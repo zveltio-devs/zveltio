@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { sql } from 'kysely';
 import { type Database, getDb } from '../db/index.js';
 import { getCurrentTenantTrx, onAfterCommit, withTenantIsolation } from './tenancy/index.js';
@@ -250,4 +251,156 @@ async function writeAuditRow(db: Database, event: AuditEvent): Promise<void> {
       (err as Error)?.message ?? err,
     );
   }
+}
+
+// ── Hash chain (ADR 0060 decision 3, migration 129) ─────────────
+
+/** One `zv_audit_chain` entry, with the content hash of the row it names now. */
+export interface AuditChainEntry {
+  seq: number;
+  audit_id: string;
+  /** Hex. */
+  content_hash: string;
+  /** Hex: SHA-256(previous hash || content_hash). */
+  hash: string;
+  /** Hex hash of the row as it is now; null when the row is gone. */
+  row_hash: string | null;
+}
+
+export type AuditChainBreak = {
+  seq: number;
+  audit_id: string | null;
+  /**
+   * `gap`: no entry at `seq`. `link`: the entry's hash does not follow from the
+   * one before. `row_changed`: the row no longer hashes to its entry.
+   * `row_missing`: a row is gone after one that is still there; rows gone at the
+   * oldest end only are the retention purge's, counted as `purged`.
+   */
+  reason: 'gap' | 'link' | 'row_changed' | 'row_missing';
+};
+
+export interface AuditChainReport {
+  /** null: the instance's own chain. */
+  tenant_id: string | null;
+  ok: boolean;
+  /** Entries checked: the whole chain when `ok`, else those before the break. */
+  verified: number;
+  purged: number;
+  /** The last entry verified: the whole chain's head when `ok`. */
+  head: { seq: number; hash: string } | null;
+  broken?: AuditChainBreak;
+}
+
+const GENESIS = '00'.repeat(32);
+
+/** Walk state of one chain, carried across batches. */
+export interface ChainWalk {
+  seq: number;
+  hash: string;
+  purged: number;
+  rowSeen: boolean;
+}
+
+export const startChainWalk = (): ChainWalk => ({
+  seq: 0,
+  hash: GENESIS,
+  purged: 0,
+  rowSeen: false,
+});
+
+/**
+ * Advance `walk` over `entries` (ascending `seq`). Returns the first break, or
+ * null with `walk` moved to the last entry.
+ */
+export function walkAuditChain(
+  walk: ChainWalk,
+  entries: AuditChainEntry[],
+): AuditChainBreak | null {
+  for (const e of entries) {
+    if (e.seq !== walk.seq + 1) return { seq: walk.seq + 1, audit_id: null, reason: 'gap' };
+    const link = createHash('sha256')
+      .update(Buffer.from(walk.hash, 'hex'))
+      .update(Buffer.from(e.content_hash, 'hex'))
+      .digest('hex');
+    if (link !== e.hash) return { seq: e.seq, audit_id: e.audit_id, reason: 'link' };
+    if (e.row_hash === null) {
+      if (walk.rowSeen) return { seq: e.seq, audit_id: e.audit_id, reason: 'row_missing' };
+      walk.purged++;
+    } else {
+      if (e.row_hash !== e.content_hash) {
+        return { seq: e.seq, audit_id: e.audit_id, reason: 'row_changed' };
+      }
+      walk.rowSeen = true;
+    }
+    walk.seq = e.seq;
+    walk.hash = e.hash;
+  }
+  return null;
+}
+
+const VERIFY_BATCH = 1000;
+
+/**
+ * Check every tenant's chain and the instance's: each link, each row against its
+ * entry, and that no row is outside the chain (`unchained`, a row written with
+ * the chain trigger switched off). The first break of each chain is reported.
+ *
+ * As the table owner, publishing every tenant the chain names besides the live
+ * ones: a purged tenant's rows stay until retention takes them, and the
+ * published reach of `withEveryTenant` holds live tenants only.
+ */
+export async function verifyAuditChains(db: Database): Promise<{
+  ok: boolean;
+  chains: AuditChainReport[];
+  unchained: { audit_id: string; tenant_id: string | null } | null;
+}> {
+  return db.transaction().execute(async (trx) => {
+    await sql`
+      SELECT set_config('zveltio.current_tenant', '', true),
+             set_config('zveltio.visible_tenants', coalesce((
+               SELECT string_agg(DISTINCT t::text, ',') FROM (
+                 SELECT tenant_id AS t FROM zv_audit_chain WHERE tenant_id IS NOT NULL
+                 UNION SELECT id FROM zv_tenants) s), ''), true)
+    `.execute(trx);
+    const tenants = await sql<{ tenant_id: string | null }>`
+      SELECT DISTINCT tenant_id::text AS tenant_id FROM zv_audit_chain
+       ORDER BY tenant_id NULLS FIRST`.execute(trx);
+
+    const chains: AuditChainReport[] = [];
+    for (const { tenant_id } of tenants.rows) {
+      const own =
+        tenant_id === null ? sql`c.tenant_id IS NULL` : sql`c.tenant_id = ${tenant_id}::uuid`;
+      const walk = startChainWalk();
+      let broken: AuditChainBreak | null = null;
+      for (;;) {
+        const batch = await sql<AuditChainEntry>`
+          SELECT c.seq::float8 AS seq, c.audit_id::text AS audit_id,
+                 encode(c.content_hash, 'hex') AS content_hash, encode(c.hash, 'hex') AS hash,
+                 CASE WHEN a.id IS NOT NULL
+                      THEN encode(zveltio_audit_content_hash(a), 'hex') END AS row_hash
+            FROM zv_audit_chain c
+            LEFT JOIN zv_audit_log a ON a.id = c.audit_id
+           WHERE ${own} AND c.seq > ${walk.seq}
+           ORDER BY c.seq
+           LIMIT ${VERIFY_BATCH}`.execute(trx);
+        broken = walkAuditChain(walk, batch.rows);
+        if (broken || batch.rows.length < VERIFY_BATCH) break;
+      }
+      chains.push({
+        tenant_id,
+        ok: !broken,
+        verified: walk.seq,
+        purged: walk.purged,
+        head: walk.seq ? { seq: walk.seq, hash: walk.hash } : null,
+        ...(broken ? { broken } : {}),
+      });
+    }
+
+    const loose = await sql<{ audit_id: string; tenant_id: string | null }>`
+      SELECT a.id::text AS audit_id, a.tenant_id::text AS tenant_id FROM zv_audit_log a
+       WHERE NOT EXISTS (SELECT 1 FROM zv_audit_chain c WHERE c.audit_id = a.id)
+       ORDER BY a.created_at, a.id LIMIT 1`.execute(trx);
+    const unchained = loose.rows[0] ?? null;
+    return { ok: !unchained && chains.every((c) => c.ok), chains, unchained };
+  });
 }

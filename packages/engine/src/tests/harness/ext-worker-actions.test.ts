@@ -39,6 +39,7 @@ import { effectiveTimeZone } from '../../lib/tenancy/timezone.js';
 import { toJsonb } from '../../lib/jsonb.js';
 import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import {
+  asAuditOwner,
   asDefaultTenant,
   asEveryTenant,
   asTenant,
@@ -309,7 +310,7 @@ d('a worker-isolated extension’s actions run in its worker, decided by the eng
       db,
     );
     await sql`DELETE FROM zvd_permissions WHERE v2 = ${RES}`.execute(db);
-    await asEveryTenant(db, sql`DELETE FROM zv_audit_log WHERE resource_id LIKE ${`${EXT}:%`}`);
+    await asAuditOwner(db, sql`DELETE FROM zv_audit_log WHERE resource_id LIKE ${`${EXT}:%`}`);
     await asDefaultTenant(db, sql`DELETE FROM zv_revisions WHERE collection IN (${C}, ${OTHER})`);
     await dropTestCollection(db, C);
     await dropTestCollection(db, OTHER);

@@ -48,6 +48,7 @@ import { tenantMiddleware } from '../../middleware/tenant.js';
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import { toJsonb } from '../../lib/jsonb.js';
 import {
+  asAuditOwner,
   asDefaultTenant,
   asEveryTenant,
   asTenant,
@@ -422,7 +423,7 @@ d('a job reaches only the stored files its user hands it (ADR 0032)', () => {
     await sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${DEP}, ${NOFILES})`.execute(
       db,
     );
-    await asEveryTenant(db, (trx) =>
+    await asAuditOwner(db, (trx) =>
       sql`DELETE FROM zv_audit_log WHERE resource_id LIKE ${'jobfiles-%'}`.execute(trx),
     );
     await asEveryTenant(db, (trx) =>

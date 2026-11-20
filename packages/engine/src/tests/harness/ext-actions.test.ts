@@ -27,6 +27,7 @@ import { sessionPrefetch } from '../../middleware/session-prefetch.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import {
+  asAuditOwner,
   asDefaultTenant,
   asEveryTenant,
   createMemberSession,
@@ -306,7 +307,7 @@ d('extension actions run as the caller, in the request transaction', () => {
       db,
     );
     await sql`DELETE FROM zvd_permissions WHERE v2 IN (${RES}, ${SENS})`.execute(db);
-    await asEveryTenant(
+    await asAuditOwner(
       db,
       sql`DELETE FROM zv_audit_log WHERE event_type = 'extension.action.executed'`,
     );

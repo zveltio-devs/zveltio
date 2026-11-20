@@ -32,6 +32,7 @@ import { sessionPrefetch } from '../../middleware/session-prefetch.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import {
+  asAuditOwner,
   asDefaultTenant,
   asEveryTenant,
   asTenant,
@@ -328,7 +329,7 @@ d('extension jobs run after the request commits, in its tenant, as the extension
     await sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${NOSYS}, ${REFUSED})`.execute(
       db,
     );
-    await asEveryTenant(db, (trx) =>
+    await asAuditOwner(db, (trx) =>
       sql`DELETE FROM zv_audit_log WHERE event_type = 'extension.job.executed'`.execute(trx),
     );
     await asEveryTenant(db, (trx) =>

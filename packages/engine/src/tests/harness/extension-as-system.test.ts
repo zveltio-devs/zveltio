@@ -15,7 +15,7 @@ import { gateInternals } from '../../lib/extensions/capabilities.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import type { ExtensionInternals } from '../../lib/extensions/internals.js';
 import { runWithDomain, withTenantIsolation } from '../../lib/tenancy/index.js';
-import { asEveryTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asAuditOwner, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const A = crypto.randomUUID();
@@ -52,7 +52,7 @@ d('ctx.internals.asSystem', () => {
   afterAll(async () => {
     if (!db) return;
     await _settleAuditWrites().catch(() => undefined);
-    await asEveryTenant(db, sql`DELETE FROM zv_audit_log WHERE tenant_id = ${A}::uuid`).catch(
+    await asAuditOwner(db, sql`DELETE FROM zv_audit_log WHERE tenant_id = ${A}::uuid`).catch(
       () => undefined,
     );
     await sql`DELETE FROM "user" WHERE id = ${USER}`.execute(db).catch(() => undefined);

@@ -30,6 +30,7 @@ import { tenantMiddleware } from '../../middleware/tenant.js';
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import { toJsonb } from '../../lib/jsonb.js';
 import {
+  asAuditOwner,
   asEveryTenant,
   asTenant,
   createMemberSession,
@@ -244,7 +245,7 @@ d('an action reads and writes the files its request hands it (ADR 0052)', () => 
     );
     await sql`DELETE FROM pgboss.job WHERE name LIKE ${'ext.actfiles-%'}`.execute(db);
     await sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${DEP})`.execute(db);
-    await asEveryTenant(db, (trx) =>
+    await asAuditOwner(db, (trx) =>
       sql`DELETE FROM zv_audit_log WHERE resource_id LIKE ${'actfiles-%'}`.execute(trx),
     );
   });

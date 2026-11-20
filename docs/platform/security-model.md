@@ -480,7 +480,7 @@ replica. Trashed records are purged by the trash scheduler, not by this sweep.
 
 ### Audit trail (ADR 0060)
 
-**Today (migration 128):**
+**Today (migrations 128 and 129):**
 
 - The request role `zveltio_rls` may only insert and read audit rows; UPDATE,
   DELETE and TRUNCATE are refused, and the boot reconciler keeps it that way.
@@ -489,23 +489,45 @@ replica. Trashed records are purged by the trash scheduler, not by this sweep.
   The database lets it delete only rows older than the window the purge states,
   at least one day; without the role the purge fails and logs why.
   `scripts/bootstrap-db-role.sh` creates it where the engine cannot.
+- No other role may change the trail either, the table owner and a superuser
+  included: a trigger refuses UPDATE, DELETE and TRUNCATE on `zv_audit_log` and
+  on its chain table `zv_audit_chain`, the purge role's expired-row DELETE
+  aside. The owner can still switch that trigger off, which is DDL; the hash
+  chain is what shows what was done meanwhile.
+- Each tenant's rows form a SHA-256 hash chain, and the instance's own rows
+  (no tenant) another. The engine links every row when its transaction
+  commits, one commit at a time per tenant (a transaction advisory lock on the
+  tenant, held for the commit only): `hash = SHA-256(prev_hash || content_hash)`,
+  from a genesis of 32 zero bytes, where `content_hash` is the SHA-256 of the
+  row's canonical form: the jsonb text of
+  `[1, id, event_type, user_id, resource_id, resource_type, metadata, ip,
+  created_at, tenant_id]` with `created_at` spelled in UTC to the microsecond
+  (`1` is the form's version). `zv_audit_chain` holds ids and hashes only; the
+  request role cannot read or write it. Rows written before migration 129 were
+  chained by it, in `(created_at, id)` order per tenant: the chain shows what
+  changed after that point, not before.
+- `GET /api/admin/audit/verify` (instance admins, like the rest of
+  `/api/admin/audit`) walks every chain and answers, per tenant, `ok`, the
+  entries it verified and its head (`seq`, `hash`), or the first broken link:
+  `gap` (an entry is missing), `link` (an entry does not follow from the one
+  before), `row_changed` (the row no longer hashes to its entry), `row_missing`
+  (a row is gone after one that is still there). Rows gone at the oldest end only are
+  the retention purge's and are counted as `purged`, their links still checked.
+  `unchained` names a row outside every chain (written with the chain trigger
+  off).
 - Erasing a user (`DELETE /api/me`, an admin, SCIM, `compliance/gdpr`) deletes
   the profile and leaves the trail as it was: `user_id` keeps the id, which no
   longer names anyone. The engine writes ids, not emails, into its rows.
-- Purging a tenant leaves its trail; the retention purge removes it with every
-  other firm's.
-- The table owner (the engine's login role, which runs migrations and DDL)
-  still holds every privilege on the table. Nothing yet detects a row it
-  changed or removed: that is the hash chain below.
+- Purging a tenant leaves its trail and its chain; the retention purge removes
+  the rows with every other firm's.
 
 **Still to come (accepted 2026-11-19):**
 
-- Each tenant's rows form a SHA-256 hash chain, and a verify endpoint names the
-  first broken link.
 - Operator settings: a per-tenant retention override for tenants under other
-  jurisdictions (the purge cuts the chain from its oldest end only), and where
-  the chain head is anchored outside the database (file or object storage), so a
-  cut tail with a rewritten chain is still detected.
+  jurisdictions (the purge cuts the chain from its oldest end only and records
+  the new genesis), and where each tenant's chain head is anchored outside the
+  database (file or object storage), so a cut tail with a rewritten chain is
+  still detected.
 
 ---
 

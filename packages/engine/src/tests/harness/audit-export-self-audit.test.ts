@@ -15,6 +15,7 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import {
+  asAuditOwner,
   asEveryTenant,
   createGodSession,
   getTestApp,
@@ -34,7 +35,7 @@ d('the audit export records itself (in-process)', () => {
   });
 
   afterAll(async () => {
-    await asEveryTenant(db, sql`DELETE FROM zv_audit_log WHERE event_type = 'export.executed'`);
+    await asAuditOwner(db, sql`DELETE FROM zv_audit_log WHERE event_type = 'export.executed'`);
   });
 
   it('writes an export.executed entry carrying the filters that were used', async () => {

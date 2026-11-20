@@ -41,6 +41,7 @@ import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import { toJsonb } from '../../lib/jsonb.js';
 import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import {
+  asAuditOwner,
   asDefaultTenant,
   asEveryTenant,
   createGodSession,
@@ -228,8 +229,8 @@ d('a worker-isolated extension fails alone (ADR 0056 s2)', () => {
     await forgetRuleObjects(db, RES);
     await sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${CRASHY})`.execute(db);
     await sql`DELETE FROM zvd_permissions WHERE v2 = ${RES}`.execute(db);
-    await asEveryTenant(db, sql`DELETE FROM zv_audit_log WHERE resource_id LIKE ${`${EXT}:%`}`);
-    await asEveryTenant(db, sql`DELETE FROM zv_audit_log WHERE resource_id = ${CRASHY}`);
+    await asAuditOwner(db, sql`DELETE FROM zv_audit_log WHERE resource_id LIKE ${`${EXT}:%`}`);
+    await asAuditOwner(db, sql`DELETE FROM zv_audit_log WHERE resource_id = ${CRASHY}`);
     await asDefaultTenant(db, sql`DELETE FROM zv_revisions WHERE collection = ${C}`);
     await dropTestCollection(db, C);
   });
