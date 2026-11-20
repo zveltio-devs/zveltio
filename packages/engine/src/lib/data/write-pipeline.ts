@@ -21,7 +21,7 @@ import type { Database } from '../../db/index.js';
 import { DDLManager, SYSTEM_COLUMNS } from './ddl-manager.js';
 import { fieldTypeRegistry } from './field-type-registry.js';
 import { getValidationDb, getValidationRules, validateRecord } from '../validation-engine.js';
-import { maybeEncrypt } from './field-crypto.js';
+import { isEncryptedValue, maybeEncrypt } from './field-crypto.js';
 import { type ChangeEvent, enqueueChangeEvent } from '../webhooks.js';
 import { broadcastEvent } from '../../routes/ws.js';
 import { realtimeBus } from '../runtime/index.js';
@@ -263,6 +263,17 @@ export async function processInput(
 
     if (value !== undefined) {
       const deserialized = await fieldTypeRegistry.deserialize(field.type, value);
+      // A caller's value that is already field ciphertext would be stored as
+      // given (`maybeEncrypt` keeps `enc:v1:` for its own idempotence) and read
+      // back decrypted: the envelope binds no tenant, collection or record, so
+      // ciphertext copied from anywhere became plaintext (A14). A `secret`
+      // seals what it is given, ciphertext included (ADR 0024).
+      if (field.encrypted && field.type !== 'secret' && isEncryptedValue(deserialized)) {
+        errors.push(
+          `${field.name}: a value cannot start with "enc:v1:" (it is encrypted on write)`,
+        );
+        continue;
+      }
       // A `secret` encrypts in its own `deserialize` (ADR 0024): its plaintext is the input.
       plain[field.name] = field.type === 'secret' && value !== null ? String(value) : deserialized;
       processed[field.name] = field.encrypted

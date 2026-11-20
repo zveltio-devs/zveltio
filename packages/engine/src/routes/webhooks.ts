@@ -22,7 +22,7 @@ import type { Database } from '../db/index.js';
 import { holdsRole, isTenantAdmin, DEFAULT_RUN_AS_ROLE } from '../lib/tenancy/index.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
 import { safeFetch, validatePublicUrl } from '../lib/edge-functions/safe-fetch.js';
-import { maybeEncrypt, maybeDecrypt } from '../lib/data/index.js';
+import { isEncryptedValue, maybeEncrypt, maybeDecrypt } from '../lib/data/index.js';
 import { enqueueReplay, type WebhookJob } from '../lib/webhooks.js';
 import { guardAdmin } from '../lib/admin-guard.js';
 import { paging } from '../lib/utils.js';
@@ -39,7 +39,12 @@ const WebhookFields = z.object({
   events: z.array(z.string()).min(1),
   collections: z.array(z.string()),
   active: z.boolean(),
-  secret: z.string().optional(),
+  // Not ciphertext: `maybeEncrypt` would keep it as given and deliveries would
+  // be signed with its plaintext, copied from wherever it was read (A14).
+  secret: z
+    .string()
+    .refine((s): boolean => !isEncryptedValue(s), 'secret: a value cannot start with "enc:v1:"')
+    .optional(),
   retry_attempts: z.number().int().min(0).max(10),
   timeout: z.number().int().min(1000).max(30000),
   // ADR 0004: the role its payloads are read as.
