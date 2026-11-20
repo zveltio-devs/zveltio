@@ -78,7 +78,7 @@ END
 $$;
 
 CREATE OR REPLACE FUNCTION zveltio_audit_content_hash(r zv_audit_log) RETURNS bytea
-LANGUAGE sql STABLE SET search_path = pg_catalog, public AS $$
+LANGUAGE sql STABLE SET search_path = pg_catalog, public, pg_temp AS $$
   SELECT sha256(convert_to(jsonb_build_array(
     1, r.id, r.event_type, r.user_id, r.resource_id, r.resource_type, r.metadata, r.ip,
     to_char(r.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
@@ -89,7 +89,7 @@ $$;
 -- table's, in the backfill). Not SECURITY DEFINER, and not executable by PUBLIC:
 -- only the trigger below, running as the owner, reaches the chain through it.
 CREATE OR REPLACE FUNCTION zveltio_audit_chain_link(r zv_audit_log) RETURNS void
-LANGUAGE plpgsql SET search_path = pg_catalog, public AS $$
+LANGUAGE plpgsql SET search_path = pg_catalog, public, pg_temp AS $$
 DECLARE
   prev_seq  bigint;
   prev_hash bytea;
@@ -110,7 +110,7 @@ $$;
 REVOKE EXECUTE ON FUNCTION zveltio_audit_chain_link(zv_audit_log) FROM PUBLIC;
 
 CREATE OR REPLACE FUNCTION zveltio_audit_chain_seal() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $$
 BEGIN
   PERFORM pg_advisory_xact_lock(hashtext('zveltio:audit-chain:' || coalesce(NEW.tenant_id::text, '')));
   PERFORM zveltio_audit_chain_link(NEW);
