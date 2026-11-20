@@ -335,6 +335,7 @@ const SECTIONS: Section[] = [
     match: [
       `${E}lib/data/write-pipeline.ts`,
       `${E}lib/data/written-by.ts`,
+      `${E}lib/data/owned-files.ts`,
       `${E}lib/data/handlers/single.ts`,
       `${E}lib/data/handlers/bulk.ts`,
       `${E}lib/data/api-write.ts`,
