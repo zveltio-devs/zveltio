@@ -10,56 +10,55 @@
  * `pg` driver it only cleared a cache, so those connections stayed in the pool
  * and a query with no tenant context kept seeing the default tenant's rows.
  *
- * Driven through a one-connection `pg` pool so the query after the recycle
- * lands on the connection that would have survived it.
+ * Driven through the harness's own primary pool, the one `recycleActivePool()`
+ * renews at boot, so no second primary takes over the module-level handle the
+ * worker SQL bridge reads. Runs on the pg lane only; the Bun recycle is covered
+ * by stale-plan-recycle.test.ts.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { Kysely, sql } from 'kysely';
+import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { recycleActivePool } from '../../db/bun-sql-dialect.js';
-import { createPgDialect } from '../../db/pg-dialect.js';
+import { databaseDriver } from '../../db/pg-dialect.js';
 import { applyFailClosedTenantSetting } from '../../lib/tenancy/fail-closed-tenant.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
-const d = harnessAvailable() ? describe : describe.skip;
+const d = harnessAvailable() && databaseDriver() === 'pg' ? describe : describe.skip;
 
 d('the tenant fallback after a pool recycle on the pg driver', () => {
   let db: Database;
-  let pgdb: Database;
   let dbName: string;
 
   const visible = async () =>
-    (await sql<{ v: string[] }>`SELECT zveltio_visible_tenants()::text[] AS v`.execute(pgdb))
-      .rows[0]!.v;
+    (await sql<{ v: string[] }>`SELECT zveltio_visible_tenants()::text[] AS v`.execute(db)).rows[0]!
+      .v;
 
   beforeAll(async () => {
     ({ db } = await getTestApp());
     dbName = (await sql<{ d: string }>`SELECT current_database() AS d`.execute(db)).rows[0]!.d;
     await sql.raw(`ALTER DATABASE "${dbName}" SET zveltio.fail_closed_tenant = 'off'`).execute(db);
-    pgdb = new Kysely({
-      dialect: createPgDialect({
-        connectionString: process.env.TEST_DATABASE_URL!,
-        primary: true,
-        max: 1,
-      }),
-    }) as unknown as Database;
+    // Every pooled connection from here on opened under the opt-out.
+    await recycleActivePool();
   }, 60_000);
 
   afterAll(async () => {
-    await pgdb?.destroy().catch(() => undefined);
-    if (db && dbName)
-      await sql.raw(`ALTER DATABASE "${dbName}" RESET zveltio.fail_closed_tenant`).execute(db);
+    if (!db || !dbName) return;
+    await sql.raw(`ALTER DATABASE "${dbName}" RESET zveltio.fail_closed_tenant`).execute(db);
+    // Later files get connections opened closed, whatever this test left.
+    await recycleActivePool();
   });
 
   it('a connection opened under the opt-out does not outlive its removal', async () => {
-    // The plant: the pool's connection opened while 'off' was stored.
+    // The plant: the pool's connections opened while 'off' was stored. Without
+    // the fix this already fails, for the same reason: the recycle in beforeAll
+    // kept the connections opened before 'off' was stored.
     expect(await visible()).toEqual(['00000000-0000-0000-0000-000000000001']);
 
     const saved = process.env.ZVELTIO_FAIL_CLOSED_TENANT;
     delete process.env.ZVELTIO_FAIL_CLOSED_TENANT;
     try {
-      await applyFailClosedTenantSetting(pgdb);
+      await applyFailClosedTenantSetting(db);
     } finally {
       if (saved !== undefined) process.env.ZVELTIO_FAIL_CLOSED_TENANT = saved;
     }
