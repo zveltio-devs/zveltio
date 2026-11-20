@@ -215,15 +215,32 @@ function rawPool(slot: PoolSlot, newPool: () => pg.Pool): RawPool {
         release: () => client.release(),
       };
     },
-    // New pool first, so a query arriving meanwhile finds one. The old pool
-    // closes its idle clients now and each checked-out one on release.
+    // New pool first, so a query arriving meanwhile finds one.
     recycle: async () => {
       clearParamTypeCache();
       const old = slot.current;
       slot.current = newPool();
-      void old.end().catch(() => {});
+      retire(old);
     },
   };
+}
+
+/**
+ * End a pool nobody will ask again, once no caller waits on it. `pg.Pool.end()`
+ * stops serving its queue: a `connect()` already queued — the pool was full, or
+ * it holds idle clients and serves them on the next tick — would wait out
+ * `connectionTimeoutMillis` and answer PoolBusyError. Measured: a schema change
+ * recycles the pool (`announceSchemaChange`) while a request is queued on it.
+ * Once ended, it closes its idle clients now and each checked-out one on release.
+ */
+function retire(pool: pg.Pool): void {
+  const end = () => {
+    if (pool.waitingCount > 0) return;
+    pool.off('acquire', end);
+    void pool.end().catch(() => {});
+  };
+  pool.on('acquire', end);
+  end();
 }
 
 export function createPgDialect(config: PgDialectConfig): Dialect {
