@@ -261,7 +261,7 @@ export async function recycleActivePool(): Promise<void> {
 export interface RawPool {
   unsafe<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]>;
   reserve(): Promise<BunReservedConnection>;
-  /** Drop whatever the driver caches against the schema (see `recyclePool`). */
+  /** Drop every pooled connection and what the driver caches with them (see `recyclePool`). */
   recycle?(): Promise<void>;
 }
 
