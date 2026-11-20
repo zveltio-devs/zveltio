@@ -4,6 +4,22 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+## [3.0.0-beta.130] - 2026-11-20
+
+**An action may send the browser to an external page (ADR 0061 decision 1).** `ActionResult` gains a fifth form, `{ "redirect": "<https URL>" }`. The engine accepts it on `POST /ext/<name>/actions/<action>` only when the URL is https, carries no user name or password, and its authority is one the operator named for the extension (a consented `egress:<authority>` or a slot binding); any other redirect answers `502 redirect_not_allowed`. Studio and `@zveltio/sdk-react` follow it in the top window. An older front end reports the new form as an invalid result (`docs/extensions/ui-model.md`).
+
+**A `file` field may own its files (ADR 0061 decision 2).** With `ownsFile: true`, a file id enters the field only when the writer could delete that file (its uploader, a tenant admin, or a file stored by the same request); otherwise the write answers 403 `file_not_claimable`. When the row is deleted (single, bulk or sync) or the field stops holding the file, the engine deletes the file: the row in the write's transaction, the bytes after commit. `ctx.db`, `dynamicInsert` and sync writes refuse any value for such a field. `ownsFile` is set when the field is created and cannot be turned on later. Every ceiling keeps the file, never deletes a wrong one (`docs/extensions/authoring.md`).
+
+**Helm: the engine pod reaches Postgres and Valkey only where they live.** The NetworkPolicy opened 5432 and 6379 to any address. A bundled database or cache is now reached through its pods only; an external one through the new values `networkPolicy.databaseTo` / `cacheTo`, or any address while they are unset, as before. 443 stays open; what keeps an extension off the network is the runner's socket ban (ADR 0023) (`docs/platform/deployment-k8s.md`).
+
+**Security — `install.sh` no longer puts the first admin's password on a command line.** `create-god` reads the password from stdin when `--password` is absent and stdin is not a terminal; `install.sh` pipes it on the native and Docker paths. Before, any local user could read it from the process list during install.
+
+**Security — the public page renderer filters author-typed URLs.** CTA, button, image-link and menu URLs go through `safeHref`, a video block's URL through `safeFrameSrc`, so a `javascript:` URL typed by a page author no longer reaches the DOM (content/pages 2.3.1). `safeHref` also refuses a path starting `//` or `/\`.
+
+**Fixed.** `printf 'pw\npw' | zveltio create-god` (and `login`) dropped the second line and refused. The client's data pages and the pages extension's collection list show the engine's problem `detail` instead of a generic error. Studio's cloud Drive uploads a new file version through the storage API and the `addFileVersion` action (storage/cloud 3.0.0).
+
+**Docs and tooling.** `docs/platform/security.md` describes today's audit trail and its tamper-evident target (ADR 0060). The DR drill compares exact row counts; the route-collision gate reads wrapped registrations and `.all()`; sibling-reading gates refuse a missing extensions checkout and skip dot directories.
+
 ## [3.0.0-beta.129] - 2026-11-19
 
 **A view/2 action button may ask the caller for one file (ADR 0052 slice 2).** A button's `files` gains `prompt: { input, label? }`: Studio adds a file input to the action's prompt dialog, uploads the picked file as the caller, and hands its id both with `$files.read` and as the input `input`, so the action reads it through `host.files.read(id)`. The button does not run without the file, and `validateView` refuses an `input` the button already binds. The React reference renderer opens the browser's file picker. This is what lets `data/import` 3.0.0 take a CSV from a Studio user (`docs/extensions/ui-model.md`).

@@ -1,7 +1,7 @@
 {
   "name": "zveltio",
   "license": "AGPL-3.0-only",
-  "version": "3.0.0-beta.129",
+  "version": "3.0.0-beta.130",
   "private": true,
   "packageManager": "bun@1.4.4",
   "description": "Headless BaaS that becomes a self-hosted SaaS through extensions.",
