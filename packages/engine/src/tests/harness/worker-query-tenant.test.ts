@@ -19,6 +19,7 @@ import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { revokeExtensionDbRoles } from '../../lib/extensions/ext-db-role.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { applyTenantRLS, withTenantIsolation } from '../../lib/tenancy/index.js';
 import {
   createRequestScopedDb,
@@ -135,6 +136,7 @@ d('a worker query runs as the tenant of its request', () => {
   const workerApp = new Hono();
 
   beforeAll(async () => {
+    _setInlineForTests(true); // unsigned fixtures: the test override stands in for a signature
     ({ db } = await getTestApp());
     await sql`INSERT INTO zv_tenants (id, slug, name, status)
               VALUES (${B}::uuid, ${`wkrten-${SFX}`}, 'b', 'active')`.execute(db);
@@ -195,6 +197,7 @@ d('a worker query runs as the tenant of its request', () => {
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     await getWorkerHost(workerApp).stopAll();
     serviceRegistry.unregisterAll('inlsvc');
     extensionLoader.loaded.delete('inlsvc');

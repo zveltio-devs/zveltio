@@ -21,6 +21,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { extensionDbRoleNames, revokeExtensionDbRoles } from '../../lib/extensions/ext-db-role.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { reconcileTenantRLS } from '../../lib/tenancy/index.js';
 import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extension-host.js';
 import {
@@ -73,6 +74,7 @@ d('a worker extension reaches its own tables through the bridge', () => {
   const app = new Hono();
 
   beforeAll(async () => {
+    _setInlineForTests(true); // unsigned fixtures: the test override stands in for a signature
     db = (await getTestApp()).db;
     base = mkdtempSync(join(tmpdir(), 'wkr-own-'));
     const dir = join(base, EXT);
@@ -102,6 +104,7 @@ d('a worker extension reaches its own tables through the bridge', () => {
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     await getWorkerHost(app).stopAll();
     _resetWorkerHostForTests();
     await sql`DROP TABLE IF EXISTS ${sql.table(OWN)}`.execute(db);

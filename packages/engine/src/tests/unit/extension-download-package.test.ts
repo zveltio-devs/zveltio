@@ -17,7 +17,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { exportTrustedKeyEntry, generateKeypair, signBundle } from '@zveltio/sdk/publish';
 import { downloadExtension } from '../../lib/extensions/extension-download.js';
 import { SignatureInvalidError, SignatureMissingError } from '../../lib/security/index.js';
@@ -47,6 +47,16 @@ const originalSpawn: typeof Bun.spawn = Bun.spawn;
 let destBase: string;
 let savedRequireSig: string | undefined;
 let savedRegistryKeys: string | undefined;
+// The registry key every stubbed download is signed with: there is no unsigned install.
+let registryKey: Awaited<ReturnType<typeof generateKeypair>>;
+beforeAll(async () => {
+  registryKey = await generateKeypair('dl-registry');
+});
+
+async function sigResponse(body: Buffer): Promise<Response> {
+  const sig = await signBundle(new Uint8Array(body), registryKey);
+  return { ok: true, status: 200, json: async () => sig, text: async () => '' } as Response;
+}
 
 function mockProc(exitCode: number, stderrText = '') {
   return {
@@ -63,12 +73,13 @@ function mockProc(exitCode: number, stderrText = '') {
 
 function stubDownloadResponse(
   body: Buffer,
-  opts: { ok?: boolean; status?: number; text?: string; sha?: string | null } = {},
+  opts: { ok?: boolean; status?: number; text?: string; sha?: string | null; sig?: boolean } = {},
 ): void {
-  const { ok = true, status = 200, text = '', sha = null } = opts;
+  const { ok = true, status = 200, text = '', sha = null, sig = true } = opts;
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = String(input);
     if (url.endsWith('.sig')) {
+      if (sig) return sigResponse(body);
       return { ok: false, status: 404, json: async () => ({}), text: async () => '' } as Response;
     }
     const headers = new Headers();
@@ -85,19 +96,16 @@ function stubDownloadResponse(
   }) as typeof fetch;
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   // Reset to the real fetch so a test that forgets to set its own doesn't pick
   // up whatever another file left on the global. Individual tests override it.
   globalThis.fetch = originalFetch;
   destBase = mkdtempSync(join(tmpdir(), 'zveltio-dl-'));
   savedRequireSig = process.env.REQUIRE_EXTENSION_SIGNATURES;
   savedRegistryKeys = process.env.REGISTRY_PUBLIC_KEYS_JSON;
-  // Most cases here exercise download/extraction mechanics, not signature
-  // policy, so opt out explicitly. Signatures are REQUIRED by default now;
-  // leaving the variable unset would make every one of them fail on a missing
-  // .sig for reasons unrelated to what they assert. The enforcement default
-  // itself is covered below and in signature-required-default.test.ts.
-  process.env.REQUIRE_EXTENSION_SIGNATURES = 'false';
+  process.env.REGISTRY_PUBLIC_KEYS_JSON = JSON.stringify([
+    await exportTrustedKeyEntry(registryKey.keyId, registryKey.publicJwk),
+  ]);
 
   Bun.spawn = ((cmd: string[], opts?: { cwd?: string }) => {
     if (cmd[0] === 'unzip') {
@@ -166,20 +174,17 @@ describe('downloadExtension', () => {
     expect(existsSync(join(destBase, ENTRY.name, 'manifest.json'))).toBe(true);
   });
 
-  it('throws SignatureMissingError when signatures are required but absent', async () => {
-    process.env.REQUIRE_EXTENSION_SIGNATURES = 'true';
-    stubDownloadResponse(ZIP_MAGIC);
-    await expect(downloadExtension(ENTRY, destBase)).rejects.toBeInstanceOf(SignatureMissingError);
-  });
-
-  it('refuses an unsigned archive by DEFAULT, with the variable unset', async () => {
-    // The gate used to read `=== 'true'`, so an operator who never set the
-    // variable — nearly everyone — installed with no signature check at all.
-    // The beforeEach above opts out for the mechanics cases; this one restores
-    // the shipped default to pin it.
-    delete process.env.REQUIRE_EXTENSION_SIGNATURES;
-    stubDownloadResponse(ZIP_MAGIC);
-    await expect(downloadExtension(ENTRY, destBase)).rejects.toBeInstanceOf(SignatureMissingError);
+  it('refuses an unsigned archive, whatever REQUIRE_EXTENSION_SIGNATURES says', async () => {
+    // ADR 0056 amendment 2026-11-18: no unsigned mode. `=false` installed it.
+    for (const v of [undefined, 'true', 'false']) {
+      if (v === undefined) delete process.env.REQUIRE_EXTENSION_SIGNATURES;
+      else process.env.REQUIRE_EXTENSION_SIGNATURES = v;
+      stubDownloadResponse(ZIP_MAGIC, { sig: false });
+      await expect(downloadExtension(ENTRY, destBase)).rejects.toBeInstanceOf(
+        SignatureMissingError,
+      );
+      expect(existsSync(join(destBase, ENTRY.name, 'manifest.json'))).toBe(false);
+    }
   });
 
   it('rejects unknown archive magic', async () => {
@@ -215,15 +220,14 @@ describe('downloadExtension', () => {
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       urls.push(url);
-      if (url.endsWith('.sig')) {
-        return { ok: false, status: 404, text: async () => '', json: async () => ({}) } as Response;
-      }
+      if (url.endsWith('.sig')) return sigResponse(ZIP_MAGIC);
       expect((init?.headers as Record<string, string>)?.Authorization).toBe('Bearer lic-xyz');
       return {
         ok: true,
         status: 200,
         headers: new Headers(),
-        arrayBuffer: async () => ZIP_MAGIC.buffer,
+        arrayBuffer: async () =>
+          ZIP_MAGIC.buffer.slice(ZIP_MAGIC.byteOffset, ZIP_MAGIC.byteOffset + ZIP_MAGIC.byteLength),
         text: async () => '',
       } as Response;
     }) as typeof fetch;
@@ -296,7 +300,7 @@ describe('downloadExtension', () => {
     await expect(downloadExtension(ENTRY, destBase)).rejects.toBeInstanceOf(SignatureInvalidError);
   });
 
-  it('with enforcement opted out, warns and proceeds when signature fetch 5xxs', async () => {
+  it('refuses, with a warning, when the signature fetch 5xxs', async () => {
     const warn = spyOn(console, 'warn').mockImplementation(() => {});
     try {
       globalThis.fetch = (async (input: RequestInfo | URL) => {
@@ -317,7 +321,10 @@ describe('downloadExtension', () => {
           text: async () => '',
         } as Response;
       }) as typeof fetch;
-      await downloadExtension(ENTRY, destBase);
+      process.env.REQUIRE_EXTENSION_SIGNATURES = 'false';
+      await expect(downloadExtension(ENTRY, destBase)).rejects.toBeInstanceOf(
+        SignatureMissingError,
+      );
       expect(
         warn.mock.calls.some((c) => String(c[0]).includes('signature fetch returned 503')),
       ).toBe(true);
@@ -326,7 +333,7 @@ describe('downloadExtension', () => {
     }
   });
 
-  it('with enforcement opted out, warns and proceeds when signature fetch throws', async () => {
+  it('refuses, with a warning, when the signature fetch throws', async () => {
     const warn = spyOn(console, 'warn').mockImplementation(() => {});
     try {
       globalThis.fetch = (async (input: RequestInfo | URL) => {
@@ -340,7 +347,10 @@ describe('downloadExtension', () => {
           text: async () => '',
         } as Response;
       }) as typeof fetch;
-      await downloadExtension(ENTRY, destBase);
+      process.env.REQUIRE_EXTENSION_SIGNATURES = 'false';
+      await expect(downloadExtension(ENTRY, destBase)).rejects.toBeInstanceOf(
+        SignatureMissingError,
+      );
       expect(
         warn.mock.calls.some((c) => String(c[0]).includes('signature fetch failed: sig timeout')),
       ).toBe(true);

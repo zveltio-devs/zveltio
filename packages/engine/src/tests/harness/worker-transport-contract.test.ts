@@ -18,6 +18,7 @@ import { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
 import { revokeExtensionDbRoles } from '../../lib/extensions/ext-db-role.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extension-host.js';
 import {
   forgetInstalled,
@@ -88,6 +89,7 @@ d('worker transport contract: the process transport carries the protocol', () =>
   const cwd = process.cwd();
 
   beforeAll(async () => {
+    _setInlineForTests(true); // unsigned fixtures: the test override stands in for a signature
     ({ db } = await getTestApp());
     base = mkdtempSync(join(tmpdir(), 'wkr-transport-'));
     // Bun loads `.env` from its working directory. CI has none, so plant one
@@ -135,6 +137,7 @@ d('worker transport contract: the process transport carries the protocol', () =>
   }, 60_000);
 
   afterAll(() => {
+    _setInlineForTests(false);
     process.chdir(cwd);
     if (saved === undefined) delete process.env.ZVELTIO_EXT_TRANSPORT;
     else process.env.ZVELTIO_EXT_TRANSPORT = saved;

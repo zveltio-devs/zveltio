@@ -9,7 +9,9 @@ import { afterAll, beforeAll, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { exportTrustedKeyEntry, generateKeypair, signBundle } from '@zveltio/sdk/publish';
 import { downloadExtension } from '../../lib/extensions/extension-download.js';
+import { REGISTRY_SIGNED_DIR } from '../../lib/security/index.js';
 
 const ENTRY = {
   name: 'race-ext',
@@ -27,7 +29,7 @@ const FILES = 400;
 const body = (i: number) => `export const v${i} = '${String(i).repeat(2000)}';\n`;
 
 const realFetch = globalThis.fetch;
-const savedSig = process.env.REQUIRE_EXTENSION_SIGNATURES;
+const savedKeys = process.env.REGISTRY_PUBLIC_KEYS_JSON;
 let work = '';
 let archive: Buffer;
 
@@ -40,18 +42,22 @@ beforeAll(async () => {
   const tgz = join(work, 'b.tar.gz');
   expect(await Bun.spawn(['tar', '-czf', tgz, '-C', src, '.']).exited).toBe(0);
   archive = readFileSync(tgz);
-  // Mechanics, not signature policy (covered in extension-download-package.test.ts).
-  process.env.REQUIRE_EXTENSION_SIGNATURES = 'false';
+  // Signed as the registry signs: there is no unsigned install.
+  const kp = await generateKeypair('race-registry');
+  process.env.REGISTRY_PUBLIC_KEYS_JSON = JSON.stringify([
+    await exportTrustedKeyEntry(kp.keyId, kp.publicJwk),
+  ]);
+  const sig = await signBundle(new Uint8Array(archive), kp);
   globalThis.fetch = (async (input: RequestInfo | URL) => {
-    if (String(input).endsWith('.sig')) return new Response('', { status: 404 });
+    if (String(input).endsWith('.sig')) return Response.json(sig);
     return new Response(new Uint8Array(archive));
   }) as typeof fetch;
 });
 
 afterAll(() => {
   globalThis.fetch = realFetch;
-  if (savedSig === undefined) delete process.env.REQUIRE_EXTENSION_SIGNATURES;
-  else process.env.REQUIRE_EXTENSION_SIGNATURES = savedSig;
+  if (savedKeys === undefined) delete process.env.REGISTRY_PUBLIC_KEYS_JSON;
+  else process.env.REGISTRY_PUBLIC_KEYS_JSON = savedKeys;
   rmSync(work, { recursive: true, force: true });
 });
 
@@ -70,7 +76,7 @@ it('two concurrent downloads into one directory both succeed and leave the bundl
       'ok',
     ]);
     const dir = join(base, ENTRY.name);
-    expect(readdirSync(dir).sort()).toEqual(['engine', 'manifest.json']);
+    expect(readdirSync(dir).sort()).toEqual([REGISTRY_SIGNED_DIR, 'engine', 'manifest.json']);
     expect(readdirSync(join(dir, 'engine'))).toHaveLength(FILES);
     for (let i = 0; i < FILES; i++)
       expect(readFileSync(join(dir, 'engine', `f${i}.js`), 'utf8')).toBe(body(i));

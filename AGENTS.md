@@ -348,9 +348,10 @@ generated).
 - Tenant/RLS rules: never bypass the request-scoped DB
   (`createRequestScopedDb`) for tenant data; the tenancy gates above exist
   because regressions here are cross-tenant data leaks.
-- Extension installs verify Ed25519 signatures by default
-  (`REQUIRE_EXTENSION_SIGNATURES=false` only for unsigned private mirrors;
-  extra signers go in `REGISTRY_PUBLIC_KEYS_JSON`).
+- Extension installs verify Ed25519 signatures, always; an unsigned directory
+  never runs, inline or on the runner. Extra signers go in
+  `REGISTRY_PUBLIC_KEYS_JSON`; an operator's own extensions are signed with a
+  key on `OPERATOR_PUBLIC_KEYS_JSON` (`docs/extensions/signatures.md`).
 - Edge functions run in a separate process per invocation with a minimal env,
   a kernel memory ceiling (`EDGE_MEMORY_LIMIT_MB`) and a wall-clock kill. There
   is no in-process mode; `EDGE_SANDBOX_MODE` is ignored. A function that lists

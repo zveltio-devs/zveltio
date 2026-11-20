@@ -19,6 +19,7 @@ import type { Database } from '../../db/index.js';
 import { getActiveBunPool } from '../../db/bun-sql-dialect.js';
 import { revokeExtensionDbRoles } from '../../lib/extensions/ext-db-role.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { withTenantIsolation } from '../../lib/tenancy/index.js';
 import {
   markRequestTransaction,
@@ -189,6 +190,7 @@ d('one transaction per request across the worker bridge', () => {
     );
 
   beforeAll(async () => {
+    _setInlineForTests(true); // unsigned fixtures: the test override stands in for a signature
     ({ db } = await getTestApp());
     await sql`INSERT INTO zv_tenants (id, slug, name, status)
               VALUES (${TENANT}::uuid, ${`wkrtx-${SFX}`}, 'tx', 'active')`.execute(db);
@@ -336,6 +338,7 @@ d('one transaction per request across the worker bridge', () => {
   }, 150_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     if (saved === undefined) delete process.env.ZVELTIO_EXT_TRANSPORT;
     else process.env.ZVELTIO_EXT_TRANSPORT = saved;
     extensionLoader.ctx = savedCtx;

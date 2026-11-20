@@ -15,7 +15,9 @@
  *
  *   1. Boot the engine at TEST_PORT (default 3099) with
  *      EXTENSIONS_DIR pointing at a folder containing both
- *      `hello-ext/` and `hello-ext-worker/` fixtures.
+ *      `hello-ext/` and `hello-ext-worker/` fixtures, signed with
+ *      `bun scripts/sign-as-registry.ts <dir>` and the line it prints in
+ *      the engine's environment (an unsigned directory never runs).
  *   2. Create a god user with TEST_USER_EMAIL / TEST_USER_PASSWORD.
  *   3. Set ENABLE_MARKETPLACE_INTEGRATION_TESTS=1.
  *   4. Run `bun test packages/engine/src/tests/integration/marketplace-lifecycle.integration.test.ts`.

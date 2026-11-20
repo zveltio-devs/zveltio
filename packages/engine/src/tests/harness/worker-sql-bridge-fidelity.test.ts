@@ -15,6 +15,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { revokeExtensionDbRoles } from '../../lib/extensions/ext-db-role.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extension-host.js';
 import {
   forgetInstalled,
@@ -87,6 +88,7 @@ d('worker SQL bridge answers as the inline driver does', () => {
   const savedCtx = extensionLoader.ctx;
 
   beforeAll(async () => {
+    _setInlineForTests(true); // unsigned fixtures: the test override stands in for a signature
     ({ db } = await getTestApp());
     base = mkdtempSync(join(tmpdir(), 'wkr-sql-'));
     for (const transport of TRANSPORTS) {
@@ -148,6 +150,7 @@ d('worker SQL bridge answers as the inline driver does', () => {
   }, 90_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     if (saved === undefined) delete process.env.ZVELTIO_EXT_TRANSPORT;
     else process.env.ZVELTIO_EXT_TRANSPORT = saved;
     extensionLoader.ctx = savedCtx;

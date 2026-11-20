@@ -26,7 +26,6 @@ import { fetchWithRetry, isPathInsideBase } from './extension-utils.js';
 import { tryAdvisoryLock } from '../../db/advisory-lock.js';
 import type { Database } from '../../db/index.js';
 import { purgeExtensionData } from './migration-runner.js';
-import { modeValue } from '../operational-modes.js';
 import {
   type ExtensionSignature,
   extensionDirListing,
@@ -211,48 +210,26 @@ export async function fetchRegistryChangelog(name: string): Promise<string | nul
 }
 
 /**
- * Whether a missing signature blocks install. Exported so the default can be
- * pinned directly by a test, rather than a test reimplementing this
- * expression — a reimplementation checks its own copy, not this one, and
- * would stay green if this line regressed.
+ * Fetch `<download_url>.sig` and verify the archive's Ed25519 signature. A
+ * missing or invalid signature throws (SignatureMissingError /
+ * SignatureInvalidError): there is no unsigned mode (ADR 0056 amendment
+ * 2026-11-18; `REQUIRE_EXTENSION_SIGNATURES=false` is gone).
  *
- * default (unset or anything but "false") → required.
- * `REQUIRE_EXTENSION_SIGNATURES=false`    → not required (escape hatch for a
- * private mirror that does not sign yet).
- */
-export function signaturesRequired(): boolean {
-  return modeValue('REQUIRE_EXTENSION_SIGNATURES') !== 'false';
-}
-
-/**
- * Fetch `<download_url>.sig` and verify the archive's Ed25519 signature.
- *
- * Behaviour controlled by env:
- *   - default (unset or anything but "false") → a missing OR invalid signature
- *     throws (SignatureMissingError / SignatureInvalidError).
- *   - `REQUIRE_EXTENSION_SIGNATURES=false`    → a missing signature logs a
- *     warning and proceeds. An INVALID signature still throws either way — a
- *     present-but-broken signature is never accepted.
- *
- * Answers the verified signature, or null for a missing one let through: the
- * download keeps the first with the files, and nothing unsigned runs inline (U3).
+ * Answers the verified signature; the download keeps it with the files (U3).
  */
 async function verifyArchiveSignature(
   extensionName: string,
   downloadUrl: string,
   headers: Record<string, string>,
   archive: Uint8Array,
-): Promise<ExtensionSignature | null> {
-  // Signatures are REQUIRED by default as of beta.37. The flag stays as an
-  // escape hatch (`REQUIRE_EXTENSION_SIGNATURES=false`) for a private mirror
-  // that does not sign yet; the supported way to trust another signer is
-  // REGISTRY_PUBLIC_KEYS_JSON, not turning verification off.
+): Promise<ExtensionSignature> {
+  // A mirror that signs with its own key is trusted through
+  // REGISTRY_PUBLIC_KEYS_JSON; nothing turns verification off.
   //
   // Enabling this was gated on the registry actually producing signatures, and
   // as of 2026-07-30 it does: all 57 official extensions serve a .sig at the URL
   // the engine fetches, and those signatures verify against the BUILTIN_KEYS
   // entry for registry-prod-2026 using this file's own verifySignature.
-  const required = signaturesRequired();
   const sigUrl = `${downloadUrl}.sig`;
 
   let sigBody: unknown = null;
@@ -279,13 +256,7 @@ async function verifyArchiveSignature(
     );
   }
 
-  if (sigBody === null) {
-    if (required) throw new SignatureMissingError(extensionName);
-    console.warn(
-      `[signature] ${extensionName}: no signature.sig found — install proceeded because REQUIRE_EXTENSION_SIGNATURES=false`,
-    );
-    return null;
-  }
+  if (sigBody === null) throw new SignatureMissingError(extensionName);
 
   const parsed = parseSignature(sigBody, extensionName);
   await verifySignature(archive, parsed, extensionName);
@@ -407,7 +378,7 @@ export async function downloadExtension(
 
   // S1-01: signature verification. Try to fetch `<download_url>.sig` next to
   // the archive. The registry publishes the sig file as a sibling of the
-  // tarball. Missing-signature behaviour is gated by REQUIRE_EXTENSION_SIGNATURES.
+  // tarball; a missing one refuses the install.
   const signature = await verifyArchiveSignature(
     entry.name,
     downloadUrl,
@@ -456,15 +427,13 @@ export async function downloadExtension(
   }
 
   // U3: what the registry signed stays with the files, so every load can check
-  // them against it (`verifyRegistrySignedDir`). An unsigned archive keeps none,
-  // and none from an older version may vouch for it.
+  // them against it (`verifyRegistrySignedDir`); none from an older version may
+  // vouch for it.
   const kept = join(destDir, REGISTRY_SIGNED_DIR);
   fs.rmSync(kept, { recursive: true, force: true });
-  if (signature) {
-    fs.mkdirSync(kept);
-    fs.writeFileSync(join(kept, 'archive'), buf);
-    fs.writeFileSync(join(kept, 'archive.sig'), JSON.stringify(signature));
-  }
+  fs.mkdirSync(kept);
+  fs.writeFileSync(join(kept, 'archive'), buf);
+  fs.writeFileSync(join(kept, 'archive.sig'), JSON.stringify(signature));
 
   console.log(`✅ Extension "${entry.name}" extracted to ${destDir}`);
   return { archiveSha256: actualArchiveSha };
@@ -473,8 +442,8 @@ export async function downloadExtension(
 /**
  * The registry key that signed the archive `extDir` was extracted from, while
  * its files are still exactly that archive's; null when it keeps no registry
- * signature (an unsigned download, a directory put there by hand, a source
- * checkout). This, never the name, is what lets an extension run inline (U3,
+ * signature (a directory put there by hand, a source checkout). This, never
+ * the name, is what lets an extension run inline (U3,
  * ADR 0056 amendment 4).
  *
  * Re-verified at every load: the signature against the registry keys (never an

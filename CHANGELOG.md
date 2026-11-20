@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**BREAKING (security) — there is no unsigned mode (ADR 0056 amendment 2026-11-18).** `REQUIRE_EXTENSION_SIGNATURES` is removed: an extension archive without a registry signature is refused at install whatever it says, and the variable set to `false` only earns a boot warning (Helm: the `engine.config.requireExtensionSignatures` value is gone). And a worker-isolated, bundled extension directory that holds neither a registry signature nor an operator's `signature.json` is refused at load: it ran on the extension runner before, reached by a row written straight into `zv_extension_registry` or by an archive installed under that variable, with no signer for its faults to name. A mirror signs with its own key on `REGISTRY_PUBLIC_KEYS_JSON`; your own extension — local development included — is signed with a key on `OPERATOR_PUBLIC_KEYS_JSON` (`zveltio keys generate`, `zveltio extension sign`; docs/extensions/signatures.md).
+
 ## [3.0.0-beta.130] - 2026-11-20
 
 **An action may send the browser to an external page (ADR 0061 decision 1).** `ActionResult` gains a fifth form, `{ "redirect": "<https URL>" }`. The engine accepts it on `POST /ext/<name>/actions/<action>` only when the URL is https, carries no user name or password, and its authority is one the operator named for the extension (a consented `egress:<authority>` or a slot binding); any other redirect answers `502 redirect_not_allowed`. Studio and `@zveltio/sdk-react` follow it in the top window. An older front end reports the new form as an invalid result (`docs/extensions/ui-model.md`).

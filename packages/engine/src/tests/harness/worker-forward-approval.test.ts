@@ -30,6 +30,7 @@ import { _resetCatalogForTests } from '../../lib/extensions/extension-catalog.js
 import { _resetCatalogCacheForTests } from '../../lib/extensions/extension-download.js';
 import { revokeExtensionDbRoles } from '../../lib/extensions/ext-db-role.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import { engineEvents } from '../../lib/runtime/index.js';
 import {
@@ -127,6 +128,7 @@ d('credential forwarding needs an operator approval of the exact set', () => {
     ).rows[0]?.a ?? null;
 
   beforeAll(async () => {
+    _setInlineForTests(true); // unsigned fixtures: the test override stands in for a signature
     const t = await getTestApp();
     engine = t.app;
     db = t.db;
@@ -177,6 +179,7 @@ d('credential forwarding needs an operator approval of the exact set', () => {
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     await getWorkerHost(app).stopAll();
     for (const [k, v] of [
       ['ZVELTIO_EXT_TRANSPORT', saved.transport],

@@ -274,6 +274,8 @@ interface Leg {
   log: string;
   runner: string | null;
   sockDir: string;
+  /** The key `scripts/sign-as-registry.ts` signed the leg's extensions with. */
+  registryKeys: string;
 }
 
 async function startRunner(leg: Leg): Promise<void> {
@@ -358,6 +360,7 @@ async function bootEngine(leg: Leg, driver: Driver, transport: Transport): Promi
     ZVELTIO_REGISTRATION_ENABLED: '1',
     ZVELTIO_REGISTRY_URL: 'http://127.0.0.1:9',
     EXTENSIONS_DIR: leg.base,
+    REGISTRY_PUBLIC_KEYS_JSON: leg.registryKeys,
     STORAGE_LOCAL_DIR: join(leg.base, '.storage'),
     DB_POOL_MAX: '10',
   };
@@ -413,7 +416,15 @@ for (const [driver, transport] of LEGS) {
 
   describe.skipIf(skipLeg)(`third-party extension e2e — driver ${driver}, ${transport}`, () => {
     let db: Database;
-    const leg: Leg = { base: '', url: '', engine: null, log: '', runner: null, sockDir: '' };
+    const leg: Leg = {
+      base: '',
+      url: '',
+      engine: null,
+      log: '',
+      runner: null,
+      sockDir: '',
+      registryKeys: '',
+    };
     const out: Record<string, unknown> = {};
     const db$ = async <T>(q: ReturnType<typeof sql<T>>) => (await q.execute(db)).rows;
     const logged = async (tag: string) =>
@@ -475,6 +486,21 @@ for (const [driver, transport] of LEGS) {
           })),
         }),
       );
+      // Signed as a registry download leaves them: an unsigned directory never
+      // runs (ADR 0056 amendment 2026-11-18).
+      const signed = Bun.spawnSync([
+        'bun',
+        join(REPO_ROOT, 'scripts', 'sign-as-registry.ts'),
+        leg.base,
+        dep,
+        main,
+        ...extras,
+      ]);
+      if (signed.exitCode !== 0) throw new Error(`sign-as-registry: ${signed.stderr.toString()}`);
+      leg.registryKeys = signed.stdout
+        .toString()
+        .trim()
+        .replace(/^REGISTRY_PUBLIC_KEYS_JSON=/, '');
       // The runner's uids read the bundles.
       Bun.spawnSync(['chmod', '-R', 'a+rX', leg.base]);
       chmodSync(leg.sockDir, 0o755);
