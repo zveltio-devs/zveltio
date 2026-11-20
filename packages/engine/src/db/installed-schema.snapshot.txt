@@ -5549,6 +5549,7 @@ table zvd_efactura_settings
   col id                             uuid NOT NULL DEFAULT gen_random_uuid()
   col last_error                     text
   col last_verified_at               timestamp with time zone
+  col oauth_started_by               text
   col oauth_state                    text
   col oauth_state_expires_at         timestamp with time zone
   col refresh_token                  text
@@ -13827,6 +13828,7 @@ table zvv_efactura_settings
   col id                             uuid
   col last_error                     text
   col last_verified_at               timestamp with time zone
+  col oauth_started_by               text
   col oauth_state_expires_at         timestamp with time zone
   col scope                          text
   col search_text                    text
