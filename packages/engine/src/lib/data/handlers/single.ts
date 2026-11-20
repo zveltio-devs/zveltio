@@ -62,6 +62,7 @@ import { tenantId } from '../../route-db.js';
 import { readScope } from '../read-scope.js';
 import { rowAuthorId, checkAccess } from '../auth.js';
 import { cascadeRefusal, writtenByBody, writtenByRefusal } from '../written-by.js';
+import { claimRefusal, claimRefusalBody, releaseOwnedFiles } from '../owned-files.js';
 import type { RequestUser } from '../types.js';
 import type { DynamicRecord } from '../../../db/dynamic-types.js';
 
@@ -337,6 +338,7 @@ export async function createRecord(
     false,
     null,
     w.writtenBy,
+    true,
   );
   if (writtenBy) return c.json(writtenByBody(writtenBy), 409);
   if (errors.length > 0) return c.json({ errors }, 422);
@@ -383,6 +385,8 @@ export async function createRecord(
   // A `record.before*` hook that adds a field is held to the same rule.
   const late = writtenByRefusal(collectionDef, w.writtenBy, Object.keys(finalInsert));
   if (late) return c.json(writtenByBody(late), 409);
+  const unclaimable = await claimRefusal(effectiveDb, user, w.tenantId, collectionDef, finalInsert);
+  if (unclaimable) return c.json(claimRefusalBody(unclaimable), 403);
 
   const result = await handlePgErrors(c, async () => {
     const record = await tracedQuery(`${tableName}.create`, async () =>
@@ -455,7 +459,14 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
   const tableName = DDLManager.getTableName(collection);
   const body = await c.req.json();
 
-  const { errors, processed, writtenBy } = await processInput(body, collectionDef, false, 'later');
+  const { errors, processed, writtenBy } = await processInput(
+    body,
+    collectionDef,
+    false,
+    'later',
+    undefined,
+    true,
+  );
   if (writtenBy) return c.json(writtenByBody(writtenBy), 409);
   if (errors.length > 0) return c.json({ errors }, 422);
   const transitions = await hasTransitionRules(collectionDef, processed);
@@ -540,6 +551,15 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
   // A `record.before*` hook that adds a field is held to the same rule.
   const late = writtenByRefusal(collectionDef, undefined, Object.keys(finalPatch));
   if (late) return c.json(writtenByBody(late), 409);
+  const unclaimable = await claimRefusal(
+    effectiveDb,
+    user,
+    getTenantId(c),
+    collectionDef,
+    finalPatch,
+    beforeRow,
+  );
+  if (unclaimable) return c.json(claimRefusalBody(unclaimable), 403);
 
   const result = await handlePgErrors(c, async () => {
     const record = await tracedQuery(`${tableName}.update`, () =>
@@ -548,6 +568,9 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
       ),
     );
     if (!record) return c.json({ error: 'Record not found' }, 404);
+    await releaseOwnedFiles(effectiveDb, getTenantId(c), collectionDef, [
+      { before: beforeRow, after: finalPatch },
+    ]);
     await afterWrite(effectiveDb, {
       collection,
       recordId: id,
@@ -625,6 +648,7 @@ export async function patchRecord(
     true,
     'later',
     w.writtenBy,
+    true,
   );
   if (writtenBy) return c.json(writtenByBody(writtenBy), 409);
   if (errors.length > 0) return c.json({ errors }, 422);
@@ -755,12 +779,24 @@ export async function patchRecord(
   // A `record.before*` hook that adds a field is held to the same rule.
   const late = writtenByRefusal(collectionDef, w.writtenBy, Object.keys(finalPatch));
   if (late) return c.json(writtenByBody(late), 409);
+  const unclaimable = await claimRefusal(
+    effectiveDb,
+    user,
+    w.tenantId,
+    collectionDef,
+    finalPatch,
+    beforeRow,
+  );
+  if (unclaimable) return c.json(claimRefusalBody(unclaimable), 403);
 
   const result = await handlePgErrors(c, async () => {
     const record = await engineRead(canRead, effectiveDb, collection, () =>
       dynamicUpdate(effectiveDb, tableName, id, finalPatch, { updated_by: author }),
     );
     if (!record) return c.json({ error: 'Record not found' }, 404);
+    await releaseOwnedFiles(effectiveDb, w.tenantId, collectionDef, [
+      { before: beforeRow, after: finalPatch },
+    ]);
     await afterWrite(effectiveDb, {
       collection,
       recordId: id,
@@ -880,6 +916,9 @@ export async function deleteRecord(
       engineRead(canRead, effectiveDb, collection, () => dynamicDelete(effectiveDb, tableName, id)),
     );
     if (!deleted) return c.json({ error: 'Record not found' }, 404);
+    await releaseOwnedFiles(effectiveDb, w.tenantId, collectionDef, [
+      { before: existing, after: null },
+    ]);
 
     await afterWrite(effectiveDb, {
       collection,

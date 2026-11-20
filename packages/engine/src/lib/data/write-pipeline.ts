@@ -32,6 +32,7 @@ import { DEFAULT_TENANT_ID } from '../route-db.js';
 import { normalizeFields, withheldColumns } from './shape.js';
 import type { CollectionDef } from './types.js';
 import { writtenByRefusal } from './written-by.js';
+import { ownedFileFields } from './owned-files.js';
 import { sqlState } from '../../db/bun-sql-quirks.js';
 import { columnGuardRefusal, ProblemException } from '../problem.js';
 import type { DynamicDB } from '../../db/dynamic-types.js';
@@ -164,6 +165,12 @@ export async function processInput(
    * owner — here, because every create and update runs through this.
    */
   writer?: string,
+  /**
+   * The caller asks `claimRefusal` of the write's final values itself (the data
+   * API handlers). Any other path refuses a value for an `ownsFile` field: it
+   * would hand the row a file nobody checked was the writer's (ADR 0061).
+   */
+  claimsChecked = false,
 ): Promise<{ errors: string[]; processed: Record<string, unknown>; writtenBy?: string }> {
   const errors: string[] = [];
   const processed: Record<string, unknown> = {};
@@ -177,6 +184,14 @@ export async function processInput(
     Object.keys(data ?? {}).filter((k) => data[k] !== undefined),
   );
   if (refused) return { errors: [refused], processed, writtenBy: refused };
+  if (!claimsChecked) {
+    for (const f of ownedFileFields(collectionDef)) {
+      if (data?.[f] !== undefined) {
+        errors.push(`${f}: owns its file, so it is written only through the data API`);
+      }
+    }
+    if (errors.length > 0) return { errors, processed };
+  }
 
   const fields = normalizeFields(collectionDef);
   if (fields.length === 0) return { errors, processed: data };

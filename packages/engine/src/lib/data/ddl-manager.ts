@@ -257,43 +257,54 @@ export const SYSTEM_COLUMNS: ReadonlySet<string> = new Set([
   'search_text',
 ]);
 
-export const FieldSchema = z.object({
-  name: z
-    .string()
-    .regex(
-      /^[a-z][a-z0-9_]*$/,
-      'Field name must start with a lowercase letter and contain only lowercase letters, numbers, and underscores',
-    ),
-  type: z.string().max(50),
-  required: z.boolean().default(false),
-  unique: z.boolean().default(false),
-  indexed: z.boolean().default(false),
-  defaultValue: z.any().optional(),
-  options: z
-    .record(
-      z.string().max(100),
-      z.union([z.string().max(10_000), z.number(), z.boolean(), z.null(), z.array(z.any())]),
-    )
-    // A relation's referential actions, refused here as a 400 rather than inside
-    // the DDL transaction.
-    .superRefine((o, ctx) => {
-      for (const k of ['on_delete', 'on_update']) {
-        if (o[k] != null && !ON_DELETE_SAFE.has(String(o[k]).toUpperCase())) {
-          ctx.addIssue({
-            code: 'custom',
-            path: [k],
-            message: `${k} must be one of ${[...ON_DELETE_SAFE].join(', ')}`,
-          });
+export const FieldSchema = z
+  .object({
+    name: z
+      .string()
+      .regex(
+        /^[a-z][a-z0-9_]*$/,
+        'Field name must start with a lowercase letter and contain only lowercase letters, numbers, and underscores',
+      ),
+    type: z.string().max(50),
+    required: z.boolean().default(false),
+    unique: z.boolean().default(false),
+    indexed: z.boolean().default(false),
+    defaultValue: z.any().optional(),
+    options: z
+      .record(
+        z.string().max(100),
+        z.union([z.string().max(10_000), z.number(), z.boolean(), z.null(), z.array(z.any())]),
+      )
+      // A relation's referential actions, refused here as a 400 rather than inside
+      // the DDL transaction.
+      .superRefine((o, ctx) => {
+        for (const k of ['on_delete', 'on_update']) {
+          if (o[k] != null && !ON_DELETE_SAFE.has(String(o[k]).toUpperCase())) {
+            ctx.addIssue({
+              code: 'custom',
+              path: [k],
+              message: `${k} must be one of ${[...ON_DELETE_SAFE].join(', ')}`,
+            });
+          }
         }
-      }
-    })
-    .optional(),
-  label: z.string().max(200).optional(),
-  description: z.string().max(1_000).optional(),
-  encrypted: z.boolean().default(false).optional(),
-  /** Written only by its extension's actions and jobs (an extension's file only). */
-  writtenBy: z.literal('actions').optional(),
-});
+      })
+      .optional(),
+    label: z.string().max(200).optional(),
+    description: z.string().max(1_000).optional(),
+    encrypted: z.boolean().default(false).optional(),
+    /** Written only by its extension's actions and jobs (an extension's file only). */
+    writtenBy: z.literal('actions').optional(),
+    /**
+     * A `file` field whose row owns its files (ADR 0061 decision 2): a writer
+     * hands it only a file they could delete, and the engine deletes the file
+     * with the row or when the field no longer holds it (`data/owned-files.ts`).
+     */
+    ownsFile: z.literal(true).optional(),
+  })
+  .refine((f) => f.ownsFile === undefined || f.type === 'file', {
+    message: 'ownsFile is a setting of a field of type "file"',
+    path: ['ownsFile'],
+  });
 
 // Accept both camelCase (TS-style) and snake_case (REST-style) for client
 // convenience. The transform below normalizes everything to camelCase before

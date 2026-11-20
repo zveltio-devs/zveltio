@@ -13,6 +13,7 @@
  * who handed a job its files. Nothing here reads a request.
  */
 
+import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { apiKeyRowId, isApiKeyPrincipal, type RequestUser, rowAuthorId } from './data/index.js';
 import { type FileVisibility, mayDeleteFile, mayReadFile } from './media-visibility.js';
@@ -610,8 +611,12 @@ export async function storeFile(
     }
     throw err;
   });
+  storedIn.set(db, (storedIn.get(db) ?? new Set<string>()).add(file.id));
   return { file };
 }
+
+/** The files each transaction stored (`storeFile`), for `claimableFile`. */
+const storedIn = new WeakMap<object, Set<string>>();
 
 /**
  * The file `id` when `actor` may delete it, or change who sees it: its uploader,
@@ -701,4 +706,68 @@ export async function removeFile(
     bytesLater(() => storage.delete(path));
   }
   return { ok: true };
+}
+
+/**
+ * Whether `actor` may hand file `id` to a row that then owns it (ADR 0061
+ * decision 2): they could delete it (`deletableFile`), as the row will. A key
+ * that may not delete stored files (`keyMayDelete` false) hands over only a file
+ * `db`, its request's transaction, stored for it (ADR 0052 `put`).
+ */
+export async function claimableFile(
+  db: Database,
+  actor: FileActor,
+  id: string,
+  keyMayDelete: boolean,
+): Promise<boolean> {
+  if (!('file' in (await deletableFile(db, actor, id)))) return false;
+  return keyMayDelete || storedIn.get(db)?.has(id) === true;
+}
+
+/**
+ * Delete files `ids` of `tenantId`, which a row owned and no longer holds (ADR
+ * 0061 decision 2). No check here: the row's own rules decided who may delete
+ * or change it, and its writer was checked when each file entered it
+ * (`claimableFile`). The row first, the bytes handed to `bytesLater` once it is
+ * gone, as `removeFile` does. Migration 115 lets only the uploader or a tenant
+ * admin delete a file, so the statement runs with `zveltio.files_all` on.
+ *
+ * ponytail: a transaction-local window, as `withEngineColumns` opens one: a
+ * statement the same request runs concurrently on this transaction sees every
+ * file of the tenant while it is open. A SECURITY DEFINER function if that matters.
+ */
+export async function releaseFiles(
+  db: Database,
+  tenantId: string,
+  ids: readonly string[],
+  bytesLater: (remove: () => Promise<void>) => void,
+): Promise<void> {
+  if (ids.length === 0) return;
+  const window = (db as unknown as { isTransaction?: boolean }).isTransaction === true;
+  const prev = window
+    ? ((
+        await sql<{ v: string | null }>`
+          SELECT current_setting('zveltio.files_all', true) AS v`.execute(db)
+      ).rows[0]?.v ?? '')
+    : '';
+  if (window) await sql`SELECT set_config('zveltio.files_all', 'on', true)`.execute(db);
+  let gone: { storage_path: string }[];
+  try {
+    gone = await db
+      .deleteFrom('zv_media_files')
+      .where('id', 'in', [...ids])
+      .where('tenant_id', '=', tenantId)
+      .returning('storage_path')
+      .execute();
+  } finally {
+    // An aborted transaction fails this too, and its rollback discards the setting.
+    if (window) {
+      await sql`SELECT set_config('zveltio.files_all', ${prev}, true)`
+        .execute(db)
+        .catch(() => undefined);
+    }
+  }
+  const storage = getStorage();
+  if (!storage.isConfigured()) return;
+  for (const { storage_path: path } of gone) bytesLater(() => storage.delete(path));
 }

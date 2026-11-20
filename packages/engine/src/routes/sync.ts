@@ -39,6 +39,7 @@ import {
   cascadeRefusal,
   serializeRecord,
   writtenByRefusal,
+  releaseOwnedFiles,
 } from '../lib/data/index.js';
 import { tenantId } from '../lib/route-db.js';
 import { withSavepoint } from '../lib/savepoint.js';
@@ -698,6 +699,13 @@ export function syncRoutes(db: Database, _auth: any): Hono {
               results.push(await missed(collection, recordId));
               break;
             }
+            // ADR 0061: what an `ownsFile` field held goes with the row, as on REST.
+            await releaseOwnedFiles(
+              effectiveDb,
+              syncTid,
+              await DDLManager.getCollection(db, collection.slice(4)),
+              [{ before: removed as Record<string, unknown>, after: null }],
+            );
             results.push({ recordId, status: 'ok', serverVersion: Date.now() });
             await written(collection, recordId, 'delete', removed);
             break;
