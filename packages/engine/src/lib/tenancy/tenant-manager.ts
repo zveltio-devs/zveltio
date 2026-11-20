@@ -1814,7 +1814,12 @@ export function isSingleUnitReach(scope: TenantScope | null, tenantId: string): 
 let _rlsRoleAvailable = false;
 
 /** The engine's own roles that migrations grant on objects in this database. */
-const NARROW_ENGINE_ROLES = ['zveltio_rls', 'zveltio_worker', 'zveltio_flow_reader'];
+const NARROW_ENGINE_ROLES = [
+  'zveltio_rls',
+  'zveltio_worker',
+  'zveltio_flow_reader',
+  'zveltio_audit_purge',
+];
 
 /**
  * Refuse to start on a database restored without the engine's roles.
@@ -1938,10 +1943,11 @@ export async function ensureRlsEnforcementRole(db: Database): Promise<void> {
 
   // 1. The roles themselves. Needs CREATEROLE, which a plain engine role should
   //    not have — scripts/bootstrap-db-role.sh pre-creates them for that case.
-  //    The two narrow ones too (`zveltio_flow_reader` has had no user since
+  //    The narrow ones too (`zveltio_flow_reader` has had no user since
   //    ADR 0058 removed flow `query_db`, which fell back to the connection
-  //    role when it was absent). Their grants are not
-  //    made here — after a restore without roles only the dump has them, and
+  //    role when it was absent). Their grants are not made here, but for the
+  //    audit purge role's two in step 3 (ADR 0060) — after a restore without
+  //    roles only the dump has them, and
   //    `enforceRoleGrantsMarker` refuses to start instead.
   for (const role of NARROW_ENGINE_ROLES) {
     try {
@@ -2103,6 +2109,15 @@ export async function ensureRlsEnforcementRole(db: Database): Promise<void> {
         LOOP
           EXECUTE format('REVOKE INSERT, UPDATE, DELETE ON public.%I FROM zveltio_rls', t.tablename);
         END LOOP;
+        -- The audit trail is append-only for this role (ADR 0060, migration 128);
+        -- only the retention purge deletes, as zveltio_audit_purge.
+        IF to_regclass('public.zv_audit_log') IS NOT NULL THEN
+          REVOKE UPDATE, DELETE, TRUNCATE ON public.zv_audit_log FROM zveltio_rls;
+          IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'zveltio_audit_purge') THEN
+            GRANT USAGE ON SCHEMA public TO zveltio_audit_purge;
+            GRANT SELECT, DELETE ON public.zv_audit_log TO zveltio_audit_purge;
+          END IF;
+        END IF;
         -- A preview token is a credential too (migration 068): every column of
         -- zv_schema_branches but that one. The loop above just granted the table
         -- whole, and a column grant means nothing beside a table grant, so the

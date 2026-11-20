@@ -333,6 +333,8 @@ d('tenant archive + purge', () => {
       o: await rowsOf(O.id),
     };
     const envSchema = `tenant_${A.slug.replace(/-/g, '_')}_prod`;
+    const trail = (await rowsOf(A.id)).zv_audit_log;
+    expect(trail).toBeGreaterThan(0);
 
     const res = await del(A.id, `mode=purge&confirm=${A.slug}`);
     expect(res.status).toBe(200);
@@ -353,7 +355,9 @@ d('tenant archive + purge', () => {
     `.execute(db);
     expect(kept.rows[0]?.n).toBe(1);
 
-    expect(await rowsOf(A.id)).toEqual({});
+    // Every row but the audit trail, which is append-only (ADR 0060): retention takes it.
+    expect(body.deleted.zv_audit_log).toBeUndefined();
+    expect(await rowsOf(A.id)).toEqual({ zv_audit_log: trail });
     const gone = await sql<{
       n: number;
     }>`SELECT count(*)::int AS n FROM zv_tenants WHERE id = ${A.id}`.execute(db);

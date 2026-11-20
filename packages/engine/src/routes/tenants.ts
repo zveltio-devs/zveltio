@@ -609,7 +609,7 @@ export function tenantsRoutes(db: Database, auth: any, poolDb: Database): Hono {
       userId: user.id,
       resourceId: target.id,
       resourceType: 'tenant_member',
-      metadata: { tenant_id: tenantId, tenant_slug: tenant.slug, role, user_email },
+      metadata: { tenant_id: tenantId, tenant_slug: tenant.slug, role },
     });
 
     return c.json({ success: true, user_id: target.id, role }, 201);

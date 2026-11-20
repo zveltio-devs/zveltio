@@ -236,7 +236,8 @@ curl -sf http://localhost:3000/api/health || { echo "engine unhealthy"; exit 1; 
 Smoke-check (§ 5) before declaring complete.
 
 **Restoring onto a NEW server.** The engine's roles (`zveltio_rls`,
-`zveltio_worker`, `zveltio_flow_reader`, `zveltio_ext`, and one per extension)
+`zveltio_worker`, `zveltio_flow_reader`, `zveltio_audit_purge`, `zveltio_ext`,
+and one per extension)
 belong to the *cluster*, so `pg_dump` does not carry them — but it does carry
 every `GRANT` that names them. Replayed onto a server where they do not exist,
 each of those statements fails with `role "zveltio_rls" does not exist` and

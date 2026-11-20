@@ -34,7 +34,9 @@ d('a restore without the engine roles', () => {
     const { db } = await getTestApp();
     const r = await sql<{ note: string }>`
       SELECT obj_description(${MARKER}::regprocedure, 'pg_proc') AS note`.execute(db);
-    expect(r.rows[0]?.note).toBe('zveltio_flow_reader,zveltio_rls,zveltio_worker');
+    expect(r.rows[0]?.note).toBe(
+      'zveltio_audit_purge,zveltio_flow_reader,zveltio_rls,zveltio_worker',
+    );
   });
 
   it('refuses a database whose grants to a recorded role did not survive', async () => {
@@ -53,7 +55,7 @@ d('a restore without the engine roles', () => {
       db.transaction().execute(async (trx) => {
         // An install that gains zveltio_worker after 121 ran (CREATEROLE granted later).
         await sql`REVOKE EXECUTE ON FUNCTION ${sql.raw(MARKER)} FROM zveltio_worker`.execute(trx);
-        await sql`COMMENT ON FUNCTION ${sql.raw(MARKER)} IS 'zveltio_flow_reader,zveltio_rls'`.execute(
+        await sql`COMMENT ON FUNCTION ${sql.raw(MARKER)} IS 'zveltio_audit_purge,zveltio_flow_reader,zveltio_rls'`.execute(
           trx,
         );
         await enforceRoleGrantsMarker(trx);
@@ -62,7 +64,7 @@ d('a restore without the engine roles', () => {
                  obj_description(${MARKER}::regprocedure, 'pg_proc') AS note`.execute(trx);
         expect(r.rows[0]).toEqual({
           ok: true,
-          note: 'zveltio_flow_reader,zveltio_rls,zveltio_worker',
+          note: 'zveltio_audit_purge,zveltio_flow_reader,zveltio_rls,zveltio_worker',
         });
         throw new Rollback();
       }),

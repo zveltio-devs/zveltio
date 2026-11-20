@@ -1168,8 +1168,7 @@ export async function finalizeExtensionLoad(
   console.log(`🔌 Extension loaded: ${extName}`);
 
   // Audit trail — record successful load. No userId: system events
-  // are tracked by event type, and 'system' is not a real user id —
-  // setting it triggers the zv_audit_log_user_id_fkey FK violation.
+  // are tracked by event type, and 'system' is not a user id.
   auditLog(ctx.db, {
     type: 'extension.loaded',
     tenantId: null,

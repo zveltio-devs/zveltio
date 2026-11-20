@@ -186,9 +186,9 @@ const CURRENT_TENANT = sql`NULLIF(current_setting('zveltio.current_tenant', true
  */
 async function insertRow(db: Database, event: AuditEvent): Promise<boolean> {
   const { tenantId } = event;
-  // An API key is not a `"user"` row: `user_id` references one, so writing
-  // `apikey:<id>` there failed the foreign key and the row was lost — a key's
-  // `asSystem` left no trail at all. The key goes in the metadata instead.
+  // An API key is not a `"user"` row, and `user_id` names users only (it had a
+  // foreign key until migration 128; writing `apikey:<id>` there lost the row).
+  // The key goes in the metadata instead.
   const keyActor = event.userId?.startsWith('apikey:') ? event.userId : undefined;
   const userId = keyActor ? null : (event.userId ?? null);
   const metadata = keyActor ? { ...(event.metadata ?? {}), api_key: keyActor } : event.metadata;

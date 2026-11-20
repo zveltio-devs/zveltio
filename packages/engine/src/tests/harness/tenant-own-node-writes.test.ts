@@ -141,7 +141,10 @@ d('UPDATE and DELETE stay in the own node (B09)', () => {
 
   it("the parent cannot take the child's tombstones or audit rows", async () => {
     expect(await takeAndDelete('zv_sync_tombstones', sql`collection = ${TAG}`)).toEqual([0, 0]);
-    expect(await takeAndDelete('zv_audit_log', sql`event_type = ${TAG}`)).toEqual([0, 0]);
+    // The audit trail is append-only for the request role (ADR 0060): refused outright.
+    await expect(takeAndDelete('zv_audit_log', sql`event_type = ${TAG}`)).rejects.toThrow(
+      /permission denied/,
+    );
     expect(await count('zv_sync_tombstones')).toBe(2);
     expect(await count('zv_audit_log')).toBe(1);
   });

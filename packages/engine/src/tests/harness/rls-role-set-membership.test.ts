@@ -32,7 +32,7 @@ const d = SUPER_URL ? describe : describe.skip;
 const TITLE = superuserTitle('zveltio_rls membership is tested with SET, not MEMBER', SUPER_URL);
 const ADMIN_ONLY = 'pool_rlsrole_admin'; // what CREATE ROLE leaves its CREATEROLE creator
 const NO_SET = 'pool_rlsrole_noset'; // a member that may neither SET nor re-grant
-const NARROW = ['zveltio_worker', 'zveltio_flow_reader'];
+const NARROW = ['zveltio_worker', 'zveltio_flow_reader', 'zveltio_audit_purge'];
 
 d(TITLE, () => {
   let db: Database;
@@ -101,7 +101,7 @@ d(TITLE, () => {
     expect(await initRlsEnforcementRole(h)).not.toBe('enforced');
   }, 60_000);
 
-  it('grants itself SET on the worker and flow-reader roles at boot', async () => {
+  it('grants itself SET on the worker, flow-reader and audit purge roles at boot', async () => {
     await initRlsEnforcementRole(connectAs(ADMIN_ONLY));
     for (const role of NARROW) {
       const r = await sql<{ ok: boolean }>`

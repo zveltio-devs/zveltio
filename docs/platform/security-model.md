@@ -480,21 +480,32 @@ replica. Trashed records are purged by the trash scheduler, not by this sweep.
 
 ### Audit trail (ADR 0060)
 
-**Today:** `zv_audit_log` rows are written by the engine role, which can also
-update and delete them within its own tenant; nothing detects a changed or
-removed row. Retention is instance-wide (`AUDIT_LOG_RETENTION_DAYS`).
+**Today (migration 128):**
 
-**Target (accepted 2026-11-19, in progress):**
+- The request role `zveltio_rls` may only insert and read audit rows; UPDATE,
+  DELETE and TRUNCATE are refused, and the boot reconciler keeps it that way.
+- The retention purge is the one path that deletes, as its own role
+  `zveltio_audit_purge` (SELECT and DELETE on `zv_audit_log`, nothing else).
+  The database lets it delete only rows older than the window the purge states,
+  at least one day; without the role the purge fails and logs why.
+  `scripts/bootstrap-db-role.sh` creates it where the engine cannot.
+- Erasing a user (`DELETE /api/me`, an admin, SCIM, `compliance/gdpr`) deletes
+  the profile and leaves the trail as it was: `user_id` keeps the id, which no
+  longer names anyone. The engine writes ids, not emails, into its rows.
+- Purging a tenant leaves its trail; the retention purge removes it with every
+  other firm's.
+- The table owner (the engine's login role, which runs migrations and DDL)
+  still holds every privilege on the table. Nothing yet detects a row it
+  changed or removed: that is the hash chain below.
 
-- Fixed guarantees, not settings: the engine role may only insert and read
-  audit rows; rows carry ids, never personal data, so a GDPR erasure deletes
-  the profile and leaves the trail intact; each tenant's rows form a SHA-256
-  hash chain, and a verify endpoint names the first broken link.
-- Operator settings: the retention window (instance-wide, with a per-tenant
-  override for tenants under other jurisdictions; the purge cuts the chain from
-  its oldest end only), and where the chain head is anchored outside the
-  database (file or object storage), so a cut tail with a rewritten chain is
-  still detected.
+**Still to come (accepted 2026-11-19):**
+
+- Each tenant's rows form a SHA-256 hash chain, and a verify endpoint names the
+  first broken link.
+- Operator settings: a per-tenant retention override for tenants under other
+  jurisdictions (the purge cuts the chain from its oldest end only), and where
+  the chain head is anchored outside the database (file or object storage), so a
+  cut tail with a rewritten chain is still detected.
 
 ---
 
