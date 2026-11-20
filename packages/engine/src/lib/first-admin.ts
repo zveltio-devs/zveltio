@@ -79,7 +79,7 @@ export async function createFirstAdmin(
         userId: user.id,
         resourceId: user.id,
         resourceType: 'user',
-        metadata: { reason: 'first_admin', role: 'god', email: user.email },
+        metadata: { reason: 'first_admin', role: 'god' },
       });
       return user;
     });

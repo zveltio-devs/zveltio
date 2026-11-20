@@ -69,8 +69,9 @@ d('saved-query config repair, every tenant', () => {
             // The engine role holds TEMPORARY (bootstrap-db-role.sh grants it);
             // zveltio_rls does not, so 039's pg_temp helper is made by the
             // connecting role. Every statement that reads a policed row runs
-            // as the plain role.
-            const asOwner = /pg_temp\.zv_unwrap\(t text\)/.test(stmt);
+            // as the plain role — but 039's audit rewrite: since 128 that role may
+            // not update the trail (ADR 0060), and a migration runs as the owner.
+            const asOwner = /pg_temp\.zv_unwrap\(t text\)|\bzv_audit_log\b/.test(stmt);
             await sql.raw(asOwner ? 'RESET ROLE' : 'SET LOCAL ROLE zveltio_rls').execute(trx);
             await sql.raw(stmt).execute(trx);
           }

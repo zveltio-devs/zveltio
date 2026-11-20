@@ -124,6 +124,11 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'zveltio_ext') THEN
     CREATE ROLE zveltio_ext NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
   END IF;
+  -- The audit retention purge, the one role that deletes audit rows (ADR 0060,
+  -- migration 128).
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'zveltio_audit_purge') THEN
+    CREATE ROLE zveltio_audit_purge NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
+  END IF;
 END
 \$\$;
 SQL
@@ -133,6 +138,8 @@ SQL
 # "unavailable" mode and — as of SEC-14 — refuses to serve production traffic.
 psql_super -d postgres -q -c "GRANT zveltio_rls TO $APP_ROLE;"
 psql_super -d postgres -q -c "GRANT zveltio_flow_reader TO $APP_ROLE;"
+# SET only: the engine takes the role for the purge; it inherits nothing from it.
+psql_super -d postgres -q -c "GRANT zveltio_audit_purge TO $APP_ROLE WITH INHERIT FALSE, SET TRUE;"
 # ADMIN on the two extension parents lets the engine make each
 # extension's role a member of them; SET TRUE spelled out because a re-run must
 # repair a membership an earlier engine made for itself with SET FALSE.

@@ -171,8 +171,7 @@ export function routeIdentity(c: Context, extName: string, access: string): Rout
           ...(userAgent ? { userAgent } : {}),
           replaceExisting: true,
         });
-        // In the request's transaction: a user it created exists only there, and
-        // the row's `user_id` references it.
+        // In the request's transaction: it commits with the user it may have created.
         await auditLog(trx, {
           type: 'auth.login_success',
           userId: user.id,

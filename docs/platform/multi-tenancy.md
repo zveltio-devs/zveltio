@@ -303,7 +303,10 @@ Without the two restrictive policies a parent that reads its subtree could
 DELETE a child's row (USING alone decides a DELETE), or UPDATE it into its own
 node and delete it there. With no tenant set they stand aside: that is the
 engine's own cross-firm work (retention purges under `withEveryTenant`), bounded
-by the read reach. `zv_audit_log` carries the same two (migration 066).
+by the read reach. `zv_audit_log` carries the same two (migration 066), and is
+append-only besides: `zveltio_rls` may not update or delete it at all, and its
+retention purge runs as `zveltio_audit_purge`, which reaches every firm's
+expired rows and no other (migration 128, ADR 0060).
 
 Extension-owned tables carry the same three. Many extension migrations write
 `zveltio_tenant_scope_ok(tenant_id)` in both clauses; the engine rewrites every
@@ -489,7 +492,8 @@ until then the old reach applies.
   child tenants (and no tenant merged into it). One transaction deletes the
   tenant's rows from every `public` table with a `tenant_id` column — engine,
   extension, collection and BYOD tables alike, junction tables through their
-  cascading keys — drops the legacy `tenant_*` schemas older versions created
+  cascading keys; not `zv_audit_log`, which is append-only and left to the
+  retention purge (ADR 0060) — drops the legacy `tenant_*` schemas older versions created
   for it (`tenant_<slug>`, and each environment's `tenant_<slug>_<env>` that its
   `schema_name` still names; a name another tenant's base or environment schema
   also spells is kept), then the tenant row. Media
@@ -787,7 +791,7 @@ tests/harness/second-reservation.test.ts            no request takes a second co
 tests/harness/unique-keys-tenant-scoped.test.ts     no unique key without tenant_id
 tests/harness/*tenant-isolation*.test.ts            per table and per route
 tests/harness/tenant-isolation-doors.test.ts        every door, in one table — see tenant-isolation.md
-tests/harness/tenant-purge.test.ts                  a purge leaves no row of the tenant, and every other tenant's
+tests/harness/tenant-purge.test.ts                  a purge leaves no row of the tenant but its audit trail, and every other tenant's
 tests/harness/tenant-purge-users.test.ts            delete_users removes only the members left with nothing
 ```
 

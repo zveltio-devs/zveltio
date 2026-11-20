@@ -10,7 +10,7 @@ import { beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { _settleAuditWrites } from '../../lib/audit.js';
+import { _settleAuditWrites, type AuditEventType, auditLog } from '../../lib/audit.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/api-key-hash.js';
 import { noteSessionOrigin } from '../../lib/step-up.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/index.js';
@@ -122,6 +122,10 @@ d('DELETE /api/me erases the caller’s own account (ADR 0046)', () => {
       ).status,
     ).toBe(404);
 
+    // A row the member wrote before: erasure leaves it as it was (ADR 0060).
+    const MARK = `erasure-kept-${m.userId}` as AuditEventType;
+    await auditLog(db, { type: MARK, userId: m.userId, tenantId: null });
+
     const erasureId = crypto.randomUUID();
     const res = await erase({ cookie: m.cookie }, { password: PASSWORD, erasure_id: erasureId });
     expect(res.status).toBe(200);
@@ -147,6 +151,10 @@ d('DELETE /api/me erases the caller’s own account (ADR 0046)', () => {
       confirmed_by: 'password',
       erasure_id: erasureId,
     });
+    const kept = await sql<{ user_id: string | null }>`
+      SELECT user_id FROM zv_audit_log WHERE event_type = ${MARK}`.execute(db);
+    expect(kept.rows).toEqual([{ user_id: m.userId }]);
+    await sql`DELETE FROM zv_audit_log WHERE event_type = ${MARK}`.execute(db);
   });
 
   it('an erasure_id is an opaque uuid, nothing else', async () => {

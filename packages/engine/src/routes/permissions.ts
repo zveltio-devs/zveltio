@@ -262,7 +262,6 @@ export function permissionsRoutes(db: Database, auth: any): Hono {
           metadata: {
             outcome: 'granted',
             role: 'god',
-            email: granted.email,
             ip,
             ...(clearedFactors ? { cleared_factors: clearedFactors } : {}),
           },

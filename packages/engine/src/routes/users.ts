@@ -296,7 +296,7 @@ export function usersRoutes(
         userId: adminUser.id,
         resourceId: invite.id,
         resourceType: 'invitation',
-        metadata: { email, role },
+        metadata: { role },
       });
 
       return c.json(

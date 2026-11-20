@@ -222,6 +222,7 @@ d(TITLE, () => {
     for (const stmt of [
       `GRANT zveltio_rls TO ${MADE}`,
       `GRANT zveltio_flow_reader TO ${MADE}`,
+      `GRANT zveltio_audit_purge TO ${MADE}`,
       `GRANT zveltio_rls TO ${APP} WITH ADMIN OPTION`,
       `GRANT pg_read_all_data TO ${APP}`,
       `GRANT pg_write_all_data TO ${MADE}`,

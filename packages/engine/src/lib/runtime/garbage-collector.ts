@@ -92,9 +92,14 @@ export async function runGarbageCollector(db: Database): Promise<void> {
   const auditRetentionDays = retentionDaysFromEnv('AUDIT_LOG_RETENTION_DAYS', 365);
   if (auditRetentionDays > 0) {
     try {
-      // Policed since 040: the pool alone purges the default firm's and the
-      // instance's rows only.
-      const n = await withEveryTenant(db, async (trx) => {
+      // As the one role that may delete audit rows, and only rows older than the
+      // window it publishes (ADR 0060, migration 128); every firm's, a purged
+      // firm's included. Without the role the purge fails here, loudly.
+      const n = await db.transaction().execute(async (trx) => {
+        await sql`
+          SELECT set_config('role', 'zveltio_audit_purge', true),
+                 set_config('zveltio.audit_retention_days', ${String(auditRetentionDays)}, true)
+        `.execute(trx);
         const r = await sql<{ deleted: number }>`
           WITH d AS (
             DELETE FROM zv_audit_log

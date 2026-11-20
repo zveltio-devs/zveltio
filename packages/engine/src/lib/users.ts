@@ -66,7 +66,7 @@ async function refuseGod(db: Database, userId: string, what: string): Promise<vo
 
 /** Who deleted a user and why — what the `user.deleted` audit row records. */
 export interface UserDeletion {
-  /** The signed-in user who asked. `zv_audit_log.user_id` references "user", so
+  /** The signed-in user who asked. `zv_audit_log.user_id` names users only, so
    *  an actor that is not a user row (a SCIM token, the erased subject) leaves
    *  it unset and names itself in `actor`. */
   actorUserId?: string | null;

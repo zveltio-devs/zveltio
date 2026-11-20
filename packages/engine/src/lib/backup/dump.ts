@@ -26,7 +26,7 @@ import type { Database } from '../../db/index.js';
 import type { DumpTarget } from './run-scheduled-backup.js';
 
 /**
- * The roles the engine creates by a fixed name: the three migration 121's
+ * The roles the engine creates by a fixed name: the four migration 121's
  * marker watches (tenant-manager.ts), `zveltio_coll_exempt` (migration 058),
  * and `zveltio_ext` / `zveltio_ext_bypass` (ext-db-role.ts). Carried whenever
  * the source cluster has them, even where no grant in this database names one:
@@ -37,6 +37,7 @@ const FIXED_ENGINE_ROLES = [
   'zveltio_rls',
   'zveltio_worker',
   'zveltio_flow_reader',
+  'zveltio_audit_purge',
   'zveltio_coll_exempt',
   'zveltio_ext',
   'zveltio_ext_bypass',

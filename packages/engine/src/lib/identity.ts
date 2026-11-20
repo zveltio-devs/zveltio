@@ -329,7 +329,7 @@ export async function provisionUser(
     type: 'user.created',
     resourceId: user.id,
     resourceType: 'user',
-    metadata: { actor, reason: 'identity.provision', email },
+    metadata: { actor, reason: 'identity.provision' },
   });
   return { user, created: true };
 }

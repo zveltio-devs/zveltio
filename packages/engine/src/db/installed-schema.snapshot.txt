@@ -150,8 +150,10 @@ table zv_audit_log
   col tenant_id                      uuid DEFAULT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid
   col user_id                        text
   pk  zv_audit_log_pkey PRIMARY KEY (id)
-  fk  zv_audit_log_user_id_fkey FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE SET NULL
   rls enabled forced
+  pol audit_log_purge FOR d USING ((CURRENT_USER = 'zveltio_audit_purge'::name) AND (created_at < (now() - make_interval(days => (NULLIF(current_setting('zveltio.audit_retention_days'::text, true), ''::text))::integer))) AND ((NULLIF(current_setting('zveltio.audit_retention_days'::text, true), ''::text))::integer >= 1)) CHECK -
+  pol audit_log_purge_expired_only RESTRICTIVE FOR d USING ((CURRENT_USER <> 'zveltio_audit_purge'::name) OR ((created_at < (now() - make_interval(days => (NULLIF(current_setting('zveltio.audit_retention_days'::text, true), ''::text))::integer))) AND ((NULLIF(current_setting('zveltio.audit_retention_days'::text, true), ''::text))::integer >= 1))) CHECK -
+  pol audit_log_purge_read FOR r USING ((CURRENT_USER = 'zveltio_audit_purge'::name) AND (created_at < (now() - make_interval(days => (NULLIF(current_setting('zveltio.audit_retention_days'::text, true), ''::text))::integer))) AND ((NULLIF(current_setting('zveltio.audit_retention_days'::text, true), ''::text))::integer >= 1)) CHECK -
   pol audit_log_tenant_or_instance FOR * USING ((tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) OR ((tenant_id IS NULL) AND ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL)))) CHECK (zveltio_tenant_write_ok(tenant_id) OR ((tenant_id IS NULL) AND (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL)))
   pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
   pol tenant_own_node_update RESTRICTIVE FOR w USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -
