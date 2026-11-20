@@ -771,6 +771,7 @@
   "compliance.ro.efactura.btn.storno": "Storno",
   "compliance.ro.efactura.btn.syncMessages": "Fetch ANAF messages",
   "compliance.ro.efactura.btn.verify": "Test connection",
+  "compliance.ro.efactura.btn.xml": "XML",
   "compliance.ro.efactura.col.anafIndex": "ANAF Index",
   "compliance.ro.efactura.col.anafState": "ANAF state",
   "compliance.ro.efactura.col.buyer": "Käufer",
