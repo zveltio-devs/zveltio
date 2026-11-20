@@ -180,6 +180,22 @@ List them in `manifest.json` and ship one file per name, in the
   new version's file adds or removes it, and it is in `schemaSha256`. It
   narrows; the action's write still runs as its caller, under the collection's
   permissions, row and column rules.
+- `"ownsFile": true` on a field of type `file` makes the row own the stored
+  files the field holds (ADR 0061). A write puts a file id in such a field only
+  when its writer could delete that file: its uploader, a tenant admin, or the
+  file the same request just stored (`host.files.put`). Otherwise it answers 403
+  `file_not_claimable`, the same whether the file is missing or someone else's.
+  From then on the engine deletes the file when the row is deleted (single or
+  bulk) or when the field stops holding it, with no further check: the row's
+  own rules decided who may delete or change it. The file row goes in the
+  write's transaction, its bytes after the commit. This holds for the data API
+  and `host.collections`; `ctx.db` and sync refuse a value for
+  such a field. A delete outside the data API and sync (a foreign
+  key's cascade, extension SQL), dropping the field, or a writer who may not
+  read the field leaves the file in place: never deleted wrongly, only kept.
+  Two rows may hold one file, and the uploader can still delete it through the storage API. The flag is set
+  when the field is created; a later version cannot turn it on for an existing
+  field.
 - A required m2o field's key column is NOT NULL. A relation entry may leave out
   what the engine fills in (`targetField`, `onDelete` `SET NULL`, `onUpdate`
   `CASCADE`, `metadata`) — but a required key cannot be `SET NULL`, written or

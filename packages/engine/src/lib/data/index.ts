@@ -112,3 +112,4 @@ export type { CollectionDef, RequestUser } from './types.js';
 export { rowAuthorId } from './auth.js';
 export * from './field-changes.js';
 export * from './relations.js';
+export { releaseOwnedFiles } from './owned-files.js';

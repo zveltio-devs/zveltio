@@ -335,5 +335,6 @@ actions and `host.collections` work the same there.
 | The extension refuses to load after a schema edit | `schemaSha256` no longer matches `schema/`: re-pack. |
 | An action answers 403 | The caller lacks `execute` on the action's `permission.resource`, or `host.collections` was refused as the data API refuses that caller. |
 | Writing a field answers 409 `written_by_actions` | The field or collection is `writtenBy: "actions"`: only your actions and jobs write it. |
+| Writing a file field answers 403 `file_not_claimable` | The field is `ownsFile: true`: hand it only a file the caller uploaded, or one the same request stored. |
 | `validate` fails `VIEW_REFERENCE` | The view names a field, action or view the extension does not declare. |
 | An operator's edit to your collection answers 409 | Its fields belong to your package: change the collection file and ship a new version. |

@@ -113,6 +113,8 @@ const ALTERABLE = new Set([
   'defaultValue',
   // Metadata the data API reads; set only by an extension's apply.
   'writtenBy',
+  // Not `ownsFile` (ADR 0061): turned on over stored values, a row would own
+  // files nobody checked were its writer's. It is set when a field is created.
 ]);
 /** The types whose column holds text: the ones an extension may retype into `secret`. */
 const INTO_SECRET_FROM = new Set(['text', 'textarea', 'longtext', 'richtext', 'email', 'url']);

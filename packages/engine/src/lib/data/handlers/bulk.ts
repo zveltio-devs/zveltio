@@ -38,6 +38,7 @@ import { serializeRecord } from '../shape.js';
 import { problem } from '../../problem.js';
 import { rowAuthorId, checkAccess } from '../auth.js';
 import { cascadeRefusal, writtenByBody, writtenByRefusal } from '../written-by.js';
+import { claimRefusal, releaseOwnedFiles } from '../owned-files.js';
 import {
   getColumnAccess,
   filterWritableFields,
@@ -159,6 +160,8 @@ export async function bulkCreate(c: Context, db: Database): Promise<Response> {
           collectionDef,
           false,
           null,
+          undefined,
+          true,
         );
         if (valErrors.length > 0) {
           errors.push({ index: i, errors: valErrors });
@@ -193,7 +196,9 @@ export async function bulkCreate(c: Context, db: Database): Promise<Response> {
           }
           throw err;
         }
-        const late = writtenByRefusal(collectionDef, undefined, Object.keys(finalInsert));
+        const late =
+          writtenByRefusal(collectionDef, undefined, Object.keys(finalInsert)) ??
+          (await claimRefusal(trx, user, getTenantId(c), collectionDef, finalInsert));
         if (late) {
           errors.push({ index: i, errors: [late] });
           continue;
@@ -277,6 +282,8 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
           collectionDef,
           true,
           'later',
+          undefined,
+          true,
         );
         if (valErrors.length > 0) {
           errors.push({ index: i, id, errors: valErrors });
@@ -363,7 +370,9 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
           }
           throw err;
         }
-        const late = writtenByRefusal(collectionDef, undefined, Object.keys(finalPatch));
+        const late =
+          writtenByRefusal(collectionDef, undefined, Object.keys(finalPatch)) ??
+          (await claimRefusal(trx, user, getTenantId(c), collectionDef, finalPatch, beforeRow));
         if (late) {
           errors.push({ index: i, id, errors: [late] });
           continue;
@@ -374,8 +383,12 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
         const record = await engineRead(canRead, trx, collection, () =>
           dynamicUpdate(trx, tableName, id, finalPatch, system),
         );
-        if (record) updated.push(record as DynamicRecord);
-        else errors.push({ index: i, id, errors: ['Record not found'] });
+        if (record) {
+          updated.push(record as DynamicRecord);
+          await releaseOwnedFiles(trx, getTenantId(c), collectionDef, [
+            { before: beforeRow, after: finalPatch },
+          ]);
+        } else errors.push({ index: i, id, errors: ['Record not found'] });
       }
       if (errors.length === 0) await afterBulkWrite(c, trx, collection, 'update', updated);
     });
@@ -506,13 +519,14 @@ export async function bulkDelete(c: Context, db: Database): Promise<Response> {
       // Only the rows this statement removed: one a concurrent delete took
       // first has had its event already.
       const ids = new Set(gone.map((r) => r.id));
-      await afterBulkWrite(
-        c,
+      const removed = allowed.filter((r) => ids.has(r.id));
+      await releaseOwnedFiles(
         trx,
-        collection,
-        'delete',
-        allowed.filter((r) => ids.has(r.id)),
+        getTenantId(c),
+        collectionDef,
+        removed.map((before) => ({ before, after: null })),
       );
+      await afterBulkWrite(c, trx, collection, 'delete', removed);
     });
     return null;
   });
