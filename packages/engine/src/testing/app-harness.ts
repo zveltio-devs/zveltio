@@ -191,6 +191,28 @@ export function asEveryTenant<T>(
 }
 
 /**
+ * The table owner on `zv_audit_log` unbound, as only DDL can make it: the
+ * append-only trigger off and row-level security not forced, for a test's own
+ * cleanup or tampering. Since migration 129 the owner may not UPDATE, DELETE or
+ * TRUNCATE the trail (ADR 0060); switching that off is DDL, and the hash chain
+ * shows what was done meanwhile (GET /api/admin/audit/verify). Every row is in
+ * reach, a purged tenant's too.
+ */
+export function asAuditOwner<T>(
+  db: Database,
+  fn: ((trx: Database) => Promise<T>) | { execute(executor: Database): Promise<T> },
+): Promise<T> {
+  return db.transaction().execute(async (trx) => {
+    await sql`ALTER TABLE zv_audit_log DISABLE TRIGGER zv_audit_log_append_only`.execute(trx);
+    await sql`ALTER TABLE zv_audit_log NO FORCE ROW LEVEL SECURITY`.execute(trx);
+    const out = await (typeof fn === 'function' ? fn(trx) : fn.execute(trx));
+    await sql`ALTER TABLE zv_audit_log FORCE ROW LEVEL SECURITY`.execute(trx);
+    await sql`ALTER TABLE zv_audit_log ENABLE TRIGGER zv_audit_log_append_only`.execute(trx);
+    return out;
+  });
+}
+
+/**
  * Whether the harness connection is a superuser (every lane but the owner one).
  * A test that impersonates the documented owner role — creating one and taking
  * it on — only needs to on a superuser: on the owner lane it already IS that

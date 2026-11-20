@@ -12,7 +12,7 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import {
-  asEveryTenant,
+  asAuditOwner,
   createGodSession,
   getTestApp,
   harnessAvailable,
@@ -41,7 +41,7 @@ d('audit log — range + CSV export', () => {
   });
 
   afterAll(async () => {
-    await asEveryTenant(db, sql`DELETE FROM zv_audit_log WHERE event_type = ${MARKER}`).catch(
+    await asAuditOwner(db, sql`DELETE FROM zv_audit_log WHERE event_type = ${MARKER}`).catch(
       () => {},
     );
   });

@@ -277,10 +277,12 @@ d('tenant archive + purge', () => {
     });
     expect(blocked.status).not.toBe(200);
     expect([403, 404]).toContain(blocked.status);
-    // Every row kept; the tenant's trail gains the two archive events.
+    // Every row kept; the tenant's trail and its hash chain gain the two archive events.
     const after = await rowsOf(A.id);
-    expect({ ...after, zv_audit_log: 0 }).toEqual({ ...before, zv_audit_log: 0 });
+    const trail = { zv_audit_log: 0, zv_audit_chain: 0 };
+    expect({ ...after, ...trail }).toEqual({ ...before, ...trail });
     expect(after.zv_audit_log ?? 0).toBe((before.zv_audit_log ?? 0) + 2);
+    expect(after.zv_audit_chain ?? 0).toBe((before.zv_audit_chain ?? 0) + 2);
   }, 60_000);
 
   it('refuses a purge whose confirm is not the slug', async () => {
@@ -333,7 +335,7 @@ d('tenant archive + purge', () => {
       o: await rowsOf(O.id),
     };
     const envSchema = `tenant_${A.slug.replace(/-/g, '_')}_prod`;
-    const trail = (await rowsOf(A.id)).zv_audit_log;
+    const { zv_audit_log: trail, zv_audit_chain: chain } = await rowsOf(A.id);
     expect(trail).toBeGreaterThan(0);
 
     const res = await del(A.id, `mode=purge&confirm=${A.slug}`);
@@ -355,9 +357,11 @@ d('tenant archive + purge', () => {
     `.execute(db);
     expect(kept.rows[0]?.n).toBe(1);
 
-    // Every row but the audit trail, which is append-only (ADR 0060): retention takes it.
+    // Every row but the audit trail and its hash chain, which are append-only
+    // (ADR 0060): retention takes the trail.
     expect(body.deleted.zv_audit_log).toBeUndefined();
-    expect(await rowsOf(A.id)).toEqual({ zv_audit_log: trail });
+    expect(body.deleted.zv_audit_chain).toBeUndefined();
+    expect(await rowsOf(A.id)).toEqual({ zv_audit_log: trail, zv_audit_chain: chain });
     const gone = await sql<{
       n: number;
     }>`SELECT count(*)::int AS n FROM zv_tenants WHERE id = ${A.id}`.execute(db);

@@ -22,6 +22,7 @@ import {
   withTenantIsolation,
 } from '../../lib/tenancy/index.js';
 import {
+  asAuditOwner,
   asEveryTenant,
   asTenant,
   getTestApp,
@@ -59,13 +60,7 @@ d('zv_audit_log is append-only (ADR 0060)', () => {
   afterAll(async () => {
     if (!db) return;
     await _settleAuditWrites();
-    // As the table owner, which keeps DELETE (the hash chain of s3 is what holds it).
-    for (const t of [DEFAULT_TENANT_ID, GONE]) {
-      await asTenant(db, t, (trx) =>
-        sql`DELETE FROM zv_audit_log WHERE event_type LIKE ${`${TAG}%`}`.execute(trx),
-      );
-    }
-    await sql`DELETE FROM zv_audit_log WHERE event_type LIKE ${`${TAG}%`}`.execute(db);
+    await asAuditOwner(db, sql`DELETE FROM zv_audit_log WHERE event_type LIKE ${`${TAG}%`}`);
   });
 
   it('the request role appends and reads, and may neither rewrite nor delete a row', async () => {
@@ -123,13 +118,12 @@ d('zv_audit_log is append-only (ADR 0060)', () => {
     await asTenant(db, GONE, (trx) => auditLog(trx, { type: OLD, resourceId: 'gone-old' }));
     await asTenant(db, GONE, (trx) => auditLog(trx, { type: EV, resourceId: 'gone-fresh' }));
     await auditLog(db, { type: OLD, resourceId: 'instance-old', tenantId: null });
-    // Aged by the owner, as each row's writer could.
-    for (const t of [GONE, null]) {
-      const age = (h: Database) =>
-        sql`UPDATE zv_audit_log SET created_at = now() - interval '400 days'
-             WHERE event_type = ${OLD}`.execute(h);
-      await (t ? asTenant(db, t, age) : age(db));
-    }
+    // Aged by the owner with the append-only trigger off (migration 129).
+    await asAuditOwner(
+      db,
+      sql`UPDATE zv_audit_log SET created_at = now() - interval '400 days'
+           WHERE event_type = ${OLD}`,
+    );
     expect(await rows(sql`true`)).toEqual(['fresh', 'gone-fresh', 'gone-old', 'instance-old']);
     await runGarbageCollector(db);
     expect(await rows(sql`true`)).toEqual(['fresh', 'gone-fresh']);

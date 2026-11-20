@@ -37,6 +37,7 @@ import {
   withTenantIsolation,
 } from '../../lib/tenancy/index.js';
 import {
+  asAuditOwner,
   asDefaultTenant,
   asEveryTenant,
   createGodSession,
@@ -213,7 +214,7 @@ d('validation rule groups are instance-wide', () => {
     await runMigration('up', ADOPT);
     await ensureRlsEnforcementRole(db);
     await sql`DELETE FROM zv_migrations WHERE name LIKE ${`ext:${PROBE}:%`}`.execute(db);
-    await asEveryTenant(
+    await asAuditOwner(
       db,
       sql`DELETE FROM zv_audit_log WHERE resource_type = 'validation_rule_group'
                 AND metadata->>'collection' IN (${C1}, ${C2})`,

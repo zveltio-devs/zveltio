@@ -17,6 +17,7 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import {
+  asAuditOwner,
   asEveryTenant,
   createGodSession,
   getTestApp,
@@ -40,7 +41,7 @@ d('revoking an API key reports what it did (in-process)', () => {
     for (const id of made) {
       await sql`DELETE FROM zv_api_keys WHERE id = ${id}`.execute(db);
     }
-    await asEveryTenant(db, sql`DELETE FROM zv_audit_log WHERE resource_type = 'api_key'`);
+    await asAuditOwner(db, sql`DELETE FROM zv_audit_log WHERE resource_type = 'api_key'`);
   });
 
   async function mint(name: string): Promise<string> {

@@ -15,12 +15,7 @@ import type { Database } from '../../db/index.js';
 import { CapabilityDeniedError, gateInternals } from '../../lib/extensions/capabilities.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/index.js';
-import {
-  asEveryTenant,
-  asTenant,
-  getTestApp,
-  harnessAvailable,
-} from '../../testing/app-harness.js';
+import { asAuditOwner, asTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const TAG = `${Date.now()}`.slice(-12).padStart(12, '0');
@@ -67,7 +62,7 @@ d('ctx.internals.exportUserData', () => {
 
   afterAll(async () => {
     if (!db) return;
-    await asEveryTenant(db, (trx) =>
+    await asAuditOwner(db, (trx) =>
       sql`DELETE FROM zv_audit_log WHERE user_id IN (${USER}, ${OTHER})`.execute(trx),
     );
     await sql`DELETE FROM zv_api_keys WHERE key_hash IN (${`h-${TAG}`}, ${`h2-${TAG}`})`.execute(

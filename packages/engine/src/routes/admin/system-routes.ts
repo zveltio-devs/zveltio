@@ -20,7 +20,7 @@ import { fieldTypeRegistry } from '../../lib/data/index.js';
 import { DDLManager, enqueueDDLJob, readableRevisions } from '../../lib/data/index.js';
 import { getCache } from '../../lib/runtime/index.js';
 import { reqDb, tenantId } from '../../lib/route-db.js';
-import { auditLog } from '../../lib/audit.js';
+import { auditLog, verifyAuditChains } from '../../lib/audit.js';
 import { exportSchema, SCHEMA_FORMAT } from '../../lib/schema-artifact/export.js';
 import { SchemaFileError } from '../../lib/schema-artifact/plan.js';
 import {
@@ -748,6 +748,10 @@ export function registerSystemRoutes(app: Hono, db: Database): void {
       'X-Zveltio-Row-Count': String(rows.length),
     });
   });
+
+  // GET /audit/verify — every tenant's audit hash chain and the instance's
+  // (ADR 0060 decision 3): ok with each head, or the first broken link of each.
+  app.get('/audit/verify', async (c) => c.json(await verifyAuditChains(db)));
 
   // ── Dashboard Stats ────────────────────────────────────────────
 

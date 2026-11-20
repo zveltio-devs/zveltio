@@ -24,6 +24,7 @@ import type { ExtensionInternals } from '../../lib/extensions/internals.js';
 import { hashInvitationToken } from '../../lib/security/index.js';
 import { DEFAULT_TENANT_ID, runWithDomain, withTenantIsolation } from '../../lib/tenancy/index.js';
 import {
+  asAuditOwner,
   asEveryTenant,
   createGodSession,
   getTestApp,
@@ -91,7 +92,7 @@ d('audit events reach the tenant they act on', () => {
     if (!db) return;
     await _settleAuditWrites();
     const users = [memberId, inviteeId].filter(Boolean);
-    await asEveryTenant(db, (trx) =>
+    await asAuditOwner(db, (trx) =>
       sql`DELETE FROM zv_audit_log WHERE tenant_id IN (${A}::uuid, ${B}::uuid)
                OR event_type LIKE ${`${TAG}%`}`.execute(trx),
     );
@@ -99,7 +100,7 @@ d('audit events reach the tenant they act on', () => {
     await sql`DELETE FROM zv_invitations WHERE email = ${INVITEE}`.execute(db);
     await sql`DELETE FROM casbin_rule WHERE v2 IN (${A}, ${B})`.execute(db).catch(() => {});
     for (const u of users) {
-      await asEveryTenant(db, (trx) =>
+      await asAuditOwner(db, (trx) =>
         sql`DELETE FROM zv_audit_log WHERE user_id = ${u} OR resource_id = ${u}`.execute(trx),
       );
       await sql`DELETE FROM "session" WHERE "userId" = ${u}`.execute(db);

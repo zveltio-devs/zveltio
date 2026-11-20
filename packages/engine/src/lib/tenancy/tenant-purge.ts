@@ -12,8 +12,9 @@
  * BYOD (`is_managed = false`) tables in `public` that chose a `tenant_id`
  * column, since the engine writes that column the same way there. Not covered:
  * tables outside `public` (a BYOD table in another schema is somebody else's
- * data model), `_zv_*` engine work tables, and `zv_audit_log`, which only the
- * retention purge deletes from (ADR 0060). Junction and child tables with
+ * data model), `_zv_*` engine work tables, and the audit trail: `zv_audit_log`,
+ * which only the retention purge deletes from, and its hash chain
+ * `zv_audit_chain` (ADR 0060). Junction and child tables with
  * no `tenant_id` go with their parents through their ON DELETE CASCADE keys.
  */
 
@@ -122,9 +123,10 @@ export async function purgeTenant(
           JOIN pg_namespace n ON n.oid = c.relnamespace
          WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND NOT c.relispartition
            AND c.relname NOT LIKE '\\_zv\\_%'
-           -- The audit trail is append-only (ADR 0060): the tenant's rows stay
-           -- until the retention purge takes them, as it takes every firm's.
-           AND c.relname <> 'zv_audit_log'
+           -- The audit trail and its hash chain are append-only (ADR 0060): the
+           -- tenant's rows stay until the retention purge takes them, as it takes
+           -- every firm's.
+           AND c.relname NOT IN ('zv_audit_log', 'zv_audit_chain')
            AND a.attname = 'tenant_id' AND NOT a.attisdropped
            AND a.atttypid IN ('uuid'::regtype, 'text'::regtype, 'varchar'::regtype)
          ORDER BY c.relname

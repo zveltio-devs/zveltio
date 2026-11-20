@@ -37,6 +37,7 @@ import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import { toJsonb } from '../../lib/jsonb.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/index.js';
 import {
+  asAuditOwner,
   asEveryTenant,
   createGodSession,
   createMemberSession,
@@ -224,7 +225,7 @@ d('a declared route answered by a plain function (ADR 0039)', () => {
     await sql`DELETE FROM pgboss.job WHERE name = ${jobQueueName(EXT, 'ingest')}`
       .execute(db)
       .catch(() => {});
-    await asEveryTenant(db, (trx) =>
+    await asAuditOwner(db, (trx) =>
       sql`DELETE FROM zv_audit_log WHERE resource_id LIKE ${`${EXT}:%`}`.execute(trx),
     );
   });

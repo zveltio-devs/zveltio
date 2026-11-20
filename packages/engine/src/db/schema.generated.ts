@@ -102,6 +102,14 @@ export interface ZvApiKeysTable {
   key_hash_version: number | null;
 }
 
+export interface ZvAuditChainTable {
+  audit_id: Generated<string>;
+  tenant_id: string | null;
+  seq: number;
+  content_hash: Uint8Array;
+  hash: Uint8Array;
+}
+
 export interface ZvAuditLogTable {
   id: Generated<string>;
   event_type: string;
@@ -1084,6 +1092,7 @@ export interface DbSchema {
   verification: VerificationTable;
   zv_api_key_access_log: ZvApiKeyAccessLogTable;
   zv_api_keys: ZvApiKeysTable;
+  zv_audit_chain: ZvAuditChainTable;
   zv_audit_log: ZvAuditLogTable;
   zv_backup_integrity_checks: ZvBackupIntegrityChecksTable;
   zv_backup_schedules: ZvBackupSchedulesTable;

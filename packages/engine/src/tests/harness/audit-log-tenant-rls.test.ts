@@ -32,8 +32,8 @@ import {
 } from '../../lib/tenancy/index.js';
 import { registerSystemRoutes } from '../../routes/admin/system-routes.js';
 import {
+  asAuditOwner,
   asEveryTenant,
-  asTenant,
   createGodSession,
   getTestApp,
   harnessAvailable,
@@ -97,7 +97,7 @@ d('zv_audit_log under tenant RLS', () => {
     await plain?.destroy().catch(() => undefined);
     if (!db) return;
     await _settleAuditWrites();
-    await asEveryTenant(db, (trx) =>
+    await asAuditOwner(db, (trx) =>
       sql`DELETE FROM zv_audit_log WHERE event_type LIKE ${`${TAG}%`}`.execute(trx),
     );
     await sql`DELETE FROM zv_tenants WHERE id IN (${A}::uuid, ${B}::uuid)`.execute(db);
@@ -208,12 +208,12 @@ d('zv_audit_log under tenant RLS', () => {
     const OLD = `${TAG}.old` as AuditEventType;
     await withTenantIsolation(B, (trx) => auditLog(trx, { type: OLD, resourceId: 'b' }));
     await auditLog(db, { type: OLD, resourceId: 'instance' });
-    // Aged as each row's own writer could: B's as B, the instance's outside any.
-    const age = (h: Database) =>
+    // Aged by the owner with the append-only trigger off (migration 129).
+    await asAuditOwner(
+      db,
       sql`UPDATE zv_audit_log SET created_at = now() - interval '400 days'
-           WHERE event_type = ${OLD}`.execute(h);
-    await asTenant(db, B, age);
-    await age(db);
+           WHERE event_type = ${OLD}`,
+    );
     await runGarbageCollector(plain);
     const left = await asEveryTenant(db, (trx) =>
       sql<{ n: number }>`

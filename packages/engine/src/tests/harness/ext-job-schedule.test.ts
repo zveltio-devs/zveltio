@@ -30,6 +30,7 @@ import {
 } from '../../lib/extensions/jobs.js';
 import { DDLManager } from '../../lib/data/index.js';
 import {
+  asAuditOwner,
   asEveryTenant,
   dropTestCollection,
   getTestApp,
@@ -188,7 +189,7 @@ d('jobs[].schedule enqueues the job per active tenant (ADR 0048 d1)', () => {
       .catch(() => {});
     await sql`DELETE FROM pgboss.job WHERE name LIKE ${'ext.sc-%'}`.execute(db).catch(() => {});
     await sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${OFF})`.execute(db);
-    await asEveryTenant(db, (trx) =>
+    await asAuditOwner(db, (trx) =>
       sql`DELETE FROM zv_audit_log WHERE resource_id LIKE ${'sc-%'}`.execute(trx),
     );
     await dropTestCollection(db, W);

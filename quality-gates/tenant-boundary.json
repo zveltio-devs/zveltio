@@ -65,6 +65,7 @@
   },
   "_unpoliced": "Tabele care POARTĂ `tenant_id` și nu au politică RLS, declarat deliberat. Coloana marchează rândul; doar politica îl apără. O intrare nouă înseamnă o decizie, nu o omisiune — două omisiuni au trecut drept decizii până când poarta a început să întrebe (workflow/checklists 006, ai 008).",
   "unpoliced": {
+    "zv_audit_chain": "Lanțul de hash al jurnalului de audit (ADR 0060, migrația 129): doar id-uri și hash-uri, `tenant_id` numește lanțul, nu un cititor. `zveltio_rls` nu are NICIUN privilegiu pe ea (migrația 129 + reconcilierea de boot); scrisă doar de triggerul SECURITY DEFINER al proprietarului la COMMIT, citită doar de `verifyAuditChains` (`lib/audit.ts`) pe ruta `GET /api/admin/audit/verify`, în spatele `requireInstanceAdmin`, care verifică TOATE lanțurile, inclusiv ale firmelor purjate.",
     "zv_extension_registry": "Citită la boot (`index.ts:532,561`), fără nicio cerere. Extensiile se instalează per INSTANȚĂ, nu per firmă."
   }
 }

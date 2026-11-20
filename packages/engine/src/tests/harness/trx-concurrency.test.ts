@@ -19,7 +19,7 @@ import { asExtensionDbRole, ensureExtensionDbRole } from '../../lib/extensions/e
 import { asEngineRole } from '../../lib/role-window.js';
 import { withSavepoint } from '../../lib/savepoint.js';
 import { createRequestScopedDb, withTenantIsolation } from '../../lib/tenancy/index.js';
-import { asEveryTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { asAuditOwner, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const A = crypto.randomUUID();
@@ -64,7 +64,7 @@ d('one request transaction, concurrent work', () => {
 
   afterAll(async () => {
     if (!db) return;
-    await asEveryTenant(db, (trx) =>
+    await asAuditOwner(db, (trx) =>
       sql`DELETE FROM zv_audit_log WHERE event_type = ${`${TAG}.e`}`.execute(trx),
     );
     await sql`DELETE FROM zv_tenants WHERE id IN (${A}::uuid, ${B}::uuid)`.execute(db);

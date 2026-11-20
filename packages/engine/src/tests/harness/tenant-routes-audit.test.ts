@@ -16,6 +16,7 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import {
+  asAuditOwner,
   asEveryTenant,
   createGodSession,
   getTestApp,
@@ -50,7 +51,7 @@ d('tenant routes write an audit trail (in-process)', () => {
     await sql`DELETE FROM "user" WHERE id = ${memberId}`.execute(db);
     if (tenantId) {
       await sql`DELETE FROM zv_tenant_users WHERE tenant_id = ${tenantId}`.execute(db);
-      await asEveryTenant(db, (trx) =>
+      await asAuditOwner(db, (trx) =>
         sql`DELETE FROM zv_audit_log WHERE resource_id = ${tenantId}`.execute(trx),
       );
       await sql`DELETE FROM zv_tenants WHERE id = ${tenantId}`.execute(db);

@@ -15,6 +15,7 @@ import { generateApiKey, hashApiKey } from '../../lib/security/api-key-hash.js';
 import { noteSessionOrigin } from '../../lib/step-up.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/index.js';
 import {
+  asAuditOwner,
   asEveryTenant,
   createGodSession,
   createMemberSession,
@@ -154,7 +155,7 @@ d('DELETE /api/me erases the caller’s own account (ADR 0046)', () => {
     const kept = await sql<{ user_id: string | null }>`
       SELECT user_id FROM zv_audit_log WHERE event_type = ${MARK}`.execute(db);
     expect(kept.rows).toEqual([{ user_id: m.userId }]);
-    await sql`DELETE FROM zv_audit_log WHERE event_type = ${MARK}`.execute(db);
+    await asAuditOwner(db, sql`DELETE FROM zv_audit_log WHERE event_type = ${MARK}`);
   });
 
   it('an erasure_id is an opaque uuid, nothing else', async () => {

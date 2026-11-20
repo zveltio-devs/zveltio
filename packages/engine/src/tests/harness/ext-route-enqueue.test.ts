@@ -28,6 +28,7 @@ import { sessionPrefetch } from '../../middleware/session-prefetch.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import {
+  asAuditOwner,
   asEveryTenant,
   createMemberSession,
   dropTestCollection,
@@ -279,7 +280,7 @@ d('a public route enqueues a job that writes a writtenBy collection (ADR 0018)',
     await unregisterJobs(NOSYS);
     if (!db) return;
     await sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${NOSYS})`.execute(db);
-    await asEveryTenant(db, (trx) =>
+    await asAuditOwner(db, (trx) =>
       sql`DELETE FROM zv_audit_log WHERE resource_id LIKE ${`${EXT}:%`}`.execute(trx),
     );
     await sql`DELETE FROM pgboss.job WHERE name LIKE ${'ext.rq-%'}`.execute(db).catch(() => {});

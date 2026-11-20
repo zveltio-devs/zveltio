@@ -21,6 +21,7 @@ import type { ExtensionInternals } from '../../lib/extensions/internals.js';
 import { getEnforcer } from '../../lib/tenancy/permissions.js';
 import { runWithDomain } from '../../lib/tenancy/tenant-context.js';
 import {
+  asAuditOwner,
   asEveryTenant,
   asTenant,
   getTestApp,
@@ -85,7 +86,7 @@ d('ctx.internals tenant facts', () => {
     await e.deleteRoleForUser(users[3]!, ROLE_B, B);
     await sql`DELETE FROM zvd_relations WHERE name LIKE ${`${TAG}%`}`.execute(db);
     await sql`DELETE FROM zv_settings WHERE key IN (${KEY_PUBLIC}, ${KEY_PRIVATE})`.execute(db);
-    await asEveryTenant(db, (trx) =>
+    await asAuditOwner(db, (trx) =>
       sql`DELETE FROM zv_audit_log WHERE event_type = ${`${TAG}.event`}`.execute(trx),
     );
     await sql`DELETE FROM zv_tenant_users WHERE tenant_id IN (${A}::uuid, ${B}::uuid)`.execute(db);

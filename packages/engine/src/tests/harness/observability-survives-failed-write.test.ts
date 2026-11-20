@@ -24,6 +24,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import {
+  asAuditOwner,
   asEveryTenant,
   createGodSession,
   getTestApp,
@@ -109,7 +110,7 @@ d('after-response writers survive a failed write (in-process)', () => {
       .where('path', '=', path())
       .execute()
       .catch(() => {});
-    await asEveryTenant(db, (t) =>
+    await asAuditOwner(db, (t) =>
       t.deleteFrom('zv_audit_log').where('resource_id', '=', path()).execute(),
     ).catch(() => {});
   });

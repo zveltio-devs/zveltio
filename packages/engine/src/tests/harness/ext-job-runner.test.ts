@@ -33,6 +33,7 @@ import { ensureDeno } from '../../lib/extensions/deno.js';
 import { DDLManager, jobQueue } from '../../lib/data/index.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/index.js';
 import {
+  asAuditOwner,
   asDefaultTenant,
   asEveryTenant,
   asTenant,
@@ -262,7 +263,7 @@ d('jobs of a worker-isolated extension run in the Deno runner', () => {
     if (extDir) rmSync(extDir, { recursive: true, force: true });
     if (!db) return;
     await sql`DELETE FROM pgboss.job WHERE name LIKE ${`ext.${EXT}.%`}`.execute(db);
-    await asEveryTenant(db, (trx) =>
+    await asAuditOwner(db, (trx) =>
       sql`DELETE FROM zv_audit_log WHERE event_type = 'extension.job.executed'
           AND metadata->>'extension' = ${EXT}`.execute(trx),
     );

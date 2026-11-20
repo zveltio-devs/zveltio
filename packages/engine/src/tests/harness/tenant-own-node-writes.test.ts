@@ -21,6 +21,7 @@ import {
   withTenantIsolation,
 } from '../../lib/tenancy/tenant-manager.js';
 import {
+  asAuditOwner,
   asEveryTenant,
   asTenant,
   getTestApp,
@@ -120,7 +121,7 @@ d('UPDATE and DELETE stay in the own node (B09)', () => {
     await asEveryTenant(db, (trx) =>
       sql`DELETE FROM zv_sync_tombstones WHERE collection = ${TAG}`.execute(trx),
     );
-    await asEveryTenant(db, (trx) =>
+    await asAuditOwner(db, (trx) =>
       sql`DELETE FROM zv_audit_log WHERE event_type = ${TAG}`.execute(trx),
     );
     await sql`DELETE FROM zv_tenant_users WHERE user_id = ${USER}`.execute(db);
