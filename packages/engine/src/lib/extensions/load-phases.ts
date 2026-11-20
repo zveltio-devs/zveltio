@@ -39,6 +39,7 @@ import {
 } from './manifest-schema.js';
 import { installExtensionNpmDependencies } from './npm-install.js';
 import { extensionTransport } from '../worker-extension-transport.js';
+import { DIR_SIGNATURE_FILE } from '../security/index.js';
 
 /**
  * Discriminated result for a load phase.
@@ -319,8 +320,9 @@ const ok: PhaseResult<void> = { ok: true, value: undefined };
 
 /**
  * Tests only: let any extension load inline, as the removed
- * ZVELTIO_ALLOW_INLINE_THIRD_PARTY did. Returns the previous value to restore.
- * Not an operator switch — nothing outside the test suite calls it.
+ * ZVELTIO_ALLOW_INLINE_THIRD_PARTY did, and a worker-isolated one load unsigned.
+ * Returns the previous value to restore. Not an operator switch — nothing
+ * outside the test suite calls it.
  */
 export function _setInlineForTests(on: boolean): boolean {
   const was = inlineForTests;
@@ -383,15 +385,25 @@ export async function enforcePublisherTier(
     return { ok: false, logLevel: 'error', logArgs: [`❌ ${msg}`], lastLoadError: msg };
   }
   if (worker) {
+    // ADR 0056 amendment 2026-11-18: an unsigned directory never runs, on the
+    // runner either. A raw registry row or an unsigned archive reached here.
+    if (!registrySigned && operatorKeyId === null && !inlineForTests) {
+      const msg =
+        `Extension "${extName}" is not signed: neither a registry signature kept with its files ` +
+        `nor an operator's ${DIR_SIGNATURE_FILE} holds at load, and an unsigned extension never ` +
+        `runs. Install it from the registry, or sign it with your own key (\`zveltio extension ` +
+        `sign --dir <its directory> --key-id <id>\`) and put that key on OPERATOR_PUBLIC_KEYS_JSON ` +
+        `— docs/extensions/signatures.md#your-own-extensions-level-3.`;
+      return { ok: false, logLevel: 'error', logArgs: [`❌ ${msg}`], lastLoadError: msg };
+    }
     return refuseAnyCollection(extName, manifest, 'runs in worker isolation') ?? ok;
   }
   if (inlineForTests) return ok;
 
   // U3 (ADR 0056 amendment 4, ADR 0058): only the registry's signature, kept
   // with the files and re-verified at this load, lets code run inline — never
-  // the name. An unsigned directory (installed with
-  // REQUIRE_EXTENSION_SIGNATURES=false, put there by hand, a source checkout)
-  // is not first-party, whatever the catalogue says of its name. Development
+  // the name. An unsigned directory (put there by hand, a source checkout) is
+  // not first-party, whatever the catalogue says of its name. Development
   // and test (`NODE_ENV`) keep the catalogue's word, to run a source checkout.
   if (!registrySigned && isProduction()) {
     const msg =

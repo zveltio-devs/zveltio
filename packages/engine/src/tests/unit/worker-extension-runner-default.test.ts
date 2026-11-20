@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { enforceRunnerInProduction } from '../../lib/extensions/load-phases.js';
+import { _setInlineForTests, enforceRunnerInProduction } from '../../lib/extensions/load-phases.js';
 import { extensionTransport } from '../../lib/worker-extension-transport.js';
 import { _resetWorkerHostForTests } from '../../lib/worker-extension-host.js';
 
@@ -122,7 +122,19 @@ async function loadWorkerExtension(): Promise<{
     ctx: { db: db.kysely, fieldTypeRegistry: { register: () => {} } },
   };
   const t0 = Date.now();
-  await loadExtensionFromDir(loader as never, 'acme-thing', new Hono(), loader.ctx as never, base);
+  // Unsigned: the test override stands in for a signature, which these cases do not test.
+  const was = _setInlineForTests(true);
+  try {
+    await loadExtensionFromDir(
+      loader as never,
+      'acme-thing',
+      new Hono(),
+      loader.ctx as never,
+      base,
+    );
+  } finally {
+    _setInlineForTests(was);
+  }
   return {
     loaded: loader.loaded.has('acme-thing'),
     error: loader.lastLoadError.get('acme-thing') ?? '',

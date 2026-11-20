@@ -9,6 +9,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { exportTrustedKeyEntry, generateKeypair, signBundle } from '@zveltio/sdk/publish';
 import { downloadExtension } from '../../lib/extensions/extension-download.js';
 
 const ARCHIVE = Buffer.from('PK\x03\x04 not-a-real-zip but has the magic bytes');
@@ -27,17 +28,18 @@ const entry = {
 } as any;
 
 const originalFetch = globalThis.fetch;
-let savedRequireSig: string | undefined;
+let savedKeys: string | undefined;
+// Signed as the registry signs (there is no unsigned install); here we only care
+// about the digest comparison.
+const KEY = await generateKeypair('pin-registry');
+const SIG = await signBundle(new Uint8Array(ARCHIVE), KEY);
+const TRUSTED = JSON.stringify([await exportTrustedKeyEntry(KEY.keyId, KEY.publicJwk)]);
 
 beforeEach(() => {
-  savedRequireSig = process.env.REQUIRE_EXTENSION_SIGNATURES;
-  process.env.REQUIRE_EXTENSION_SIGNATURES = '0';
+  savedKeys = process.env.REGISTRY_PUBLIC_KEYS_JSON;
+  process.env.REGISTRY_PUBLIC_KEYS_JSON = TRUSTED;
   globalThis.fetch = (async (url: string) => {
-    // The `.sig` sibling is absent — signature handling is covered elsewhere;
-    // here we only care about the digest comparison.
-    if (String(url).endsWith('.sig')) {
-      return { ok: false, status: 404, arrayBuffer: async () => new ArrayBuffer(0) };
-    }
+    if (String(url).endsWith('.sig')) return Response.json(SIG);
     return {
       ok: true,
       status: 200,
@@ -49,8 +51,8 @@ beforeEach(() => {
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
-  if (savedRequireSig === undefined) delete process.env.REQUIRE_EXTENSION_SIGNATURES;
-  else process.env.REQUIRE_EXTENSION_SIGNATURES = savedRequireSig;
+  if (savedKeys === undefined) delete process.env.REGISTRY_PUBLIC_KEYS_JSON;
+  else process.env.REGISTRY_PUBLIC_KEYS_JSON = savedKeys;
 });
 
 describe('a version whose contents changed', () => {

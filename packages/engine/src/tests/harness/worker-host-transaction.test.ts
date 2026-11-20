@@ -15,6 +15,7 @@ import type { Database } from '../../db/index.js';
 import { getActiveBunPool } from '../../db/bun-sql-dialect.js';
 import { revokeExtensionDbRoles } from '../../lib/extensions/ext-db-role.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { engineEvents } from '../../lib/runtime/index.js';
 import { runWithDomain } from '../../lib/tenancy/tenant-context.js';
 import {
@@ -171,6 +172,7 @@ d('db.transaction() outside a request: a host-owned transaction', () => {
   const emit = (op: string) => engineEvents.emitAsync(`${NAME}.run` as never, { op } as never);
 
   beforeAll(async () => {
+    _setInlineForTests(true); // unsigned fixtures: the test override stands in for a signature
     ({ db } = await getTestApp());
     await sql`INSERT INTO zv_tenants (id, slug, name, status)
               VALUES (${TENANT}::uuid, ${`wkrhtx-${SFX}`}, 'htx', 'active')`.execute(db);
@@ -251,6 +253,7 @@ d('db.transaction() outside a request: a host-owned transaction', () => {
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     if (saved === undefined) delete process.env.ZVELTIO_EXT_TRANSPORT;
     else process.env.ZVELTIO_EXT_TRANSPORT = saved;
     extensionLoader.ctx = savedCtx;

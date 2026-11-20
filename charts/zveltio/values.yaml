@@ -127,17 +127,10 @@ engine:
     nodeEnv: "production"
 
     # ── Extension signing (S1-01 + S4-05) ──────────────────────────────────
-    # Signatures are REQUIRED by default, matching the engine since beta.37.
-    # Registry-side signing has landed: all 57 official extensions serve a .sig
-    # at the URL the engine fetches, verified 2026-07-30. This chart used to say
-    # "set true once registry-side signing lands" and then ship "false" — so a
-    # Helm deployment silently ran with verification off while the same engine
-    # started with it on everywhere else.
-    #
-    # Set "false" only for a private mirror that does not sign yet. The
-    # supported way to trust a different signer is registryPublicKeysJson, not
-    # turning verification off.
-    requireExtensionSignatures: "true"
+    # Signatures are always required, and nothing turns verification off: the
+    # requireExtensionSignatures value (REQUIRE_EXTENSION_SIGNATURES) is gone
+    # (ADR 0056 amendment 2026-11-18). A mirror that signs with its own key is
+    # trusted through registryPublicKeysJson.
     # JSON array of trusted public keys. Example:
     #   '[{"keyId":"prod-2026","publicKeyHex":"..."}]'
     registryPublicKeysJson: ""

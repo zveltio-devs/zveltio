@@ -135,7 +135,7 @@ describe('enforcePublisherTier — "*" in an action (ADR 0053 d5)', () => {
       for (const inline of [false, true]) {
         const was = _setInlineForTests(inline);
         try {
-          const r = await enforcePublisherTier('sideloaded-ext', worker);
+          const r = await enforcePublisherTier('sideloaded-ext', worker, null, true);
           expect(r.ok).toBe(false);
           if (!r.ok) expect(r.lastLoadError).toContain('runs in worker isolation');
         } finally {

@@ -192,10 +192,13 @@ describe('resolveManifest', () => {
 });
 
 describe('enforcePublisherTier — fast paths', () => {
-  it('worker isolation → ok (no catalog fetch)', async () => {
-    const r = await enforcePublisherTier('ext', {
-      engine: { isolation: 'worker', bundled: true },
-    } as Any);
+  it('worker isolation, registry-signed → ok (no catalog fetch)', async () => {
+    const r = await enforcePublisherTier(
+      'ext',
+      { engine: { isolation: 'worker', bundled: true } } as Any,
+      null,
+      true,
+    );
     expect(r.ok).toBe(true);
   });
 

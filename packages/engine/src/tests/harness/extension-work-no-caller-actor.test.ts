@@ -34,6 +34,7 @@ import {
 } from '../../lib/extensions/ext-db-role.js';
 import { createRestrictedDb } from '../../lib/extensions/extension-context.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import { invalidateActivationCache } from '../../lib/extensions/activation.js';
 import { dispatchToWs, engineEvents, EXTENSION_BROADCAST_EVENT } from '../../lib/runtime/index.js';
@@ -290,6 +291,7 @@ d('extension work with no caller is an actor with no identity (ADR 0040)', () =>
   };
 
   beforeAll(async () => {
+    _setInlineForTests(true); // unsigned fixtures: the test override stands in for a signature
     ({ db } = await getTestApp());
     await sql`INSERT INTO "user" (id, name, email, "emailVerified", "createdAt", "updatedAt")
               VALUES (${U1}, ${U1}, ${`${U1}@example.test`}, true, now(), now())`.execute(db);
@@ -380,6 +382,7 @@ d('extension work with no caller is an actor with no identity (ADR 0040)', () =>
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     if (!db) return;
     await getWorkerHost(workerApp).stopAll();
     _resetWorkerHostForTests();

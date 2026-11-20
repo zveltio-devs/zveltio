@@ -7,8 +7,8 @@
  *      sibling JSON file with the shape of `ExtensionSignature`.
  *   2. Engine downloads the archive, then attempts to fetch the sibling
  *      signature file.
- *   3. If no signature is found, install fails with `SignatureMissingError`
- *      unless `REQUIRE_EXTENSION_SIGNATURES=false` is set explicitly.
+ *   3. If no signature is found, install fails with `SignatureMissingError`:
+ *      there is no unsigned mode (ADR 0056 amendment 2026-11-18).
  *   4. If a signature is found, the engine verifies:
  *        a. sha256(archive) matches `bundleSha256`,
  *        b. Ed25519(publicKey, signature, bundleSha256) is valid,
@@ -36,9 +36,10 @@ export interface ExtensionSignature {
 export class SignatureMissingError extends Error {
   constructor(public readonly extensionName: string) {
     super(
-      `Extension "${extensionName}" has no signature.json sibling. ` +
-        `Either install signatures on the registry side, or set ` +
-        `REQUIRE_EXTENSION_SIGNATURES=false to allow unsigned installs.`,
+      `Extension "${extensionName}" has no signature next to its archive, and nothing unsigned ` +
+        `installs. A mirror signs its archives with its own key, which this engine trusts ` +
+        `through REGISTRY_PUBLIC_KEYS_JSON; your own extension is signed with a key on ` +
+        `OPERATOR_PUBLIC_KEYS_JSON — docs/extensions/signatures.md.`,
     );
     this.name = 'SignatureMissingError';
   }

@@ -16,11 +16,9 @@
  *      rebuilding the binary.
  *
  * `BUILTIN_KEYS` carries the production registry key, and verification is
- * REQUIRED by default — `REQUIRE_EXTENSION_SIGNATURES=false` is the opt-OUT, for
- * a private mirror that does not sign yet. (This paragraph used to say the
- * opposite: that the key set was empty and signing opt-in. That was true until
- * the registry began signing the official publish path; leaving it in place
- * would have had the next reader believe an unsigned archive still installs.)
+ * always REQUIRED: the `REQUIRE_EXTENSION_SIGNATURES=false` opt-out is gone
+ * (ADR 0056 amendment 2026-11-18). A mirror that signs with its own key is
+ * trusted through the env var above.
  */
 
 export interface RegistryKey {

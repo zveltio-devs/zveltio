@@ -1,10 +1,12 @@
 # Extension Archive Signatures — status & go-public transition
 
-**Status (2026-07-30): ENFORCED by default.** A missing or invalid signature
-fails the install. `REQUIRE_EXTENSION_SIGNATURES=false` remains as an escape
-hatch for a private mirror that does not sign yet — to trust an *additional*
-signer, add its key to `REGISTRY_PUBLIC_KEYS_JSON` rather than disabling
-verification.
+**Status (2026-11-20): ENFORCED, with no opt-out.** A missing or invalid
+signature fails the install, and an unsigned directory never runs, inline or on
+the extension runner (ADR 0056 amendment 2026-11-18). The
+`REQUIRE_EXTENSION_SIGNATURES=false` escape hatch is gone; set, it only earns a
+boot warning. A mirror signs its archives with its own key, added to
+`REGISTRY_PUBLIC_KEYS_JSON`; your own extension is signed with a key on
+`OPERATOR_PUBLIC_KEYS_JSON` ([below](#your-own-extensions-level-3)).
 
 All four checklist steps below are done. Verified against the live registry on
 2026-07-30: **57 of 57 official extensions serve a `.sig`** at the URL the engine
@@ -33,6 +35,16 @@ zveltio keys export my-org-2026                       # → OPERATOR_PUBLIC_KEYS
 # restart the engine with that variable set, then, as the instance administrator:
 zveltio extensions enable acme/invoices               # needs a second factor (step-up)
 ```
+
+**Local development is the same step.** There is no unsigned mode for a
+directory you are working on: make a key once (`zveltio keys generate`), put its
+public half on your engine's `OPERATOR_PUBLIC_KEYS_JSON`, and sign the directory
+before you enable or reload it. The signature covers every file, so sign again
+after each change (`zveltio extension pack` then `zveltio extension sign`); a
+directory changed since it was signed is refused at load, naming the file.
+Every error, timeout and crash of your code is then logged with your key id —
+the reason an unsigned directory never runs: its faults would have no one to
+name but Zveltio.
 
 The marketplace lists every directory in `EXTENSIONS_DIR` whose manifest names
 it, though no catalogue does. One whose `signature.json` holds against
@@ -108,13 +120,14 @@ checks that at every load, not once at install (ADR 0056 amendment 4, ADR 0058):
   first-party name is not that extension. A kept signature that does not hold is
   refused; the directory is never loaded as if it were unsigned.
 - **Unsigned is never inline in production,** whatever its name: a directory put
-  there by hand, a source checkout, or an archive installed without a signature
-  under `REQUIRE_EXTENSION_SIGNATURES=false`. It loads on the extension runner,
-  as community code, when it is worker-isolated and bundled; otherwise it is
-  refused, naming the reason.
+  there by hand or a source checkout is refused, naming the reason.
+- **Unsigned never runs on the runner either** (ADR 0056 amendment 2026-11-18):
+  a worker-isolated, bundled directory that holds neither a registry signature
+  nor an operator's `signature.json` is refused at load, however it was
+  activated — a row written straight into `zv_extension_registry` included.
 - **Development and test** (`NODE_ENV=development` or `test`) keep the
-  catalogue's word for an unsigned directory, so a source checkout of the
-  first-party extensions runs as before.
+  catalogue's word for an unsigned directory that runs inline, so a source
+  checkout of the first-party extensions runs as before.
 
 Still from the catalogue: which tier a registry-signed extension has (bundled
 catalogue or the registry's answer, by its name). The registry does not sign the
@@ -150,9 +163,8 @@ Engine side (`packages/engine/src/lib/security/`) — **complete**:
 - `registry-keys.ts` — `BUILTIN_KEYS` **already contains** the production key
   `registry-prod-2026` (pubkey `7c9182ab…`). Operators can add keys via
   `REGISTRY_PUBLIC_KEYS_JSON` (private mirrors / rotation).
-- `extension-download.ts` — fetches `<download_url>.sig`, gated by
-  `REQUIRE_EXTENSION_SIGNATURES`. Missing → warn + proceed (default) or throw
-  (when required). Invalid → **always** throw.
+- `extension-download.ts` — fetches `<download_url>.sig`. Missing or invalid →
+  **always** throw; nothing turns it off.
 
 Registry side (`zveltio-devs/zveltio-registry`) — **partially wired**:
 
@@ -203,11 +215,11 @@ in `zveltio` or `zveltio-extensions`:
    `admin.ts /upload-package`; store `${key}.sig` in R2. Serve it from `store.ts`
    at both download `.sig` URLs (gap #2).
 2. **Re-sync all official extensions** so every archive gets a `.sig`.
-3. **Verify against a clean install** with `REQUIRE_EXTENSION_SIGNATURES=true`:
-   every official extension must install. This catches format mismatches before
-   they affect anyone.
-4. **Flip the default** to `true` in the engine (`extension-download.ts` /
-   deployment env). Missing signature now blocks; invalid already did.
+3. **Verify against a clean install:** every official extension must install.
+   This catches format mismatches before they affect anyone.
+4. **Flip the default** in the engine (`extension-download.ts`). Missing
+   signature now blocks; invalid already did. (Done 2026-07-30; the opt-out
+   itself was removed 2026-11-20.)
 
 ## Signing-scheme weaknesses (address BEFORE accepting third-party code)
 

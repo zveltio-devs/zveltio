@@ -1265,6 +1265,16 @@ Migration changes (new SQL under `engine/migrations/`) still require a
 reinstall: the watcher only re-imports `engine/index.ts`. Toggle the
 extension off and on in `/admin/extensions` to apply a new migration.
 
+### Sign it, once per developer
+
+An unsigned directory never runs — not inline, not on the runner, not in
+development (ADR 0056 amendment 2026-11-18). Your own extension loads at level 3
+on a key you trust: `zveltio keys generate --id <id>` once, its public half
+(`zveltio keys export <id>`) on the engine's `OPERATOR_PUBLIC_KEYS_JSON`, then
+`zveltio extension pack` and `zveltio extension sign --dir . --key-id <id>`
+after each change before enabling or reloading it. The steps are in
+[signatures](signatures.md#your-own-extensions-level-3).
+
 ### Where extension files live (`EXTENSIONS_DIR`)
 
 The engine resolves the extension base directory in priority order:

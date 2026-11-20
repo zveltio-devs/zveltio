@@ -14,6 +14,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { revokeExtensionDbRoles } from '../../lib/extensions/ext-db-role.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { withTenantIsolation } from '../../lib/tenancy/index.js';
 import { runWithDomain } from '../../lib/tenancy/tenant-context.js';
 import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extension-host.js';
@@ -84,6 +85,7 @@ d('sibling db.transaction() scopes in a worker take turns', () => {
   const savedCtx = extensionLoader.ctx;
 
   beforeAll(async () => {
+    _setInlineForTests(true); // unsigned fixtures: the test override stands in for a signature
     ({ db } = await getTestApp());
     await sql`INSERT INTO zv_tenants (id, slug, name, status)
               VALUES (${TENANT}::uuid, ${`wkrsib-${SFX}`}, 'sib', 'active')`.execute(db);
@@ -137,6 +139,7 @@ d('sibling db.transaction() scopes in a worker take turns', () => {
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     if (saved === undefined) delete process.env.ZVELTIO_EXT_TRANSPORT;
     else process.env.ZVELTIO_EXT_TRANSPORT = saved;
     extensionLoader.ctx = savedCtx;

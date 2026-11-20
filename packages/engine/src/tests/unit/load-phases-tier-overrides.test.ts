@@ -48,16 +48,21 @@ describe('enforcePublisherTier — escape hatches', () => {
     }
   });
 
-  it('a manifest declaring engine.isolation "worker" is allowed without a catalog', async () => {
+  it('a signed manifest declaring engine.isolation "worker" is allowed without a catalog', async () => {
     _setInlineForTests(false);
     const spy = spyOn(extensionDownload, 'fetchRegistryCatalog');
     try {
-      const r = await enforcePublisherTier('worker-ext', {
+      const m = {
         name: 'worker-ext',
         version: '1.0.0',
         engine: { isolation: 'worker', bundled: true },
-      } as never);
-      expect(r.ok).toBe(true);
+      } as never;
+      expect((await enforcePublisherTier('worker-ext', m, null, true)).ok).toBe(true);
+      expect((await enforcePublisherTier('worker-ext', m, 'ops-key')).ok).toBe(true);
+      // ADR 0056 amendment 2026-11-18: unsigned, it never runs.
+      const unsigned = await enforcePublisherTier('worker-ext', m);
+      expect(unsigned.ok).toBe(false);
+      if (!unsigned.ok) expect(unsigned.lastLoadError).toContain('is not signed');
       expect(spy).not.toHaveBeenCalled();
     } finally {
       spy.mockRestore();

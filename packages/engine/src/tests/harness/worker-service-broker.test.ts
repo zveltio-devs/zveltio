@@ -11,6 +11,7 @@ import { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
 import { revokeExtensionDbRoles } from '../../lib/extensions/ext-db-role.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extension-host.js';
 import {
   forgetInstalled,
@@ -92,6 +93,7 @@ d('worker service broker: namespace, dependency allowlist, fail-fast', () => {
   const app = new Hono();
 
   beforeAll(async () => {
+    _setInlineForTests(true); // unsigned fixtures: the test override stands in for a signature
     ({ db } = await getTestApp());
     base = mkdtempSync(join(tmpdir(), 'wkr-broker-'));
     writeExt(base, OWNER, ownerEntry);
@@ -111,6 +113,7 @@ d('worker service broker: namespace, dependency allowlist, fail-fast', () => {
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     await getWorkerHost(app).stopAll();
     _resetWorkerHostForTests();
     for (const name of [OWNER, SQUATTER, STRANGER, DEPENDENT, OPTIONAL, STALE_OPT]) {

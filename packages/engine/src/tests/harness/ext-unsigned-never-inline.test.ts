@@ -2,8 +2,7 @@
  * U3 (ADR 0056 amendment 4, ADR 0058 amendment point 3): an unsigned directory
  * never runs inline, whatever its name. A name the catalogue calls first-party
  * proves nothing: inline needs the registry's signature, kept with the files at
- * download and re-verified against them at every load. `REQUIRE_EXTENSION_SIGNATURES=false`
- * lets an unsigned archive install; it never makes it inline.
+ * download and re-verified against them at every load.
  *
  * Production (the default `NODE_ENV`) through the engine's own loader and
  * download path, from directories on disk.
@@ -44,7 +43,6 @@ d('an unsigned directory never runs inline, whatever its name (U3)', () => {
   const app = new Hono();
   const saved = {
     NODE_ENV: process.env.NODE_ENV,
-    REQUIRE_EXTENSION_SIGNATURES: process.env.REQUIRE_EXTENSION_SIGNATURES,
     REGISTRY_PUBLIC_KEYS_JSON: process.env.REGISTRY_PUBLIC_KEYS_JSON,
   };
   let wasInline = false;
@@ -118,7 +116,6 @@ d('an unsigned directory never runs inline, whatever its name (U3)', () => {
     src = mkdtempSync(join(tmpdir(), 'u3-src-'));
     wasInline = _setInlineForTests(false);
     process.env.NODE_ENV = 'production';
-    process.env.REQUIRE_EXTENSION_SIGNATURES = 'false';
   });
 
   afterEach(() => {

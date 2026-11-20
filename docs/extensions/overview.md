@@ -28,10 +28,10 @@ zveltio extensions enable <name>
 zveltio extensions disable <name>
 ```
 
-Installs verify an **Ed25519 signature** by default. `REQUIRE_EXTENSION_SIGNATURES=false`
-exists only for unsigned private mirrors, and additional trusted signers go in
-`REGISTRY_PUBLIC_KEYS_JSON`. An unsigned extension never runs inline in
-production, whatever its name ([signatures](signatures.md#what-runs-inline-u3)).
+Installs verify an **Ed25519 signature**, always. Additional trusted signers go
+in `REGISTRY_PUBLIC_KEYS_JSON`, and your own extensions are signed with a key on
+`OPERATOR_PUBLIC_KEYS_JSON`. An unsigned extension never runs, whatever its name
+([signatures](signatures.md#what-runs-inline-u3)).
 
 Installing an extension shows you what it is asking for — its declared
 permissions — and records your consent. An extension cannot quietly acquire a

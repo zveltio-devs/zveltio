@@ -259,16 +259,11 @@ d('an operator-signed extension (ADR 0056 s3)', () => {
     expect(existsSync(join(base, renamed, 'signature.json'))).toBe(true);
   }, 60_000);
 
-  it('leaves an unsigned worker extension as it was: community, on the runner, key absent', async () => {
+  it('refuses an unsigned worker extension: it never runs (ADR 0056 amendment 2026-11-18)', async () => {
     const name = `s3${STAMP}/unsigned`;
     write(name);
-    expect(await load(name)).toBeUndefined();
-    expect(running(name)).toBe(true);
-    expect(
-      getWorkerHost(app)
-        .getHealth()
-        .find((h) => h.name === name)?.keyId,
-    ).toBeNull();
+    expect(await load(name)).toMatch(/is not signed.*OPERATOR_PUBLIC_KEYS_JSON/s);
+    expect(running(name)).toBe(false);
   }, 60_000);
 
   // ── Slice 4: level 3 is declared model only ──────────────────────────────

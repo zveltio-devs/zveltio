@@ -29,6 +29,7 @@ import {
   revokeExtensionDbRoles,
 } from '../../lib/extensions/ext-db-role.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { createRestrictedDb } from '../../lib/extensions/extension-context.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import { applyTenantRLS, getCurrentTenantTrx } from '../../lib/tenancy/index.js';
@@ -91,6 +92,7 @@ d('collection triggers under every restricted writer role', () => {
   const writers: Record<string, Writer> = {};
 
   beforeAll(async () => {
+    _setInlineForTests(true); // unsigned fixtures: the test override stands in for a signature
     ({ app, db } = await getTestApp());
     const cookie = await createGodSession(app, db);
     await DDLManager.createCollection(db, {
@@ -196,6 +198,7 @@ d('collection triggers under every restricted writer role', () => {
   }, 120_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     await getWorkerHost(workerApp).stopAll();
     _resetWorkerHostForTests();
     if (base) rmSync(base, { recursive: true, force: true });

@@ -110,14 +110,15 @@ export const MODES = {
     on: is('1'),
   },
   REQUIRE_EXTENSION_SIGNATURES: {
-    class: 'permanent',
+    class: 'removed',
     weakens:
-      'Refusing an extension archive without a registry signature. With `=false` a missing ' +
-      'signature is a warning and the archive installs, but it is unsigned: in production it ' +
-      'never runs inline, whatever its name — only on the extension runner, as community code ' +
-      '(worker-isolated and bundled), or not at all (U3).',
-    when: 'A private mirror that does not sign yet.',
-    removal: 'permanent',
+      'Was: with `=false` an extension archive without a registry signature installed, with a ' +
+      'warning. Removed — a missing signature refuses the install, and an unsigned directory ' +
+      'never runs, inline or on the runner (ADR 0056 amendment 2026-11-18).',
+    when:
+      'Never. A mirror signs with its own key on `REGISTRY_PUBLIC_KEYS_JSON`; your own extension ' +
+      'is signed with a key on `OPERATOR_PUBLIC_KEYS_JSON`.',
+    removal: 'removed (ADR 0056)',
     on: is('false'),
   },
   ZVELTIO_EXT_TRANSPORT: {
@@ -279,7 +280,7 @@ export function operationalModeWarnings(env: Env = process.env): string[] {
     if (!mode.on?.(env[name])) continue;
     out.push(
       mode.class === 'removed'
-        ? `[modes] ${name} is set, but it was removed (ADR 0058) and has no effect: unset it.`
+        ? `[modes] ${name} is set, but it was ${mode.removal} and has no effect: unset it.`
         : `[modes] ${name}=${env[name] ?? '(unset)'} — ${mode.class}, ${mode.removal}: ${mode.weakens}`,
     );
   }

@@ -33,6 +33,10 @@ describe('operational-mode register', () => {
     });
     expect(lines).toHaveLength(3);
     for (const l of lines) expect(l).toContain('removed (ADR 0058) and has no effect');
+    // ADR 0056 amendment 2026-11-18: no unsigned mode.
+    expect(operationalModeWarnings({ REQUIRE_EXTENSION_SIGNATURES: 'false' })).toEqual([
+      expect.stringContaining('removed (ADR 0056) and has no effect'),
+    ]);
   });
 
   test('every entry names what it weakens, a class and a removal', () => {
