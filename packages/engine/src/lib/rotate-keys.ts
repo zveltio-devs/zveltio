@@ -332,3 +332,32 @@ function asObject(text: string | null): Record<string, unknown> | null {
     ? (o as Record<string, unknown>)
     : null;
 }
+
+/** The report as the CLI prints it: counts and locations, never a value. */
+export function formatRotateKeysReport(r: RotateKeysReport): string {
+  const lines = [
+    `rotate-keys${r.dryRun ? ' (dry run, nothing written)' : ''}: ` +
+      `${r.rewritten} value(s) ${r.dryRun ? 'to rewrite' : 'rewritten'} under key ${r.currentKeyId}`,
+  ];
+  const kids = Object.keys(r.left).sort((a, b) =>
+    a === r.currentKeyId ? -1 : b === r.currentKeyId ? 1 : a.localeCompare(b),
+  );
+  for (const kid of kids) {
+    lines.push(`  under ${kid}${kid === r.currentKeyId ? ' (current)' : ''}: ${r.left[kid]}`);
+  }
+  if (r.unbound > 0) lines.push(`  of which enc:v1 (unbound): ${r.unbound}`);
+  if (r.changed > 0) {
+    lines.push(`  changed by a live write during the run: ${r.changed} (run again)`);
+  }
+  lines.push(`  unopenable under every listed key: ${r.unopenable.length}`);
+  for (const u of r.unopenable) {
+    lines.push(`    ${u.store} field=${u.field} tenant=${u.tenant || '-'} record=${u.record}`);
+  }
+  const old = kids.filter((k) => k !== r.currentKeyId);
+  lines.push(
+    old.length === 0 && r.changed === 0
+      ? '  No value is left under an older key: older keys can leave the list.'
+      : '  Keep every listed key until a run reports nothing under an older one.',
+  );
+  return lines.join('\n');
+}

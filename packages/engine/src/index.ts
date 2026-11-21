@@ -372,13 +372,16 @@ COMMANDS
   migrate                            Run pending database migrations.
   create-god --email E --password P  Create the instance's god (first admin) through
                                      better-auth; refused once a god exists. [--name N]
+  rotate-keys [--dry-run] [--batch N] Rewrite every engine-sealed field value under the
+                                     current FIELD_ENCRYPTION_KEYS key, bound to its row;
+                                     report what is left under each key id.
   status                             Show service status.
   update                             How to update (points to update.sh).
   version                            Print version.
   help                               Show this message.
 
 ENVIRONMENT
-  DATABASE_URL is required for migrate/create-god/start; create-god also
+  DATABASE_URL is required for migrate/create-god/rotate-keys/start; create-god also
   needs BETTER_AUTH_SECRET (or BETTER_AUTH_SECRETS).
   When called via the /usr/local/bin/zveltio wrapper, /opt/zveltio/.env is
   loaded automatically, so plain "sudo zveltio migrate" works from anywhere.
@@ -508,6 +511,37 @@ if (_cmd === 'create-god') {
   }
   console.log(`✅ God user created: ${_email}`);
   process.exit(0);
+}
+
+if (_cmd === 'rotate-keys') {
+  // NATIVE_DATABASE_URL can be set to bypass PgDog — same as migrate above.
+  if (process.env.NATIVE_DATABASE_URL) {
+    process.env.DATABASE_URL = process.env.NATIVE_DATABASE_URL;
+  }
+  const _args = process.argv.slice(3);
+  const _bi = _args.indexOf('--batch');
+  const _batch = _bi >= 0 ? Number(_args[_bi + 1]) : undefined;
+  const _unknown = _args.filter(
+    (a, i) => a !== '--dry-run' && a !== '--batch' && !(_bi >= 0 && i === _bi + 1),
+  );
+  if (_unknown.length > 0 || (_bi >= 0 && !(Number.isInteger(_batch) && (_batch ?? 0) > 0))) {
+    console.error('Usage: zveltio rotate-keys [--dry-run] [--batch <rows per transaction>]');
+    process.exit(1);
+  }
+  // A one-shot command beside a live engine: see create-god.
+  process.env.DB_POOL_MAX ??= '2';
+  const { initDatabase: _initDb3 } = await import('./db/index.js');
+  const _db = await _initDb3();
+  const { rotateKeys, formatRotateKeysReport } = await import('./lib/rotate-keys.js');
+  try {
+    const _report = await rotateKeys(_db, { dryRun: _args.includes('--dry-run'), batchSize: _batch });
+    console.log(formatRotateKeysReport(_report));
+    // 2: finished, but a value is unopenable or changed under the run.
+    process.exit(_report.unopenable.length > 0 || _report.changed > 0 ? 2 : 0);
+  } catch (err) {
+    console.error(`❌ rotate-keys failed: ${(err as Error).message}`);
+    process.exit(1);
+  }
 }
 
 // ─── Hot-reload: rebuild Hono app ─────────────────────────────────────────────
