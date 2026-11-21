@@ -1,26 +1,23 @@
 /**
- * applyFailClosedTenantSetting — the tenant fallback is closed by default
- * (DR-03, migration 123); ZVELTIO_FAIL_CLOSED_TENANT=0 opts out.
+ * The stored half of applyFailClosedTenantSetting — the tenant fallback is
+ * closed by default (DR-03, migration 123); ZVELTIO_FAIL_CLOSED_TENANT=0 opts
+ * out. What a new connection gets is checked against a real database in
+ * harness/fail-closed-tenant-effective.test.ts.
  */
 import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import type { Database } from '../../db/index.js';
-import {
-  applyFailClosedTenantSetting,
-  failClosedTenantEnabled,
-} from '../../lib/tenancy/fail-closed-tenant.js';
+import { failClosedTenantEnabled, storeSetting } from '../../lib/tenancy/fail-closed-tenant.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
 function asDb(db: CannedDb): Database {
   return db.kysely as unknown as Database;
 }
 
-/**
- * A database whose stored values are `first`, then `after` once read again, and
- * whose fresh connection falls back to the default tenant when `open`.
- */
-function canned(first: string[], after: string[] = [], open = false): CannedDb {
+const applyFailClosedTenantSetting = (db: Database) => storeSetting(db, failClosedTenantEnabled());
+
+/** A database whose stored values are `first`, then `after` once read again. */
+function canned(first: string[], after: string[] = []): CannedDb {
   const db = new CannedDb();
-  db.when(/AS open/i, [{ open }]);
   db.when(/current_database\(\) AS db/i, [{ db: 'zveltio_test' }]);
   let reads = 0;
   db.when(/pg_db_role_setting/i, () => (reads++ === 0 ? first : after).map((v) => ({ v })));
@@ -28,8 +25,11 @@ function canned(first: string[], after: string[] = [], open = false): CannedDb {
   return db;
 }
 
+const savedNodeEnv = process.env.NODE_ENV;
 afterEach(() => {
   delete process.env.ZVELTIO_FAIL_CLOSED_TENANT;
+  if (savedNodeEnv === undefined) delete process.env.NODE_ENV;
+  else process.env.NODE_ENV = savedNodeEnv;
 });
 
 describe('failClosedTenantEnabled', () => {
@@ -74,7 +74,7 @@ describe('applyFailClosedTenantSetting', () => {
 
   it('=0 stores off and warns', async () => {
     process.env.ZVELTIO_FAIL_CLOSED_TENANT = '0';
-    const db = canned([], [], true);
+    const db = canned([]);
     const warn = spyOn(console, 'warn').mockImplementation(() => {});
     try {
       await applyFailClosedTenantSetting(asDb(db));
@@ -96,5 +96,13 @@ describe('applyFailClosedTenantSetting', () => {
     } finally {
       warn.mockRestore();
     }
+  });
+
+  it('=0 that cannot be applied refuses to boot in production, naming the permission', async () => {
+    process.env.ZVELTIO_FAIL_CLOSED_TENANT = '0';
+    process.env.NODE_ENV = 'production';
+    const db = canned([]);
+    db.fail(/ALTER DATABASE/i, new Error('must be owner of database zveltio_test'));
+    await expect(applyFailClosedTenantSetting(asDb(db))).rejects.toThrow('GRANT SET ON PARAMETER');
   });
 });

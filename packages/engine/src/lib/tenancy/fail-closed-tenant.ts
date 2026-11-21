@@ -11,15 +11,17 @@
  * The catalog is not the whole answer: a role's value wins over the
  * database's, and the client's startup options (`options=-c …` in DATABASE_URL,
  * PGOPTIONS) win over both without appearing in any catalog. So the step ends
- * by renewing the pool and reading what a fresh connection gets; a difference
+ * by opening one new connection (over NATIVE_DATABASE_URL when set) and
+ * reading what it gets; a difference
  * from what ZVELTIO_FAIL_CLOSED_TENANT asks warns in development and test and
  * refuses to boot in production (owner 2026-11-21). Any other `zveltio.*`
  * setting the database reads, preset on that connection, refuses the boot in
- * every environment.
+ * every environment. A `=0` the engine role cannot store refuses it in
+ * production too.
  */
 
 import { sql } from 'kysely';
-import { type Database, recycleActivePool } from '../../db/index.js';
+import { createDb, type Database, withIdleInTransactionTimeout } from '../../db/index.js';
 import { isProduction, modeValue } from '../operational-modes.js';
 
 /** Values the functions in migration 123 read as "fall back to the default tenant". */
@@ -47,72 +49,138 @@ async function storedValues(db: Database): Promise<string[]> {
 
 const opens = (values: string[]) => values.some((v) => OPEN.has(v.trim().toLowerCase()));
 
+const FCT = 'zveltio.fail_closed_tenant';
+
+/** Every schema but Postgres' own. */
+const USER_NS = `n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg_toast%'`;
+
 /**
- * What a connection opened now gets. `db` is the engine's primary database: the
- * recycle renews its pool, so the query runs on a new connection.
+ * What a connection opened now gets, read on ONE new connection from `url` with
+ * the engine's driver and options, closed after.
  *
  * `open`: whether it falls back to the default tenant, read the way migration
- * 123's functions read it. `preset`: every other `zveltio.*` setting a policy,
- * function or column default in this database reads that already holds a value.
- * Those are the engine's per-transaction context (tenant, actor, grants); the
- * names come from the database itself, because a placeholder setting appears in
- * no catalog (pg_settings omits it) and a hand-kept list would miss the next one.
+ * 123's functions read it. `preset`: every other `zveltio.*` setting this
+ * database reads — in a function, policy, column default, CHECK constraint,
+ * view or rule, index or trigger condition — that already holds a value. Those
+ * are the engine's per-transaction context (tenant, actor, grants); the names
+ * come from the database itself, because a placeholder setting appears in no
+ * catalog (pg_settings omits it) and a hand-kept list would miss the next one.
  */
-async function freshConnection(db: Database): Promise<{ open: boolean; preset: string[] }> {
-  await recycleActivePool();
-  const r = await sql<{ open: boolean; preset: string[] | null }>`
-    WITH src AS (
-      SELECT p.prosrc AS t
-        FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
-       WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
-      UNION ALL
-      SELECT coalesce(qual, '') || ' ' || coalesce(with_check, '') FROM pg_catalog.pg_policies
-      UNION ALL
-      SELECT pg_catalog.pg_get_expr(adbin, adrelid) FROM pg_catalog.pg_attrdef
-    ), names AS (
-      SELECT DISTINCT 'zveltio.' || m[1] AS name
-        FROM src, regexp_matches(src.t, 'zveltio\.([a-z_][a-z0-9_]*)', 'g') AS m
-    )
-    SELECT lower(coalesce(nullif(current_setting('zveltio.fail_closed_tenant', true), ''), 'on'))
-             IN ('off', 'false', '0') AS open,
-           (SELECT array_agg(name ORDER BY name) FROM names
-             WHERE name <> 'zveltio.fail_closed_tenant'
-               AND coalesce(current_setting(name, true), '') <> '') AS preset
-  `.execute(db);
-  return { open: r.rows[0]?.open === true, preset: r.rows[0]?.preset ?? [] };
+async function freshConnection(url: string): Promise<{ open: boolean; preset: string[] }> {
+  const probe = createDb(withIdleInTransactionTimeout(url), 1);
+  try {
+    // `[.]`, not an escaped dot: a template literal cooks `\.` to `.`.
+    const r = await sql<{ open: boolean; preset: string[] | null }>`
+      WITH src AS (
+        SELECT p.prosrc AS t FROM pg_catalog.pg_proc p
+          JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace WHERE ${sql.raw(USER_NS)}
+        UNION ALL
+        SELECT coalesce(qual, '') || ' ' || coalesce(with_check, '') FROM pg_catalog.pg_policies
+        UNION ALL
+        SELECT pg_catalog.pg_get_expr(adbin, adrelid) FROM pg_catalog.pg_attrdef
+        UNION ALL
+        SELECT pg_catalog.pg_get_constraintdef(c.oid) FROM pg_catalog.pg_constraint c
+          JOIN pg_catalog.pg_namespace n ON n.oid = c.connamespace
+         WHERE c.contype = 'c' AND ${sql.raw(USER_NS)}
+        UNION ALL
+        SELECT pg_catalog.pg_get_ruledef(w.oid) FROM pg_catalog.pg_rewrite w
+          JOIN pg_catalog.pg_class k ON k.oid = w.ev_class
+          JOIN pg_catalog.pg_namespace n ON n.oid = k.relnamespace WHERE ${sql.raw(USER_NS)}
+        UNION ALL
+        SELECT pg_catalog.pg_get_indexdef(i.indexrelid) FROM pg_catalog.pg_index i
+          JOIN pg_catalog.pg_class k ON k.oid = i.indrelid
+          JOIN pg_catalog.pg_namespace n ON n.oid = k.relnamespace
+         WHERE (i.indpred IS NOT NULL OR i.indexprs IS NOT NULL) AND ${sql.raw(USER_NS)}
+        UNION ALL
+        SELECT pg_catalog.pg_get_triggerdef(t.oid) FROM pg_catalog.pg_trigger t
+         WHERE NOT t.tgisinternal AND t.tgqual IS NOT NULL
+      ), names AS (
+        SELECT DISTINCT 'zveltio.' || m[1] AS name
+          FROM src, regexp_matches(src.t, 'zveltio[.]([a-z_][a-z0-9_]*)', 'g') AS m
+      )
+      SELECT lower(coalesce(nullif(current_setting(${FCT}, true), ''), 'on'))
+               IN ('off', 'false', '0') AS open,
+             (SELECT array_agg(name ORDER BY name) FROM names
+               WHERE name <> ${FCT} AND coalesce(current_setting(name, true), '') <> '') AS preset
+    `.execute(probe);
+    return { open: r.rows[0]?.open === true, preset: r.rows[0]?.preset ?? [] };
+  } finally {
+    await probe.destroy();
+  }
 }
 
-export async function applyFailClosedTenantSetting(db: Database): Promise<void> {
+/** `zveltio.*` names a libpq options string sets (`-c name=…`, `--name=…`), URL-encoded or not. */
+export function startupOptionNames(text: string): string[] {
+  let plain = text;
+  try {
+    plain = decodeURIComponent(text);
+  } catch {
+    // Not encoded, or malformed: read it as written.
+  }
+  const names = [...plain.matchAll(/(?:-c[\s+]*|--)zveltio[.]([a-z_][a-z0-9_]*)[\s+]*=/g)];
+  return [...new Set(names.map((m) => `zveltio.${m[1]}`))];
+}
+
+/**
+ * `url` is the engine's DATABASE_URL; `directUrl`, its NATIVE_DATABASE_URL.
+ * Past a transaction pooler a "new" connection is whatever backend the pooler
+ * hands out — opened before the setting was stored, or carrying another
+ * client's SET — so with a direct URL the fresh connection is opened there,
+ * and the engine URL's own startup options (and PGOPTIONS) are read as text:
+ * the probe cannot see what a pooler does with them.
+ */
+export async function applyFailClosedTenantSetting(
+  db: Database,
+  url: string,
+  directUrl?: string,
+): Promise<void> {
   const enabled = failClosedTenantEnabled();
   await storeSetting(db, enabled);
-  const fresh = await freshConnection(db);
+  const fresh = await freshConnection(directUrl || url);
+  const named = directUrl ? startupOptionNames(`${url} ${process.env.PGOPTIONS ?? ''}`) : [];
+  const preset = [...new Set([...fresh.preset, ...named.filter((n) => n !== FCT)])].sort();
   // Never a mode, in any environment: a contextless statement would run as
   // whatever tenant, actor or grant the connection was handed.
-  if (fresh.preset.length > 0) {
+  if (preset.length > 0) {
     throw new Error(
-      `a new connection already carries ${fresh.preset.join(', ')}: the engine's ` +
+      `a new connection already carries ${preset.join(', ')}: the engine's ` +
         'per-transaction context, preset for every statement on the connection (a ' +
         'preset zveltio.current_tenant runs contextless queries as that tenant). Remove it ' +
         "from options=-c in DATABASE_URL, PGOPTIONS, or the login role's or database's settings.",
     );
   }
-  if (fresh.open !== enabled) return;
-  const problem = enabled
-    ? "a new connection's zveltio.fail_closed_tenant is fail-open although " +
-      'ZVELTIO_FAIL_CLOSED_TENANT does not ask for it: a query with no tenant context sees ' +
-      "the DEFAULT tenant's rows. Something the boot does not store sets it — " +
-      "options=-c zveltio.fail_closed_tenant=… in DATABASE_URL, PGOPTIONS, or the login role's " +
-      'setting. Remove it.'
-    : "a new connection's zveltio.fail_closed_tenant is closed although " +
-      "ZVELTIO_FAIL_CLOSED_TENANT=0 asks for the default tenant's rows: the database's 'off' " +
-      "is overridden — options=-c in DATABASE_URL, PGOPTIONS, the login role's setting — or " +
-      'was not stored. Remove the override, or the variable.';
-  if (isProduction()) throw new Error(problem);
-  console.warn(`⚠️  [tenant] ${problem}`);
+  const problems: string[] = [];
+  if (fresh.open === enabled) {
+    problems.push(
+      enabled
+        ? "a new connection's zveltio.fail_closed_tenant is fail-open although " +
+            'ZVELTIO_FAIL_CLOSED_TENANT does not ask for it: a query with no tenant context sees ' +
+            "the DEFAULT tenant's rows. Something the boot does not store sets it — " +
+            "options=-c zveltio.fail_closed_tenant=… in DATABASE_URL, PGOPTIONS, or the login role's " +
+            'setting. Remove it.'
+        : "a new connection's zveltio.fail_closed_tenant is closed although " +
+            "ZVELTIO_FAIL_CLOSED_TENANT=0 asks for the default tenant's rows: options=-c in " +
+            "DATABASE_URL, PGOPTIONS or the login role's setting overrides the database's 'off' " +
+            '(or the boot could not store it — warned above). Remove the override, or the variable.',
+    );
+  }
+  if (named.includes(FCT)) {
+    problems.push(
+      'DATABASE_URL or PGOPTIONS sets zveltio.fail_closed_tenant, which the check over ' +
+        'NATIVE_DATABASE_URL cannot see applied. ZVELTIO_FAIL_CLOSED_TENANT is the one switch: remove it.',
+    );
+  }
+  for (const problem of problems) {
+    if (isProduction()) throw new Error(problem);
+    console.warn(`⚠️  [tenant] ${problem}`);
+  }
 }
 
-/** Stores (or resets) the database's own value; what a connection gets is checked after. */
-async function storeSetting(db: Database, enabled: boolean): Promise<void> {
+/**
+ * Stores (or resets) the database's own value; what a connection gets is checked
+ * after. Exported for the unit tests, which have no database to probe.
+ */
+export async function storeSetting(db: Database, enabled: boolean): Promise<void> {
   const r = await sql<{ db: string }>`SELECT current_database() AS db`.execute(db);
   const dbName = r.rows[0]?.db;
   if (!dbName || !/^[a-zA-Z0-9_]+$/.test(dbName)) {
@@ -125,11 +193,15 @@ async function storeSetting(db: Database, enabled: boolean): Promise<void> {
         .raw(`ALTER DATABASE "${dbName}" SET zveltio.fail_closed_tenant = 'off'`)
         .execute(db);
     } catch (err) {
-      // Not applied leaves the database closed: stricter than asked, never looser.
-      console.warn(
-        '[tenant] ZVELTIO_FAIL_CLOSED_TENANT=0 could not be applied, the fallback stays CLOSED:',
-        err instanceof Error ? err.message : String(err),
-      );
+      // Not stored leaves the database closed — stricter than asked — but the
+      // operator asked for something the boot did not do: production refuses.
+      const why = err instanceof Error ? err.message : String(err);
+      const problem =
+        `ZVELTIO_FAIL_CLOSED_TENANT=0 could not be stored (${why}), the fallback stays CLOSED. ` +
+        'The engine role must own the database and hold GRANT SET ON PARAMETER ' +
+        'zveltio.fail_closed_tenant (scripts/bootstrap-db-role.sh grants both); or remove the variable.';
+      if (isProduction()) throw new Error(problem);
+      console.warn(`[tenant] ${problem}`);
       return;
     }
     console.warn(
