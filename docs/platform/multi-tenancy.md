@@ -407,6 +407,17 @@ actually gets. If that differs from what the variable asks — open without
 `'off'`, say) — the engine warns in development and test and refuses to start
 in production.
 
+The same fresh connection must carry none of the engine's per-transaction
+context. Every other `zveltio.*` setting a policy, function or column default
+in the database reads — `zveltio.current_tenant`, `zveltio.actor`,
+`zveltio.rls_bypass`, the grant lists — is set by the engine inside each
+transaction, never on a connection. Preset by a startup option or a stored
+setting, it applies to every statement that sets nothing: a preset
+`zveltio.current_tenant` makes a contextless query read and write that tenant's
+rows. The engine refuses to start, in every environment, when a fresh
+connection holds a value for any of them. The names are read from the database
+itself, because Postgres lists such settings in no catalog.
+
 ### The tables a tenant is resolved from
 
 `zv_api_keys`, `zv_invitations`, `zv_media_shares` and `zv_tenant_users`

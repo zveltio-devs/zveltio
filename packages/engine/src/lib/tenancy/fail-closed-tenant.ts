@@ -13,7 +13,9 @@
  * PGOPTIONS) win over both without appearing in any catalog. So the step ends
  * by renewing the pool and reading what a fresh connection gets; a difference
  * from what ZVELTIO_FAIL_CLOSED_TENANT asks warns in development and test and
- * refuses to boot in production (owner 2026-11-21).
+ * refuses to boot in production (owner 2026-11-21). Any other `zveltio.*`
+ * setting the database reads, preset on that connection, refuses the boot in
+ * every environment.
  */
 
 import { sql } from 'kysely';
@@ -46,23 +48,55 @@ async function storedValues(db: Database): Promise<string[]> {
 const opens = (values: string[]) => values.some((v) => OPEN.has(v.trim().toLowerCase()));
 
 /**
- * Whether a connection opened now falls back to the default tenant, read the
- * way migration 123's functions read it. `db` is the engine's primary database:
- * the recycle renews its pool, so the query runs on a new connection.
+ * What a connection opened now gets. `db` is the engine's primary database: the
+ * recycle renews its pool, so the query runs on a new connection.
+ *
+ * `open`: whether it falls back to the default tenant, read the way migration
+ * 123's functions read it. `preset`: every other `zveltio.*` setting a policy,
+ * function or column default in this database reads that already holds a value.
+ * Those are the engine's per-transaction context (tenant, actor, grants); the
+ * names come from the database itself, because a placeholder setting appears in
+ * no catalog (pg_settings omits it) and a hand-kept list would miss the next one.
  */
-async function freshConnectionOpen(db: Database): Promise<boolean> {
+async function freshConnection(db: Database): Promise<{ open: boolean; preset: string[] }> {
   await recycleActivePool();
-  const r = await sql<{ open: boolean }>`
+  const r = await sql<{ open: boolean; preset: string[] | null }>`
+    WITH src AS (
+      SELECT p.prosrc AS t
+        FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+       WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+      UNION ALL
+      SELECT coalesce(qual, '') || ' ' || coalesce(with_check, '') FROM pg_catalog.pg_policies
+      UNION ALL
+      SELECT pg_catalog.pg_get_expr(adbin, adrelid) FROM pg_catalog.pg_attrdef
+    ), names AS (
+      SELECT DISTINCT 'zveltio.' || m[1] AS name
+        FROM src, regexp_matches(src.t, 'zveltio\.([a-z_][a-z0-9_]*)', 'g') AS m
+    )
     SELECT lower(coalesce(nullif(current_setting('zveltio.fail_closed_tenant', true), ''), 'on'))
-           IN ('off', 'false', '0') AS open
+             IN ('off', 'false', '0') AS open,
+           (SELECT array_agg(name ORDER BY name) FROM names
+             WHERE name <> 'zveltio.fail_closed_tenant'
+               AND coalesce(current_setting(name, true), '') <> '') AS preset
   `.execute(db);
-  return r.rows[0]?.open === true;
+  return { open: r.rows[0]?.open === true, preset: r.rows[0]?.preset ?? [] };
 }
 
 export async function applyFailClosedTenantSetting(db: Database): Promise<void> {
   const enabled = failClosedTenantEnabled();
   await storeSetting(db, enabled);
-  if ((await freshConnectionOpen(db)) !== enabled) return;
+  const fresh = await freshConnection(db);
+  // Never a mode, in any environment: a contextless statement would run as
+  // whatever tenant, actor or grant the connection was handed.
+  if (fresh.preset.length > 0) {
+    throw new Error(
+      `a new connection already carries ${fresh.preset.join(', ')}: the engine's ` +
+        'per-transaction context, preset for every statement on the connection (a ' +
+        'preset zveltio.current_tenant runs contextless queries as that tenant). Remove it ' +
+        "from options=-c in DATABASE_URL, PGOPTIONS, or the login role's or database's settings.",
+    );
+  }
+  if (fresh.open !== enabled) return;
   const problem = enabled
     ? "a new connection's zveltio.fail_closed_tenant is fail-open although " +
       'ZVELTIO_FAIL_CLOSED_TENANT does not ask for it: a query with no tenant context sees ' +
