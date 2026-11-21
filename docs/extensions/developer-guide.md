@@ -1544,13 +1544,23 @@ invocation over a channel and runs its SQL through its own pool.
     `503 extension.unavailable`.
   - *Logs.* Every error, timeout, refusal past the limit and crash is logged as
     `[ext:<name> key=<signing key id>]`: the operator key its signature verified
-    against, `absent` for an unsigned one.
+    against, else the registry key of the archive kept with its files, `absent`
+    for an unsigned one.
   - *Record.* The disable writes an `extension.crash_disabled` audit row, and
     the marketplace list (`GET /api/marketplace`, `zveltio extensions list`)
     shows it not running, with the reason as its `last_load_error`. It is not
     kept as disabled: a restart starts it again.
 - **Limitations:** no streaming responses (body buffered as text),
   worker-published services routed via the host registry bridge
+- **Declared model only when signed** (ADR 0056 d1, amendment 2026-11-21):
+  a registry-signed community extension (level 2) and an operator-signed one
+  (level 3) — every extension that runs on the runner, since an unsigned one
+  never runs — declare collections, actions, jobs and routes. `register()` is
+  handed an app and a ctx that refuse every use, so one that registers a route
+  or touches `ctx` fails the load; the host refuses any `ctx.db`,
+  `ctx.services` or `ctx.events` frame, forged or not; only the manifest's
+  `routes` are served; `engine/migrations/*.sql` refuses the load. The bridge
+  surface described above remains for the test override only
 - **Use for:** third-party / community extensions where the
   publisher isn't audited, code where crash isolation matters more
   than the latency cost

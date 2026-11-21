@@ -35,7 +35,7 @@ export interface InitRequest {
    */
   bundleSha256?: string;
   /**
-   * Level 3 (ADR 0056 d1): declared model only. `register()` is handed an app and
+   * Levels 3 and 2 (ADR 0056 d1, amendment 2026-11-21): declared model only. `register()` is handed an app and
    * a ctx that refuse every use, so one that registers anything fails the load.
    */
   declaredOnly?: true;

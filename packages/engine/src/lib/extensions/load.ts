@@ -132,7 +132,7 @@ export async function loadExtensionFromDir(
     let registryKeyId: string | null;
     try {
       operatorKeyId = (await verifyExtensionDir(extName, extDir))?.keyId ?? null;
-      registryKeyId = await verifyRegistrySignedDir(extName, extDir);
+      registryKeyId = (await verifyRegistrySignedDir(extName, extDir))?.keyId ?? null;
     } catch (err) {
       const msg = (err as Error).message;
       console.error(`❌ ${msg}`);
@@ -346,13 +346,16 @@ export async function loadExtensionFromDir(
             .sort()
             .map((f) => join(migrationDir, f))
         : [];
-      // ADR 0056 d1: level 3 is declared model only, and a migration is raw SQL
-      // run as the engine.
-      if (operatorKeyId !== null && migrationFiles.length > 0) {
+      // ADR 0056 d1 and amendment 2026-11-21: levels 3 (operator key) and 2
+      // (registry-signed, on the runner) are declared model only, and a migration
+      // is raw SQL run as the engine. Only the test override runs one unsigned.
+      const signedBy = operatorKeyId ?? registryKeyId;
+      if (signedBy !== null && migrationFiles.length > 0) {
         const msg =
-          `Extension "${extName}" is signed by operator key "${operatorKeyId}" (level 3), which ` +
-          `is declared model only: declare its collections in the manifest instead of ` +
-          `engine/migrations/*.sql (ADR 0056).`;
+          `Extension "${extName}" is signed by ${operatorKeyId !== null ? 'operator' : 'registry'} ` +
+          `key "${signedBy}" (level ${operatorKeyId !== null ? 3 : 2}), which is declared model ` +
+          `only: declare its collections in the manifest instead of engine/migrations/*.sql ` +
+          `(ADR 0056).`;
         console.error(`❌ ${msg}`);
         loader.lastLoadError.set(extName, msg);
         return;
@@ -585,6 +588,7 @@ export async function loadExtensionFromDir(
       allowedTables,
       absentOptional,
       operatorKeyId ?? undefined,
+      registryKeyId ?? undefined,
     );
   } catch (err) {
     const errMsg = (err as Error).message ?? String(err);

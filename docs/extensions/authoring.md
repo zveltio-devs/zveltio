@@ -323,10 +323,12 @@ export default defineExtension(['data:write', 'data:system'], {
   no author, across replicas, and once to catch up after downtime. Its input
   schema must accept `{}`. Engines from 3.0.0-beta.126; an older one ignores
   the field. Details in the [developer guide](developer-guide.md), §9.
-- An extension signed with an operator key (level 3, ADR 0056) is declared
-  model only: collections, actions, jobs and declared routes; its `register()`
-  may use neither its app nor its `ctx`, and raw SQL migrations are refused
-  ([signatures](signatures.md#your-own-extensions-level-3)).
+- An extension on the extension runner — signed by the registry as community
+  (level 2) or with an operator key (level 3, ADR 0056 and its amendment
+  2026-11-21) — is declared model only: collections, actions, jobs and declared
+  routes; its `register()` may use neither its app nor its `ctx` (no imperative
+  routes, no `ctx.db`, `ctx.services` or `ctx.events`), and raw SQL migrations
+  are refused ([signatures](signatures.md#your-own-extensions-level-3)).
 - `host.actions.run(extension, action, input)` runs an action of an extension
   this one depends on (ADR 0014), so its invariant stays in the owner's code
   instead of a copy in another bundle. The calling action lists it in `calls`
