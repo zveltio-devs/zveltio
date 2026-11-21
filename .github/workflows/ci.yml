@@ -928,9 +928,15 @@ jobs:
           PGPASSWORD=postgres psql -h localhost -U postgres -d zveltio_test -c "SELECT version, name FROM zv_schema_versions ORDER BY version DESC LIMIT 5" || true
       # An unsigned directory never runs, NODE_ENV=test included (ADR 0056
       # amendment 2026-11-21): without this every sibling extension below is
-      # refused and the lane tests a core-only engine, green.
+      # refused and the lane tests a core-only engine, green. Signed: what
+      # ZVELTIO_EXTENSIONS_PATH loads (`discoverExternal`: each top-level
+      # directory not named with a dot; one without a manifest is no extension).
       - name: Sign the sibling extensions as a registry download leaves them
-        run: bun scripts/sign-as-registry.ts ../zveltio-extensions >> "$GITHUB_ENV"
+        run: |
+          (cd ../zveltio-extensions && for d in */; do
+            [ -f "$d/manifest.json" ] && echo "${d%/}"; done) > /tmp/signed-extensions.txt
+          test -s /tmp/signed-extensions.txt
+          bun scripts/sign-as-registry.ts ../zveltio-extensions $(cat /tmp/signed-extensions.txt) >> "$GITHUB_ENV"
       - name: Start engine in background
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
@@ -990,6 +996,21 @@ jobs:
           echo "--- Engine logs ---"
           cat /tmp/engine.log || true
           exit 1
+      # A refused extension only logs: without this the lane would go on green
+      # with fewer extensions than it signed.
+      - name: Every signed sibling extension loaded
+        run: |
+          for _ in $(seq 1 60); do
+            grep -q '✅ Extensions loaded:' /tmp/engine.log && break
+            sleep 1
+          done
+          loaded=", $(grep -m1 '✅ Extensions loaded:' /tmp/engine.log | sed 's/.*loaded: //'), "
+          fail=0
+          while read -r n; do
+            case "$loaded" in *", $n, "*) ;; *) echo "::error::$n was signed but did not load"; fail=1 ;; esac
+          done < /tmp/signed-extensions.txt
+          if [ "$fail" = 1 ]; then grep '❌' /tmp/engine.log || true; exit 1; fi
+          echo "loaded: $(wc -l < /tmp/signed-extensions.txt) signed sibling extension(s)"
       - name: Show engine startup logs
         run: |
           echo "=== Engine startup log ==="

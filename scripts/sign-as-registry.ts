@@ -28,18 +28,20 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { join, relative } from 'node:path';
+import { join, relative, resolve, sep } from 'node:path';
 import { REGISTRY_SIGNED_DIR } from '../packages/engine/src/lib/security/extension-dir-signature.ts';
 
 const args = process.argv.slice(2);
 const at = args.indexOf('--key-id');
 const ownKeyId = at === -1 ? undefined : args.splice(at, 2)[1];
 const [base, ...given] = args;
-if (!base || (at !== -1 && !ownKeyId)) {
+// A file name under ~/.zveltio/keys, never a path (`zveltio keys` ids are such names).
+if (!base || (at !== -1 && !/^[A-Za-z0-9_-][A-Za-z0-9_.-]*$/.test(ownKeyId ?? ''))) {
   console.error(
     'usage: bun scripts/sign-as-registry.ts <extensions-dir> [name ...] [--key-id <id>]',
   );
@@ -69,6 +71,10 @@ async function ownKey(id: string): Promise<{ keyId: string; pair: CryptoKeyPair 
     publicJwk: JsonWebKey;
     privateJwk: JsonWebKey;
   };
+  if (kp.keyId !== id) {
+    console.error(`${file} holds key "${kp.keyId}", not "${id}"`);
+    process.exit(2);
+  }
   const alg = { name: 'Ed25519' };
   return {
     keyId: kp.keyId,
@@ -91,10 +97,20 @@ const { keyId, pair } = ownKeyId
 const publicKeyHex = Buffer.from(await crypto.subtle.exportKey('raw', pair.publicKey)).toString(
   'hex',
 );
-const tmp = mkdtempSync(join(tmpdir(), 'sign-as-registry-'));
 const names = given.length > 0 ? given : extensionDirs(base);
-for (const name of names) {
-  const dir = join(base, name);
+// Only a directory under `base` is rewritten: `..` or an absolute name is
+// refused, before anything is written.
+const root = realpathSync(base);
+const dirs = names.map((name) => {
+  const dir = resolve(root, name);
+  if (!existsSync(join(dir, 'manifest.json')) || !realpathSync(dir).startsWith(`${root}${sep}`)) {
+    console.error(`"${name}" is not an extension directory under ${root}`);
+    process.exit(2);
+  }
+  return [name, dir] as const;
+});
+const tmp = mkdtempSync(join(tmpdir(), 'sign-as-registry-'));
+for (const [name, dir] of dirs) {
   const kept = join(dir, REGISTRY_SIGNED_DIR);
   rmSync(kept, { recursive: true, force: true });
   const archive = join(tmp, 'archive.tar.gz');

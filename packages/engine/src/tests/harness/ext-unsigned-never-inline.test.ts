@@ -119,6 +119,8 @@ d('an unsigned directory never runs inline, whatever its name (U3)', () => {
     db = (await getTestApp()).db;
     base = mkdtempSync(join(tmpdir(), 'u3-exts-'));
     src = mkdtempSync(join(tmpdir(), 'u3-src-'));
+    // Module state shared by every file of one `bun test` run: a file before this
+    // one may have left the override on (proved: drop this line, run ext-action-files first).
     wasInline = _setInlineForTests(false);
     process.env.NODE_ENV = 'production';
   });
