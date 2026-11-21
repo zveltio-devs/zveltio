@@ -110,6 +110,13 @@ export interface ZvAuditChainTable {
   hash: Uint8Array;
 }
 
+export interface ZvAuditChainCutTable {
+  tenant_id: string | null;
+  seq: number;
+  hash: Uint8Array;
+  cut_at: Generated<Date>;
+}
+
 export interface ZvAuditLogTable {
   id: Generated<string>;
   event_type: string;
@@ -1093,6 +1100,7 @@ export interface DbSchema {
   zv_api_key_access_log: ZvApiKeyAccessLogTable;
   zv_api_keys: ZvApiKeysTable;
   zv_audit_chain: ZvAuditChainTable;
+  zv_audit_chain_cut: ZvAuditChainCutTable;
   zv_audit_log: ZvAuditLogTable;
   zv_backup_integrity_checks: ZvBackupIntegrityChecksTable;
   zv_backup_schedules: ZvBackupSchedulesTable;
