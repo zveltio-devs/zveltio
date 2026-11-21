@@ -36,6 +36,94 @@ function retentionDaysFromEnv(name: string, fallback: number): number {
   return 0;
 }
 
+const TENANT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * `AUDIT_LOG_RETENTION_TENANT_DAYS`: `<tenant id>=<days>,…`, each a whole
+ * number of days (0 keeps that tenant's trail). A tenant id, not a slug: the
+ * window must still hold for a purged tenant's rows, which outlive its slug.
+ * null when any entry is malformed: an entry nobody can read may be the one
+ * meant to keep a tenant's trail longer, so the audit purge does nothing.
+ */
+export function tenantRetentionDaysFromEnv(): Map<string, number> | null {
+  const raw = process.env.AUDIT_LOG_RETENTION_TENANT_DAYS?.trim() ?? '';
+  const out = new Map<string, number>();
+  for (const entry of raw.split(',')) {
+    if (entry.trim() === '') continue;
+    const m = /^\s*([0-9a-fA-F-]{36})\s*=\s*(\d+)\s*$/.exec(entry);
+    const id = m?.[1]?.toLowerCase();
+    if (!m || !id || !TENANT_ID.test(id) || out.has(id)) {
+      console.warn(
+        `[GC] AUDIT_LOG_RETENTION_TENANT_DAYS entry ${JSON.stringify(entry.trim())} is not ` +
+          '`<tenant id>=<whole days>` (or names a tenant twice); no audit row is purged.',
+      );
+      return null;
+    }
+    out.set(id, Number(m[2]));
+  }
+  return out;
+}
+
+/**
+ * The audit purge, one chain per transaction (each tenant's, and the
+ * instance's), as the one role that may delete audit rows. It publishes the
+ * chain and its window, and the database lets it delete only that chain's rows
+ * older than the window (migration 130); every firm's, a purged firm's
+ * included. It deletes the chain's oldest rows up to the first one still inside
+ * the window — or missing, which verify reports — and the database's cut
+ * trigger moves the chain's genesis past them. Without the role it fails here,
+ * loudly.
+ */
+async function purgeAuditChains(
+  db: Database,
+  instanceDays: number,
+  tenantDays: Map<string, number>,
+): Promise<number> {
+  // ponytail: a full scan of the chain's tenant column each night; a skip scan
+  // over (tenant_id, seq) when the chain is large enough for it to show.
+  const chains = await sql<{ tenant_id: string | null }>`
+    SELECT DISTINCT tenant_id::text AS tenant_id FROM zv_audit_chain`.execute(db);
+  let total = 0;
+  for (const { tenant_id } of chains.rows) {
+    const days = (tenant_id === null ? undefined : tenantDays.get(tenant_id)) ?? instanceDays;
+    if (days <= 0) continue;
+    const own = (alias: string) =>
+      tenant_id === null
+        ? sql`${sql.ref(`${alias}.tenant_id`)} IS NULL`
+        : sql`${sql.ref(`${alias}.tenant_id`)} = ${tenant_id}::uuid`;
+    const chain = tenant_id ?? 'instance';
+    try {
+      const n = await db.transaction().execute(async (trx) => {
+        await sql`
+          SELECT set_config('role', 'zveltio_audit_purge', true),
+                 set_config('zveltio.audit_retention_days', ${String(days)}, true),
+                 set_config('zveltio.audit_purge_tenant', ${chain}, true)
+        `.execute(trx);
+        const r = await sql<{ deleted: number }>`
+          WITH d AS (
+            DELETE FROM zv_audit_log WHERE id IN (
+              SELECT c.audit_id FROM zv_audit_chain c
+               WHERE ${own('c')} AND c.seq < coalesce((
+                 SELECT k.seq FROM zv_audit_chain k
+                   LEFT JOIN zv_audit_log a ON a.id = k.audit_id
+                         AND a.created_at < now() - make_interval(days => ${days}::int)
+                  WHERE ${own('k')} AND a.id IS NULL
+                  ORDER BY k.seq LIMIT 1), 9223372036854775807))
+            RETURNING 1
+          )
+          SELECT COUNT(*)::int AS deleted FROM d
+        `.execute(trx);
+        return r.rows[0]?.deleted ?? 0;
+      });
+      if (n > 0) console.log(`[GC] zv_audit_log: ${n} rows of ${chain} older than ${days}d purged`);
+      total += n;
+    } catch (err) {
+      console.warn(`[GC] zv_audit_log purge of ${chain} failed:`, (err as Error).message);
+    }
+  }
+  return total;
+}
+
 export async function runGarbageCollector(db: Database): Promise<void> {
   console.log('[GC] Starting garbage collection...');
 
@@ -88,32 +176,13 @@ export async function runGarbageCollector(db: Database): Promise<void> {
   }
 
   // Audit log retention — separate knob because compliance teams often
-  // require longer audit retention (default 365 days, 0 = keep forever).
+  // require longer audit retention (default 365 days, 0 = keep forever), with a
+  // window per tenant for a tenant under another jurisdiction (ADR 0060 d4).
   const auditRetentionDays = retentionDaysFromEnv('AUDIT_LOG_RETENTION_DAYS', 365);
-  if (auditRetentionDays > 0) {
+  const tenantRetention = tenantRetentionDaysFromEnv();
+  if (tenantRetention) {
     try {
-      // As the one role that may delete audit rows, and only rows older than the
-      // window it publishes (ADR 0060, migration 128); every firm's, a purged
-      // firm's included. Without the role the purge fails here, loudly.
-      const n = await db.transaction().execute(async (trx) => {
-        await sql`
-          SELECT set_config('role', 'zveltio_audit_purge', true),
-                 set_config('zveltio.audit_retention_days', ${String(auditRetentionDays)}, true)
-        `.execute(trx);
-        const r = await sql<{ deleted: number }>`
-          WITH d AS (
-            DELETE FROM zv_audit_log
-            WHERE created_at < NOW() - (${auditRetentionDays}::int || ' days')::interval
-            RETURNING 1
-          )
-          SELECT COUNT(*)::int AS deleted FROM d
-        `.execute(trx);
-        return r.rows[0]?.deleted ?? 0;
-      });
-      if (n > 0) {
-        console.log(`[GC] zv_audit_log: ${n} rows older than ${auditRetentionDays}d purged`);
-        totalDeleted += n;
-      }
+      totalDeleted += await purgeAuditChains(db, auditRetentionDays, tenantRetention);
     } catch (err) {
       console.warn('[GC] zv_audit_log purge failed:', (err as Error).message);
     }
