@@ -253,7 +253,7 @@ d('sync routes (in-process)', () => {
       db,
       sql.raw(`SELECT api_key FROM "zvd_${COLLECTION}" WHERE id = '${recordId}'`),
     )) as { rows: { api_key: string }[] };
-    expect(stored.rows[0]!.api_key.startsWith('enc:v1:')).toBe(true);
+    expect(stored.rows[0]!.api_key.startsWith('enc:v2:')).toBe(true);
 
     const res = await syncPull(app, cookie, { collections: [COLLECTION] });
     expect(res.status).toBe(200);

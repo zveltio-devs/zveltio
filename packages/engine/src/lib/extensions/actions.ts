@@ -688,7 +688,12 @@ export function secretReveal(
         // keeps a record readable: recovery is writing a new one.
         record[name] =
           typeof v === 'string'
-            ? await decryptField(v).catch((err: Error) => {
+            ? await decryptField(v, {
+                tenant: tenantId,
+                collection,
+                field: name,
+                record: String(record.id),
+              }).catch((err: Error) => {
                 console.error(`[secret] ${collection}.${name}: cannot decrypt — ${err.message}`);
                 return null;
               })

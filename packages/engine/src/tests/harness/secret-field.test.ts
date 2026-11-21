@@ -22,7 +22,8 @@ import type { ExtensionContext } from '../../lib/extensions/internals.js';
 import { ManifestSchema } from '../../lib/extensions/manifest-schema.js';
 import { invalidateActivationCache } from '../../lib/extensions/activation.js';
 import { unregisterJobs } from '../../lib/extensions/jobs.js';
-import { DDLManager, decryptField, encryptField } from '../../lib/data/index.js';
+import { DDLManager, decryptField, encryptFieldUnbound } from '../../lib/data/index.js';
+import { DEFAULT_TENANT_ID } from '../../lib/tenancy/index.js';
 import { alterField, dropField } from '../../lib/data/field-changes.js';
 import { getAuth } from '../../lib/auth.js';
 import { sessionPrefetch } from '../../middleware/session-prefetch.js';
@@ -121,6 +122,14 @@ d('a secret field: write-only, read back by its own extension alone (ADR 0024)',
         SELECT ${sql.ref(column)} AS v FROM ${sql.table(`zvd_${table}`)} WHERE id = ${id}`,
       )
     ).rows[0]?.v;
+  /** A stored value opened where it lives (ADR 0059: a v2 envelope binds it). */
+  const open = async (table: string, id: string, column = 'tok') =>
+    decryptField((await stored(table, id, column))!, {
+      tenant: DEFAULT_TENANT_ID,
+      collection: table,
+      field: column,
+      record: id,
+    });
   const create = async (body: Record<string, unknown>) => {
     const res = await asMember('POST', `/api/data/${S}`, body);
     expect(res.status).toBe(201);
@@ -234,7 +243,7 @@ d('a secret field: write-only, read back by its own extension alone (ADR 0024)',
 
   it('stores ciphertext, and the data API serves no secret to god or the writer', async () => {
     const id = await create({ label: 'a', tok: TOKEN });
-    expect((await stored(S, id))?.startsWith('enc:v1:')).toBe(true);
+    expect((await stored(S, id))?.startsWith('enc:v2:')).toBe(true);
     for (const [who, res] of [
       ['member', await asMember('GET', `/api/data/${S}/${id}`)],
       ['god', await send(god.app, 'GET', `/api/data/${S}/${id}`, undefined, god.cookie)],
@@ -287,11 +296,11 @@ d('a secret field: write-only, read back by its own extension alone (ADR 0024)',
     expect((await asMember('PATCH', `/api/data/${S}/${id}`, { label: 'g' })).status).toBe(200);
     expect((await act(EXT, 'get', { id })).tok).toBe(TOKEN);
     expect((await asMember('PATCH', `/api/data/${S}/${id}`, { tok: 'second' })).status).toBe(200);
-    expect((await stored(S, id))?.startsWith('enc:v1:')).toBe(true);
+    expect((await stored(S, id))?.startsWith('enc:v2:')).toBe(true);
     expect((await act(EXT, 'get', { id })).tok).toBe('second');
     const put = await asMember('PUT', `/api/data/${S}/${id}`, { label: 'g', tok: 'third' });
     expect(put.status).toBe(200);
-    expect((await stored(S, id))?.startsWith('enc:v1:')).toBe(true);
+    expect((await stored(S, id))?.startsWith('enc:v2:')).toBe(true);
     expect((await act(EXT, 'get', { id })).tok).toBe('third');
     expect((await asMember('PATCH', `/api/data/${S}/${id}`, { tok: null })).status).toBe(200);
     expect(await stored(S, id)).toBeNull();
@@ -299,11 +308,11 @@ d('a secret field: write-only, read back by its own extension alone (ADR 0024)',
   });
 
   it('a planted enc:v1: value is encrypted again, never stored as given', async () => {
-    const planted = await encryptField('copied-from-another-row');
+    const planted = await encryptFieldUnbound('copied-from-another-row');
     const id = await create({ label: 'h', tok: planted });
     const v = await stored(S, id);
     expect(v).not.toBe(planted);
-    expect(await decryptField(v!)).toBe(planted);
+    expect(await open(S, id)).toBe(planted);
     expect((await act(EXT, 'get', { id })).tok).toBe(planted);
   });
 
@@ -378,7 +387,7 @@ d('a secret field: write-only, read back by its own extension alone (ADR 0024)',
       });
       const whBody = (await wh.json()) as { id?: string; webhook?: { id: string } };
       webhookId = whBody.id ?? whBody.webhook!.id;
-      const planted = await encryptField('planted-in-plain-text');
+      const planted = await encryptFieldUnbound('planted-in-plain-text');
       const one = await asGod('POST', `/api/data/${R}`, {
         p: 'plain-value',
         k: 'field-encrypted',
@@ -391,7 +400,7 @@ d('a secret field: write-only, read back by its own extension alone (ADR 0024)',
       const two = await asGod('POST', `/api/data/${R}`, { p: planted });
       const twoId = ((await two.json()) as { id: string }).id;
       const keptK = await stored(R, oneId, 'k');
-      expect(keptK?.startsWith('enc:v1:')).toBe(true);
+      expect(keptK?.startsWith('enc:v2:')).toBe(true);
       const copies = async () => {
         const revs = await asDefaultTenant(
           db,
@@ -421,7 +430,33 @@ d('a secret field: write-only, read back by its own extension alone (ADR 0024)',
       );
       expect(delivered.rows[0]!.n).toBeGreaterThan(0);
 
+      // An `encrypted: true` value written as enc:v1 before ADR 0059, and one
+      // under a key no longer listed. Planted in SQL: the data API refuses both.
+      const v1 = await encryptFieldUnbound('k-from-before');
+      const key = process.env.FIELD_ENCRYPTION_KEY;
+      process.env.FIELD_ENCRYPTION_KEY = 'f'.repeat(64);
+      const orphan = await encryptFieldUnbound('k-under-a-dropped-key');
+      process.env.FIELD_ENCRYPTION_KEY = key;
+      const plant = async (k: string) =>
+        (
+          await asDefaultTenant(
+            db,
+            sql<{ id: string }>`
+            INSERT INTO ${sql.table(`zvd_${R}`)} (k) VALUES (${k}) RETURNING id::text AS id`,
+          )
+        ).rows[0]!.id;
+      const v1Id = await plant(v1);
+      const orphanId = await plant(orphan);
+      // The value that does not open aborts the retype; nothing changes.
+      await expect(alterField(db, R, 'k', { newType: 'secret' })).rejects.toThrow();
+      expect(await stored(R, orphanId, 'k')).toBe(orphan);
+      expect(await stored(R, v1Id, 'k')).toBe(v1);
+      await asDefaultTenant(db, sql`DELETE FROM ${sql.table(`zvd_${R}`)} WHERE id = ${orphanId}`);
+
       for (const f of ['p', 'k', 'b']) await alterField(db, R, f, { newType: 'secret' });
+      // The enc:v1 value is resealed bound to its row.
+      expect((await stored(R, v1Id, 'k'))?.startsWith('enc:v2:')).toBe(true);
+      expect(await open(R, v1Id, 'k')).toBe('k-from-before');
 
       const after = await copies();
       expect(after).not.toContain('plain-value');
@@ -431,10 +466,10 @@ d('a secret field: write-only, read back by its own extension alone (ADR 0024)',
       // `encrypted: true` field's own ciphertext is kept.
       const p2 = await stored(R, twoId, 'p');
       expect(p2).not.toBe(planted);
-      expect(await decryptField(p2!)).toBe(planted);
-      expect(await decryptField((await stored(R, oneId, 'p'))!)).toBe('plain-value-2');
+      expect(await open(R, twoId, 'p')).toBe(planted);
+      expect(await open(R, oneId, 'p')).toBe('plain-value-2');
       expect(await stored(R, oneId, 'k')).toBe(keptK);
-      expect(await decryptField((await stored(R, oneId, 'b'))!)).toBe('true');
+      expect(await open(R, oneId, 'b')).toBe('true');
       // The boolean's DEFAULT false is gone: a row that omits it stores NULL.
       const blank = await asDefaultTenant(
         db,
@@ -476,7 +511,7 @@ d('a secret field: write-only, read back by its own extension alone (ADR 0024)',
           sql<{ n: number }>`
           SELECT count(*)::int AS n FROM pg_constraint
            WHERE conrelid = ${`zvd_${R}`}::regclass AND contype = 'c'
-             AND pg_get_constraintdef(oid) LIKE '%enc:v1:%'`,
+             AND pg_get_constraintdef(oid) LIKE '%enc:v%'`,
         )
       ).rows[0]?.n;
     expect(await checks()).toBe(3);

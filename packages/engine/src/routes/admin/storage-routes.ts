@@ -21,19 +21,27 @@ const SETTINGS_KEY = 'storage_config';
 
 type Overlay = ReturnType<typeof normalizeOverlay>;
 
-/** Encrypt the S3 secret before it is persisted (AES-256-GCM, `enc1:` — the same
- * at-rest treatment as mail/AI provider keys). Idempotent + no-op when empty. */
+/** Where the S3 secret lives, for its `enc:v2:` envelope (ADR 0059): an instance setting. */
+const S3_SECRET_AAD = {
+  tenant: '',
+  collection: '$settings',
+  field: 's3.secretKey',
+  record: SETTINGS_KEY,
+} as const;
+
+/** Encrypt the S3 secret before it is persisted (AES-256-GCM, field key).
+ * Idempotent + no-op when empty. */
 async function withEncryptedSecret(o: Overlay): Promise<Overlay> {
   const sk = o.s3.secretKey;
   if (!sk || isEncryptedValue(sk)) return o;
-  return { ...o, s3: { ...o.s3, secretKey: await encryptField(sk) } };
+  return { ...o, s3: { ...o.s3, secretKey: await encryptField(sk, S3_SECRET_AAD) } };
 }
 
 /** Decrypt the persisted S3 secret back to plaintext for the in-memory driver. */
 async function withDecryptedSecret(o: Overlay): Promise<Overlay> {
   const sk = o.s3?.secretKey;
   if (!sk || !isEncryptedValue(sk)) return o;
-  return { ...o, s3: { ...o.s3, secretKey: await decryptField(sk) } };
+  return { ...o, s3: { ...o.s3, secretKey: await decryptField(sk, S3_SECRET_AAD) } };
 }
 
 function normalizeOverlay(body: unknown) {

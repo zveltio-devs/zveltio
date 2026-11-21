@@ -495,8 +495,18 @@ export async function runFieldPipeline(
   extName: string,
   data: Record<string, unknown>,
   partial: boolean,
+  /**
+   * The row an encrypted value is sealed to (ADR 0059): an update's id, or on
+   * an insert the id the row will get — the caller's `data.id`, else one
+   * chosen here and returned as `id`. Null on an update whose WHERE names no
+   * single row: one value for many rows binds none of them, so it keeps the
+   * unbound `enc:v1:` this surface wrote (frozen v1; v2-candidates).
+   */
+  record?: string | null,
 ): Promise<Record<string, unknown>> {
-  const { DDLManager, processInput, normalizeFields } = await import('../data/index.js');
+  const { DDLManager, processInput, normalizeFields, newRecordId } = await import(
+    '../data/index.js'
+  );
   const collection = table.replace(/^zvd_/, '');
   // No `.catch`: a failed metadata read (a lock_timeout behind DDL on
   // zvd_collections, a dropped connection) used to read as "not a collection"
@@ -511,11 +521,21 @@ export async function runFieldPipeline(
   // An insert has no stored record for a `transition` rule to compare with
   // (`null`). An update through ctx.db reads none, so a transition rule on a
   // field it sets refuses it: such writes go through the data API instead.
+  const sealsAny = normalizeFields(collectionDef).some((f) => f.encrypted || f.type === 'secret');
+  const insertId =
+    partial || !sealsAny || record === null
+      ? undefined
+      : (record ?? (typeof data.id === 'string' ? data.id : newRecordId()));
+  const sealTo = partial ? record : insertId;
   const { errors, processed } = await processInput(
     data,
     collectionDef,
     partial,
     partial ? undefined : null,
+    undefined,
+    false,
+    // ponytail: a bulk update seals nothing to a row; per-row sealing needs the matched ids first.
+    sealTo ? { db, record: sealTo } : partial && record === null ? 'unbound' : undefined,
   );
   if (errors.length > 0) {
     throw new ExtensionSecurityError(
@@ -541,7 +561,7 @@ export async function runFieldPipeline(
   for (const [k, v] of Object.entries(data)) {
     if (!declared.has(k)) passthrough[k] = v;
   }
-  return { ...passthrough, ...processed };
+  return { ...passthrough, ...processed, ...(insertId ? { id: insertId } : {}) };
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -672,6 +692,7 @@ function wrapUpdateForHooks(db: any, target: Database, table: string, extName: s
                 extName,
                 originalPatch,
                 true,
+                null,
               );
               let qb = db.updateTable(table);
               for (let i = 0; i < chainCalls.length; i++) {
@@ -688,7 +709,7 @@ function wrapUpdateForHooks(db: any, target: Database, table: string, extName: s
               .where('id', '=', id)
               .executeTakeFirst()
               .catch(() => undefined)) as Record<string, unknown> | undefined;
-            const shaped = await runFieldPipeline(target, table, extName, originalPatch, true);
+            const shaped = await runFieldPipeline(target, table, extName, originalPatch, true, id);
             const payload = await engineEvents.runBefore('record.beforeUpdate', {
               collection: table,
               id,

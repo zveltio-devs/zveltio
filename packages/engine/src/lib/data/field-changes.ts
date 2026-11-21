@@ -29,7 +29,8 @@ import {
   secretFieldRefusal,
 } from './field-type-registry.js';
 import { publishEveryTenant } from '../tenancy/index.js';
-import { decryptField, encryptField, isEncryptedValue } from './field-crypto.js';
+import { type FieldAad, decryptField, encryptField, isEncryptedValue } from './field-crypto.js';
+import { isBoundFieldValue } from '../security/index.js';
 
 const ALL_RELATION_TYPES = new Set(['m2o', 'reference', 'o2m', 'm2m']);
 const SAFE_NAME_RE = /^[a-z][a-z0-9_]*$/;
@@ -410,6 +411,9 @@ export async function alterField(
           .execute();
       } else {
         await dynamicRenameColumn(trx, tableName, fieldName, newName);
+        if (updatedFieldShape.encrypted || updatedFieldShape.type === 'secret') {
+          await resealRenamedColumn(trx, name, tableName, fieldName, newName);
+        }
         // Also sync any zvd_relations rows where this is the target_field
         // (i.e. another collection has an o2m pointing at this column).
         await trx
@@ -505,36 +509,91 @@ async function intoSecretColumn(
   const t = sql.id(table);
   const col = sql.id(column);
   await sql`ALTER TABLE ${t} ALTER COLUMN ${col} DROP DEFAULT`.execute(trx);
+  await everyTenantRows(trx, table, async () => {
+    await rewriteColumn(trx, table, column, async (v, aad) => {
+      const bound = { ...aad, collection };
+      if (!wasEncrypted || !isEncryptedValue(v)) return encryptField(v, bound);
+      // A value this column already sealed must open: one that does not (its key
+      // gone from the list) aborts the ALTER rather than be sealed a second time
+      // around ciphertext nobody can read. An enc:v1 value is resealed bound.
+      const plain = await decryptField(v, bound);
+      return isBoundFieldValue(v) ? v : encryptField(String(plain), bound);
+    });
+    await sql`ALTER TABLE ${t} ADD ${sql.raw(secretCheckSql(column))}`.execute(trx);
+  });
+  await scrubCopies(trx, collection, column);
+}
+
+/**
+ * Run `fn` over every tenant's rows of `table`: FORCE lifted for its statements,
+ * under the ACCESS EXCLUSIVE the caller's ALTER already holds.
+ */
+async function everyTenantRows(
+  trx: Database,
+  table: string,
+  fn: () => Promise<void>,
+): Promise<void> {
   const force = await sql<{ forced: boolean }>`
     SELECT relforcerowsecurity AS forced FROM pg_class WHERE oid = to_regclass(quote_ident(${table}))
   `.execute(trx);
   const forced = force.rows[0]?.forced === true;
-  if (forced) await sql`ALTER TABLE ${t} NO FORCE ROW LEVEL SECURITY`.execute(trx);
-  const rows = await sql<{ id: string; v: string }>`
-    SELECT id::text AS id, ${col} AS v FROM ${t} WHERE ${col} IS NOT NULL
+  if (forced) await sql`ALTER TABLE ${sql.id(table)} NO FORCE ROW LEVEL SECURITY`.execute(trx);
+  await fn();
+  if (forced) await sql`ALTER TABLE ${sql.id(table)} FORCE ROW LEVEL SECURITY`.execute(trx);
+}
+
+/**
+ * Rewrite every non-NULL value of `column` through `next`, which gets the value
+ * and where it lives (the collection is the caller's to fill in); a value
+ * `next` returns unchanged is not written.
+ */
+async function rewriteColumn(
+  trx: Database,
+  table: string,
+  column: string,
+  next: (v: string, aad: Omit<FieldAad, 'collection'>) => Promise<string>,
+): Promise<void> {
+  const t = sql.id(table);
+  const col = sql.id(column);
+  const rows = await sql<{ id: string; tenant: string; v: string }>`
+    SELECT id::text AS id, tenant_id::text AS tenant, ${col} AS v FROM ${t} WHERE ${col} IS NOT NULL
   `.execute(trx);
   const sealed: Record<string, string> = {};
-  for (const { id, v } of rows.rows) {
-    const kept =
-      wasEncrypted &&
-      isEncryptedValue(v) &&
-      (await decryptField(v).then(
-        () => true,
-        () => false,
-      ));
-    sealed[id] = kept ? v : await encryptField(v);
+  for (const { id, tenant, v } of rows.rows) {
+    const out = await next(v, { tenant, field: column, record: id });
+    if (out !== v) sealed[id] = out;
   }
   // ponytail: one jsonb parameter for the whole column; batch it if a secret column ever holds millions.
-  if (rows.rows.length > 0) {
+  if (Object.keys(sealed).length > 0) {
     await sql`
       UPDATE ${t} SET ${col} = m.value
       FROM jsonb_each_text(${JSON.stringify(sealed)}::text::jsonb) AS m
       WHERE ${t}.id::text = m.key
     `.execute(trx);
   }
-  await sql`ALTER TABLE ${t} ADD ${sql.raw(secretCheckSql(column))}`.execute(trx);
-  if (forced) await sql`ALTER TABLE ${t} FORCE ROW LEVEL SECURITY`.execute(trx);
-  await scrubCopies(trx, collection, column);
+}
+
+/**
+ * A renamed encrypted or `secret` column: its `enc:v2:` values are sealed to
+ * the field name (ADR 0059), so each is opened under the old name and sealed
+ * under the new one, in the rename's transaction. `enc:v1:` values bind no name
+ * and stay; a value that does not open under the old name was unreadable
+ * before and is left as it is.
+ */
+async function resealRenamedColumn(
+  trx: Database,
+  collection: string,
+  table: string,
+  from: string,
+  to: string,
+): Promise<void> {
+  await everyTenantRows(trx, table, () =>
+    rewriteColumn(trx, table, to, async (v, aad) => {
+      if (!isBoundFieldValue(v)) return v;
+      const plain = await decryptField(v, { ...aad, collection, field: from }).catch(() => null);
+      return plain === null ? v : encryptField(plain, { ...aad, collection, field: to });
+    }),
+  );
 }
 
 /** `j` as an object: a copy stored as a jsonb string (the shape migration 009 unwrapped) is parsed. */

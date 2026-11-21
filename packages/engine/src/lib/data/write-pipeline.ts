@@ -18,10 +18,16 @@ import type { Context } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { DDLManager, SYSTEM_COLUMNS } from './ddl-manager.js';
+import { DDLManager, ROW_TENANT_SQL, SYSTEM_COLUMNS } from './ddl-manager.js';
 import { fieldTypeRegistry } from './field-type-registry.js';
 import { getValidationDb, getValidationRules, validateRecord } from '../validation-engine.js';
-import { isEncryptedValue, maybeEncrypt } from './field-crypto.js';
+import {
+  type FieldAad,
+  encryptField,
+  encryptFieldUnbound,
+  isEncryptedValue,
+  maybeEncrypt,
+} from './field-crypto.js';
 import { type ChangeEvent, enqueueChangeEvent } from '../webhooks.js';
 import { broadcastEvent } from '../../routes/ws.js';
 import { realtimeBus } from '../runtime/index.js';
@@ -145,6 +151,30 @@ export async function getVirtualConfig(
     : (meta.virtual_config as VirtualConfig);
 }
 
+/**
+ * The row a write's encrypted values are sealed to (ADR 0059, amendment
+ * 2026-11-21): `record` is its id — on a create, one the engine chose before
+ * the INSERT and passes as the row's `id` (`newRecordId`) — and `db` the write's
+ * transaction, whose tenant the row gets (`writeTenant`).
+ */
+export interface SealTarget {
+  db: Database;
+  record: string;
+}
+
+/** An id for a row about to be inserted, so its values can be sealed to it first. */
+export const newRecordId = (): string => crypto.randomUUID();
+
+/**
+ * The tenant a row written in `db` belongs to: the column DEFAULT's own
+ * expression, evaluated in the write's transaction. An update is held to the
+ * same node by the own-node policy (tenant-manager `applyOwnNodeWrites`).
+ */
+export async function writeTenant(db: Database): Promise<string> {
+  const r = await sql<{ t: string }>`SELECT (${sql.raw(ROW_TENANT_SQL)})::text AS t`.execute(db);
+  return r.rows[0]!.t;
+}
+
 /** Validate and deserialize incoming data using the field-type registry. */
 export async function processInput(
   data: Record<string, unknown>,
@@ -171,8 +201,21 @@ export async function processInput(
    * would hand the row a file nobody checked was the writer's (ADR 0061).
    */
   claimsChecked = false,
+  /**
+   * The row an `encrypted` or `secret` value is sealed to. Without it such a
+   * value is refused: a path that names no record cannot bind one.
+   * `'unbound'`: the one v1 surface that names no row (an inline extension's
+   * bulk `ctx.db` update) keeps its unbound `enc:v1:` until v2-candidates.
+   */
+  seal?: SealTarget | 'unbound',
 ): Promise<{ errors: string[]; processed: Record<string, unknown>; writtenBy?: string }> {
   const errors: string[] = [];
+  let tenant: Promise<string> | undefined;
+  const aadFor = async (field: string): Promise<FieldAad | null> => {
+    if (!seal || seal === 'unbound' || !collectionDef?.name) return null;
+    tenant ??= writeTenant(seal.db);
+    return { tenant: await tenant, collection: collectionDef.name, field, record: seal.record };
+  };
   const processed: Record<string, unknown> = {};
   // What the rules below judge: `processed` before encryption. An encrypted or
   // `secret` field's `minLength` and `pattern` measured its ciphertext.
@@ -264,21 +307,45 @@ export async function processInput(
     if (value !== undefined) {
       const deserialized = await fieldTypeRegistry.deserialize(field.type, value);
       // A caller's value that is already field ciphertext would be stored as
-      // given (`maybeEncrypt` keeps `enc:v1:` for its own idempotence) and read
-      // back decrypted: the envelope binds no tenant, collection or record, so
-      // ciphertext copied from anywhere became plaintext (A14). A `secret`
+      // given (`maybeEncrypt` keeps it for its own idempotence) and read back
+      // decrypted: an `enc:v1:` envelope binds no tenant, collection or record,
+      // so ciphertext copied from anywhere became plaintext (A14). A `secret`
       // seals what it is given, ciphertext included (ADR 0024).
       if (field.encrypted && field.type !== 'secret' && isEncryptedValue(deserialized)) {
         errors.push(
-          `${field.name}: a value cannot start with "enc:v1:" (it is encrypted on write)`,
+          `${field.name}: a value cannot start with "enc:v1:" or "enc:v2:" (it is encrypted on write)`,
         );
         continue;
       }
-      // A `secret` encrypts in its own `deserialize` (ADR 0024): its plaintext is the input.
-      plain[field.name] = field.type === 'secret' && value !== null ? String(value) : deserialized;
-      processed[field.name] = field.encrypted
-        ? await maybeEncrypt(deserialized, true)
-        : deserialized;
+      plain[field.name] = deserialized;
+      // A `secret` is always sealed, ciphertext included (ADR 0024); an
+      // `encrypted` field seals a string. Both to this row (ADR 0059).
+      const sealed =
+        field.type === 'secret'
+          ? deserialized !== null
+          : field.encrypted && typeof deserialized === 'string';
+      if (!sealed) {
+        processed[field.name] = deserialized;
+        continue;
+      }
+      const aad = await aadFor(field.name);
+      if (!aad && seal === 'unbound') {
+        processed[field.name] =
+          field.type === 'secret'
+            ? await encryptFieldUnbound(String(deserialized))
+            : await maybeEncrypt(deserialized, true);
+        continue;
+      }
+      if (!aad) {
+        errors.push(
+          `${field.name}: an encrypted value is sealed to its record, and this write names none`,
+        );
+        continue;
+      }
+      processed[field.name] =
+        field.type === 'secret'
+          ? await encryptField(String(deserialized), aad)
+          : await maybeEncrypt(deserialized, true, aad);
     }
   }
 

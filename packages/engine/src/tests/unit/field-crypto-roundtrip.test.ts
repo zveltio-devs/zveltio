@@ -23,6 +23,8 @@ import { CannedDb } from './fixtures/canned-db.js';
 
 const KEY = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'; // 64 hex = 32 bytes
 let savedKey: string | undefined;
+/** Where the values below live (ADR 0059: a v2 envelope binds it). */
+const A = { tenant: 't1', collection: 'c', field: 'f', record: 'r1' };
 
 beforeAll(() => {
   savedKey = process.env.FIELD_ENCRYPTION_KEY;
@@ -38,37 +40,37 @@ describe('encryptField / decryptField', () => {
     const saved = process.env.FIELD_ENCRYPTION_KEY;
     process.env.FIELD_ENCRYPTION_KEY = 'tooshort';
     try {
-      await expect(encryptField('secret')).rejects.toThrow(/64-char hex/);
+      await expect(encryptField('secret', A)).rejects.toThrow(/64-char hex/);
     } finally {
       process.env.FIELD_ENCRYPTION_KEY = saved ?? KEY;
     }
   });
 
-  it('produces an enc:v1: ciphertext that is not the plaintext', async () => {
-    const enc = await encryptField('super-secret-value');
-    expect(enc.startsWith('enc:v1:')).toBe(true);
+  it('produces an enc:v2: ciphertext that is not the plaintext', async () => {
+    const enc = await encryptField('super-secret-value', A);
+    expect(enc.startsWith('enc:v2:')).toBe(true);
     expect(enc).not.toContain('super-secret-value');
     expect(isEncryptedValue(enc)).toBe(true);
   });
 
   it('round-trips plaintext through encrypt → decrypt', async () => {
     for (const plain of ['hello', '', 'unicode: café ☕ 日本語', JSON.stringify({ a: 1 })]) {
-      const enc = await encryptField(plain);
-      expect(await decryptField(enc)).toBe(plain);
+      const enc = await encryptField(plain, A);
+      expect(await decryptField(enc, A)).toBe(plain);
     }
   });
 
   it('round-trips a 1 MB value — the encoder used to overflow the stack', async () => {
     const plain = 'é'.repeat(500_000);
-    expect(await decryptField(await encryptField(plain))).toBe(plain);
+    expect(await decryptField(await encryptField(plain, A), A)).toBe(plain);
   });
 
   it('uses a fresh IV each time (same plaintext → different ciphertext)', async () => {
-    const a = await encryptField('same');
-    const b = await encryptField('same');
+    const a = await encryptField('same', A);
+    const b = await encryptField('same', A);
     expect(a).not.toBe(b);
-    expect(await decryptField(a)).toBe('same');
-    expect(await decryptField(b)).toBe('same');
+    expect(await decryptField(a, A)).toBe('same');
+    expect(await decryptField(b, A)).toBe('same');
   });
 
   it('decryptField returns a non-encrypted value unchanged', async () => {

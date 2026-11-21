@@ -27,6 +27,7 @@ import type { ExtensionConfig, ObjectStorageConfig } from '@zveltio/sdk/extensio
 import { storageConfig } from '../storage/index.js';
 import { knownExtensionNames } from './worker-sql-policy.js';
 import { isProduction, modeValue, nodeEnv } from '../operational-modes.js';
+import { keyList } from '../security/index.js';
 
 function flag(name: string): boolean {
   const v = process.env[name];
@@ -178,7 +179,7 @@ export function buildExtensionConfig(
      * `secrets` capability.
      */
     get encryptionConfigured(): boolean {
-      return Boolean(process.env.FIELD_ENCRYPTION_KEY);
+      return keyList('field').currentOk;
     },
     get crossDomainAuth(): boolean {
       return flag('CROSS_DOMAIN_AUTH');

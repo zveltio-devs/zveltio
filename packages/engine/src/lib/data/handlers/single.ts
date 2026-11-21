@@ -57,6 +57,7 @@ import {
   hasTransitionRules,
   validateTransitions,
   ROW_RULE_WRITE_REFUSAL,
+  newRecordId,
 } from '../write-pipeline.js';
 import { tenantId } from '../../route-db.js';
 import { readScope } from '../read-scope.js';
@@ -332,6 +333,9 @@ export async function createRecord(
   const tableName = DDLManager.getTableName(collection);
   const body = await w.body();
 
+  const effectiveDb = w.trx ?? db;
+  // Chosen before the INSERT, so an encrypted value is sealed to its row (ADR 0059).
+  const recordId = newRecordId();
   const { errors, processed, writtenBy } = await processInput(
     body,
     collectionDef,
@@ -339,6 +343,7 @@ export async function createRecord(
     null,
     w.writtenBy,
     true,
+    { db: effectiveDb, record: recordId },
   );
   if (writtenBy) return c.json(writtenByBody(writtenBy), 409);
   if (errors.length > 0) return c.json({ errors }, 422);
@@ -355,7 +360,6 @@ export async function createRecord(
     );
   }
 
-  const effectiveDb = w.trx ?? db;
   // A caller who may create but not read gets the id alone — see `engineRead`.
   const canRead = await checkAccess(db, user, collection, 'read');
   // Authorship travels as `system` on the insert, not inside the payload. It
@@ -364,7 +368,7 @@ export async function createRecord(
   // `toInsert` also means a `record.beforeInsert` hook cannot rewrite it — the
   // hook already receives `userId` separately if it needs to know.
   const toInsert = { ...allowedData };
-  const systemColumns = { created_by: author, updated_by: author };
+  const systemColumns = { id: recordId, created_by: author, updated_by: author };
 
   // Pre-insert hooks: extensions can mutate the payload (e.g. geocode an
   // address, attach a computed score) or abort (e.g. quota check).
@@ -466,6 +470,7 @@ export async function replaceRecord(c: Context, db: Database): Promise<Response>
     'later',
     undefined,
     true,
+    { db: getDb(c, db), record: id },
   );
   if (writtenBy) return c.json(writtenByBody(writtenBy), 409);
   if (errors.length > 0) return c.json({ errors }, 422);
@@ -649,6 +654,7 @@ export async function patchRecord(
     'later',
     w.writtenBy,
     true,
+    { db: w.trx ?? db, record: id },
   );
   if (writtenBy) return c.json(writtenByBody(writtenBy), 409);
   if (errors.length > 0) return c.json({ errors }, 422);

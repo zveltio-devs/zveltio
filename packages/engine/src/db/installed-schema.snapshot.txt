@@ -1141,7 +1141,7 @@ table zvd_ai_providers
   col tenant_id                      uuid NOT NULL DEFAULT COALESCE((NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text))::uuid, '00000000-0000-0000-0000-000000000001'::uuid)
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
   col updated_by                     text
-  ck  zvd_ai_providers_api_key_check CHECK (((api_key IS NULL) OR (api_key ~~ 'enc:v1:%'::text)))
+  ck  zvd_ai_providers_api_key_check CHECK (((api_key IS NULL) OR (api_key ~ '^enc:v[12]:'::text)))
   fk  zvd_ai_providers_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
   pk  zvd_ai_providers_pkey PRIMARY KEY (id)
   uq  zvd_ai_providers_tenant_id_name_key UNIQUE (tenant_id, name)
@@ -3589,7 +3589,7 @@ table zvd_billing_settings
   col updated_by                     text
   fk  zvd_billing_settings_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
   pk  zvd_billing_settings_pkey PRIMARY KEY (id)
-  ck  zvd_billing_settings_stripe_webhook_secret_check CHECK (((stripe_webhook_secret IS NULL) OR (stripe_webhook_secret ~~ 'enc:v1:%'::text)))
+  ck  zvd_billing_settings_stripe_webhook_secret_check CHECK (((stripe_webhook_secret IS NULL) OR (stripe_webhook_secret ~ '^enc:v[12]:'::text)))
   uq  zvd_billing_settings_tenant_id_scope_key UNIQUE (tenant_id, scope)
   fk  zvd_billing_settings_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
   rls enabled forced
@@ -4315,11 +4315,11 @@ table zvd_connector_connections
   col token_url                      text
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
   col updated_by                     text
-  ck  zvd_connector_connections_access_token_check CHECK (((access_token IS NULL) OR (access_token ~~ 'enc:v1:%'::text)))
-  ck  zvd_connector_connections_auth_secret_check CHECK (((auth_secret IS NULL) OR (auth_secret ~~ 'enc:v1:%'::text)))
+  ck  zvd_connector_connections_access_token_check CHECK (((access_token IS NULL) OR (access_token ~ '^enc:v[12]:'::text)))
+  ck  zvd_connector_connections_auth_secret_check CHECK (((auth_secret IS NULL) OR (auth_secret ~ '^enc:v[12]:'::text)))
   fk  zvd_connector_connections_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
   pk  zvd_connector_connections_pkey PRIMARY KEY (id)
-  ck  zvd_connector_connections_refresh_token_check CHECK (((refresh_token IS NULL) OR (refresh_token ~~ 'enc:v1:%'::text)))
+  ck  zvd_connector_connections_refresh_token_check CHECK (((refresh_token IS NULL) OR (refresh_token ~ '^enc:v[12]:'::text)))
   fk  zvd_connector_connections_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
   rls enabled forced
   pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
@@ -4405,7 +4405,7 @@ table zvd_connector_webhooks
   fk  zvd_connector_webhooks_connection_id_fkey FOREIGN KEY (connection_id) REFERENCES zvd_connector_connections(id) ON UPDATE CASCADE ON DELETE SET NULL
   fk  zvd_connector_webhooks_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
   pk  zvd_connector_webhooks_pkey PRIMARY KEY (id)
-  ck  zvd_connector_webhooks_secret_check CHECK (((secret IS NULL) OR (secret ~~ 'enc:v1:%'::text)))
+  ck  zvd_connector_webhooks_secret_check CHECK (((secret IS NULL) OR (secret ~ '^enc:v[12]:'::text)))
   fk  zvd_connector_webhooks_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
   rls enabled forced
   pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
@@ -5579,12 +5579,12 @@ table zvd_efactura_settings
   col token_expires_at               timestamp with time zone
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
   col updated_by                     text
-  ck  zvd_efactura_settings_access_token_check CHECK (((access_token IS NULL) OR (access_token ~~ 'enc:v1:%'::text)))
-  ck  zvd_efactura_settings_client_secret_check CHECK (((client_secret IS NULL) OR (client_secret ~~ 'enc:v1:%'::text)))
+  ck  zvd_efactura_settings_access_token_check CHECK (((access_token IS NULL) OR (access_token ~ '^enc:v[12]:'::text)))
+  ck  zvd_efactura_settings_client_secret_check CHECK (((client_secret IS NULL) OR (client_secret ~ '^enc:v[12]:'::text)))
   fk  zvd_efactura_settings_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
-  ck  zvd_efactura_settings_oauth_state_check CHECK (((oauth_state IS NULL) OR (oauth_state ~~ 'enc:v1:%'::text)))
+  ck  zvd_efactura_settings_oauth_state_check CHECK (((oauth_state IS NULL) OR (oauth_state ~ '^enc:v[12]:'::text)))
   pk  zvd_efactura_settings_pkey PRIMARY KEY (id)
-  ck  zvd_efactura_settings_refresh_token_check CHECK (((refresh_token IS NULL) OR (refresh_token ~~ 'enc:v1:%'::text)))
+  ck  zvd_efactura_settings_refresh_token_check CHECK (((refresh_token IS NULL) OR (refresh_token ~ '^enc:v[12]:'::text)))
   uq  zvd_efactura_settings_tenant_id_scope_key UNIQUE (tenant_id, scope)
   fk  zvd_efactura_settings_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
   rls enabled forced
@@ -7066,7 +7066,7 @@ table zvd_ldap_settings
   col updated_by                     text
   col url                            text NOT NULL
   col username_attribute             text DEFAULT 'uid'::text
-  ck  zvd_ldap_settings_bind_password_check CHECK (((bind_password IS NULL) OR (bind_password ~~ 'enc:v1:%'::text)))
+  ck  zvd_ldap_settings_bind_password_check CHECK (((bind_password IS NULL) OR (bind_password ~ '^enc:v[12]:'::text)))
   fk  zvd_ldap_settings_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
   pk  zvd_ldap_settings_pkey PRIMARY KEY (id)
   uq  zvd_ldap_settings_tenant_id_scope_key UNIQUE (tenant_id, scope)
@@ -7204,9 +7204,9 @@ table zvd_mail_accounts
   col updated_at                     timestamp with time zone NOT NULL DEFAULT now()
   col updated_by                     text
   fk  zvd_mail_accounts_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
-  ck  zvd_mail_accounts_imap_password_check CHECK (((imap_password IS NULL) OR (imap_password ~~ 'enc:v1:%'::text)))
+  ck  zvd_mail_accounts_imap_password_check CHECK (((imap_password IS NULL) OR (imap_password ~ '^enc:v[12]:'::text)))
   pk  zvd_mail_accounts_pkey PRIMARY KEY (id)
-  ck  zvd_mail_accounts_smtp_password_check CHECK (((smtp_password IS NULL) OR (smtp_password ~~ 'enc:v1:%'::text)))
+  ck  zvd_mail_accounts_smtp_password_check CHECK (((smtp_password IS NULL) OR (smtp_password ~ '^enc:v[12]:'::text)))
   fk  zvd_mail_accounts_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
   rls enabled forced
   pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
@@ -7640,7 +7640,7 @@ table zvd_migrator_connections
   col updated_by                     text
   fk  zvd_migrator_connections_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
   pk  zvd_migrator_connections_pkey PRIMARY KEY (id)
-  ck  zvd_migrator_connections_token_check CHECK (((token IS NULL) OR (token ~~ 'enc:v1:%'::text)))
+  ck  zvd_migrator_connections_token_check CHECK (((token IS NULL) OR (token ~ '^enc:v[12]:'::text)))
   fk  zvd_migrator_connections_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
   rls enabled forced
   pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
@@ -9869,7 +9869,7 @@ table zvd_saml_settings
   col want_authn_response_signed     boolean DEFAULT true
   fk  zvd_saml_settings_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
   pk  zvd_saml_settings_pkey PRIMARY KEY (id)
-  ck  zvd_saml_settings_private_key_check CHECK (((private_key IS NULL) OR (private_key ~~ 'enc:v1:%'::text)))
+  ck  zvd_saml_settings_private_key_check CHECK (((private_key IS NULL) OR (private_key ~ '^enc:v[12]:'::text)))
   uq  zvd_saml_settings_tenant_id_scope_key UNIQUE (tenant_id, scope)
   fk  zvd_saml_settings_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
   rls enabled forced
@@ -9954,9 +9954,9 @@ table zvd_sms_settings
   fk  zvd_sms_settings_created_by_fkey FOREIGN KEY (created_by) REFERENCES "user"(id) ON DELETE SET NULL
   pk  zvd_sms_settings_pkey PRIMARY KEY (id)
   uq  zvd_sms_settings_tenant_id_scope_key UNIQUE (tenant_id, scope)
-  ck  zvd_sms_settings_twilio_auth_token_check CHECK (((twilio_auth_token IS NULL) OR (twilio_auth_token ~~ 'enc:v1:%'::text)))
+  ck  zvd_sms_settings_twilio_auth_token_check CHECK (((twilio_auth_token IS NULL) OR (twilio_auth_token ~ '^enc:v[12]:'::text)))
   fk  zvd_sms_settings_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES "user"(id) ON DELETE SET NULL
-  ck  zvd_sms_settings_vonage_api_secret_check CHECK (((vonage_api_secret IS NULL) OR (vonage_api_secret ~~ 'enc:v1:%'::text)))
+  ck  zvd_sms_settings_vonage_api_secret_check CHECK (((vonage_api_secret IS NULL) OR (vonage_api_secret ~ '^enc:v[12]:'::text)))
   rls enabled forced
   pol tenant_isolation FOR * USING (tenant_id = ANY (( SELECT zveltio_visible_tenants() AS zveltio_visible_tenants)::uuid[])) CHECK zveltio_tenant_write_ok(tenant_id)
   pol tenant_own_node_delete RESTRICTIVE FOR d USING (zveltio_tenant_write_ok(tenant_id) OR ( SELECT (NULLIF(current_setting('zveltio.current_tenant'::text, true), ''::text) IS NULL))) CHECK -

@@ -17,7 +17,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { DDLManager, decryptField, encryptField } from '../../lib/data/index.js';
+import { DDLManager, decryptField, encryptFieldUnbound } from '../../lib/data/index.js';
+import { DEFAULT_TENANT_ID } from '../../lib/tenancy/index.js';
+import { alterField } from '../../lib/data/field-changes.js';
 import {
   asDefaultTenant,
   createGodSession,
@@ -77,7 +79,9 @@ d('field ciphertext transplant (in-process)', () => {
       if (seen.rows[0]!.n > 0) break;
       await Bun.sleep(100);
     }
-    stolen = await encryptField(SECRET);
+    // The unbound v1 envelope: the one a copy still opens anywhere until
+    // `rotate-keys` rewrites it (ADR 0059).
+    stolen = await encryptFieldUnbound(SECRET);
   }, 60_000);
 
   afterAll(async () => {
@@ -144,7 +148,7 @@ d('field ciphertext transplant (in-process)', () => {
     const made = await req('POST', `/api/data/${COLLECTION}`, { label: 'r', secret: 'first' });
     expect(made.status).toBe(201);
     const id = ((await made.json()) as { id: string }).id;
-    expect((await stored(id))?.startsWith('enc:v1:')).toBe(true);
+    expect((await stored(id))?.startsWith('enc:v2:')).toBe(true);
     expect((await req('PATCH', `/api/data/${COLLECTION}/${id}`, { secret: 'second' })).status).toBe(
       200,
     );
@@ -157,7 +161,58 @@ d('field ciphertext transplant (in-process)', () => {
     const reverted = await req('POST', `/api/revisions/${rev!.id}/revert`);
     expect(reverted.status).toBe(200);
     const back = await stored(id);
-    expect(back?.startsWith('enc:v1:')).toBe(true);
-    expect(await decryptField(back!)).toBe('first');
+    expect(back?.startsWith('enc:v2:')).toBe(true);
+    expect(
+      await decryptField(back!, {
+        tenant: DEFAULT_TENANT_ID,
+        collection: COLLECTION,
+        field: 'secret',
+        record: id,
+      }),
+    ).toBe('first');
+  });
+
+  // A database writer is past the API's refusal: it copies the column itself.
+  // The v2 envelope is sealed to its row (ADR 0059), so the copy stays sealed.
+  it('a v2 value a database writer copies into another row does not open there', async () => {
+    const make = async (secret: string) => {
+      const res = await req('POST', `/api/data/${COLLECTION}`, { label: 't', secret });
+      expect(res.status).toBe(201);
+      return ((await res.json()) as { id: string }).id;
+    };
+    const victim = await make(SECRET);
+    const mine = await make('mine');
+    await asDefaultTenant(
+      db,
+      sql`UPDATE ${sql.table(TABLE)} SET secret = (SELECT secret FROM ${sql.table(TABLE)} WHERE id = ${victim}::uuid) WHERE id = ${mine}::uuid`,
+    );
+    expect(await stored(mine)).toBe(await stored(victim));
+    const read = await req('GET', `/api/data/${COLLECTION}/${mine}`);
+    expect(read.status).toBe(200);
+    expect(JSON.stringify(await read.json())).not.toContain(SECRET);
+    // Where it was sealed, it still opens.
+    const own = await req('GET', `/api/data/${COLLECTION}/${victim}`);
+    expect(JSON.stringify(await own.json())).toContain(SECRET);
+  });
+
+  // Last: it renames the field the tests above write.
+  it('a renamed field keeps its values readable: they are sealed again under the new name', async () => {
+    const made = await req('POST', `/api/data/${COLLECTION}`, { label: 'n', secret: 'renamed' });
+    const id = ((await made.json()) as { id: string }).id;
+    const before = await stored(id);
+    await alterField(db, COLLECTION, 'secret', { newName: 'secret_v2' });
+    const read = (await (await req('GET', `/api/data/${COLLECTION}/${id}`)).json()) as Record<
+      string,
+      unknown
+    >;
+    expect(read.secret_v2).toBe('renamed');
+    const after = (
+      await asDefaultTenant(
+        db,
+        sql<{ v: string }>`SELECT secret_v2 AS v FROM ${sql.table(TABLE)} WHERE id = ${id}::uuid`,
+      )
+    ).rows[0]?.v;
+    expect(after).not.toBe(before);
+    expect(after?.startsWith('enc:v2:')).toBe(true);
   });
 });

@@ -25,7 +25,7 @@ export * from './field-type-registry.js';
 //     field type's deserialize ran and `encrypted: true` was ignored);
 //   - `validateApiKey` so every route that accepts `X-API-Key` runs the same
 //     checks, including the tenant comparison edge functions had left out.
-export { processInput } from './write-pipeline.js';
+export { newRecordId, processInput } from './write-pipeline.js';
 // Sealed tokens (ADR 0021): the sync pull's cursor uses the list cursor's seal.
 export { openToken, sealToken } from './query-parse.js';
 // Fields and collections only their extension's actions write: every write path asks.

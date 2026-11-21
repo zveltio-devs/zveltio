@@ -47,7 +47,11 @@ ZVELTIO_KEY_COMMAND="sops -d /opt/zveltio/secrets.enc.env"
   when `ZVELTIO_KEY_COMMAND` is unset. Do not edit it by hand.
 - Key **rotation**: `BETTER_AUTH_SECRET` rotates through `BETTER_AUTH_SECRETS`
   ([security.md](../platform/security.md#rotating-better_auth_secret)).
-  `FIELD_ENCRYPTION_KEY` and `MAIL_ENCRYPTION_KEY` do **not** rotate: the
-  engine holds one key of each, so a changed key leaves every value sealed
-  under the old one unreadable (an encrypted field reads back as `enc:v1:…`, a
-  mail password fails to decrypt). There is no re-encryption operation yet.
+  `FIELD_ENCRYPTION_KEY` and `MAIL_ENCRYPTION_KEY` rotate through
+  `FIELD_ENCRYPTION_KEYS` / `MAIL_ENCRYPTION_KEYS`, comma lists whose first key
+  is current and every key reads (ADR 0059,
+  [security.md](../platform/security.md#rotating-field_encryption_key-and-mail_encryption_key)).
+  Emit the list from the KMS and keep the old key in it: a key left out leaves
+  every value written under it unreadable (an encrypted field reads back as its
+  ciphertext, a mail password fails to decrypt). There is no re-encryption
+  operation yet (`zveltio rotate-keys`, ADR 0059 step 2).

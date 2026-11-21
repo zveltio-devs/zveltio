@@ -90,7 +90,7 @@ d('per-field encryption at rest (in-process)', () => {
     `,
     );
     const stored = raw.rows[0]?.secret ?? '';
-    expect(stored).toStartWith('enc:v1:');
+    expect(stored).toStartWith('enc:v2:');
     expect(stored).not.toContain(SECRET);
   });
 

@@ -94,7 +94,7 @@ import { engineHandle } from '../engine-handle.js';
 import { enqueueDDLJob } from '../data/index.js';
 import { assertPublicUrl, safeFetch, validatePublicUrl } from '../edge-functions/safe-fetch.js';
 import { assertNonMetadataUrl } from '../security/index.js';
-import { encryptField, maybeDecrypt, maybeEncrypt } from '../data/index.js';
+import { encryptFieldUnbound, maybeDecrypt, maybeEncrypt, newRecordId } from '../data/index.js';
 import type { Keyring } from '../security/index.js';
 import {
   csvCell,
@@ -321,7 +321,7 @@ export interface ExtensionInternals {
    * because this is the engine's own helper rather than a second implementation
    * that would drift from it.
    */
-  maybeEncrypt: typeof maybeEncrypt;
+  maybeEncrypt: (value: unknown, isEncrypted: boolean) => Promise<unknown>;
   /**
    * The other half of `maybeEncrypt`, without which an extension can write a
    * secret it cannot read back — so it stores plaintext instead.
@@ -330,7 +330,7 @@ export interface ExtensionInternals {
    * makes adopting encryption on an existing column safe: rows written before
    * still verify, and rows written after are encrypted at rest.
    */
-  maybeDecrypt: typeof maybeDecrypt;
+  maybeDecrypt: (value: unknown, isEncrypted: boolean) => Promise<unknown>;
   getRlsFilters: (
     collection: string,
     user: { id: string; email?: string; role?: string; rlsBypass?: boolean },
@@ -809,13 +809,21 @@ export function buildExtensionInternals(): ExtensionInternals {
     // validation rule, while `ctx.db.insertInto` on the same table got all of
     // them. Its one caller (import) redid deserialize + encrypt by hand and
     // nothing else, so a CSV row the data API refuses went in.
-    dynamicInsert: async (db, table, data, system) =>
-      dynamicInsert(
-        db,
+    // `id` is RESERVED for `dynamicInsert`'s data: the one the pipeline sealed
+    // an encrypted value to goes in as a system column (ADR 0059).
+    dynamicInsert: async (db, table, data, system) => {
+      const id = typeof system?.id === 'string' ? system.id : newRecordId();
+      const shaped = await runFieldPipeline(
+        engineHandle(db),
         table,
-        await runFieldPipeline(engineHandle(db), table, caller.replace(/^ext:/, ''), data, false),
-        system,
-      ),
+        caller.replace(/^ext:/, ''),
+        data,
+        false,
+        id,
+      );
+      // The pipeline hands `id` back only when it sealed a value to it.
+      return dynamicInsert(db, table, shaped, shaped.id === id ? { ...system, id } : system);
+    },
     withTenantIsolation: enterTenantAs(
       caller,
       granted.has('db:admin') || granted.has('tenant:enter'),
@@ -851,8 +859,9 @@ function buildUnboundInternals(): ExtensionInternals {
     runEdgeFunction,
     extensionRegistry,
     generatePDFAsync: generatePDFAsync as ExtensionInternals['generatePDFAsync'],
-    maybeEncrypt,
-    maybeDecrypt,
+    // The documented two-argument surface: unbound `enc:v1:` (v2-candidates).
+    maybeEncrypt: (value, isEncrypted) => maybeEncrypt(value, isEncrypted),
+    maybeDecrypt: (value, isEncrypted) => maybeDecrypt(value, isEncrypted),
     // Adapted rather than passed straight through, so the bag matches the SDK
     // declaration exactly. The casts are between two spellings of the same
     // shape — `RlsFilter` mirrors the engine's `FilterCondition` — and exist so
@@ -923,7 +932,7 @@ function buildUnboundInternals(): ExtensionInternals {
       // Already-encrypted input is returned untouched so a caller that
       // re-saves a record does not double-wrap what it read.
       if (isKeyringValue(plaintext)) return plaintext;
-      if (keyring === 'field') return encryptField(plaintext);
+      if (keyring === 'field') return encryptFieldUnbound(plaintext);
       return encryptWithKeyring(plaintext, keyring);
     },
     decryptSecret: async (value: string, opts?: { keyring?: Keyring }) => {

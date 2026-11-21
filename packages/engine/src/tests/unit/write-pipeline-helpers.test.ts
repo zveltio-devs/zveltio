@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Context } from 'hono';
 import type { Database } from '../../db/index.js';
 import { registerCoreFieldTypes } from '../../field-types/index.js';
-import { DDLManager, fieldTypeRegistry } from '../../lib/data/index.js';
+import { DDLManager, decryptField, fieldTypeRegistry } from '../../lib/data/index.js';
 import {
   getDb,
   getTenantId,
@@ -29,6 +29,11 @@ afterAll(() => {
   if (savedKey === undefined) delete process.env.FIELD_ENCRYPTION_KEY;
   else process.env.FIELD_ENCRYPTION_KEY = savedKey;
 });
+
+const TENANT = '7a1d2c3b-0000-4000-8000-000000000042';
+const RECORD = '5f0c8a52-6a1e-4f0e-9a43-1f0b2c3d4e5f';
+/** Answers `writeTenant`'s query as the write's transaction would. */
+const tenantDb = () => new CannedDb().when(/current_setting/, [{ t: TENANT }]);
 
 function mockContext(over: Record<string, unknown> = {}): Context {
   const bag = new Map<string, unknown>(Object.entries(over));
@@ -115,8 +120,34 @@ describe('processInput validation + encryption', () => {
         ],
       } as never,
       false,
+      null,
+      undefined,
+      false,
+      { db: tenantDb().kysely as unknown as Database, record: RECORD },
     );
     expect(errors).toEqual([]);
-    expect(String(processed.secret)).toMatch(/^enc:v1:/);
+    expect(String(processed.secret)).toMatch(/^enc:v2:/);
+    // Sealed to the tenant the row gets, the collection, the field and the id.
+    expect(
+      await decryptField(String(processed.secret), {
+        tenant: TENANT,
+        collection: 'vault',
+        field: 'secret',
+        record: RECORD,
+      }),
+    ).toBe('plain-token');
+  });
+
+  it('refuses an encrypted value on a path that names no record to seal it to', async () => {
+    const { errors, processed } = await processInput(
+      { secret: 'plain-token' },
+      {
+        name: 'vault',
+        fields: [{ name: 'secret', type: 'text', encrypted: true }],
+      } as never,
+      false,
+    );
+    expect(errors.join()).toMatch(/sealed to its record/);
+    expect(processed.secret).toBeUndefined();
   });
 });

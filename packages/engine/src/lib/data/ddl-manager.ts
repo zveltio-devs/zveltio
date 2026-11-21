@@ -171,6 +171,14 @@ END
 `;
 }
 
+/**
+ * The tenant a row is stamped with: the transaction's tenant, or the default
+ * one. The column DEFAULT below, and what a field value is sealed to before its
+ * row exists (`writeTenant`), so the two cannot drift.
+ */
+export const ROW_TENANT_SQL =
+  "COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, '00000000-0000-0000-0000-000000000001'::uuid)";
+
 // Every collection table starts with these; createCollection and its preview
 // share them so the preview cannot drift from what is created.
 const SYSTEM_COLUMN_DDL: readonly string[] = [
@@ -182,7 +190,7 @@ const SYSTEM_COLUMN_DDL: readonly string[] = [
   // Multi-tenant: every row belongs to a tenant, defaulted from the request
   // GUC (or the default tenant). The boot/RLS-on-create reconciler then
   // FORCE-RLS's this table on tenant_id. See tenant-manager.applyTenantRLS.
-  "tenant_id UUID NOT NULL DEFAULT COALESCE(NULLIF(current_setting('zveltio.current_tenant', true), '')::uuid, '00000000-0000-0000-0000-000000000001'::uuid)",
+  `tenant_id UUID NOT NULL DEFAULT ${ROW_TENANT_SQL}`,
 ];
 
 /** CONCURRENTLY builds held back by `deferIndexBuilds`. */

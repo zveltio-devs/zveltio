@@ -27,10 +27,16 @@ const ALL = { hidden: new Set<string>(), readOnly: new Set<string>() };
 
 describe('serializeRecord — encrypted fields', () => {
   it('decrypts encrypted column values before field-type serialization', async () => {
-    const cipher = await encryptField('secret-note');
+    const cipher = await encryptField('secret-note', {
+      tenant: 't1',
+      collection: 'notes',
+      field: 'note',
+      record: '1',
+    });
     const out = await serializeRecord(
-      { id: '1', note: cipher, search_vector: 'x' },
+      { id: '1', tenant_id: 't1', note: cipher, search_vector: 'x' },
       {
+        name: 'notes',
         fields: [{ name: 'note', type: 'text', encrypted: true }],
       },
       ALL,

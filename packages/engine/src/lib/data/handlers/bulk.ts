@@ -31,6 +31,7 @@ import {
   hasTransitionRules,
   validateTransitions,
   ROW_RULE_WRITE_REFUSAL,
+  newRecordId,
 } from '../write-pipeline.js';
 import { type ChangeEvent, enqueueChangeEvent } from '../../webhooks.js';
 import { queryAlterRegistry } from '../query-alter.js';
@@ -155,6 +156,7 @@ export async function bulkCreate(c: Context, db: Database): Promise<Response> {
   const failed = await handlePgErrors(c, async () => {
     await runAtomic(effectiveDb, async (trx: Database) => {
       for (let i = 0; i < body.records.length; i++) {
+        const recordId = newRecordId();
         const { errors: valErrors, processed } = await processInput(
           body.records[i],
           collectionDef,
@@ -162,6 +164,7 @@ export async function bulkCreate(c: Context, db: Database): Promise<Response> {
           null,
           undefined,
           true,
+          { db: trx, record: recordId },
         );
         if (valErrors.length > 0) {
           errors.push({ index: i, errors: valErrors });
@@ -205,7 +208,7 @@ export async function bulkCreate(c: Context, db: Database): Promise<Response> {
         }
 
         if (errors.length > 0) continue;
-        const system = { created_by: author, updated_by: author };
+        const system = { id: recordId, created_by: author, updated_by: author };
         const record = await engineRead(canRead, trx, collection, () =>
           dynamicInsert(trx, tableName, finalInsert, system),
         );
@@ -284,6 +287,7 @@ export async function bulkUpdate(c: Context, db: Database): Promise<Response> {
           'later',
           undefined,
           true,
+          { db: trx, record: String(id) },
         );
         if (valErrors.length > 0) {
           errors.push({ index: i, id, errors: valErrors });

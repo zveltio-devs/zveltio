@@ -23,7 +23,7 @@ import { holdsRole, isTenantAdmin, DEFAULT_RUN_AS_ROLE } from '../lib/tenancy/in
 import { reqDb, tenantId } from '../lib/route-db.js';
 import { safeFetch, validatePublicUrl } from '../lib/edge-functions/safe-fetch.js';
 import { isEncryptedValue, maybeEncrypt, maybeDecrypt } from '../lib/data/index.js';
-import { enqueueReplay, type WebhookJob } from '../lib/webhooks.js';
+import { enqueueReplay, type WebhookJob, webhookSecretAad } from '../lib/webhooks.js';
 import { guardAdmin } from '../lib/admin-guard.js';
 import { paging } from '../lib/utils.js';
 
@@ -43,7 +43,10 @@ const WebhookFields = z.object({
   // be signed with its plaintext, copied from wherever it was read (A14).
   secret: z
     .string()
-    .refine((s): boolean => !isEncryptedValue(s), 'secret: a value cannot start with "enc:v1:"')
+    .refine(
+      (s): boolean => !isEncryptedValue(s),
+      'secret: a value cannot start with "enc:v1:" or "enc:v2:"',
+    )
     .optional(),
   retry_attempts: z.number().int().min(0).max(10),
   timeout: z.number().int().min(1000).max(30000),
@@ -279,13 +282,25 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
     // Encrypt the signing secret with FIELD_ENCRYPTION_KEY before
     // persisting. The plaintext is returned ONCE to the admin via the
     // response so they can configure the receiving service; from then
-    // on the DB column holds enc:v1:... ciphertext. WebhookManager
+    // on the DB column holds enc:v2:... ciphertext. WebhookManager
     // decrypts in memory just before each delivery.
-    const encryptedSecret = (await maybeEncrypt(secret, true)) as string;
+    // Sealed to the row (ADR 0059): its id is chosen here, before the INSERT.
+    const id = crypto.randomUUID();
+    const encryptedSecret = (await maybeEncrypt(
+      secret,
+      true,
+      webhookSecretAad(tenantId(c), id),
+    )) as string;
 
     const webhook = await reqDb(c, db)
       .insertInto('zvd_webhooks')
-      .values({ ...data, secret: encryptedSecret, created_by: user.id, tenant_id: tenantId(c) })
+      .values({
+        ...data,
+        id,
+        secret: encryptedSecret,
+        created_by: user.id,
+        tenant_id: tenantId(c),
+      })
       .returningAll()
       .executeTakeFirst();
 
@@ -332,7 +347,11 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
     if (data.secret === MASK) {
       delete toSet.secret;
     } else if (typeof data.secret === 'string' && data.secret.length > 0) {
-      toSet.secret = (await maybeEncrypt(data.secret, true)) as string;
+      toSet.secret = (await maybeEncrypt(
+        data.secret,
+        true,
+        webhookSecretAad(tenantId(c), c.req.param('id')),
+      )) as string;
     }
     const webhook = await reqDb(c, db)
       .updateTable('zvd_webhooks')
@@ -378,7 +397,11 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
   // POST /:id/rotate-secret — Generate a new signing secret
   app.post('/:id/rotate-secret', async (c) => {
     const newSecret = generateWebhookSecret();
-    const encryptedNew = (await maybeEncrypt(newSecret, true)) as string;
+    const encryptedNew = (await maybeEncrypt(
+      newSecret,
+      true,
+      webhookSecretAad(tenantId(c), c.req.param('id')),
+    )) as string;
     const webhook = await reqDb(c, db)
       .updateTable('zvd_webhooks')
       .set({ secret: encryptedNew, updated_at: new Date() })
@@ -433,11 +456,15 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
       });
 
       if (webhook.secret) {
-        // The stored secret is encrypted (enc:v1:...) — decrypt in
+        // The stored secret is encrypted (enc:v2:..., or enc:v1: from before) — decrypt in
         // memory to sign the test body. maybeDecrypt returns the value
         // unchanged on legacy unencrypted rows so test still works
         // during the encryption rollout.
-        const plaintext = (await maybeDecrypt(webhook.secret, true)) as string;
+        const plaintext = (await maybeDecrypt(
+          webhook.secret,
+          true,
+          webhookSecretAad(tenantId(c), webhook.id),
+        )) as string;
         sanitizedHeaders['X-Zveltio-Signature'] = await signBody(testBody, plaintext);
       }
 

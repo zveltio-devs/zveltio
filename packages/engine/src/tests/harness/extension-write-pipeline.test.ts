@@ -113,7 +113,7 @@ d('extension writes run through the field pipeline', () => {
     expect(row.secret).not.toBe(PLAINTEXT_PW);
     expect(await Bun.password.verify(PLAINTEXT_PW, row.secret)).toBe(true);
     expect(row.api_key).not.toBe(SECRET);
-    expect(row.api_key.startsWith('enc:v1:')).toBe(true);
+    expect(row.api_key.startsWith('enc:v2:')).toBe(true);
     // An ordinary column is untouched — encrypting everything would break
     // every query and index.
     expect(row.label).toBe('via-extension');
@@ -135,7 +135,7 @@ d('extension writes run through the field pipeline', () => {
       sql.raw(`SELECT secret, api_key FROM "${TABLE}" WHERE id = '${id}'`),
     )) as { rows: { secret: string; api_key: string }[] };
     expect(await Bun.password.verify(PLAINTEXT_PW, rows.rows[0]!.secret)).toBe(true);
-    expect(rows.rows[0]!.api_key.startsWith('enc:v1:')).toBe(true);
+    expect(rows.rows[0]!.api_key.startsWith('enc:v2:')).toBe(true);
   });
 
   it('hashes and encrypts on a bulk update too', async () => {
@@ -156,6 +156,8 @@ d('extension writes run through the field pipeline', () => {
       db,
       sql.raw(`SELECT api_key FROM "${TABLE}" WHERE id = '${id}'`),
     )) as { rows: { api_key: string }[] };
+    // One value for every matched row binds none of them: the unbound v1
+    // envelope this surface wrote (ADR 0059; v2-candidates).
     expect(rows.rows[0]!.api_key.startsWith('enc:v1:')).toBe(true);
   });
 

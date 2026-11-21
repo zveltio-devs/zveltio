@@ -17,6 +17,7 @@
 import { sql } from 'kysely';
 import { activePoolMax, type Database } from '../db/index.js';
 import { isProduction, modeValue } from './operational-modes.js';
+import { keyList } from './security/index.js';
 
 export interface ProductionGuardViolation {
   /** The variable at fault, so the operator can act without reading source. */
@@ -130,16 +131,23 @@ export function productionGuardViolations(
   // The other two entries here are settings whose absence is dangerous. This one
   // is a setting whose absence is silent, which is why it belongs beside them
   // rather than in a warning nobody reads at boot.
-  const fieldKey = env.FIELD_ENCRYPTION_KEY;
-  if (fieldKey && !/^[0-9a-fA-F]{64}$/.test(fieldKey)) {
-    violations.push({
-      variable: 'FIELD_ENCRYPTION_KEY',
-      message:
-        'set, but not 64 hex characters. The engine used to boot anyway and fail at the ' +
-        'first webhook create or `encrypted: true` write — long after the deploy looked ' +
-        'healthy. Generate one with `openssl rand -hex 32`. (Unset is still allowed: ' +
-        'encrypted fields are then refused, with a warning at boot.)',
-    });
+  // ADR 0059 decision 3: only a malformed CURRENT key refuses the boot — an
+  // older entry that is not a key is skipped (keyring `keyList`), and a dropped
+  // one is the operator's step after `rotate-keys`. A malformed current key used
+  // to boot and fail at the first webhook create or `encrypted: true` write —
+  // long after the deploy looked healthy.
+  for (const keyring of ['field', 'mail'] as const) {
+    const list = keyList(keyring, env);
+    if (list.malformed.includes(1)) {
+      violations.push({
+        variable: list.source,
+        message:
+          `set, but its ${list.source.endsWith('S') ? 'first entry (the current key) is' : 'value is'} ` +
+          `not ${keyring === 'mail' ? 'at least ' : ''}64 hex characters. Generate one with ` +
+          '`openssl rand -hex 32`. (Unset is still allowed: encrypted values are then refused, ' +
+          'with a warning at boot.)',
+      });
+    }
   }
 
   // ADR 0058 decision 2: production runs every edge function and flow script on
