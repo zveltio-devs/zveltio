@@ -35,7 +35,7 @@ describe('enforcePublisherTier — ZVELTIO_REQUIRE_CATALOG', () => {
       new Error('getaddrinfo ENOTFOUND registry.zveltio.com'),
     );
     try {
-      const r = await enforcePublisherTier('sideloaded-ext', MANIFEST);
+      const r = await enforcePublisherTier('sideloaded-ext', MANIFEST, null, true);
       expect(r.ok).toBe(false);
       if (!r.ok) expect(r.lastLoadError).toContain('ZVELTIO_REQUIRE_CATALOG');
     } finally {
@@ -47,7 +47,7 @@ describe('enforcePublisherTier — ZVELTIO_REQUIRE_CATALOG', () => {
     process.env.ZVELTIO_REQUIRE_CATALOG = '1';
     const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockResolvedValue([]);
     try {
-      await enforcePublisherTier('sideloaded-ext', MANIFEST);
+      await enforcePublisherTier('sideloaded-ext', MANIFEST, null, true);
       expect(spy).toHaveBeenCalledWith({ requireRemote: true });
     } finally {
       spy.mockRestore();
@@ -58,7 +58,7 @@ describe('enforcePublisherTier — ZVELTIO_REQUIRE_CATALOG', () => {
     delete process.env.ZVELTIO_REQUIRE_CATALOG;
     const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockResolvedValue([]);
     try {
-      const r = await enforcePublisherTier('sideloaded-ext', MANIFEST);
+      const r = await enforcePublisherTier('sideloaded-ext', MANIFEST, null, true);
       expect(spy).toHaveBeenCalledWith({ requireRemote: false });
       // absent from the catalog → community → still blocked inline, but by the
       // tier rule rather than the fail-closed switch
@@ -82,8 +82,8 @@ describe('enforcePublisherTier — "*" in an action (ADR 0053 d5)', () => {
       new Error('registry down'),
     );
     try {
-      expect((await enforcePublisherTier('sideloaded-ext', MANIFEST)).ok).toBe(true);
-      const r = await enforcePublisherTier('sideloaded-ext', STAR);
+      expect((await enforcePublisherTier('sideloaded-ext', MANIFEST, null, true)).ok).toBe(true);
+      const r = await enforcePublisherTier('sideloaded-ext', STAR, null, true);
       expect(r.ok).toBe(false);
       if (!r.ok) expect(r.lastLoadError).toContain('no verified publisher tier');
     } finally {
@@ -104,7 +104,7 @@ describe('enforcePublisherTier — "*" in an action (ADR 0053 d5)', () => {
         entries as never,
       );
       try {
-        expect((await enforcePublisherTier('sideloaded-ext', STAR)).ok).toBe(false);
+        expect((await enforcePublisherTier('sideloaded-ext', STAR, null, true)).ok).toBe(false);
       } finally {
         spy.mockRestore();
       }
@@ -117,7 +117,7 @@ describe('enforcePublisherTier — "*" in an action (ADR 0053 d5)', () => {
       new Error('registry down'),
     );
     try {
-      expect((await enforcePublisherTier('sideloaded-ext', STAR)).ok).toBe(false);
+      expect((await enforcePublisherTier('sideloaded-ext', STAR, null, true)).ok).toBe(false);
     } finally {
       spy.mockRestore();
     }
@@ -162,7 +162,7 @@ describe('enforcePublisherTier — "*" in an action (ADR 0053 d5)', () => {
       { name: 'sideloaded-ext', publisher_tier: 'first-party' } as never,
     ]);
     try {
-      expect((await enforcePublisherTier('sideloaded-ext', STAR)).ok).toBe(true);
+      expect((await enforcePublisherTier('sideloaded-ext', STAR, null, true)).ok).toBe(true);
     } finally {
       spy.mockRestore();
     }

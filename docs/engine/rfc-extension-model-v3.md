@@ -202,7 +202,9 @@ judge against nothing. Transition rules sit outside rule groups.
    SQL migrations.
 2. **Profiles**, chosen by the operator in env and never in the UI:
    - **`development`:** anything goes, unsigned allowed; refused under
-     `NODE_ENV=production`.
+     `NODE_ENV=production`. *Withdrawn by ADR 0056 amendments 2026-11-18 and
+     2026-11-21:* unsigned code never runs, in development either; a developer
+     signs with a test key the development engine trusts.
    - **`standard`:** signed code only, revocations enforced, install from the UI
      or the CLI.
    - **`locked`:** production loads only what a host-side lockfile names

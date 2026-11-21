@@ -57,7 +57,7 @@ describe('a catalogue override cannot make an extension first-party (ADR 0056)',
     const net = spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'));
     try {
       const inline = (name: string) =>
-        enforcePublisherTier(name, { name, version: '1.0.0' } as never);
+        enforcePublisherTier(name, { name, version: '1.0.0' } as never, null, true);
       const relabelled = await inline('acme/relabelled');
       expect(relabelled.ok).toBe(false);
       expect(relabelled.ok ? '' : relabelled.lastLoadError).toMatch(/community/);

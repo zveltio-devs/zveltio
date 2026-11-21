@@ -36,6 +36,7 @@ import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import { dispatchToWs, EXTENSION_LIFECYCLE_EVENT, engineEvents } from '../../lib/runtime/index.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/index.js';
 import { createSteppedUpGod, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 // In the bundled catalog as first-party, so it may load inline and god may enable it.
@@ -115,7 +116,11 @@ d('a newer version on disk replaces the copy a firm keeps loaded', () => {
     await putOnDisk('1.1.0', [T1, T2]);
   };
 
+  // Unsigned fixtures: the test override stands in for a registry signature,
+  // set here — never inherited from a file run before this one.
+  let wasInline = false;
   beforeAll(async () => {
+    wasInline = _setInlineForTests(true);
     const t = await getTestApp();
     db = t.db;
     ({ app: engine, cookie: god } = await createSteppedUpGod(t.app, db));
@@ -136,6 +141,7 @@ d('a newer version on disk replaces the copy a firm keeps loaded', () => {
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(wasInline);
     await extensionLoader.unload(NAME).catch(() => undefined);
     extensionLoader.ctx = saved.ctx;
     if (saved.extDir === undefined) delete process.env.EXTENSIONS_DIR;

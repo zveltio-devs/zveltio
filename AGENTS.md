@@ -351,7 +351,11 @@ generated).
 - Extension installs verify Ed25519 signatures, always; an unsigned directory
   never runs, inline or on the runner. Extra signers go in
   `REGISTRY_PUBLIC_KEYS_JSON`; an operator's own extensions are signed with a
-  key on `OPERATOR_PUBLIC_KEYS_JSON` (`docs/extensions/signatures.md`).
+  key on `OPERATOR_PUBLIC_KEYS_JSON` (`docs/extensions/signatures.md`). No
+  `NODE_ENV` is an exception: a `zveltio-extensions` checkout a dev or test
+  engine loads is signed first (`bun scripts/sign-as-registry.ts <dir>
+  [--key-id <id>]`); an in-process harness test with unsigned fixtures uses
+  `_setInlineForTests`.
 - Edge functions run in a separate process per invocation with a minimal env,
   a kernel memory ceiling (`EDGE_MEMORY_LIMIT_MB`) and a wall-clock kill. There
   is no in-process mode; `EDGE_SANDBOX_MODE` is ignored. A function that lists

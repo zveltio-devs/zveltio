@@ -32,6 +32,7 @@ import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import { purgeExtensionData } from '../../lib/extensions/migration-runner.js';
 import { engineEvents } from '../../lib/runtime/index.js';
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 // In the bundled catalog as first-party, so it may load inline.
@@ -72,7 +73,10 @@ d('boot beside a purge on another replica', () => {
       await sql`DELETE FROM zv_extension_registry WHERE name = ${NAME}`.execute(db);
     });
 
+  // Unsigned fixtures: the test override stands in for a registry signature.
+  let wasInline = false;
   beforeAll(async () => {
+    wasInline = _setInlineForTests(true);
     ({ db } = await getTestApp());
     base = mkdtempSync(join(tmpdir(), 'zv-bootpurge-'));
     process.env.EXTENSIONS_DIR = base;
@@ -97,6 +101,7 @@ d('boot beside a purge on another replica', () => {
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(wasInline);
     if (saved === undefined) delete process.env.EXTENSIONS_DIR;
     else process.env.EXTENSIONS_DIR = saved;
     if (db) {

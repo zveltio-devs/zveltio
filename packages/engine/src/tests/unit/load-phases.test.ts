@@ -217,10 +217,15 @@ describe('enforcePublisherTier — fast paths', () => {
       },
     ]);
     try {
-      const r = await enforcePublisherTier('community-ext', {
-        name: 'community-ext',
-        version: '1.0.0',
-      } as never);
+      const r = await enforcePublisherTier(
+        'community-ext',
+        {
+          name: 'community-ext',
+          version: '1.0.0',
+        } as never,
+        null,
+        true,
+      );
       expect(r.ok).toBe(false);
       if (!r.ok) expect(r.lastLoadError).toContain('worker isolation');
     } finally {
@@ -232,11 +237,16 @@ describe('enforcePublisherTier — fast paths', () => {
     const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockResolvedValue([]);
     try {
       // Declares worker but is not bundled: the refusal used to read as if it ran there.
-      const r = await enforcePublisherTier('acme/own', {
-        name: 'acme/own',
-        version: '1.0.0',
-        engine: { isolation: 'worker', bundled: false },
-      } as never);
+      const r = await enforcePublisherTier(
+        'acme/own',
+        {
+          name: 'acme/own',
+          version: '1.0.0',
+          engine: { isolation: 'worker', bundled: false },
+        } as never,
+        null,
+        true,
+      );
       expect(r.ok).toBe(false);
       if (r.ok) return;
       expect(r.lastLoadError).toContain(
@@ -246,7 +256,12 @@ describe('enforcePublisherTier — fast paths', () => {
       expect(r.lastLoadError).toContain('zveltio extension sign`) and enable it');
       expect(r.lastLoadError).toContain('OPERATOR_PUBLIC_KEYS_JSON');
       expect(r.lastLoadError).not.toContain('Republish');
-      const bare = await enforcePublisherTier('acme/own', { name: 'acme/own' } as never);
+      const bare = await enforcePublisherTier(
+        'acme/own',
+        { name: 'acme/own' } as never,
+        null,
+        true,
+      );
       expect(bare.ok).toBe(false);
       if (!bare.ok) expect(bare.lastLoadError).toContain('engine.isolation unset');
     } finally {
@@ -261,7 +276,12 @@ describe('enforcePublisherTier — fast paths', () => {
       new Error('offline'),
     );
     try {
-      const r = await enforcePublisherTier('ext', { name: 'ext', version: '1.0.0' } as never);
+      const r = await enforcePublisherTier(
+        'ext',
+        { name: 'ext', version: '1.0.0' } as never,
+        null,
+        true,
+      );
       expect(r.ok).toBe(false);
       if (!r.ok) expect(r.lastLoadError).toContain('ZVELTIO_REQUIRE_CATALOG');
     } finally {
@@ -287,10 +307,15 @@ describe('enforcePublisherTier — fast paths', () => {
       },
     ]);
     try {
-      const r = await enforcePublisherTier('verified-ext', {
-        name: 'verified-ext',
-        version: '1.0.0',
-      } as never);
+      const r = await enforcePublisherTier(
+        'verified-ext',
+        {
+          name: 'verified-ext',
+          version: '1.0.0',
+        } as never,
+        null,
+        true,
+      );
       expect(r.ok).toBe(false);
     } finally {
       spy.mockRestore();
@@ -312,10 +337,15 @@ describe('enforcePublisherTier — fast paths', () => {
       },
     ]);
     try {
-      const r = await enforcePublisherTier('finance/invoicing', {
-        name: 'finance/invoicing',
-        version: '1.0.0',
-      } as never);
+      const r = await enforcePublisherTier(
+        'finance/invoicing',
+        {
+          name: 'finance/invoicing',
+          version: '1.0.0',
+        } as never,
+        null,
+        true,
+      );
       expect(r.ok).toBe(true);
     } finally {
       spy.mockRestore();

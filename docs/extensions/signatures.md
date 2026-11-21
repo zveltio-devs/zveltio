@@ -36,7 +36,8 @@ zveltio keys export my-org-2026                       # → OPERATOR_PUBLIC_KEYS
 zveltio extensions enable acme/invoices               # needs a second factor (step-up)
 ```
 
-**Local development is the same step.** There is no unsigned mode for a
+**Local development is the same step** (a first-party source checkout is
+signed differently: [below](#a-first-party-source-checkout)). There is no unsigned mode for a
 directory you are working on: make a key once (`zveltio keys generate`), put its
 public half on your engine's `OPERATOR_PUBLIC_KEYS_JSON`, and sign the directory
 before you enable or reload it. The signature covers every file, so sign again
@@ -119,15 +120,13 @@ checks that at every load, not once at install (ADR 0056 amendment 4, ADR 0058):
   manifest names another extension — a signed archive copied under a
   first-party name is not that extension. A kept signature that does not hold is
   refused; the directory is never loaded as if it were unsigned.
-- **Unsigned is never inline in production,** whatever its name: a directory put
-  there by hand or a source checkout is refused, naming the reason.
+- **Unsigned is never inline,** whatever its name and whatever `NODE_ENV`: a
+  directory put there by hand or a source checkout is refused, naming the reason
+  (ADR 0056 amendment 2026-11-21: no local-dev exception).
 - **Unsigned never runs on the runner either** (ADR 0056 amendment 2026-11-18):
   a worker-isolated, bundled directory that holds neither a registry signature
   nor an operator's `signature.json` is refused at load, however it was
   activated — a row written straight into `zv_extension_registry` included.
-- **Development and test** (`NODE_ENV=development` or `test`) keep the
-  catalogue's word for an unsigned directory that runs inline, so a source
-  checkout of the first-party extensions runs as before.
 
 Still from the catalogue: which tier a registry-signed extension has (bundled
 catalogue or the registry's answer, by its name). The registry does not sign the
@@ -135,10 +134,37 @@ tier yet; until it does, the signature proves the files are what the registry
 published under that name, and the name's publisher is the registry's to
 enforce.
 
-A production boot that loads extensions from disk without the registry (the
-release smoke, the extensions' runtime probe) signs them as a download leaves
-them, with a key made for that run and trusted through
-`REGISTRY_PUBLIC_KEYS_JSON`: `bun scripts/sign-as-registry.ts <extensions-dir>`.
+### A first-party source checkout
+
+`NODE_ENV=development` and `test` refuse an unsigned directory exactly as
+production does: there is no local-dev exception (ADR 0056 amendment
+2026-11-21). A checkout of `zveltio-extensions` is signed as a registry download
+leaves it, with a test key of your own that your development engine trusts as a
+registry key:
+
+```bash
+zveltio keys generate --id dev-registry                                 # once
+bun scripts/sign-as-registry.ts ../zveltio-extensions --key-id dev-registry
+# prints REGISTRY_PUBLIC_KEYS_JSON=[…]: put that entry on REGISTRY_PUBLIC_KEYS_JSON
+# in your .env (once — the same key prints the same line), then restart the engine
+```
+
+The signature covers every file of each directory, so sign again after a change
+— name the extension to sign only it (`… ../zveltio-extensions crm --key-id
+dev-registry`) — then reload or restart; a directory changed since it was signed
+is refused at load, naming the file. `.zveltio-registry/` is gitignored there.
+
+Why a registry key and not an operator key: an operator key confers level 3
+only (ADR 0056 d1) — the runner, declared model only — while a first-party
+extension runs inline at level 0, which only a registry signature unlocks. The
+engine trusts the key because you listed it, by the rule it applies to a
+mirror's key, in every `NODE_ENV`. Never list a development key on a production
+engine: anything signed with it whose name the catalogue calls first-party would
+run inline.
+
+Boots that load extensions from disk without the registry — the release smoke,
+the e2e boot, the integration lane and the extensions' runtime probe — do the
+same with a key made for the run and thrown away with it (no `--key-id`).
 
 ## Why signatures matter (threat model)
 

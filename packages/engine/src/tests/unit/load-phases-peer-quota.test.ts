@@ -76,10 +76,15 @@ describe('enforcePublisherTier — absent catalog entry', () => {
       },
     ]);
     try {
-      const r = await enforcePublisherTier('sideloaded-ext', {
-        name: 'sideloaded-ext',
-        version: '1.0.0',
-      } as never);
+      const r = await enforcePublisherTier(
+        'sideloaded-ext',
+        {
+          name: 'sideloaded-ext',
+          version: '1.0.0',
+        } as never,
+        null,
+        true,
+      );
       expect(r.ok).toBe(false);
       if (!r.ok) expect(r.lastLoadError).toContain('not in the marketplace catalog');
     } finally {

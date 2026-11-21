@@ -197,9 +197,7 @@ export const MODES = {
     weakens:
       '`development` or `test` turns off the production refusals: `productionGuardViolations` ' +
       '(no cache, `CORS_ORIGINS=*`, …), the RLS-unenforceable refusal, the extension-runner ' +
-      'requirement and edge placement, inline code only on a registry signature (an unsigned ' +
-      'source checkout runs inline when the catalogue names it first-party), Secure session ' +
-      'cookies, the admin gate on ' +
+      'requirement and edge placement, Secure session cookies, the admin gate on ' +
       '`/api/openapi.json`, the demo credentials kept off `/api/health`, and mounts the ' +
       'unauthenticated `POST /__zveltio_dev_reload`. Every other value — unset included — is ' +
       'production (ADR 0058, owner 2026-11-17): a hand-started engine without it boots as ' +

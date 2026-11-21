@@ -36,10 +36,15 @@ describe('enforcePublisherTier — escape hatches', () => {
     process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
     const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockResolvedValue([]);
     try {
-      const r = await enforcePublisherTier('sideloaded-ext', {
-        name: 'sideloaded-ext',
-        version: '1.0.0',
-      } as never);
+      const r = await enforcePublisherTier(
+        'sideloaded-ext',
+        {
+          name: 'sideloaded-ext',
+          version: '1.0.0',
+        } as never,
+        null,
+        true,
+      );
       expect(r.ok).toBe(false);
       expect(spy).toHaveBeenCalled();
     } finally {
@@ -77,11 +82,16 @@ describe('enforcePublisherTier — escape hatches', () => {
       catalogEntry({ name: 'c-ext', publisher_tier: 'community' }),
     ]);
     try {
-      const r = await enforcePublisherTier('c-ext', {
-        name: 'c-ext',
-        version: '1.0.0',
-        engine: { isolation: 'worker', bundled: false },
-      } as never);
+      const r = await enforcePublisherTier(
+        'c-ext',
+        {
+          name: 'c-ext',
+          version: '1.0.0',
+          engine: { isolation: 'worker', bundled: false },
+        } as never,
+        null,
+        true,
+      );
       expect(r.ok).toBe(false);
       if (!r.ok) expect(r.lastLoadError).toContain('community');
     } finally {
@@ -100,7 +110,12 @@ describe('enforcePublisherTier — inline by tier', () => {
       catalogEntry({ name: 'fp-ext', publisher_tier: 'first-party' }),
     ]);
     try {
-      const r = await enforcePublisherTier('fp-ext', { name: 'fp-ext', version: '1.0.0' } as never);
+      const r = await enforcePublisherTier(
+        'fp-ext',
+        { name: 'fp-ext', version: '1.0.0' } as never,
+        null,
+        true,
+      );
       expect(r.ok).toBe(true);
     } finally {
       spy.mockRestore();
@@ -112,7 +127,12 @@ describe('enforcePublisherTier — inline by tier', () => {
       catalogEntry({ name: 'v-ext', publisher_tier: 'verified' }),
     ]);
     try {
-      const r = await enforcePublisherTier('v-ext', { name: 'v-ext', version: '1.0.0' } as never);
+      const r = await enforcePublisherTier(
+        'v-ext',
+        { name: 'v-ext', version: '1.0.0' } as never,
+        null,
+        true,
+      );
       expect(r.ok).toBe(false);
       if (!r.ok) expect(r.lastLoadError).toContain('verified');
     } finally {
@@ -125,10 +145,15 @@ describe('enforcePublisherTier — inline by tier', () => {
       catalogEntry({ name: 'legacy-ext', is_official: true }),
     ]);
     try {
-      const r = await enforcePublisherTier('legacy-ext', {
-        name: 'legacy-ext',
-        version: '1.0.0',
-      } as never);
+      const r = await enforcePublisherTier(
+        'legacy-ext',
+        {
+          name: 'legacy-ext',
+          version: '1.0.0',
+        } as never,
+        null,
+        true,
+      );
       expect(r.ok).toBe(true);
     } finally {
       spy.mockRestore();
@@ -140,7 +165,12 @@ describe('enforcePublisherTier — inline by tier', () => {
       catalogEntry({ name: 'c-ext', publisher_tier: 'community' }),
     ]);
     try {
-      const r = await enforcePublisherTier('c-ext', { name: 'c-ext', version: '1.0.0' } as never);
+      const r = await enforcePublisherTier(
+        'c-ext',
+        { name: 'c-ext', version: '1.0.0' } as never,
+        null,
+        true,
+      );
       expect(r.ok).toBe(false);
       if (!r.ok) expect(r.lastLoadError).toContain('community');
     } finally {

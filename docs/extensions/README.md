@@ -183,7 +183,10 @@ zveltio extension publish           # upload to the registry
 Signing uses Ed25519; installs verify signatures, always. Extra signers go in
 `REGISTRY_PUBLIC_KEYS_JSON`, and your own extensions are signed with a key on
 `OPERATOR_PUBLIC_KEYS_JSON`, local development included. An unsigned extension
-never runs, whatever its name ([signatures](signatures.md#what-runs-inline-u3)).
+never runs, whatever its name and whatever `NODE_ENV`
+([signatures](signatures.md#what-runs-inline-u3)); a first-party source checkout
+is signed with a development registry key
+([signatures](signatures.md#a-first-party-source-checkout)).
 
 **Your own extension, without the registry:** pack it, sign it with your key
 (`zveltio extension sign`), install it with `zveltio install <name> --path`, and

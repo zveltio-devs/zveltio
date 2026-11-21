@@ -38,6 +38,7 @@ import {
   getTestApp,
   harnessAvailable,
 } from '../../testing/app-harness.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const NAME = 'hello-ext';
@@ -170,7 +171,10 @@ d('ADR 0012 pilot gaps: seeded names, required keys, relation defaults, Studio-o
       ),
     );
 
+  // Unsigned fixtures: the test override stands in for a registry signature.
+  let wasInline = false;
   beforeAll(async () => {
+    wasInline = _setInlineForTests(true);
     const t = await getTestApp();
     db = t.db;
     ({ app: engine, cookie: god } = await createSteppedUpGod(t.app, db));
@@ -193,6 +197,7 @@ d('ADR 0012 pilot gaps: seeded names, required keys, relation defaults, Studio-o
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(wasInline);
     await extensionLoader.unload(NAME).catch(() => undefined);
     extensionLoader.ctx = saved.ctx;
     if (saved.extDir === undefined) delete process.env.EXTENSIONS_DIR;

@@ -183,34 +183,19 @@ describe('loadExtensionFromDir', () => {
   });
 
   it('records lastLoadError when publisher tier gate fails', async () => {
-    const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockResolvedValue([
-      {
+    // An unsigned directory, whatever NODE_ENV: no local-dev exception (ADR 0056
+    // amendment 2026-11-21).
+    const base = tmpExt({
+      'community-ext/manifest.json': JSON.stringify({
         name: 'community-ext',
-        displayName: 'Community',
-        description: 'x',
-        category: 'custom',
         version: '1.0.0',
-        author: 'x',
-        tags: [],
-        permissions: [],
-        publisher_tier: 'community',
-      },
-    ]);
-    try {
-      const base = tmpExt({
-        'community-ext/manifest.json': JSON.stringify({
-          name: 'community-ext',
-          version: '1.0.0',
-          engine: { bundled: true, entry: 'engine/index.js' },
-        }),
-        'community-ext/engine/index.js': 'export default { async register(){} };',
-      });
-      const loader = fakeLoader();
-      await loadExtensionFromDir(loader, 'community-ext', app, loader.ctx, base);
-      expect(loader.lastLoadError.get('community-ext')).toMatch(/worker isolation/i);
-    } finally {
-      spy.mockRestore();
-    }
+        engine: { bundled: true, entry: 'engine/index.js' },
+      }),
+      'community-ext/engine/index.js': 'export default { async register(){} };',
+    });
+    const loader = fakeLoader();
+    await loadExtensionFromDir(loader, 'community-ext', app, loader.ctx, base);
+    expect(loader.lastLoadError.get('community-ext')).toMatch(/not signed by the registry/);
   });
 
   it('records lastLoadError and audits when dynamic import throws', async () => {
