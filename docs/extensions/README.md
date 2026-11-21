@@ -193,7 +193,9 @@ level 3: verified at every load, on the extension runner, never inline, and
 declared model only — collections, actions, jobs, declared routes; no
 `register()` code, no `ctx.db`, no SQL migrations. Relabelling it
 `first-party` in a `catalog.json` override does not work. See
-[signatures.md](signatures.md#your-own-extensions-level-3).
+[signatures.md](signatures.md#your-own-extensions-level-3). A community
+extension the registry signed (level 2) is held to the same declared model
+(ADR 0056 amendment 2026-11-21).
 
 **The same bytes at the same version are refused.** A fix does not reach
 installations without a version bump — and a bumped version does not reach them
