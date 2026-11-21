@@ -46,6 +46,7 @@ function expectWithheld(payload: unknown, encrypted: 'dropped' | 'decrypted' = '
   expect(s).toContain('visible-label');
   expect(s).not.toContain('$argon2');
   expect(s).not.toContain('enc:v1:');
+  expect(s).not.toContain('enc:v2:');
   // Concatenates every text field, column-hidden ones included.
   expect(s).not.toContain('search_text');
   expect(s).not.toContain(TOKEN);
@@ -238,8 +239,8 @@ d('password and encrypted fields leave through no door (in-process)', () => {
       SELECT pw, secret, tok FROM ${sql.table(TABLE)} WHERE id = ${recordId}::uuid`,
     );
     expect(row.rows[0]!.pw.startsWith('$argon2')).toBe(true);
-    expect(row.rows[0]!.secret.startsWith('enc:v1:')).toBe(true);
-    expect(row.rows[0]!.tok.startsWith('enc:v1:')).toBe(true);
+    expect(row.rows[0]!.secret.startsWith('enc:v2:')).toBe(true);
+    expect(row.rows[0]!.tok.startsWith('enc:v2:')).toBe(true);
   });
 
   it('the stored revision row keeps no secret', async () => {
@@ -340,7 +341,7 @@ d('password and encrypted fields leave through no door (in-process)', () => {
       SELECT pw, secret FROM ${sql.table(TABLE)} WHERE id = ${recordId}::uuid`,
     );
     expect(after.rows[0]!.pw).toBe(before.rows[0]!.pw);
-    expect(after.rows[0]!.secret.startsWith('enc:v1:')).toBe(true);
+    expect(after.rows[0]!.secret.startsWith('enc:v2:')).toBe(true);
     const live = await app.request(`/api/data/${COLLECTION}/${recordId}`, {
       headers: { cookie: god },
     });

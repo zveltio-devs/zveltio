@@ -25,6 +25,7 @@ import { invalidateActivationCache } from '../../lib/extensions/activation.js';
 import { applyDeclaredCollections } from '../../lib/extensions/declared-collections.js';
 import { planExtensionSchema } from '../../lib/schema-artifact/apply.js';
 import { DDLManager, decryptField, maybeEncrypt } from '../../lib/data/index.js';
+import { DEFAULT_TENANT_ID } from '../../lib/tenancy/index.js';
 import { getAuth } from '../../lib/auth.js';
 import { sessionPrefetch } from '../../middleware/session-prefetch.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
@@ -174,8 +175,15 @@ d("an extension's update turns its text field secret (ADR 0024 §6)", () => {
       [one!, 1],
       [two!, 2],
     ] as const) {
-      expect(r.pin.startsWith('enc:v1:')).toBe(true);
-      expect(await decryptField(r.pin)).toBe(`pin-${n}`);
+      expect(r.pin.startsWith('enc:v2:')).toBe(true);
+      expect(
+        await decryptField(r.pin, {
+          tenant: DEFAULT_TENANT_ID,
+          collection: C,
+          field: 'pin',
+          record: r.id,
+        }),
+      ).toBe(`pin-${n}`);
     }
 
     // The metadata is the file's: no `encrypted`, unique key, index or default.

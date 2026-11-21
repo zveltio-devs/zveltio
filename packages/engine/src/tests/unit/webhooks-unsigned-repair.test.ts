@@ -28,7 +28,9 @@ describe('repairUnsignedWebhooksAtBoot', () => {
 
   it('gives an unsigned webhook a secret and says which one it was', async () => {
     const db = new CannedDb();
-    db.when(/FROM zvd_webhooks/i, [{ id: 'w1', name: 'legacy-hook' }]);
+    db.when(/FROM zvd_webhooks/i, [
+      { id: 'w1', name: 'legacy-hook', tenant_id: '00000000-0000-0000-0000-000000000001' },
+    ]);
     const warn = spyOn(console, 'warn').mockImplementation(() => {});
     try {
       expect(await repairUnsignedWebhooksAtBoot(asDb(db))).toBe(1);

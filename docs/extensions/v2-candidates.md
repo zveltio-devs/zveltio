@@ -272,3 +272,26 @@ an id, a number, a boolean or an enum-like token (to be added in v1, additive).
 
 **What v2 should do.** Refuse such metadata with a problem the extension sees.
 
+
+## 13. Unbound field ciphertext from the extension surfaces — narrowing
+
+**What happens.** Field values are sealed to their row since ADR 0059
+(amendment 2026-11-21): `enc:v2:` carries a key id, and AES-GCM associated data
+names the tenant, collection, field and record, so a copy elsewhere does not
+decrypt. Three extension-facing writers name no row and are documented as
+producing `enc:v1:`, which binds nothing: `ctx.internals.encryptSecret` (field
+keyring), `ctx.internals.maybeEncrypt`, and an inline extension's `ctx.db`
+update whose `WHERE` is not a single `id =` (one value for many rows). Both
+`encryptSecret` and `maybeEncrypt` also return a value that already carries an
+envelope untouched, so ciphertext copied from anywhere passes through them.
+
+**What v1 does.** Keeps all three on `enc:v1:` under the current key of
+`FIELD_ENCRYPTION_KEYS`, and keeps the pass-through. `decryptSecret` and
+`maybeDecrypt` read `enc:v1:` and refuse `enc:v2:` (they name no row). No
+first-party extension calls any of them (checked 2026-11-21); `rotate-keys`
+rewrites what they wrote.
+
+**What v2 should do.** Remove `maybeEncrypt` / `maybeDecrypt` (the data API
+seals and opens field values); make `encryptSecret` / `decryptSecret` take the
+row they bind to, or remove them; refuse ciphertext as input; and refuse a
+`ctx.db` update that sets an encrypted field without naming one row.

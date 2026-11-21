@@ -14,7 +14,7 @@ import { DDLManager, SYSTEM_COLUMNS } from './ddl-manager.js';
 import { readScope } from './read-scope.js';
 import { fieldTypeRegistry } from './field-type-registry.js';
 import { unservedFields } from './sealed-columns.js';
-import { maybeDecrypt } from './field-crypto.js';
+import { type FieldAad, maybeDecrypt } from './field-crypto.js';
 import { getColumnAccess, applyColumnAccess, type ColumnAccess } from '../tenancy/index.js';
 import { checkAccess } from './auth.js';
 import type {
@@ -105,6 +105,26 @@ export function withheldColumns(collectionDef: CollectionDef | null | undefined)
   };
 }
 
+/**
+ * Where a stored row's encrypted value lives (ADR 0059): its own `tenant_id`
+ * and `id`, so a parent tenant reading a child's row opens it under the child.
+ * Undefined when the row was read without them — an `enc:v2:` value then stays
+ * sealed rather than open under a guess.
+ */
+export function fieldAadOf(
+  row: Record<string, unknown>,
+  collectionDef: CollectionDef | null | undefined,
+  field: string,
+): FieldAad | undefined {
+  if (!collectionDef?.name || row.id == null || row.tenant_id == null) return undefined;
+  return {
+    tenant: String(row.tenant_id),
+    collection: collectionDef.name,
+    field,
+    record: String(row.id),
+  };
+}
+
 /** Serialize a record's field values using the field-type registry.
  *
  * Input is a loosely typed DB row (values `unknown` — dynamic tables can't be
@@ -132,7 +152,11 @@ export async function serializeRecord(
   for (const field of fields) {
     if (result[field.name] !== undefined && result[field.name] !== null) {
       if (field.encrypted) {
-        result[field.name] = await maybeDecrypt(result[field.name] as string, true);
+        result[field.name] = await maybeDecrypt(
+          result[field.name] as string,
+          true,
+          fieldAadOf(record, collectionDef, field.name),
+        );
       }
       result[field.name] = fieldTypeRegistry.serialize(field.type, result[field.name]);
       // Numeric coercion: Postgres returns numeric/decimal as string. Cast back

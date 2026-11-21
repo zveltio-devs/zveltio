@@ -180,6 +180,21 @@ describe('Valkey is a requirement, not a preference', () => {
     expect(productionGuardViolations(env)).toEqual([]);
   });
 
+  // ADR 0059 decision 3: a malformed CURRENT key refuses; an old entry does not.
+  it('refuses a key list whose current key is malformed, never for an older entry', () => {
+    const env = { NODE_ENV: 'production', VALKEY_URL: CACHE, BETTER_AUTH_URL: BASE };
+    const good = 'aB'.repeat(32);
+    for (const name of ['FIELD_ENCRYPTION_KEYS', 'MAIL_ENCRYPTION_KEYS']) {
+      const v = productionGuardViolations({ ...env, [name]: `short,${good}` });
+      expect(v.map((x) => x.variable)).toEqual([name]);
+      expect(v[0]!.message).not.toContain('short');
+      expect(productionGuardViolations({ ...env, [name]: `${good},short` })).toEqual([]);
+      expect(productionGuardViolations({ ...env, [name]: `${good},${'c'.repeat(64)}` })).toEqual(
+        [],
+      );
+    }
+  });
+
   // ADR 0058 d2: the engine's child would share its uid, and so its environment.
   it('refuses ZVELTIO_EDGE_TRANSPORT=process; the runner is the only placement', () => {
     const env = { NODE_ENV: 'production', VALKEY_URL: CACHE, BETTER_AUTH_URL: BASE };

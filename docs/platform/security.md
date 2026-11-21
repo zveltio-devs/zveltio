@@ -173,8 +173,8 @@ BETTER_AUTH_URL=https://api.yourdomain.com
 **destructive for API keys and TOTP**. `BETTER_AUTH_SECRETS` (below) keeps TOTP
 and API keys through a rotation.
 `FIELD_ENCRYPTION_KEY` and `MAIL_ENCRYPTION_KEY` are separate keys; encrypted
-and `secret` fields are not affected. Those two keys have no rotation: changing
-one makes every value sealed under it unreadable.
+and `secret` fields are not affected. They rotate through their own key lists
+([below](#rotating-field_encryption_key-and-mail_encryption_key)).
 
 What happens when the **current** secret changes:
 
@@ -315,6 +315,55 @@ has to decrypt the two-factor rows for one boot, so they can be re-encrypted
    user who had them at the time (`SELECT "userId" FROM "twoFactor"` before
    step 1, or from that backup). API keys stay safe: their stored hash cannot
    be reversed into the key, even with the secret.
+
+#### Rotating `FIELD_ENCRYPTION_KEY` and `MAIL_ENCRYPTION_KEY`
+
+ADR 0059. Each key has a list beside the single variable:
+`FIELD_ENCRYPTION_KEYS` / `MAIL_ENCRYPTION_KEYS`, plain keys (64 hex characters,
+`openssl rand -hex 32`) separated by commas, `_FILE`-capable like the rest.
+
+- The **first** entry is current: every new value is encrypted under it.
+- A value is read under whichever listed key wrote it. A field value written
+  since ADR 0059 names its key (below); an older one is tried under each key.
+- Without the list, the single variable is a one-element list. The list wins
+  when both are set.
+- In production the engine refuses to start only when the **current** key is
+  malformed. An older entry that is not a key is skipped (values under it stay
+  unreadable until it is fixed), and a key left out of the list is the
+  operator's decision, never a boot error.
+
+**The field format.** A field value is written as
+`enc:v2:<key id>:<base64url(iv | ciphertext + tag)>`: AES-256-GCM, a fresh
+12-byte IV, the key id the first 8 hex characters of a domain-separated SHA-256
+of the key (it names the key, it does not reveal it). The associated data is
+`<tenant>\0<collection>\0<field>\0<record id>`, the row's own `tenant_id` and
+`id`; an engine table goes by `$<name>` (`$webhooks`, `$settings`). A v2 value
+copied to another row, field, collection or tenant does not decrypt there: the
+read returns it sealed, as it does for a value under a dropped key. Renaming an
+encrypted or `secret` field re-encrypts its column under the new name, in the
+rename's transaction.
+
+`enc:v1:` values, written before, bind nothing and stay readable under any
+listed key until `zveltio rotate-keys` (step 2 of ADR 0059, not shipped yet)
+rewrites them as `enc:v2:`. Three writers still produce `enc:v1:`, because their
+extension-facing contract documents it and names no row:
+`ctx.internals.encryptSecret` (field keyring), `ctx.internals.maybeEncrypt`, and
+an inline extension's `ctx.db` update whose `WHERE` is not a single `id =`
+([v2-candidates](../extensions/v2-candidates.md)). Mail passwords keep the
+`aes256gcm:` envelope under the mail key list, with no associated data.
+
+**Rotation**, every replica at each step:
+
+1. `FIELD_ENCRYPTION_KEYS=<old>`: nothing changes.
+2. `FIELD_ENCRYPTION_KEYS=<old>,<new>` on every replica: `<old>` stays
+   current, and every replica can now read what `<new>` will write.
+3. When every replica runs step 2: `FIELD_ENCRYPTION_KEYS=<new>,<old>`. New
+   values are written under `<new>`; old ones keep reading under `<old>`.
+4. Keep `<old>` listed until `zveltio rotate-keys` reports no value left under
+   it. Until that command ships, there is no way to retire `<old>` without
+   losing the values it wrote: leave it in the list.
+
+The same steps apply to `MAIL_ENCRYPTION_KEYS`.
 
 #### API Key Security
 
@@ -498,7 +547,8 @@ invocation, in production always on the extension runner (ADR 0058; details in
 
 | Secret | Encryption | Env var |
 |---|---|---|
-| IMAP/SMTP passwords | AES-256-GCM | `MAIL_ENCRYPTION_KEY` |
+| Collection fields marked `encrypted: true`, `secret` fields, webhook signing secrets, the S3 secret key | AES-256-GCM, `enc:v2:` bound to tenant, collection, field and record | `FIELD_ENCRYPTION_KEYS` / `FIELD_ENCRYPTION_KEY` |
+| IMAP/SMTP passwords | AES-256-GCM | `MAIL_ENCRYPTION_KEYS` / `MAIL_ENCRYPTION_KEY` |
 
 Generate keys with: `openssl rand -hex 32`
 

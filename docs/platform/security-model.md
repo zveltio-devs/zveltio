@@ -142,15 +142,19 @@ present, so a direct-to-engine deployment is still limited per client.
 
 ## Secrets at rest
 
-`FIELD_ENCRYPTION_KEY` (32 bytes / 64 hex chars) is the master key for
-field-level encryption:
+`FIELD_ENCRYPTION_KEY` (32 bytes / 64 hex chars), or the list
+`FIELD_ENCRYPTION_KEYS` whose first entry is current (ADR 0059), is the master
+key for field-level encryption:
 
 - Collection fields with `encrypted: true` are AES-256-GCM encrypted
-  before insert and decrypted on read. The ciphertext is not bound to a
-  tenant, collection or record, so a write whose value already starts with
-  `enc:v1:` is refused (422; a webhook `secret`, 400): stored as given, it
-  would read back as the plaintext of ciphertext copied from elsewhere. A
-  `secret` field instead encrypts such a value again (ADR 0024).
+  before insert and decrypted on read, as `enc:v2:` values bound to the row's
+  tenant, collection, field and id: a copy in another row does not decrypt
+  ([security.md](security.md#rotating-field_encryption_key-and-mail_encryption_key)).
+  `enc:v1:` values written before bind nothing and still decrypt anywhere, so
+  a write whose value already starts with `enc:v1:` or `enc:v2:` is refused
+  (422; a webhook `secret`, 400): stored as given, it would read back as the
+  plaintext of ciphertext copied from elsewhere. A `secret` field instead
+  encrypts such a value again (ADR 0024).
 - LDAP `bindPassword` and SAML `privateKey` in `zv_settings` are
   encrypted via `ctx.internals.encryptSecret` / `decryptSecret`.
 - Mail provider passwords are encrypted (existing — `MAIL_ENCRYPTION_KEY`).

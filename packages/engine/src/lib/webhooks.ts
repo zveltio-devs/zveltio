@@ -3,6 +3,7 @@ import type { Database } from '../db/index.js';
 import { webhookDeliveries, webhookDeliveryDuration, webhookRetries } from './runtime/index.js';
 import { validatePublicUrl, safeFetch } from './edge-functions/safe-fetch.js';
 import {
+  type FieldAad,
   type JobQueue,
   jobQueue,
   maybeDecrypt,
@@ -122,7 +123,11 @@ async function repairUnsigned(db: Database): Promise<number> {
     const secret = Array.from(bytes)
       .map((b) => b.toString(16).padStart(2, '0'))
       .join('');
-    const stored = (await maybeEncrypt(secret, true)) as string;
+    const stored = (await maybeEncrypt(
+      secret,
+      true,
+      webhookSecretAad(row.tenant_id, row.id),
+    )) as string;
     // The policy's WITH CHECK admits a write for `zveltio.current_tenant` only.
     await sql`SELECT set_config('zveltio.current_tenant', ${row.tenant_id}, true)`.execute(db);
     await sql`UPDATE zvd_webhooks SET secret = ${stored} WHERE id = ${row.id}`.execute(db);
@@ -134,6 +139,14 @@ async function repairUnsigned(db: Database): Promise<number> {
     );
   }
   return repaired;
+}
+
+/**
+ * Where a webhook's signing secret lives, for its `enc:v2:` envelope (ADR 0059):
+ * an engine table goes by `$<name>`, which no collection can be called.
+ */
+export function webhookSecretAad(tenant: string, id: string): FieldAad {
+  return { tenant, collection: '$webhooks', field: 'secret', record: id };
 }
 
 /** The pg-boss queue every webhook delivery is a job on (ADR 0035). */
@@ -446,7 +459,7 @@ export async function runWebhookJob(job: DeliverJob): Promise<void> {
     if (delivered) return;
 
     if (wh.secret) {
-      const plain = await maybeDecrypt(wh.secret, true);
+      const plain = await maybeDecrypt(wh.secret, true, webhookSecretAad(d.tenantId, wh.id));
       secret = typeof plain === 'string' ? plain : null;
     }
   } catch (err) {

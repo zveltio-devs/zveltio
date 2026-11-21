@@ -16,20 +16,45 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { encryptField } from '../../lib/data/field-crypto.js';
+import {
+  decryptField,
+  encryptField,
+  encryptFieldUnbound,
+  maybeDecrypt,
+} from '../../lib/data/field-crypto.js';
+import {
+  decryptWithKeyring,
+  encryptWithKeyring,
+  fieldKeyId,
+  keyList,
+} from '../../lib/security/keyring.js';
 
 const KEY_A = '1'.repeat(64);
 const KEY_B = '2'.repeat(64);
 
-let savedKey: string | undefined;
+const VARS = [
+  'FIELD_ENCRYPTION_KEY',
+  'FIELD_ENCRYPTION_KEYS',
+  'MAIL_ENCRYPTION_KEY',
+  'MAIL_ENCRYPTION_KEYS',
+] as const;
+let saved: Record<string, string | undefined> = {};
 
 beforeAll(() => {
-  savedKey = process.env.FIELD_ENCRYPTION_KEY;
+  saved = Object.fromEntries(VARS.map((v) => [v, process.env[v]]));
 });
 afterAll(() => {
-  if (savedKey === undefined) delete process.env.FIELD_ENCRYPTION_KEY;
-  else process.env.FIELD_ENCRYPTION_KEY = savedKey;
+  for (const v of VARS) {
+    if (saved[v] === undefined) delete process.env[v];
+    else process.env[v] = saved[v];
+  }
 });
+
+/** Only `vars` set among the key variables. */
+function keys(vars: Partial<Record<(typeof VARS)[number], string>>): void {
+  for (const v of VARS) delete process.env[v];
+  Object.assign(process.env, vars);
+}
 
 async function decryptWithRawKey(hex: string, enc: string): Promise<string> {
   const raw = new Uint8Array(hex.match(/.{2}/g)!.map((h) => parseInt(h, 16)));
@@ -44,16 +69,117 @@ async function decryptWithRawKey(hex: string, enc: string): Promise<string> {
 
 describe('FIELD_ENCRYPTION_KEY rotation', () => {
   it('picks up a rotated key on the next call, without a process restart', async () => {
-    process.env.FIELD_ENCRYPTION_KEY = KEY_A;
-    await encryptField('warm the cache under key A');
+    keys({ FIELD_ENCRYPTION_KEY: KEY_A });
+    await encryptFieldUnbound('warm the cache under key A');
 
     // Rotate — an operator setting a new env var, NOT calling any test-only
     // reset hook. The module must notice on its own.
     process.env.FIELD_ENCRYPTION_KEY = KEY_B;
-    const encUnderB = await encryptField('sealed after rotation');
+    const encUnderB = await encryptFieldUnbound('sealed after rotation');
 
     // Decrypt with KEY_B directly, bypassing the module entirely. If the
     // module were still using the cached KEY_A, this raw-KEY_B decrypt fails.
     await expect(decryptWithRawKey(KEY_B, encUnderB)).resolves.toBe('sealed after rotation');
+  });
+});
+
+/** Where the value lives: what a v2 envelope is sealed to (ADR 0059 amendment). */
+const AT = {
+  tenant: '00000000-0000-0000-0000-000000000001',
+  collection: 'customers',
+  field: 'iban',
+  record: '5f0c8a52-6a1e-4f0e-9a43-1f0b2c3d4e5f',
+};
+
+/** The v1 envelope exactly as the engine wrote it before ADR 0059: no AAD, no key id. */
+async function oldV1Encrypt(hex: string, plain: string): Promise<string> {
+  const raw = new Uint8Array(hex.match(/.{2}/g)!.map((h) => parseInt(h, 16)));
+  const key = await crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt']);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(
+    await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(plain)),
+  );
+  const all = new Uint8Array([...iv, ...ct]);
+  return `enc:v1:${Buffer.from(all).toString('base64url')}`;
+}
+
+describe('key list (ADR 0059 decision 1)', () => {
+  it('reads a v2 value sealed under key 2 once key 1 is current', async () => {
+    keys({ FIELD_ENCRYPTION_KEY: KEY_A });
+    const old = await encryptField('under A', AT);
+    keys({ FIELD_ENCRYPTION_KEYS: `${KEY_B},${KEY_A}` });
+    expect(await decryptField(old, AT)).toBe('under A');
+    // Dropped from the list, it no longer opens: the list is what reads.
+    keys({ FIELD_ENCRYPTION_KEYS: KEY_B });
+    await expect(decryptField(old, AT)).rejects.toThrow();
+  });
+
+  it('reads a v1 value written under key 2, by the old code, with or without a context', async () => {
+    const old = await oldV1Encrypt(KEY_A, 'v1 under A');
+    keys({ FIELD_ENCRYPTION_KEYS: `${KEY_B}, ${KEY_A}` });
+    expect(await decryptField(old)).toBe('v1 under A');
+    expect(await decryptField(old, AT)).toBe('v1 under A');
+    expect(await maybeDecrypt(old, true, AT)).toBe('v1 under A');
+  });
+
+  it('writes with the first key, named by its id', async () => {
+    keys({ FIELD_ENCRYPTION_KEYS: `${KEY_B},${KEY_A}` });
+    const v = await encryptField('new', AT);
+    expect(v.startsWith(`enc:v2:${fieldKeyId(KEY_B)}:`)).toBe(true);
+    expect(await decryptWithRawKey(KEY_B, await encryptFieldUnbound('new v1'))).toBe('new v1');
+  });
+
+  it('the single variable is a one-element list', async () => {
+    keys({ FIELD_ENCRYPTION_KEY: KEY_A });
+    expect(keyList('field').keys).toEqual([KEY_A]);
+    expect(await decryptField(await encryptField('x', AT), AT)).toBe('x');
+  });
+
+  it('skips a malformed older entry and refuses a malformed current one, naming no value', async () => {
+    keys({ FIELD_ENCRYPTION_KEY: KEY_A });
+    const old = await encryptField('under A', AT);
+    keys({ FIELD_ENCRYPTION_KEYS: `${KEY_B},not-a-key,${KEY_A}` });
+    expect(keyList('field')).toMatchObject({
+      keys: [KEY_B, KEY_A],
+      currentOk: true,
+      malformed: [2],
+    });
+    expect(await decryptField(old, AT)).toBe('under A');
+    keys({ FIELD_ENCRYPTION_KEYS: `not-a-key,${KEY_A}` });
+    await expect(encryptField('x', AT)).rejects.toThrow(/64-char hex/);
+    expect(await decryptField(old, AT)).toBe('under A');
+  });
+
+  it('the mail keyring takes a list too', async () => {
+    const MAIL_A = 'a'.repeat(64);
+    keys({ MAIL_ENCRYPTION_KEY: MAIL_A });
+    const old = await encryptWithKeyring('smtp-pass', 'mail');
+    keys({ MAIL_ENCRYPTION_KEYS: `${'b'.repeat(64)},${MAIL_A}` });
+    expect(await decryptWithKeyring(old, 'mail')).toBe('smtp-pass');
+  });
+});
+
+describe('enc:v2: is sealed to where it lives (ADR 0059 amendment)', () => {
+  it('does not open when moved to another tenant, collection, field or record', async () => {
+    keys({ FIELD_ENCRYPTION_KEY: KEY_A });
+    const v = await encryptField('IBAN RO49', AT);
+    expect(await decryptField(v, AT)).toBe('IBAN RO49');
+    for (const moved of [
+      { ...AT, tenant: '00000000-0000-0000-0000-000000000002' },
+      { ...AT, collection: 'suppliers' },
+      { ...AT, field: 'note' },
+      { ...AT, record: '5f0c8a52-6a1e-4f0e-9a43-1f0b2c3d4e60' },
+    ]) {
+      await expect(decryptField(v, moved)).rejects.toThrow();
+      // The read path keeps the record readable and the value sealed.
+      expect(await maybeDecrypt(v, true, moved)).toBe(v);
+    }
+    await expect(decryptField(v)).rejects.toThrow(/bound/);
+  });
+
+  it('a record id spelled another way Postgres accepts is the same record', async () => {
+    keys({ FIELD_ENCRYPTION_KEY: KEY_A });
+    const v = await encryptField('x', { ...AT, record: AT.record.toUpperCase() });
+    expect(await decryptField(v, { ...AT, record: AT.record.replace(/-/g, '') })).toBe('x');
   });
 });

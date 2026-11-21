@@ -1,25 +1,38 @@
 /**
  * Per-field AES-256-GCM encryption for application collection data.
  *
- * Encrypted values are stored with the prefix "enc:v1:" followed by
- * base64url-encoded "<12-byte IV>:<ciphertext>".
+ * Values are written as `enc:v2:<key id>:<base64url(iv|ct+tag)>`, sealed to
+ * where they live (`FieldAad`: tenant, collection, field, record — ADR 0059,
+ * amendment 2026-11-21). `enc:v1:` values, which bind nothing, stay readable
+ * until `rotate-keys` rewrites them.
  *
- * Requires env var: FIELD_ENCRYPTION_KEY (64 hex chars = 32 bytes)
- * Generate with: openssl rand -hex 32
+ * Keys: FIELD_ENCRYPTION_KEYS (comma list, first = current) or
+ * FIELD_ENCRYPTION_KEY (one key), 64 hex chars each. Generate with:
+ * openssl rand -hex 32
  */
 
-import { decryptWithKeyring, encryptWithKeyring } from '../security/index.js';
+import {
+  type FieldAad,
+  decryptWithKeyring,
+  encryptWithKeyring,
+  isFieldEnvelope,
+  keyList,
+  sealField,
+} from '../security/index.js';
 import { modeValue } from '../operational-modes.js';
 
-const ENC_PREFIX = 'enc:v1:';
+export type { FieldAad } from '../security/index.js';
 
 // Read the key LAZILY (not captured at module load). This module is pulled in by
 // the route/write-pipeline import chain, which can evaluate before a test harness
 // or a secret loader sets FIELD_ENCRYPTION_KEY — capturing at load time then left
 // encryption silently disabled (encrypted:true fields written in PLAINTEXT).
 // Reading per-call also lets an operator rotate the key without a restart.
-function keyHex(): string {
-  return process.env.FIELD_ENCRYPTION_KEY ?? '';
+// "Configured" counts a malformed key too: it is refused at encrypt time, never
+// read as "no key" (which a plaintext opt-in would then honour).
+function keyConfigured(): string {
+  const { keys, malformed } = keyList('field');
+  return keys.length + malformed.length > 0 ? 'set' : '';
 }
 
 let _missingKeyWarned = false;
@@ -43,7 +56,7 @@ function warnMissingKeyOnce(): void {
 export async function checkFieldEncryptionAtBoot(
   db: import('../../db/index.js').Database,
 ): Promise<void> {
-  if (keyHex()) return; // key is set — nothing to flag
+  if (keyConfigured()) return; // key is set — nothing to flag
   try {
     const rows = (await db
       .selectFrom('zvd_collections')
@@ -84,40 +97,60 @@ export async function checkFieldEncryptionAtBoot(
 
 // The cipher itself is the keyring's (`security/keyring.ts`): two copies of the
 // enc:v1 format drifted once already. What stays here is the field key's
-// stricter shape check — the keyring tolerates an over-long key for mail.
+// refusal message.
 function assertKeyShape(): void {
-  // Hex, not just 64 characters: `parseInt('zz', 16)` is NaN, which a
-  // Uint8Array stores as 0 — so 64 non-hex characters imported as an all-zero
-  // AES key and encrypted without a word.
-  if (!/^[0-9a-fA-F]{64}$/.test(keyHex())) {
+  if (!keyList('field').currentOk) {
     throw new Error(
-      'FIELD_ENCRYPTION_KEY env var must be set to a 64-char hex string (32 bytes). ' +
-        'Generate with: openssl rand -hex 32',
+      'FIELD_ENCRYPTION_KEY (or the first entry of FIELD_ENCRYPTION_KEYS) must be a ' +
+        '64-char hex string (32 bytes). Generate with: openssl rand -hex 32',
     );
   }
 }
 
 export function isEncryptedValue(value: unknown): value is string {
-  return typeof value === 'string' && value.startsWith(ENC_PREFIX);
+  return isFieldEnvelope(value);
 }
 
-export async function encryptField(plaintext: string): Promise<string> {
+/** Seal `plaintext` to where it lives (`enc:v2:`). */
+export async function encryptField(plaintext: string, aad: FieldAad): Promise<string> {
+  assertKeyShape();
+  return sealField(plaintext, aad);
+}
+
+/**
+ * The unbound `enc:v1:` envelope, under the current key — only for the
+ * extension surfaces that document it and name no record
+ * (`internals.encryptSecret`, `internals.maybeEncrypt`; v2-candidates).
+ */
+export async function encryptFieldUnbound(plaintext: string): Promise<string> {
   assertKeyShape();
   return encryptWithKeyring(plaintext, 'field');
 }
 
-export async function decryptField(value: string): Promise<string> {
+/**
+ * Open a field value. `aad` is where it lives: an `enc:v2:` value opens only
+ * with the context it was sealed to; an `enc:v1:` one under any listed key.
+ */
+export async function decryptField(value: string, aad?: FieldAad): Promise<string> {
   if (!isEncryptedValue(value)) return value;
-  assertKeyShape();
-  return decryptWithKeyring(value, 'field');
+  if (keyList('field').keys.length === 0) assertKeyShape();
+  return decryptWithKeyring(value, 'field', aad);
 }
 
-/** Encrypt a field value if the field definition has encrypted:true and FIELD_ENCRYPTION_KEY is set */
-export async function maybeEncrypt(value: unknown, isEncrypted: boolean): Promise<unknown> {
+/**
+ * Encrypt a field value if the field definition has encrypted:true and a field
+ * key is set. With `aad` the value is sealed to it (`enc:v2:`); without, it is
+ * the unbound `enc:v1:` the extension surface documents.
+ */
+export async function maybeEncrypt(
+  value: unknown,
+  isEncrypted: boolean,
+  aad?: FieldAad,
+): Promise<unknown> {
   if (!isEncrypted || value === null || value === undefined) return value;
   if (typeof value !== 'string') return value; // only encrypt strings
   if (isEncryptedValue(value)) return value; // already encrypted
-  if (!keyHex()) {
+  if (!keyConfigured()) {
     // Fail-CLOSED: the operator explicitly marked this field `encrypted: true`,
     // so a plaintext string reaching here is data they told us is sensitive
     // (PII / ANSVSA / SAF-T). Silently persisting it in the clear is a data
@@ -134,15 +167,19 @@ export async function maybeEncrypt(value: unknown, isEncrypted: boolean): Promis
         'to explicitly allow plaintext storage.',
     );
   }
-  return encryptField(value);
+  return aad ? encryptField(value, aad) : encryptFieldUnbound(value);
 }
 
-/** Decrypt a field value if it looks like an encrypted value */
-export async function maybeDecrypt(value: unknown, isEncrypted: boolean): Promise<unknown> {
+/** Decrypt a field value if it looks like an encrypted value; `aad` as `decryptField`. */
+export async function maybeDecrypt(
+  value: unknown,
+  isEncrypted: boolean,
+  aad?: FieldAad,
+): Promise<unknown> {
   if (!isEncrypted || value === null || value === undefined) return value;
   if (typeof value !== 'string' || !isEncryptedValue(value)) return value;
   try {
-    return await decryptField(value);
+    return await decryptField(value, aad);
   } catch (err) {
     // Log so a rotated/missing key shows up in the operator's logs
     // instead of silently surfacing `enc:v1:...` strings to clients.

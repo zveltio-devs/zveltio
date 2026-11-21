@@ -1,4 +1,4 @@
-import { encryptField, type FieldTypeRegistry } from '../lib/data/index.js';
+import type { FieldTypeRegistry } from '../lib/data/index.js';
 
 /**
  * Does this value already hold a password hash?
@@ -434,10 +434,11 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
     api: {
       filterOperators: [],
       serialize: () => undefined,
-      // Always encrypted, with no plaintext mode, and a value that already reads
-      // as `enc:v1:` is encrypted again: ciphertext copied from elsewhere must
-      // not be planted as this secret. No key: `encryptField` refuses the write.
-      deserialize: (v: unknown) => (v === null || v === undefined ? null : encryptField(String(v))),
+      // Plaintext here; the write pipeline seals it to its row (`processInput`,
+      // ADR 0059), always, with no plaintext mode, and a value that already
+      // reads as ciphertext is sealed again: ciphertext copied from elsewhere
+      // must not be planted as this secret. No key: `encryptField` refuses.
+      deserialize: (v: unknown) => (v === null || v === undefined ? null : String(v)),
       validate: (v, f) => {
         if (f.required && (v === undefined || v === null || v === '')) {
           return `${f.label || f.name} is required`;

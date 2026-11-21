@@ -161,10 +161,10 @@ export function secretFieldRefusal(
   return null;
 }
 
-/** The CHECK that keeps a `secret` column ciphertext or NULL. */
+/** The CHECK that keeps a `secret` column ciphertext or NULL (either field envelope; migration 131). */
 export function secretCheckSql(column: string): string {
   const col = `"${column.replace(/"/g, '""')}"`;
-  return `CHECK (${col} IS NULL OR ${col} LIKE 'enc:v1:%')`;
+  return `CHECK (${col} IS NULL OR ${col} ~ '^enc:v[12]:')`;
 }
 
 export class FieldTypeRegistry {

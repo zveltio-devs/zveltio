@@ -100,7 +100,7 @@ d('revision delta and encrypted fields (in-process)', () => {
       SELECT secret FROM ${sql.table(TABLE)} WHERE id = ${recordId}::uuid
     `,
     );
-    expect(row.rows[0]!.secret.startsWith('enc:v1:')).toBe(true);
+    expect(row.rows[0]!.secret.startsWith('enc:v2:')).toBe(true);
   });
 
   it('does not keep the plaintext in the revision delta', async () => {

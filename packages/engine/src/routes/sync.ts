@@ -195,6 +195,8 @@ export function syncRoutes(db: Database, _auth: any): Hono {
     raw: Record<string, any>,
     actor: { id: string; role: string },
     operation: 'create' | 'update',
+    /** The row an encrypted value is sealed to, in the push's transaction (ADR 0059). */
+    seal: { db: Database; record: string },
     // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   ): Promise<{ safe: true; payload: Record<string, any> } | { safe: false; reason: string }> {
     const collectionDef = await DDLManager.getCollection(db, collectionName.replace(/^zvd_/, ''));
@@ -239,6 +241,9 @@ export function syncRoutes(db: Database, _auth: any): Hono {
       collectionDef,
       true,
       operation === 'create' ? null : undefined,
+      undefined,
+      false,
+      seal,
     );
     if (errors.length > 0) {
       return { safe: false, reason: errors.join('; ') };
@@ -406,6 +411,7 @@ export function syncRoutes(db: Database, _auth: any): Hono {
           op.payload,
           { id: user.id, role: user.role },
           op.operation === 'create' ? 'create' : 'update',
+          { db: (c.get('tenantTrx') as Database | null) ?? db, record: String(op.recordId) },
         );
         if (!sanitized.safe) {
           results.push({
