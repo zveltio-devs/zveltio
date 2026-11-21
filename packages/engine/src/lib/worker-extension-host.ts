@@ -68,6 +68,7 @@ import {
 import { activePoolMax, getDb, type Database } from '../db/index.js';
 import { auditLog } from './audit.js';
 import { verifyExtensionDir } from './security/index.js';
+import { verifyRegistrySignedDir } from './extensions/extension-download.js';
 import { sqlState } from '../db/bun-sql-quirks.js';
 import { CompiledQuery } from 'kysely';
 import { Turns, transactionTurns } from '../db/trx-sequencer.js';
@@ -474,7 +475,8 @@ function signedLevel(source?: WorkerCtxSource): 2 | 3 | null {
 }
 
 /**
- * ADR 0056 d1: an operator-signed extension's signature is verified again at
+ * ADR 0056 d1 and amendment 2026-11-16 point 4: a signed extension's signature
+ * — an operator's, or the registry's kept with its files — is verified again at
  * every spawn (first start, crash respawn, restart) before its bundle is
  * imported, and the bundle's signed sha256 goes to the worker, which imports
  * only bytes that hash to it. Undefined for an unsigned one.
@@ -485,11 +487,17 @@ async function signedBundleSha256(
   bundleEntry: string,
   source: WorkerCtxSource,
 ): Promise<string | undefined> {
-  if (source.keyId === undefined) return undefined;
-  const signed = await verifyExtensionDir(extName, extDir);
-  if (signed?.keyId !== source.keyId) {
+  const level = signedLevel(source);
+  if (level === null) return undefined;
+  const loadedKey = level === 3 ? source.keyId : source.registryKeyId;
+  const signed =
+    level === 3
+      ? await verifyExtensionDir(extName, extDir)
+      : await verifyRegistrySignedDir(extName, extDir);
+  if (!signed || signed.keyId !== loadedKey) {
     throw new Error(
-      `"${extName}" was loaded signed by operator key "${source.keyId}" and now ` +
+      `"${extName}" was loaded signed by ${level === 3 ? 'operator' : 'registry'} key ` +
+        `"${loadedKey}" and now ` +
         `${signed ? `carries key "${signed.keyId}"` : 'carries no signature'}; load it again`,
     );
   }

@@ -132,7 +132,7 @@ export async function loadExtensionFromDir(
     let registryKeyId: string | null;
     try {
       operatorKeyId = (await verifyExtensionDir(extName, extDir))?.keyId ?? null;
-      registryKeyId = await verifyRegistrySignedDir(extName, extDir);
+      registryKeyId = (await verifyRegistrySignedDir(extName, extDir))?.keyId ?? null;
     } catch (err) {
       const msg = (err as Error).message;
       console.error(`❌ ${msg}`);

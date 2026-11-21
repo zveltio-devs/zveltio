@@ -11,7 +11,14 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Hono } from 'hono';
@@ -181,6 +188,35 @@ for (const m of [
       }
     } finally {
       warn.mockRestore();
+    }
+  }, 60_000);
+
+  it('verifies the registry signature again before a crash respawn imports the bundle', async () => {
+    const name = `l2${STAMP}/respawn`;
+    await write(name);
+    expect(await load(name)).toBeUndefined();
+    appendFileSync(join(base, name, 'engine', 'index.js'), `console.warn('tampered ${name}');\n`);
+    const errors = spyOn(console, 'error');
+    const warn = spyOn(console, 'warn');
+    try {
+      const host = getWorkerHost(app) as unknown as {
+        workers: Map<string, { worker: { onerror: ((e: ErrorEvent) => void) | null } }>;
+      };
+      host.workers.get(name)?.worker.onerror?.({ message: 'test crash' } as ErrorEvent);
+      const tampered = () => warn.mock.calls.some((c) => String(c[0]).includes(`tampered ${name}`));
+      const failed = () =>
+        errors.mock.calls.some(
+          (c) =>
+            String(c[0]).startsWith(`[ext:${name} key=${kp.keyId}] respawn failed`) &&
+            String(c[0]).includes('no longer matches the archive'),
+        );
+      for (let i = 0; i < 100 && !failed() && !tampered(); i++) await Bun.sleep(50);
+      expect(tampered()).toBe(false);
+      expect(failed()).toBe(true);
+    } finally {
+      errors.mockRestore();
+      warn.mockRestore();
+      await getWorkerHost(app).stop(name);
     }
   }, 60_000);
 
