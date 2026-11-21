@@ -16,6 +16,7 @@ import { scheduleGarbageCollector } from '../runtime/index.js';
 import { withEveryTenant, withTenantIsolation } from '../tenancy/index.js';
 import { withSavepoint } from '../savepoint.js';
 import { scheduleBackups } from '../backup/scheduler.js';
+import { scheduleAuditAnchor } from '../audit-anchor.js';
 import { resolveDumpTarget } from '../../routes/backup.js';
 import { sql } from 'kysely';
 
@@ -28,6 +29,7 @@ let _timer: ReturnType<typeof setInterval> | null = null;
 let _stopGC: (() => void) | null = null;
 let _stopTrashPurge: (() => void) | null = null;
 let _stopBackups: (() => void) | null = null;
+let _stopAnchor: (() => void) | null = null;
 let _executeFlowOverride: typeof executeFlow | null = null;
 
 export const flowScheduler = {
@@ -63,6 +65,8 @@ export const flowScheduler = {
       // Backup schedules — the rows in `zv_backup_schedules` carried a cron
       // expression that nothing read until this line existed.
       _stopBackups = scheduleBackups(_db, resolveDumpTarget);
+      // Audit chain heads written outside the database, hourly (ADR 0060 d5).
+      _stopAnchor = scheduleAuditAnchor(_db);
     }
   },
 
@@ -83,6 +87,10 @@ export const flowScheduler = {
     if (_stopTrashPurge) {
       _stopTrashPurge();
       _stopTrashPurge = null;
+    }
+    if (_stopAnchor) {
+      _stopAnchor();
+      _stopAnchor = null;
     }
   },
 
