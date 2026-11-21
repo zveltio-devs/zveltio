@@ -118,7 +118,7 @@ async function purgeAuditChains(
       if (n > 0) console.log(`[GC] zv_audit_log: ${n} rows of ${chain} older than ${days}d purged`);
       total += n;
     } catch (err) {
-      console.warn(`[GC] zv_audit_log purge of ${chain} failed:`, (err as Error).message);
+      console.warn(`[GC] zv_audit_log purge failed (${chain}):`, (err as Error).message);
     }
   }
   return total;

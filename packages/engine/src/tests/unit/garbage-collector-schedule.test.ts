@@ -142,6 +142,9 @@ describe('runGarbageCollector — purge outer catch', () => {
     process.env.AUDIT_LOG_RETENTION_DAYS = '30';
     const db = new CannedDb();
     db.when(/DELETE FROM zv_audit_log/i, [{ deleted: 4 }]);
+    db.when(/SELECT DISTINCT tenant_id::text AS tenant_id FROM zv_audit_chain/i, [
+      { tenant_id: null },
+    ]);
 
     const warn = spyOn(console, 'warn').mockImplementation(() => {});
     const log = spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
