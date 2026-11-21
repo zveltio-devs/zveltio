@@ -7,8 +7,8 @@
  * database cannot reach, one new file per write, and verify compares.
  */
 
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
-import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import { afterAll, afterEach, beforeAll, describe, expect, it, setSystemTime } from 'bun:test';
+import { mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sql } from 'kysely';
@@ -147,5 +147,44 @@ d('external anchor of the audit chain heads (ADR 0060 decision 5)', () => {
     const r = await verifyAuditChains(db);
     expect(r.ok).toBe(false);
     expect(r.anchor).toMatchObject({ configured: true, error: expect.any(String) });
+  });
+  it('a configured target holding no anchor fails verify until the first write', async () => {
+    const empty = await mkdtemp(join(tmpdir(), 'zv-anchor-empty-'));
+    try {
+      process.env[ENV] = empty;
+      const r = await verifyAuditChains(db);
+      expect(r.anchor).toMatchObject({ configured: true, missing: true });
+      expect(r.ok).toBe(false);
+      await anchorAuditChains(db);
+      expect((await verifyAuditChains(db)).anchor).not.toHaveProperty('missing');
+    } finally {
+      await rm(empty, { recursive: true, force: true });
+    }
+  });
+
+  it('a target directory that does not exist is an error, never created', async () => {
+    const absent = join(dir, 'not-mounted');
+    process.env[ENV] = absent;
+    await expect(anchorAuditChains(db)).rejects.toThrow();
+    expect(await stat(absent).catch(() => null)).toBeNull();
+    expect((await verifyAuditChains(db)).anchor).toMatchObject({ error: expect.any(String) });
+  });
+
+  it('a clock stepped back still writes the newest anchor first', async () => {
+    process.env[ENV] = dir;
+    const first = await anchorAuditChains(db);
+    try {
+      setSystemTime(new Date(Date.parse(first.at as string) - 3_600_000));
+      const second = await anchorAuditChains(db);
+      expect(Date.parse(second.at as string)).toBeGreaterThan(Date.parse(first.at as string));
+    } finally {
+      setSystemTime();
+    }
+    const names = (await readdir(dir)).filter((n) => n.endsWith('.json')).sort();
+    const newest = JSON.parse(await readFile(join(dir, names[0] as string), 'utf8')) as {
+      at: string;
+    };
+    expect(Date.parse(newest.at)).toBeGreaterThan(Date.parse(first.at as string));
+    expect((await readdir(dir)).some((n) => !n.endsWith('.json'))).toBe(false);
   });
 });

@@ -16,7 +16,7 @@
  * Ids and hashes only: tenant ids, sequence numbers, SHA-256 hex, a timestamp.
  */
 
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { link, readdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
@@ -44,7 +44,7 @@ interface AnchorFile {
 
 /**
  * `ok`: the anchored entry is still on the chain, unchanged. `covered`: the
- * retention purge cut past it (a later genesis). `behind`: the chain ends before
+ * retention purge cut past it, after the anchor was written. `behind`: the chain ends before
  * the anchored entry — its newest rows were removed. `changed`: the entry at the
  * anchored seq is gone or hashes differently. `genesis_changed`: the chain's
  * genesis moved back or changed.
@@ -59,12 +59,15 @@ export type AnchorReport =
       /** When the latest anchor was written; null before the first. */
       at: string | null;
       chains: { tenant_id: string | null; status: AnchorStatus; anchored: ChainLink }[];
-    };
+    }
+  /** The target holds no anchor while the database holds chains. */
+  | { configured: true; missing: true };
 
 /** The database side of one chain. */
 export interface ChainState {
   head: ChainLink | null;
-  genesis: ChainLink | null;
+  /** `cut_ms`: when the database says the cut was made (epoch ms). */
+  genesis: (ChainLink & { cut_ms: number }) | null;
   /** Hash of the entry at the anchored seq, null when there is none. */
   atAnchored: string | null;
 }
@@ -82,7 +85,7 @@ function anchorTarget(): Target | null {
   if (raw.startsWith('s3://')) {
     const url = new URL(raw);
     if (!url.hostname) throw new Error('AUDIT_ANCHOR_TARGET s3:// names no bucket');
-    const path = url.pathname.replace(/^\/+|\/+$/g, '');
+    const path = decodeURIComponent(url.pathname).replace(/^\/+|\/+$/g, '');
     const env = process.env;
     return {
       kind: 's3',
@@ -112,9 +115,10 @@ const anchorName = (ms: number) =>
 async function readLatest(t: Target): Promise<AnchorFile | null> {
   let text: string | null = null;
   if (t.kind === 'dir') {
+    // Never created: an absent directory is an unmounted target, and anchoring
+    // to the root filesystem in its place would look like it worked.
     const names = await readdir(t.dir).catch((e: NodeJS.ErrnoException) => {
-      if (e.code === 'ENOENT') return [] as string[];
-      throw e;
+      throw new Error(`AUDIT_ANCHOR_TARGET directory ${t.dir} cannot be read (${e.code})`);
     });
     const newest = names.filter((n) => n.startsWith(PREFIX) && n.endsWith('.json')).sort()[0];
     if (newest) text = await readFile(join(t.dir, newest), 'utf8');
@@ -134,17 +138,33 @@ async function writeAnchor(t: Target, a: AnchorFile): Promise<string> {
   const name = anchorName(Date.parse(a.at));
   const body = `${JSON.stringify(a)}\n`;
   if (t.kind === 'dir') {
-    await mkdir(t.dir, { recursive: true });
-    // 'wx': an existing anchor is never overwritten.
-    await writeFile(join(t.dir, name), body, { flag: 'wx' });
+    // Whole or not at all: a temp file outside the name filter, then link(),
+    // which refuses an existing name, so no anchor is ever overwritten.
+    const tmp = join(t.dir, `.${name}.${crypto.randomUUID()}.tmp`);
+    await writeFile(tmp, body, { flag: 'wx' });
+    try {
+      await link(tmp, join(t.dir, name));
+    } finally {
+      await unlink(tmp);
+    }
     return join(t.dir, name);
   }
+  // No conditional PUT in Bun's client: write-once is the bucket's object lock.
   await t.client.write(`${t.prefix}${name}`, body, { type: 'application/json' });
   return `${t.prefix}${name}`;
 }
 
-/** Pure: how the database stands against one anchored chain. */
-export function judgeAnchor(anchored: AnchoredChain, db: ChainState): AnchorStatus {
+/**
+ * Pure: how the database stands against one anchored chain, anchored at
+ * `anchoredAt` (epoch ms). A cut past the anchored head is `covered` only if
+ * made after the anchor: before it, the head was an entry above the genesis.
+ * A cut row the database owner forges with a later `cut_at` is beyond reach.
+ */
+export function judgeAnchor(
+  anchored: AnchoredChain,
+  db: ChainState,
+  anchoredAt: number,
+): AnchorStatus {
   const ag = anchored.genesis;
   const g = db.genesis;
   if (ag && (!g || g.seq < ag.seq || (g.seq === ag.seq && g.hash !== ag.hash))) {
@@ -153,7 +173,7 @@ export function judgeAnchor(anchored: AnchoredChain, db: ChainState): AnchorStat
   const a = anchored.head;
   if (!db.head || db.head.seq < a.seq) return 'behind';
   if (g && g.seq >= a.seq) {
-    if (g.seq > a.seq) return 'covered';
+    if (g.seq > a.seq) return g.cut_ms >= anchoredAt ? 'covered' : 'changed';
     return g.hash === a.hash ? 'ok' : 'changed';
   }
   return db.atAnchored === a.hash ? 'ok' : 'changed';
@@ -166,17 +186,22 @@ async function chainState(
   anchoredSeq: number | null,
 ): Promise<ChainState> {
   const own = tenantId === null ? sql`tenant_id IS NULL` : sql`tenant_id = ${tenantId}::uuid`;
-  const r = await sql<{ head: ChainLink | null; genesis: ChainLink | null; at: string | null }>`
+  const r = await sql<{
+    head: ChainLink | null;
+    genesis: ChainState['genesis'];
+    at: string | null;
+  }>`
     SELECT
       (SELECT json_build_object('seq', seq, 'hash', encode(hash, 'hex')) FROM zv_audit_chain
         WHERE ${own} ORDER BY seq DESC LIMIT 1) AS head,
-      (SELECT json_build_object('seq', seq, 'hash', encode(hash, 'hex')) FROM zv_audit_chain_cut
-        WHERE ${own} ORDER BY seq DESC LIMIT 1) AS genesis,
+      (SELECT json_build_object('seq', seq, 'hash', encode(hash, 'hex'),
+                                'cut_ms', extract(epoch FROM cut_at) * 1000)
+         FROM zv_audit_chain_cut WHERE ${own} ORDER BY seq DESC LIMIT 1) AS genesis,
       (SELECT encode(hash, 'hex') FROM zv_audit_chain
         WHERE ${own} AND seq = ${anchoredSeq ?? -1}) AS at`.execute(db);
   const row = r.rows[0];
   return {
-    head: row?.head ?? row?.genesis ?? null,
+    head: row?.head ?? (row?.genesis ? { seq: row.genesis.seq, hash: row.genesis.hash } : null),
     genesis: row?.genesis ?? null,
     atAnchored: row?.at ?? null,
   };
@@ -190,19 +215,32 @@ export async function verifyAnchor(db: Database): Promise<AnchorReport> {
     const target = anchorTarget();
     if (!target) return { configured: false };
     const latest = await readLatest(target);
-    const chains = [];
-    for (const a of latest?.chains ?? []) {
-      const state = await chainState(db, a.tenant_id, a.head.seq);
-      chains.push({ tenant_id: a.tenant_id, status: judgeAnchor(a, state), anchored: a.head });
+    if (!latest) {
+      // An empty target is not a clean one: a fresh install leaves this at its
+      // first write (boot writes at once); emptying the target re-baselines.
+      const any = await sql<{ any: boolean }>`
+        SELECT EXISTS (SELECT 1 FROM zv_audit_chain)
+            OR EXISTS (SELECT 1 FROM zv_audit_chain_cut) AS any`.execute(db);
+      return any.rows[0]?.any
+        ? { configured: true, missing: true }
+        : { configured: true, at: null, chains: [] };
     }
-    return { configured: true, at: latest?.at ?? null, chains };
+    const at = Date.parse(latest.at);
+    const chains = [];
+    for (const a of latest.chains) {
+      const state = await chainState(db, a.tenant_id, a.head.seq);
+      chains.push({ tenant_id: a.tenant_id, status: judgeAnchor(a, state, at), anchored: a.head });
+    }
+    return { configured: true, at: latest.at, chains };
   } catch (err) {
     return { configured: true, error: (err as Error).message };
   }
 }
 
 export const anchorHolds = (r: AnchorReport): boolean =>
-  !('error' in r) && (!('chains' in r) || r.chains.every((c) => holds(c.status)));
+  !('error' in r) &&
+  !('missing' in r) &&
+  (!('chains' in r) || r.chains.every((c) => holds(c.status)));
 
 /**
  * Write every chain's head and genesis as a new anchor. A chain behind the
@@ -227,14 +265,18 @@ export async function anchorAuditChains(
   for (const tenant_id of tenants) {
     const before = prev.get(tenant_id);
     const state = await chainState(db, tenant_id, before?.head.seq ?? null);
-    if (before && !holds(judgeAnchor(before, state))) {
+    if (before && !holds(judgeAnchor(before, state, Date.parse(latest?.at ?? '')))) {
       chains.push(before);
       carried.push(tenant_id);
       continue;
     }
-    if (state.head) chains.push({ tenant_id, head: state.head, genesis: state.genesis });
+    const g = state.genesis;
+    if (state.head) {
+      chains.push({ tenant_id, head: state.head, genesis: g && { seq: g.seq, hash: g.hash } });
+    }
   }
-  const at = new Date().toISOString();
+  // Past the latest anchor even if the clock stepped back, or it would sort behind it.
+  const at = new Date(Math.max(Date.now(), Date.parse(latest?.at ?? '') + 1 || 0)).toISOString();
   await writeAnchor(target, { v: 1, at, chains });
   if (carried.length) {
     console.error(
