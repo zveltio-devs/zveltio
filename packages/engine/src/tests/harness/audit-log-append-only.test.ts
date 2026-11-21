@@ -113,20 +113,25 @@ d('zv_audit_log is append-only (ADR 0060)', () => {
     expect(await rows(sql`true`)).toEqual(['fresh']);
   });
 
-  it("retention purges every firm's expired rows, a purged firm's included, and keeps the rest", async () => {
-    const OLD = `${TAG}.old` as AuditEventType;
-    await asTenant(db, GONE, (trx) => auditLog(trx, { type: OLD, resourceId: 'gone-old' }));
+  it("retention purges a purged firm's expired rows too, from its chain's oldest end, and keeps the rest", async () => {
+    // Written already old; the chain links each row at commit as it is.
+    const old = (tenant: string | null, resourceId: string) =>
+      asTenant(db, tenant ?? '', (trx) =>
+        sql`INSERT INTO zv_audit_log (event_type, resource_id, tenant_id, created_at)
+            VALUES (${EV}, ${resourceId}, ${tenant}::uuid, now() - interval '400 days')`.execute(
+          trx,
+        ),
+      );
+    await old(GONE, 'gone-old');
     await asTenant(db, GONE, (trx) => auditLog(trx, { type: EV, resourceId: 'gone-fresh' }));
-    await auditLog(db, { type: OLD, resourceId: 'instance-old', tenantId: null });
-    // Aged by the owner with the append-only trigger off (migration 129).
-    await asAuditOwner(
-      db,
-      sql`UPDATE zv_audit_log SET created_at = now() - interval '400 days'
-           WHERE event_type = ${OLD}`,
-    );
-    expect(await rows(sql`true`)).toEqual(['fresh', 'gone-fresh', 'gone-old', 'instance-old']);
+    // A younger row before it in the instance's chain: not the chain's oldest end.
+    await auditLog(db, { type: EV, resourceId: 'instance-fresh', tenantId: null });
+    await _settleAuditWrites();
+    await old(null, 'instance-old');
+    const all = ['fresh', 'gone-fresh', 'gone-old', 'instance-fresh', 'instance-old'];
+    expect(await rows(sql`true`)).toEqual(all);
     await runGarbageCollector(db);
-    expect(await rows(sql`true`)).toEqual(['fresh', 'gone-fresh']);
+    expect(await rows(sql`true`)).toEqual(all.filter((r) => r !== 'gone-old'));
   });
 
   it('128 runs twice, rolls back and runs again', async () => {

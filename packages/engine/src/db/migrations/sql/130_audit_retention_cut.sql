@@ -112,10 +112,11 @@ BEGIN
      AND current_user = 'zveltio_audit_purge' THEN
     RETURN OLD;
   END IF;
-  IF TG_OP = 'DELETE' AND TG_TABLE_NAME = 'zv_audit_chain'
-     AND OLD.seq <= (SELECT max(k.seq) FROM zv_audit_chain_cut k
-                      WHERE k.tenant_id IS NOT DISTINCT FROM OLD.tenant_id) THEN
-    RETURN OLD;
+  IF TG_OP = 'DELETE' AND TG_TABLE_NAME = 'zv_audit_chain' THEN
+    IF OLD.seq <= (SELECT max(k.seq) FROM zv_audit_chain_cut k
+                    WHERE k.tenant_id IS NOT DISTINCT FROM OLD.tenant_id) THEN
+      RETURN OLD;
+    END IF;
   END IF;
   RAISE EXCEPTION '% is append-only (ADR 0060): % refused', TG_TABLE_NAME, TG_OP
     USING ERRCODE = 'insufficient_privilege';

@@ -86,7 +86,7 @@ d('zv_audit_log hash chain (ADR 0060 decision 3)', () => {
   it('concurrent appends to one tenant form one unbroken chain', async () => {
     await Promise.all(Array.from({ length: 24 }, (_, i) => write(T.burst, `burst-${i}`)));
     const chain = await chainOf(T.burst);
-    expect(chain).toMatchObject({ ok: true, verified: 24, purged: 0 });
+    expect(chain).toMatchObject({ ok: true, verified: 24, genesis: null });
     expect(chain?.head?.seq).toBe(24);
   });
 
@@ -228,13 +228,15 @@ d('zv_audit_log hash chain (ADR 0060 decision 3)', () => {
     expect(refused.status).toBe(403);
   });
 
-  it('a row deleted inside the chain breaks it; rows gone at the oldest end only are purged', async () => {
+  it('a row deleted inside the chain breaks it, and at the oldest end too (no genesis covers it)', async () => {
     for (const r of ['m1', 'm2', 'm3']) await write(T.missing, r);
     for (const r of ['p1', 'p2', 'p3']) await write(T.purged, r);
     const m2 = await idOf('m2');
+    const p1 = await idOf('p1');
     await asAuditOwner(db, async (trx) => {
       await sql`DELETE FROM zv_audit_log WHERE id = ${m2}::uuid`.execute(trx);
-      // What the retention purge does: the oldest rows, and their entries stay.
+      // The oldest rows, deleted outside the retention purge: nothing is cut
+      // (audit-retention-cut.test.ts has the purge's own cut).
       await sql`DELETE FROM zv_audit_log WHERE event_type = ${EV}
                   AND resource_id IN ('p1', 'p2')`.execute(trx);
     });
@@ -242,7 +244,11 @@ d('zv_audit_log hash chain (ADR 0060 decision 3)', () => {
       ok: false,
       broken: { seq: 2, audit_id: m2, reason: 'row_missing' },
     });
-    expect(await chainOf(T.purged)).toMatchObject({ ok: true, verified: 3, purged: 2 });
+    expect(await chainOf(T.purged)).toMatchObject({
+      ok: false,
+      verified: 0,
+      broken: { seq: 1, audit_id: p1, reason: 'row_missing' },
+    });
   });
 
   it('a rewritten chain entry breaks the link after it; a row written with the chain off is unchained', async () => {
@@ -273,6 +279,12 @@ d('zv_audit_log hash chain (ADR 0060 decision 3)', () => {
         new URL('../../db/migrations/sql/129_audit_log_hash_chain.sql', import.meta.url),
       ).text(),
     );
+    // 130 builds on 129: its way down comes first.
+    const m130 = parseMigrationFile(
+      await Bun.file(
+        new URL('../../db/migrations/sql/130_audit_retention_cut.sql', import.meta.url),
+      ).text(),
+    );
     const run = async (trx: Database, part: string) => {
       for (const stmt of splitSqlStatements(part)) await sql.raw(stmt).execute(trx);
     };
@@ -282,6 +294,7 @@ d('zv_audit_log hash chain (ADR 0060 decision 3)', () => {
     await db
       .transaction()
       .execute(async (trx) => {
+        await run(trx, m130.down ?? '');
         await run(trx, m.up);
         await run(trx, m.up);
         await run(trx, m.down ?? '');
