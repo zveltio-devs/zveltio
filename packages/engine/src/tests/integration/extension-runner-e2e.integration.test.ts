@@ -5,9 +5,11 @@
  * Everything the harness tests prove piece by piece in one process, proved
  * here over HTTP against engines this file starts: an extension that is not in
  * the catalogue as first-party (`is_official: false`, so community), bundled,
- * `engine.isolation: "worker"`, installed and enabled through
- * `/api/marketplace`, called as a member session, an API key and an
- * anonymous webhook sender, then loaded again by a restart.
+ * `engine.isolation: "worker"`, signed as the registry signs (level 2, declared
+ * model only: a collection, actions, declared routes — ADR 0056 amendment
+ * 2026-11-21), installed and enabled through `/api/marketplace`, called as a
+ * member session, an API key and an anonymous webhook sender, then loaded
+ * again by a restart. `register()` code and SQL migrations fail the enable.
  *
  * Legs: each driver (`ZVELTIO_DB_DRIVER` bun, pg) × each transport — the
  * default outside production (`process`: no `ZVELTIO_EXT_TRANSPORT` set) and
@@ -33,6 +35,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { schemaDigest } from '../../lib/extensions/declared-collections.js';
 import { steppedUpFetch } from '../../testing/step-up.js';
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL;
@@ -71,155 +74,49 @@ const hasDocker =
 
 const code = (d: Driver, t: Transport) => `${d[0]}${t[0]}`;
 const mainName = (d: Driver, t: Transport) => `e2em${code(d, t)}${SFX}`;
-const depName = (d: Driver, t: Transport) => `e2ed${code(d, t)}${SFX}`;
 const inlineName = (d: Driver, t: Transport) => `e2ei${code(d, t)}${SFX}`;
-// Listen where a worker may not: an extension it did not declare, an engine event.
-const strangerName = (d: Driver, t: Transport) => `e2es${code(d, t)}${SFX}`;
-const recordName = (d: Driver, t: Transport) => `e2er${code(d, t)}${SFX}`;
-const listenerEntry = (name: string, event: string) => `
+// The surface level 2 lost (ADR 0056 amendment 2026-11-21): `register()` code, SQL migrations.
+const legacyName = (d: Driver, t: Transport) => `e2el${code(d, t)}${SFX}`;
+const migrName = (d: Driver, t: Transport) => `e2eg${code(d, t)}${SFX}`;
+const legacyEntry = (name: string) => `
 export default {
   name: '${name}',
-  async register(app, ctx) { ctx.events.on('${event}', () => {}); },
+  async register(app, ctx) { await ctx.db.query('select 1'); },
 };
 `;
-const collName = (d: Driver, t: Transport) => `e2ec_${code(d, t)}_${SFX}`;
+const emptyEntry = (name: string) => `export default { name: '${name}', async register() {} };\n`;
 
-// The dependency: a service, an event it emits, and a call it was never allowed.
-const depEntry = (dep: string, main: string) => `
-export default {
-  name: '${dep}',
-  async register(app, ctx) {
-    ctx.services.register('${dep}.echo', (x) => ({ echoed: x }));
-    app.post('/tick', async (c) => {
-      await ctx.events.emitAsync('${dep}.tick', { from: '${dep}' });
-      return c.json({ ok: true });
-    });
-    app.get('/call-main', async (c) => {
-      try { return c.json({ out: await ctx.services.get('${main}.double')(2) }); }
-      catch (e) { return c.json({ error: e.message }); }
-    });
-  },
-};
-`;
-
-const mainEntry = (main: string, dep: string, table: string, res: string) => `
-const T = (s) => 'zv_${main}_' + s;
-const mark = (db, tag) => db.insertInto(T('log')).values({ tag }).execute();
-// A host-owned transaction outside any request: one that commits, one that throws.
-const pair = async (db, where) => {
-  await db.transaction().execute(async (trx) => { await mark(trx, where + '-keep'); });
-  try {
-    await db.transaction().execute(async (trx) => { await mark(trx, where + '-drop'); throw new Error('no'); });
-  } catch {}
-};
-const seen = (c) => Object.fromEntries(${JSON.stringify(CRED_HEADERS)}.map((h) => [h, c.req.header(h) ?? null]));
-let ping = null;
-let tick = null;
+// Declared model only: a collection, actions, declared routes (ADR 0002, 0039, 0056).
+const mainEntry = (main: string, notes: string) => `
+const seen = (r) => Object.fromEntries(${JSON.stringify(CRED_HEADERS)}.map((h) => [h, r.headers.get(h)]));
 export default {
   name: '${main}',
-  // ADR 0039: declared routes, answered by plain functions over Request/Response.
+  actions: {
+    addNote: async (input, host) => host.collections.insert('${notes}', input),
+    // Writes, then throws: the request transaction takes the write with it.
+    addThenThrow: async (input, host) => {
+      await host.collections.insert('${notes}', input);
+      throw new Error('the action failed after writing');
+    },
+  },
   routes: {
+    env: async () => {
+      const p = (await import('node:process')).default;
+      return Response.json({ pid: p.pid, uid: p.getuid ? p.getuid() : null });
+    },
+    notes: async (_request, { host }) => {
+      const rows = await host.collections.list('${notes}');
+      return Response.json(rows.records.map((r) => r.tag).sort());
+    },
+    hook: (request) => Response.json(seen(request)),
     declared: async (request, { params, host }) => Response.json({
       id: params.id, url: request.url, body: await request.text(), host: Object.keys(host),
     }),
     mine: () => Response.json({ mine: true }),
   },
-  async register(app, ctx) {
-    const db = ctx.db;
-    await pair(db, 'register');
-    setTimeout(() => { pair(db, 'timer').catch((e) => console.error('timer pair', e.message)); }, 0);
-    ctx.services.register('${main}.double', (n) => n * 2);
-    // Outside its own namespace: the host refuses it, so nothing answers the name.
-    ctx.services.register('${dep}.squat', () => 'squatted');
-    ctx.events.on('${main}.ping', (p) => { ping = p; });
-    ctx.events.on('${dep}.tick', (p) => { tick = p; });
-    ctx.events.on('${main}.txn', async () => { await pair(db, 'event'); });
-
-    app.get('/env', async (c) => {
-      const p = (await import('node:process')).default;
-      return c.json({ pid: p.pid, uid: p.getuid ? p.getuid() : null });
-    });
-    app.get('/who', async (c) => {
-      const s = await ctx.auth.api.getSession({ headers: c.req.raw.headers });
-      return c.json({ user: c.get('user')?.id ?? null, session: s?.user?.id ?? null });
-    });
-    app.get('/perm', async (c) => c.json({
-      read: await ctx.checkPermission(c.get('user').id, '${res}', 'read'),
-      del: await ctx.checkPermission(c.get('user').id, '${res}', 'delete'),
-    }));
-    app.get('/as', async (c) =>
-      c.json({ other: await ctx.checkPermission(c.req.query('id'), '${res}', 'read') }));
-    app.post('/notes', async (c) => {
-      const { tag } = await c.req.json();
-      await db.insertInto(T('notes')).values({ tag, tags: ['a', 'b'] }).execute();
-      return c.json({ ok: true }, 201);
-    });
-    app.get('/notes', async (c) =>
-      c.json(await db.selectFrom(T('notes')).select(['tag', 'tags']).orderBy('id').execute()));
-    app.post('/crud', async (c) => {
-      const [made] = await db.insertInto('${table}').values({ title: 'crud' }).returning('id').execute();
-      const read = await db.selectFrom('${table}').select('title').where('id', '=', made.id).execute();
-      const u = await db.updateTable('${table}').set({ title: 'crud2' }).where('id', '=', made.id).executeTakeFirst();
-      const after = await db.selectFrom('${table}').select('title').where('id', '=', made.id).executeTakeFirst();
-      const d = await db.deleteFrom('${table}').where('id', '=', made.id).executeTakeFirst();
-      return c.json({ read, updated: Number(u.numUpdatedRows), after: after?.title ?? null, deleted: Number(d.numDeletedRows) });
-    });
-    app.get('/rows', async (c) =>
-      c.json((await db.selectFrom('${table}').select('title').execute()).length));
-    app.post('/touch', async (c) => {
-      const u = await db.updateTable('${table}').set({ title: 'touched' }).executeTakeFirst();
-      const d = await db.deleteFrom('${table}').executeTakeFirst();
-      return c.json({ updated: Number(u.numUpdatedRows), deleted: Number(d.numDeletedRows) });
-    });
-    app.post('/add', async (c) => {
-      try { await db.insertInto('${table}').values({ title: 'added' }).execute(); return c.json({ added: true }); }
-      catch (e) { return c.json({ added: false, errno: e.errno ?? null, error: e.message }); }
-    });
-    // Inside a request: a savepoint rolled back keeps the outer work...
-    app.post('/txn-inner', async (c) => {
-      await mark(db, 'req-outer');
-      try {
-        await db.transaction().execute(async (trx) => { await mark(trx, 'req-inner'); throw new Error('inner'); });
-      } catch {}
-      return c.json({ ok: true });
-    });
-    // ...and a handler that throws takes the whole request with it.
-    app.post('/txn-throw', async () => {
-      await mark(db, 'req-thrown');
-      throw new Error('handler failed');
-    });
-    app.post('/emit-own', async (c) => {
-      ping = null;
-      await ctx.events.emitAsync('${main}.ping', { n: 7 });
-      return c.json({ ping });
-    });
-    app.post('/emit-engine', async (c) => {
-      try { await ctx.events.emitAsync('record.created', { collection: 'x', id: '1' }); return c.json({ emitted: true }); }
-      catch (e) { return c.json({ emitted: false, error: e.message }); }
-    });
-    app.post('/emit-txn', async (c) => {
-      await ctx.events.emitAsync('${main}.txn', {});
-      return c.json({ ok: true });
-    });
-    app.get('/tick', (c) => c.json({ tick }));
-    app.get('/svc/:name', async (c) => {
-      try { return c.json({ out: await ctx.services.get(c.req.param('name'))('x') }); }
-      catch (e) { return c.json({ error: e.message }); }
-    });
-    app.post('/hook', (c) => c.json(seen(c)));
-    app.post('/fwd', (c) => c.json(seen(c)));
-  },
+  async register() {},
 };
 `;
-
-const mainMigration = (main: string) =>
-  [
-    `CREATE TABLE IF NOT EXISTS zv_${main}_notes (id serial PRIMARY KEY, tag text UNIQUE, tags text[]);`,
-    `CREATE TABLE IF NOT EXISTS zv_${main}_log (id serial PRIMARY KEY, tag text NOT NULL);`,
-    '-- DOWN',
-    `DROP TABLE IF EXISTS zv_${main}_log;`,
-    `DROP TABLE IF EXISTS zv_${main}_notes;`,
-  ].join('\n');
 
 function writeExt(
   base: string,
@@ -227,10 +124,14 @@ function writeExt(
   entry: string,
   extra: Record<string, unknown>,
   worker: boolean,
-  migration?: string,
+  files: Record<string, string> = {},
 ): void {
   const dir = join(base, name);
-  mkdirSync(join(dir, 'engine', 'migrations'), { recursive: true });
+  mkdirSync(join(dir, 'engine'), { recursive: true });
+  for (const [rel, text] of Object.entries(files)) {
+    mkdirSync(join(dir, rel, '..'), { recursive: true });
+    writeFileSync(join(dir, rel), text);
+  }
   writeFileSync(
     join(dir, 'manifest.json'),
     JSON.stringify({
@@ -245,9 +146,7 @@ function writeExt(
       },
     }),
   );
-  // A worker's migrations are read from engine/migrations (load.ts), not its code.
   writeFileSync(join(dir, 'engine', 'index.js'), entry);
-  if (migration) writeFileSync(join(dir, 'engine', 'migrations', '001_init.sql'), migration);
 }
 
 async function freePort(): Promise<number> {
@@ -403,15 +302,13 @@ afterAll(async () => {
 
 for (const [driver, transport] of LEGS) {
   const main = mainName(driver, transport);
-  const dep = depName(driver, transport);
   const twin = inlineName(driver, transport);
-  const stranger = strangerName(driver, transport);
-  const recorder = recordName(driver, transport);
-  const extras = [twin, stranger, recorder];
-  const coll = collName(driver, transport);
-  const table = `zvd_${coll}`;
-  // What checkPermission is asked about: the member may read it, not delete it.
-  const res = `${coll}_res`;
+  const legacy = legacyName(driver, transport);
+  const migr = migrName(driver, transport);
+  const extras = [twin, legacy, migr];
+  // Declared by the extension, created and owned by the engine at enable (ADR 0012).
+  const notes = `${main}_notes`;
+  const table = `zvd_${notes}`;
   const skipLeg = skipAll || (transport === 'runner' && !hasDocker);
 
   describe.skipIf(skipLeg)(`third-party extension e2e — driver ${driver}, ${transport}`, () => {
@@ -427,15 +324,6 @@ for (const [driver, transport] of LEGS) {
     };
     const out: Record<string, unknown> = {};
     const db$ = async <T>(q: ReturnType<typeof sql<T>>) => (await q.execute(db)).rows;
-    const logged = async (tag: string) =>
-      Number(
-        (
-          await db$(
-            sql<{ n: number }>`SELECT count(*)::int AS n FROM ${sql.table(`zv_${main}_log`)}
-                               WHERE tag = ${tag}`,
-          )
-        )[0]?.n,
-      );
 
     beforeAll(async () => {
       db = await testDb();
@@ -446,35 +334,58 @@ for (const [driver, transport] of LEGS) {
       leg.log = join(tmpdir(), `zv-e2e-engine-${code(driver, transport)}.log`);
       leg.sockDir = join(leg.base, '.sock');
       mkdirSync(leg.sockDir);
-      writeExt(leg.base, dep, depEntry(dep, main), {}, true);
+      const schema = JSON.stringify({ name: notes, fields: [{ name: 'tag', type: 'text' }] });
       writeExt(
         leg.base,
         main,
-        mainEntry(main, dep, table, res),
+        mainEntry(main, notes),
         {
-          dependencies: [{ name: dep }],
-          publicRoutes: ['/hook', '/fwd'],
+          collections: [notes],
+          permissions: ['data:write'],
+          integrity: {
+            schemaSha256: schemaDigest(
+              new Map([[`collections/${notes}.json`, new TextEncoder().encode(schema)]]),
+            ),
+          },
+          actions: [
+            {
+              name: 'addNote',
+              permission: { resource: notes, action: 'create' },
+              input: { type: 'object', properties: { tag: { type: 'string' } } },
+              writes: [notes],
+            },
+            {
+              name: 'addThenThrow',
+              permission: { resource: notes, action: 'create' },
+              input: { type: 'object', properties: { tag: { type: 'string' } } },
+              writes: [notes],
+            },
+          ],
           routes: [
+            { method: 'GET', path: '/env', access: 'caller', handler: 'env' },
+            { method: 'GET', path: '/notes', access: 'caller', handler: 'notes' },
+            { method: 'POST', path: '/hook', access: 'public', handler: 'hook' },
             { method: 'POST', path: '/declared/:id', access: 'public', handler: 'declared' },
             { method: 'GET', path: '/declared/mine', access: 'caller', handler: 'mine' },
           ],
-          forwardCredentials: { '/fwd': ['authorization'] },
-          apiKeyRoutes: ['GET /who', 'GET /perm', 'GET /notes', 'POST /notes'],
+          apiKeyRoutes: ['GET /notes'],
         },
         true,
-        mainMigration(main),
+        { [`schema/collections/${notes}.json`]: schema },
       );
-      // The same publisher, the same bundle, without worker isolation.
-      writeExt(leg.base, twin, depEntry(twin, main), {}, false);
-      writeExt(leg.base, stranger, listenerEntry(stranger, `${dep}.tick`), {}, true);
-      writeExt(leg.base, recorder, listenerEntry(recorder, 'record.created'), {}, true);
+      // The same publisher, the same declared model, without worker isolation.
+      writeExt(leg.base, twin, emptyEntry(twin), {}, false);
+      writeExt(leg.base, legacy, legacyEntry(legacy), {}, true);
+      writeExt(leg.base, migr, emptyEntry(migr), {}, true, {
+        'engine/migrations/001_init.sql': `CREATE TABLE zv_${migr}_log (id serial PRIMARY KEY);\n`,
+      });
       // Not first-party: in the catalogue with is_official false, as the
       // registry lists a community submission.
       writeFileSync(
         join(leg.base, 'catalog.json'),
         JSON.stringify({
           catalog_version: 'e2e',
-          entries: [dep, main, ...extras].map((name) => ({
+          entries: [main, ...extras].map((name) => ({
             name,
             displayName: name,
             category: 'other',
@@ -486,13 +397,12 @@ for (const [driver, transport] of LEGS) {
           })),
         }),
       );
-      // Signed as a registry download leaves them: an unsigned directory never
-      // runs (ADR 0056 amendment 2026-11-18).
+      // Signed as a registry download leaves them (level 2): an unsigned
+      // directory never runs (ADR 0056 amendment 2026-11-18).
       const signed = Bun.spawnSync([
         'bun',
         join(REPO_ROOT, 'scripts', 'sign-as-registry.ts'),
         leg.base,
-        dep,
         main,
         ...extras,
       ]);
@@ -552,57 +462,32 @@ for (const [driver, transport] of LEGS) {
           ...(body ? { body: JSON.stringify(body) } : {}),
         });
 
-      // A tenant collection (RLS on tenant_id), two rows, the member may read it.
-      const made = await asGod('/api/collections', 'POST', {
-        name: coll,
-        fields: [{ name: 'title', type: 'text' }],
-      });
-      if (made.status >= 300) throw new Error(`collection: ${made.status} ${await made.text()}`);
-      for (let i = 0; i < 60; i++) {
-        const [r] = await db$(
-          sql<{ rls: boolean | null }>`SELECT relforcerowsecurity AS rls FROM pg_class
-                                       WHERE oid = to_regclass(${table})`,
-        );
-        if (r?.rls) break;
-        await Bun.sleep(250);
-      }
-      const seed = () =>
-        db$(sql`DELETE FROM ${sql.table(table)}`).then(() =>
-          db$(sql`INSERT INTO ${sql.table(table)} (title, tenant_id)
-                  VALUES ('a', ${DEFAULT_TENANT}::uuid), ('b', ${DEFAULT_TENANT}::uuid)`),
-        );
-      await seed();
-      // A rule names an existing object (migration 116): the extension's own
-      // object is registered as a collection with no table.
-      await db$(sql`INSERT INTO zvd_collections (name, display_name, fields)
-                    VALUES (${res}, ${res}, '[]'::jsonb) ON CONFLICT (name) DO NOTHING`);
-      const grants: Array<[string, string]> = [
-        [res, 'read'],
-        ...['read', 'create', 'update', 'delete'].map((a): [string, string] => [coll, a]),
-      ];
-      for (const [resource, action] of grants) {
-        const g = await asGod('/api/permissions/policies', 'POST', {
-          subject: memberId,
-          resource,
-          action,
-        });
-        if (!g.ok) throw new Error(`grant: ${g.status} ${await g.text()}`);
-      }
-
-      // Install and enable, through the marketplace, the dependency first.
-      for (const name of [dep, main, ...extras]) {
-        // The operator approves the credential `main` asks for (migration 070).
-        const approval =
-          name === main ? { forward_credentials: { '/fwd': ['authorization'] } } : {};
-        const ins = await asGod(`/api/marketplace/${name}/install`, 'POST', approval);
+      // Install and enable, through the marketplace.
+      for (const name of [main, ...extras]) {
+        const ins = await asGod(`/api/marketplace/${name}/install`, 'POST', {});
         const en = await asGod(`/api/marketplace/${name}/enable`, 'POST', {});
         out[`install:${name}`] = ins.status;
         out[`enable:${name}`] = { status: en.status, body: await en.json().catch(() => null) };
       }
+      out.migrTable = (
+        await db$(sql<{ t: string | null }>`SELECT to_regclass(${`zv_${migr}_log`})::text AS t`)
+      )[0]?.t;
+      // The member may read and create the collection the extension declared.
+      for (const action of ['read', 'create']) {
+        const g = await asGod('/api/permissions/policies', 'POST', {
+          subject: memberId,
+          resource: notes,
+          action,
+        });
+        if (!g.ok) throw new Error(`grant: ${g.status} ${await g.text()}`);
+      }
       const key = (await (
         await asGod('/api/api-keys', 'POST', {
           name: `e2e-${main}`,
-          scopes: [{ collection: `$ext:${main}`, actions: ['read', 'create'] }],
+          scopes: [
+            { collection: `$ext:${main}`, actions: ['read', 'create'] },
+            { collection: notes, actions: ['read'] },
+          ],
         })
       ).json()) as { id: string; key: string };
       out.keyId = key.id;
@@ -613,9 +498,8 @@ for (const [driver, transport] of LEGS) {
         headers: Record<string, string>,
         method = 'GET',
         body?: unknown,
-        ext = main,
       ): Promise<Res> => {
-        const r = await api(`/ext/${ext}${path}`, {
+        const r = await api(`/ext/${main}${path}`, {
           method,
           headers: { ...headers, ...(body ? json : {}) },
           ...(body ? { body: JSON.stringify(body) } : {}),
@@ -627,46 +511,25 @@ for (const [driver, transport] of LEGS) {
           return { status: r.status, body: text };
         }
       };
+      const authors = async () =>
+        Object.fromEntries(
+          (
+            await db$(
+              sql<{ tag: string; by: string | null }>`SELECT tag, created_by AS by
+                                                    FROM ${sql.table(table)}`,
+            )
+          ).map((r) => [r.tag, r.by]),
+        );
 
       out.enginePid = leg.engine?.pid;
       out.env = await call('/env', member);
-      out.whoSession = await call('/who', member);
-      out.whoKey = await call('/who', asKey);
+      out.addNote = (await call('/actions/addNote', member, 'POST', { tag: 's' })).status;
+      out.addThenThrow = (await call('/actions/addThenThrow', member, 'POST', { tag: 'x' })).status;
+      out.authors = await authors();
+      out.notesSession = await call('/notes', member);
+      out.notesKey = await call('/notes', asKey);
       // A route the manifest did not open to keys.
-      out.keyUndeclared = (await call('/crud', asKey, 'POST')).status;
-      out.permSession = await call('/perm', member);
-      out.permKey = await call('/perm', asKey);
-      out.asGod = await call(`/as?id=${encodeURIComponent(godId)}`, member);
-      out.notesSession = await call('/notes', member, 'POST', { tag: 's' });
-      out.notesKey = await call('/notes', asKey, 'POST', { tag: 'k' });
-      out.notesRead = await call('/notes', asKey);
-      out.crud = await call('/crud', member, 'POST');
-
-      out.txnInner = await call('/txn-inner', member, 'POST');
-      out.txnThrow = (await call('/txn-throw', member, 'POST')).status;
-      out.emitTxn = await call('/emit-txn', member, 'POST');
-      await Bun.sleep(300);
-      for (const t of [
-        'req-outer',
-        'req-inner',
-        'req-thrown',
-        'register-keep',
-        'register-drop',
-        'timer-keep',
-        'timer-drop',
-        'event-keep',
-        'event-drop',
-      ]) {
-        out[`log:${t}`] = await logged(t);
-      }
-
-      out.emitOwn = await call('/emit-own', member, 'POST');
-      out.emitEngine = await call('/emit-engine', member, 'POST');
-      out.depTick = await call('/tick', member, 'POST', undefined, dep);
-      out.tick = await call('/tick', member);
-      out.svcDep = await call(`/svc/${dep}.echo`, member);
-      out.svcSquat = await call(`/svc/${dep}.squat`, member);
-      out.svcUndeclared = await call('/call-main', member, 'GET', undefined, dep);
+      out.keyUndeclared = (await call('/actions/addNote', asKey, 'POST', { tag: 'k' })).status;
 
       const creds = {
         cookie: member.cookie,
@@ -680,24 +543,13 @@ for (const [driver, transport] of LEGS) {
       out.declaredMineAnon = (await call('/declared/mine', {})).status;
       out.declaredMine = await call('/declared/mine', member);
       out.declaredUndeclared = (await call('/declared/7', member)).status;
-      out.fwd = await call('/fwd', creds, 'POST');
 
-      out.rowsInForce = await call('/rows', member);
-      out.addInForce = await call('/add', member, 'POST');
       // Every assignment of the member in the default tenant lapses.
       await db$(sql`UPDATE zv_tenant_users SET valid_to = now() - interval '1 day'
                     WHERE tenant_id = ${DEFAULT_TENANT}::uuid AND user_id = ${memberId}`);
-      await seed();
-      out.rowsLapsed = await call('/rows', member);
-      out.touchLapsed = await call('/touch', member, 'POST');
-      out.addLapsed = await call('/add', member, 'POST');
-      const [counts] = await db$(
-        sql<{ added: number; left: number }>`SELECT
-           count(*) FILTER (WHERE title = 'added')::int AS added,
-           count(*) FILTER (WHERE title IN ('a', 'b'))::int AS left
-           FROM ${sql.table(table)}`,
-      );
-      out.lapsedCounts = counts;
+      out.notesLapsed = (await call('/notes', member)).status;
+      out.addLapsed = (await call('/actions/addNote', member, 'POST', { tag: 'l' })).status;
+      out.authorsLapsed = await authors();
       // Back in force, so the restart below is asked of a member again.
       await db$(sql`UPDATE zv_tenant_users SET valid_to = NULL
                     WHERE tenant_id = ${DEFAULT_TENANT}::uuid AND user_id = ${memberId}`);
@@ -717,23 +569,21 @@ for (const [driver, transport] of LEGS) {
       stopRunner(leg);
       if (db) {
         const { revokeExtensionDbRoles } = await import('../../lib/extensions/ext-db-role.js');
-        for (const name of [main, dep, ...extras]) {
+        for (const name of [main, ...extras]) {
           await db$(sql`DELETE FROM zv_extension_registry WHERE name = ${name}`);
           await db$(sql`DELETE FROM zv_migrations WHERE name LIKE ${`ext:${name}%`}`).catch(
             () => undefined,
           );
           await revokeExtensionDbRoles(db, name, true).catch(() => undefined);
         }
-        await db$(sql`DROP TABLE IF EXISTS ${sql.table(`zv_${main}_notes`)}`);
-        await db$(sql`DROP TABLE IF EXISTS ${sql.table(`zv_${main}_log`)}`);
+        await db$(sql`DROP TABLE IF EXISTS ${sql.table(`zv_${migr}_log`)}`);
         const { dropTestCollection } = await import('../../testing/app-harness.js');
-        await dropTestCollection(db, coll).catch(() => undefined);
+        await dropTestCollection(db, notes).catch(() => undefined);
         if (out.keyId) await db$(sql`DELETE FROM zv_api_keys WHERE id = ${out.keyId as string}`);
         // Dropping a collection leaves its grants behind (the member's and the
         // role defaults the engine seeds on create); then the two accounts.
         await db$(sql`DELETE FROM zvd_permissions
-                      WHERE v0 = ${out.memberId as string} OR v2 IN (${coll}, ${res})`);
-        await db$(sql`DELETE FROM zvd_collections WHERE name = ${res}`);
+                      WHERE v0 = ${out.memberId as string} OR v2 = ${notes}`);
         await db$(sql`DELETE FROM zv_tenant_users WHERE user_id = ${out.memberId as string}`);
         await db$(
           sql`DELETE FROM "user" WHERE id IN (${out.memberId as string}, ${out.godId as string})`,
@@ -743,12 +593,22 @@ for (const [driver, transport] of LEGS) {
     }, 60_000);
 
     it('a community extension installs and enables only in worker isolation', () => {
-      for (const name of [dep, main]) {
-        expect(out[`install:${name}`]).toBe(200);
-        expect(out[`enable:${name}`]).toMatchObject({ status: 200, body: { success: true } });
-      }
+      expect(out[`install:${main}`]).toBe(200);
+      expect(out[`enable:${main}`]).toMatchObject({ status: 200, body: { success: true } });
       expect(out[`enable:${twin}`]).toMatchObject({ status: 422 });
       expect(JSON.stringify(out[`enable:${twin}`])).toContain('must run in worker isolation');
+    });
+
+    it('level 2 is declared model only: register() code and SQL migrations fail the enable', () => {
+      expect(out[`enable:${legacy}`]).toMatchObject({ status: 422 });
+      expect(JSON.stringify(out[`enable:${legacy}`])).toMatch(
+        /register\(\) used ctx\.db: .*declared model only/,
+      );
+      expect(out[`enable:${migr}`]).toMatchObject({ status: 422 });
+      expect(JSON.stringify(out[`enable:${migr}`])).toContain(
+        'declared model only: declare its collections',
+      );
+      expect(out.migrTable).toBeNull();
     });
 
     it(`runs out of the engine process (${transport})`, () => {
@@ -764,111 +624,28 @@ for (const [driver, transport] of LEGS) {
       expect(env.status).toBe(200);
       expect(env.body.pid).not.toBe(out.enginePidAfterRestart);
       if (transport === 'runner') expect(env.body.uid).toBeGreaterThanOrEqual(RUNNER_UID_BASE);
-      expect(out.notesAfterRestart).toMatchObject({
-        status: 200,
-        body: [{ tag: 's' }, { tag: 'k' }],
-      });
+      expect(out.notesAfterRestart).toEqual({ status: 200, body: ['s'] });
     });
 
-    it('auth: the request principal, session and API key', () => {
-      expect(out.whoSession).toEqual({
-        status: 200,
-        body: { user: out.memberId, session: out.memberId },
-      });
-      expect(out.whoKey).toEqual({
-        status: 200,
-        body: { user: `apikey:${out.keyId}`, session: null },
-      });
+    it('an action writes its declared collection as the caller, in the request transaction', () => {
+      expect(out.addNote).toBe(200);
+      expect(out.addThenThrow).toBe(500);
+      expect(out.authors).toEqual({ s: out.memberId });
+    });
+
+    it('a declared route reads its collection as the caller: session and API key', () => {
+      expect(out.notesSession).toEqual({ status: 200, body: ['s'] });
+      expect(out.notesKey).toEqual({ status: 200, body: ['s'] });
       // A valid key on a route not in `apiKeyRoutes` is refused as a session-only route.
       expect(out.keyUndeclared).toBe(403);
     });
 
-    it('checkPermission answers for the request principal only', () => {
-      expect(out.permSession).toEqual({ status: 200, body: { read: true, del: false } });
-      expect(out.permKey).toEqual({ status: 200, body: { read: true, del: false } });
-      // A god asked about by id: inline would say yes; a worker may not ask.
-      expect(out.asGod).toEqual({ status: 200, body: { other: false } });
-    });
-
-    it('CRUD through ctx.db: own table (session and key) and a tenant collection', () => {
-      expect(out.notesSession).toEqual({ status: 201, body: { ok: true } });
-      expect(out.notesKey).toEqual({ status: 201, body: { ok: true } });
-      expect(out.notesRead).toEqual({
-        status: 200,
-        body: [
-          { tag: 's', tags: ['a', 'b'] },
-          { tag: 'k', tags: ['a', 'b'] },
-        ],
-      });
-      expect(out.crud).toEqual({
-        status: 200,
-        body: { read: [{ title: 'crud' }], updated: 1, after: 'crud2', deleted: 1 },
-      });
-    });
-
-    it('a request transaction: a rolled-back savepoint keeps the outer work, a throw keeps nothing', () => {
-      expect(out.txnInner).toEqual({ status: 200, body: { ok: true } });
-      expect(out['log:req-outer']).toBe(1);
-      expect(out['log:req-inner']).toBe(0);
-      expect(out.txnThrow).toBe(500);
-      expect(out['log:req-thrown']).toBe(0);
-    });
-
-    it('db.transaction() outside a request (register, timer, event) commits or rolls back', () => {
-      expect(out.emitTxn).toEqual({ status: 200, body: { ok: true } });
-      for (const where of ['register', 'timer', 'event']) {
-        expect(out[`log:${where}-keep`]).toBeGreaterThanOrEqual(1);
-        expect(out[`log:${where}-drop`]).toBe(0);
-      }
-    });
-
-    it("events: a listener outside its own and its dependencies' namespaces fails the load", () => {
-      for (const [name, event] of [
-        [stranger, `${dep}.tick`],
-        [recorder, 'record.created'],
-      ] as const) {
-        expect(out[`enable:${name}`]).toMatchObject({ status: 422 });
-        expect(JSON.stringify(out[`enable:${name}`])).toContain(`may not listen to \\"${event}\\"`);
-      }
-    });
-
-    it("events: its own and its dependency's arrive; an engine event is refused", () => {
-      expect(out.emitOwn).toEqual({ status: 200, body: { ping: { n: 7 } } });
-      expect(out.depTick).toEqual({ status: 200, body: { ok: true } });
-      expect(out.tick).toEqual({ status: 200, body: { tick: { from: dep } } });
-      expect(out.emitEngine).toMatchObject({ status: 200, body: { emitted: false } });
-      expect((out.emitEngine as { body: { error: string } }).body.error).toContain(
-        'may not emit "record.created"',
-      );
-    });
-
-    it('services: a declared dependency answers; a squatted name and an undeclared call do not', () => {
-      expect(out.svcDep).toEqual({ status: 200, body: { out: { echoed: 'x' } } });
-      expect(out.svcSquat).toEqual({
-        status: 200,
-        body: { error: `service "${dep}.squat" not found` },
-      });
-      expect(JSON.stringify(out.svcUndeclared)).toContain(
-        `declare \\"${main}\\" in its manifest dependencies`,
-      );
-    });
-
-    it('the caller credentials are stripped; a route gets back only what it opted into', () => {
+    it('the caller credentials are stripped from what reaches the worker', () => {
       expect(out.hook).toEqual({
         status: 200,
         body: {
           cookie: null,
           authorization: null,
-          'proxy-authorization': null,
-          'x-api-key': null,
-          'stripe-signature': 't=1,v1=abc',
-        },
-      });
-      expect(out.fwd).toEqual({
-        status: 200,
-        body: {
-          cookie: null,
-          authorization: 'Bearer caller-token',
           'proxy-authorization': null,
           'x-api-key': null,
           'stripe-signature': 't=1,v1=abc',
@@ -890,14 +667,11 @@ for (const [driver, transport] of LEGS) {
     });
 
     it('a lapsed tenant member reads nothing and writes nothing (migration 060)', () => {
-      expect(out.rowsInForce).toEqual({ status: 200, body: 2 });
-      expect(out.addInForce).toEqual({ status: 200, body: { added: true } });
       // Refused at the door, in the default tenant too: every assignment lapsed
-      // (tenant-default-withdrawal.test.ts). Inside the worker the same caller
-      // still sees NO_UNITS (worker-request-boundary.test.ts).
-      for (const r of [out.rowsLapsed, out.touchLapsed, out.addLapsed])
-        expect(r).toMatchObject({ status: 403 });
-      expect(out.lapsedCounts).toEqual({ added: 0, left: 2 });
+      // (tenant-default-withdrawal.test.ts).
+      expect(out.notesLapsed).toBe(403);
+      expect(out.addLapsed).toBe(403);
+      expect(out.authorsLapsed).toEqual({ s: out.memberId });
     });
   });
 }
