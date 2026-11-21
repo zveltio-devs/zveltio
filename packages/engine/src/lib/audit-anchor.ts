@@ -79,7 +79,7 @@ const INTERVAL_MS = 60 * 60_000;
 type Target = { kind: 'dir'; dir: string } | { kind: 's3'; client: Bun.S3Client; prefix: string };
 
 /** null when unset; throws when set to something that is not a target. */
-function anchorTarget(): Target | null {
+export function anchorTarget(): Target | null {
   const raw = process.env.AUDIT_ANCHOR_TARGET?.trim() ?? '';
   if (raw === '') return null;
   if (raw.startsWith('s3://')) {
@@ -87,6 +87,15 @@ function anchorTarget(): Target | null {
     if (!url.hostname) throw new Error('AUDIT_ANCHOR_TARGET s3:// names no bucket');
     const path = decodeURIComponent(url.pathname).replace(/^\/+|\/+$/g, '');
     const env = process.env;
+    // Own credentials (e.g. a write-only account) when set, so whoever holds the
+    // files store's keys cannot delete anchors; both or neither.
+    const ownKey = env.AUDIT_ANCHOR_S3_ACCESS_KEY;
+    const ownSecret = env.AUDIT_ANCHOR_S3_SECRET_KEY;
+    if (!ownKey !== !ownSecret) {
+      throw new Error(
+        'AUDIT_ANCHOR_S3_ACCESS_KEY and AUDIT_ANCHOR_S3_SECRET_KEY must be set together',
+      );
+    }
     return {
       kind: 's3',
       prefix: path ? `${path}/` : '',
@@ -94,8 +103,8 @@ function anchorTarget(): Target | null {
         bucket: url.hostname,
         endpoint: env.S3_ENDPOINT || undefined,
         region: env.S3_REGION || undefined,
-        accessKeyId: env.S3_ACCESS_KEY || undefined,
-        secretAccessKey: env.S3_SECRET_KEY || undefined,
+        accessKeyId: (ownKey ? ownKey : env.S3_ACCESS_KEY) || undefined,
+        secretAccessKey: (ownSecret ? ownSecret : env.S3_SECRET_KEY) || undefined,
       }),
     };
   }

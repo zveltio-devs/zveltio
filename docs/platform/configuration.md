@@ -50,7 +50,7 @@ A value read from a file never gets there.
 `ELECTRIC_SECRET`, `FCM_SERVER_KEY`, `FIELD_ENCRYPTION_KEY`,
 `GITHUB_CLIENT_SECRET`, `GOOGLE_CLIENT_SECRET`, `MAIL_ENCRYPTION_KEY`,
 `METRICS_TOKEN`, `MICROSOFT_CLIENT_SECRET`, `NATIVE_DATABASE_URL`,
-`RECOVERY_TOKEN`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `TWITTER_CLIENT_SECRET`,
+`RECOVERY_TOKEN`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `AUDIT_ANCHOR_S3_ACCESS_KEY`, `AUDIT_ANCHOR_S3_SECRET_KEY`, `TWITTER_CLIENT_SECRET`,
 `VALKEY_URL`, `VAPID_PRIVATE_KEY`.
 
 Setting both `<NAME>` and `<NAME>_FILE`, or naming a missing or empty file, stops
@@ -148,6 +148,7 @@ endpoint) when you want shared/off-host storage or horizontal scaling.
 | `S3_PUBLIC_URL` | — | Base URL for **public** objects only (`public/`, `media/` keys). Private objects are always served by presigned URL. |
 | `BACKUP_DIR` | `/tmp/zveltio-backups` | Local directory for backup files |
 | `AUDIT_ANCHOR_TARGET` | — (no anchor) | Where each audit chain's head is anchored outside the database, at boot and hourly, one new file per write (ADR 0060 decision 5): an absolute directory that must already exist (never created: an absent one is an unmounted target), or `s3://<bucket>/<prefix>` (write-once needs the bucket's object lock) with `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY` and `S3_SECRET_KEY` read from the environment, never from the Studio's storage settings. `GET /api/admin/audit/verify` compares the chains with the latest anchor. Point it at storage the database host cannot rewrite. See [security-model.md](security-model.md#audit-trail-adr-0060). |
+| `AUDIT_ANCHOR_S3_ACCESS_KEY` / `AUDIT_ANCHOR_S3_SECRET_KEY` | — (use `S3_ACCESS_KEY` / `S3_SECRET_KEY`) | The anchor bucket's own credentials, set together. Give them to an account that may only write, so whoever holds the files store's keys cannot delete anchors. |
 
 ### local driver (default)
 
