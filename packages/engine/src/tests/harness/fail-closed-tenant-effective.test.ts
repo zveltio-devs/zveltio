@@ -145,7 +145,7 @@ d('a session context preset by a startup option', () => {
         SELECT count(*)::int AS n FROM zv_media_tags WHERE name = ${STAMP}`.execute(h)
     ).rows[0]!.n;
 
-  it('a contextless query on such a connection sees that tenant\'s rows', async () => {
+  it("a contextless query on such a connection sees that tenant's rows", async () => {
     expect(await count(open(withStartupOption(URL_, '-c role=zveltio_rls')))).toBe(0);
     const preset = open(
       withStartupOption(URL_, `-c role=zveltio_rls -c zveltio.current_tenant=${OTHER}`),
