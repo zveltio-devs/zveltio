@@ -11,6 +11,11 @@
  * runtime as a process, mounts its proxy routes; the route's `ctx.db.query` crosses
  * the IPC bridge to `runRawWithParams` and `SET LOCAL ROLE` to the extension's
  * own role under `zveltio_worker`.
+ *
+ * Unsigned, so only under the test override: a signed worker extension — level 2
+ * (registry) or level 3 (operator key) — is declared model only, and its
+ * migrations, `register()` routes and `ctx.db` are refused at load
+ * (ADR 0056 amendment 2026-11-21; `ext-registry-signed-declared-model.test.ts`).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -74,7 +79,7 @@ d('a worker extension reaches its own tables through the bridge', () => {
   const app = new Hono();
 
   beforeAll(async () => {
-    _setInlineForTests(true); // unsigned fixtures: the test override stands in for a signature
+    _setInlineForTests(true); // unsigned fixture: no signed level reaches the bridge
     db = (await getTestApp()).db;
     base = mkdtempSync(join(tmpdir(), 'wkr-own-'));
     const dir = join(base, EXT);

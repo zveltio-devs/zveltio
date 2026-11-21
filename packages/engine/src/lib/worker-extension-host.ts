@@ -80,6 +80,7 @@ import {
   extensionLoader,
   guardEventHandler,
   refusalProblem,
+  verifyRegistrySignedDir,
 } from './extensions/index.js';
 import type { ActionHost } from '@zveltio/sdk/extension';
 import { compilePattern, extensionRequestRefused } from '../middleware/extension-auth-gate.js';
@@ -259,6 +260,11 @@ export interface WorkerCtxSource {
    * in every log line about it (ADR 0056). `key=absent` for an unsigned one.
    */
   keyId?: string;
+  /**
+   * The id of the registry key the archive kept with its files verified against
+   * (level 2), named in its log lines when no operator key is.
+   */
+  registryKeyId?: string;
 }
 
 /**
@@ -455,11 +461,22 @@ export function boxConcurrencyLimit(poolMax: number): number {
 
 /** How every log line about an extension names it: its name and its signing key (ADR 0056). */
 function boxTag(name: string, source?: WorkerCtxSource): string {
-  return `[ext:${name} key=${source?.keyId ?? 'absent'}]`;
+  return `[ext:${name} key=${source?.keyId ?? source?.registryKeyId ?? 'absent'}]`;
 }
 
 /**
- * ADR 0056 d1: an operator-signed extension's signature is verified again at
+ * Its trust level when signed: 3 for an operator key, 2 for the registry's. Both
+ * are declared model only (ADR 0056 d1, amendment 2026-11-21); null only for an
+ * unsigned bundle, which runs under the test override alone.
+ */
+function signedLevel(source?: WorkerCtxSource): 2 | 3 | null {
+  if (source?.keyId !== undefined) return 3;
+  return source?.registryKeyId !== undefined ? 2 : null;
+}
+
+/**
+ * ADR 0056 d1 and amendment 2026-11-16 point 4: a signed extension's signature
+ * — an operator's, or the registry's kept with its files — is verified again at
  * every spawn (first start, crash respawn, restart) before its bundle is
  * imported, and the bundle's signed sha256 goes to the worker, which imports
  * only bytes that hash to it. Undefined for an unsigned one.
@@ -470,11 +487,17 @@ async function signedBundleSha256(
   bundleEntry: string,
   source: WorkerCtxSource,
 ): Promise<string | undefined> {
-  if (source.keyId === undefined) return undefined;
-  const signed = await verifyExtensionDir(extName, extDir);
-  if (signed?.keyId !== source.keyId) {
+  const level = signedLevel(source);
+  if (level === null) return undefined;
+  const loadedKey = level === 3 ? source.keyId : source.registryKeyId;
+  const signed =
+    level === 3
+      ? await verifyExtensionDir(extName, extDir)
+      : await verifyRegistrySignedDir(extName, extDir);
+  if (!signed || signed.keyId !== loadedKey) {
     throw new Error(
-      `"${extName}" was loaded signed by operator key "${source.keyId}" and now ` +
+      `"${extName}" was loaded signed by ${level === 3 ? 'operator' : 'registry'} key ` +
+        `"${loadedKey}" and now ` +
         `${signed ? `carries key "${signed.keyId}"` : 'carries no signature'}; load it again`,
     );
   }
@@ -486,7 +509,7 @@ async function signedBundleSha256(
 }
 
 /**
- * ADR 0056 d1: level 3 is declared model only. Over the bridge that leaves an
+ * ADR 0056 d1 and amendment 2026-11-21: levels 3 and 2 are declared model only. Over the bridge that leaves an
  * action's `host` and a declared route's `host.collections`; what `register()`'s
  * ctx would send (`ctx.db`, `ctx.services`, `ctx.events`, `checkPermission`, …)
  * is refused here, whatever the worker's own runtime let through.
@@ -811,7 +834,8 @@ export class WorkerExtensionHost {
         type: 'init',
         id: initId,
         bundleUrl,
-        ...(bundleSha256 ? { bundleSha256, declaredOnly: true as const } : {}),
+        ...(bundleSha256 ? { bundleSha256 } : {}),
+        ...(signedLevel(source) !== null ? { declaredOnly: true as const } : {}),
         extName,
         env: {
           NODE_ENV: nodeEnv() ?? 'production',
@@ -831,10 +855,11 @@ export class WorkerExtensionHost {
       managed.loadError = init.error;
       throw new Error(`worker "${extName}" init failed: ${init.error}`);
     }
-    // Level 3 serves its declared routes, whatever the worker says it registered.
-    managed.routes = bundleSha256
-      ? (source.declaredRoutes ?? []).map(({ method, path }) => ({ method, path }))
-      : (init.routes ?? []);
+    // Levels 3 and 2 serve their declared routes, whatever the worker says it registered.
+    managed.routes =
+      signedLevel(source) !== null
+        ? (source.declaredRoutes ?? []).map(({ method, path }) => ({ method, path }))
+        : (init.routes ?? []);
     return managed;
   }
 
@@ -991,11 +1016,13 @@ export class WorkerExtensionHost {
   }
 
   private handleWorkerMessage(managed: ManagedWorker, msg: WorkerToHostMessage): void {
-    const off = managed.source?.keyId === undefined ? null : offModel(msg);
+    const level = signedLevel(managed.source);
+    const off = level === null ? null : offModel(msg);
     if (off) {
       const error =
-        `${off} is refused: "${managed.name}" is signed by an operator key (level 3), which ` +
-        `is declared model only — collections, actions, jobs, declared routes (ADR 0056)`;
+        `${off} is refused: "${managed.name}" is signed by ${level === 3 ? 'an operator' : 'the registry'} ` +
+        `key (level ${level}), which is declared model only — collections, actions, jobs, ` +
+        `declared routes (ADR 0056)`;
       // Logged once per process: a bundle posting in a loop must not flood the log.
       if (!managed.refusalLogged) {
         managed.refusalLogged = true;

@@ -446,7 +446,10 @@ export async function downloadExtension(
  * the name, is what lets an extension run inline (U3,
  * ADR 0056 amendment 4).
  *
- * Re-verified at every load: the signature against the registry keys (never an
+ * With it, each signed file's sha256 by path, so a spawn imports only the
+ * bundle bytes the archive holds.
+ *
+ * Re-verified at every load and worker spawn: the signature against the registry keys (never an
  * operator key), every file against the archive, and the name in the archive's
  * manifest against the name it loads as — another extension's signed archive
  * copied under a first-party name is not that extension. Extension directories
@@ -458,7 +461,7 @@ export async function downloadExtension(
 export async function verifyRegistrySignedDir(
   extName: string,
   extDir: string,
-): Promise<string | null> {
+): Promise<{ keyId: string; files: ReadonlyMap<string, string> } | null> {
   const kept = join(extDir, REGISTRY_SIGNED_DIR);
   if (!existsSync(join(kept, 'archive.sig'))) return null;
   const refuse = (detail: string) => new SignatureInvalidError(extName, detail);
@@ -475,9 +478,9 @@ export async function verifyRegistrySignedDir(
 
   // Extracted again at every load: about 5 ms an extension (57 first-party, 271 ms).
   const stage = mkdtempSync(join(tmpdir(), 'zveltio-verify-'));
+  const want = new Map<string, string>();
   try {
     const signed = await extractArchive(extName, archive, stage);
-    const want = new Map<string, string>();
     const have = new Map<string, string>();
     try {
       extensionDirListing(signed, extName, '', want);
@@ -518,7 +521,7 @@ export async function verifyRegistrySignedDir(
   } finally {
     rmSync(stage, { recursive: true, force: true });
   }
-  return signature.keyId;
+  return { keyId: signature.keyId, files: want };
 }
 
 /**

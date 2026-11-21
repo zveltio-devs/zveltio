@@ -297,6 +297,8 @@ interface LoadedExtension {
     routes?: RouteSpec[];
     /** The operator key its directory signature verified against (ADR 0056 d1). */
     keyId?: string;
+    /** The registry key its kept archive signature verified against (level 2). */
+    registryKeyId?: string;
   };
   /**
    * Manifest `dependencies` + `optionalDependencies` as resolved at load — an

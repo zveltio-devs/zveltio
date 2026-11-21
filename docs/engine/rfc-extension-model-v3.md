@@ -196,6 +196,10 @@ judge against nothing. Transition rules sit outside rule groups.
    `ctx.db` or other `ctx` request over the runner bridge, no SQL migrations —
    re-verified before every respawn, and listed and enabled through the
    marketplace without a catalogue entry.
+   *ADR 0056 amendment 2026-11-21:* level 2 (registry-signed community, on the
+   runner) is held to the same declared model as level 3 — no `register()`
+   routes, no `ctx.db`, `ctx.services` or `ctx.events` over the bridge, no
+   SQL migrations.
 2. **Profiles**, chosen by the operator in env and never in the UI:
    - **`development`:** anything goes, unsigned allowed; refused under
      `NODE_ENV=production`.

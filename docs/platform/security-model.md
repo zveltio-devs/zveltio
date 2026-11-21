@@ -204,10 +204,17 @@ declare `isolation: worker`. Their code is then **never imported into the engine
 process** — the loader builds a metadata-only descriptor from the manifest and
 the filesystem, and the worker imports the bundle itself. From there:
 
-- SQL crosses an IPC bridge that restricts it to user-data tables (`zvd_*`) and
-  the extension's own `zv_<ext>_*` namespace, runs on a reserved connection (so a
-  second statement after a semicolon is rejected by the server) and is capped by
-  a statement timeout.
+- A signed one — level 2 (registry-signed community) or level 3 (operator key) —
+  is declared model only (ADR 0056 d1, amendment 2026-11-21): collections,
+  actions, jobs and declared routes. Its `register()` may use neither its app nor
+  its `ctx`; the host refuses every `ctx.db`, `ctx.services` and `ctx.events`
+  frame it sends, forged or not; it serves only the routes its manifest declares;
+  and `engine/migrations/*.sql` refuses the load. An unsigned extension never
+  runs.
+- The SQL bridge, kept for the test override only, restricts SQL to user-data
+  tables (`zvd_*`) and the extension's own `zv_<ext>_*` namespace, runs on a
+  reserved connection (so a second statement after a semicolon is rejected by the
+  server) and is capped by a statement timeout.
 - The extension is a process of its own. In production it runs on the extension
   runner, under a uid that cannot read the engine's files, environment or
   processes, with an environment of `NODE_ENV` alone and no network until the
