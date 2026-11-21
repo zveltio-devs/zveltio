@@ -1245,7 +1245,8 @@ async function bootstrap() {
   // 1b. Schema compatibility check — exits if schema is incompatible
   await checkSchemaCompatibility(db);
   // The tenant fallback (DR-03), before anything else opens a connection that
-  // inherits the database's setting; the pool recycle below renews the rest.
+  // inherits the database's setting. It renews the pool and checks what a fresh
+  // connection gets, startup options included (refuses in production).
   await applyFailClosedTenantSetting(db);
   // Migration 048 leaves the case-insensitive email index unbuilt over existing twins.
   const { emailCaseUniquenessProblem } = await import('./lib/identity.js');

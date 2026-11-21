@@ -8,13 +8,17 @@
  * 'off' on the database (ALTER DATABASE … SET), and a contextless query sees
  * the default tenant's rows again. Removing the opt-out resets what it stored.
  *
- * Runs before the boot recycles the pool, so every connection the engine
- * serves with was opened after the database's setting was settled.
+ * The catalog is not the whole answer: a role's value wins over the
+ * database's, and the client's startup options (`options=-c …` in DATABASE_URL,
+ * PGOPTIONS) win over both without appearing in any catalog. So the step ends
+ * by renewing the pool and reading what a fresh connection gets; a difference
+ * from what ZVELTIO_FAIL_CLOSED_TENANT asks warns in development and test and
+ * refuses to boot in production (owner 2026-11-21).
  */
 
 import { sql } from 'kysely';
-import type { Database } from '../../db/index.js';
-import { modeValue } from '../operational-modes.js';
+import { type Database, recycleActivePool } from '../../db/index.js';
+import { isProduction, modeValue } from '../operational-modes.js';
 
 /** Values the functions in migration 123 read as "fall back to the default tenant". */
 const OPEN = new Set(['off', 'false', '0']);
@@ -41,8 +45,40 @@ async function storedValues(db: Database): Promise<string[]> {
 
 const opens = (values: string[]) => values.some((v) => OPEN.has(v.trim().toLowerCase()));
 
+/**
+ * Whether a connection opened now falls back to the default tenant, read the
+ * way migration 123's functions read it. `db` is the engine's primary database:
+ * the recycle renews its pool, so the query runs on a new connection.
+ */
+async function freshConnectionOpen(db: Database): Promise<boolean> {
+  await recycleActivePool();
+  const r = await sql<{ open: boolean }>`
+    SELECT lower(coalesce(nullif(current_setting('zveltio.fail_closed_tenant', true), ''), 'on'))
+           IN ('off', 'false', '0') AS open
+  `.execute(db);
+  return r.rows[0]?.open === true;
+}
+
 export async function applyFailClosedTenantSetting(db: Database): Promise<void> {
   const enabled = failClosedTenantEnabled();
+  await storeSetting(db, enabled);
+  if ((await freshConnectionOpen(db)) !== enabled) return;
+  const problem = enabled
+    ? "a new connection's zveltio.fail_closed_tenant is fail-open although " +
+      'ZVELTIO_FAIL_CLOSED_TENANT does not ask for it: a query with no tenant context sees ' +
+      "the DEFAULT tenant's rows. Something the boot does not store sets it — " +
+      "options=-c zveltio.fail_closed_tenant=… in DATABASE_URL, PGOPTIONS, or the login role's " +
+      'setting. Remove it.'
+    : "a new connection's zveltio.fail_closed_tenant is closed although " +
+      "ZVELTIO_FAIL_CLOSED_TENANT=0 asks for the default tenant's rows: the database's 'off' " +
+      "is overridden — options=-c in DATABASE_URL, PGOPTIONS, the login role's setting — or " +
+      'was not stored. Remove the override, or the variable.';
+  if (isProduction()) throw new Error(problem);
+  console.warn(`⚠️  [tenant] ${problem}`);
+}
+
+/** Stores (or resets) the database's own value; what a connection gets is checked after. */
+async function storeSetting(db: Database, enabled: boolean): Promise<void> {
   const r = await sql<{ db: string }>`SELECT current_database() AS db`.execute(db);
   const dbName = r.rows[0]?.db;
   if (!dbName || !/^[a-zA-Z0-9_]+$/.test(dbName)) {

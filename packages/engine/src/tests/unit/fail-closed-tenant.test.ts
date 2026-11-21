@@ -14,9 +14,13 @@ function asDb(db: CannedDb): Database {
   return db.kysely as unknown as Database;
 }
 
-/** A database whose stored values are `first`, then `after` once read again. */
-function canned(first: string[], after: string[] = []): CannedDb {
+/**
+ * A database whose stored values are `first`, then `after` once read again, and
+ * whose fresh connection falls back to the default tenant when `open`.
+ */
+function canned(first: string[], after: string[] = [], open = false): CannedDb {
   const db = new CannedDb();
+  db.when(/AS open/i, [{ open }]);
   db.when(/current_database\(\) AS db/i, [{ db: 'zveltio_test' }]);
   let reads = 0;
   db.when(/pg_db_role_setting/i, () => (reads++ === 0 ? first : after).map((v) => ({ v })));
@@ -70,7 +74,7 @@ describe('applyFailClosedTenantSetting', () => {
 
   it('=0 stores off and warns', async () => {
     process.env.ZVELTIO_FAIL_CLOSED_TENANT = '0';
-    const db = canned([]);
+    const db = canned([], [], true);
     const warn = spyOn(console, 'warn').mockImplementation(() => {});
     try {
       await applyFailClosedTenantSetting(asDb(db));
