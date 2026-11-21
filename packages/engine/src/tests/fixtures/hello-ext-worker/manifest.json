@@ -2,7 +2,7 @@
   "name": "hello-ext-worker",
   "displayName": "Hello Worker Smoke Fixture",
   "category": "fixture",
-  "description": "Same as hello-ext but with engine.isolation='worker' to exercise the C-minimal Bun.Worker isolation path on the binary install.",
+  "description": "Same as hello-ext but with engine.isolation='worker' to exercise the Bun.Worker isolation path on the binary install; a declared route, as a signed worker extension is declared model only.",
   "version": "1.0.0",
   "zveltioMinVersion": "1.0.0",
   "permissions": [],
@@ -19,6 +19,14 @@
     "isolation": "worker"
   },
   "integrity": {
-    "engineSha256": "e7cb2b86939dcebe8aafc2ee95530b25bd9887adc071311df3104e89b870c6da"
-  }
+    "engineSha256": "ef35de3db04b6d89f70cf5edb91e261c09bbcb847a4e59b83ef755bcf0e208f7"
+  },
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/health",
+      "access": "caller",
+      "handler": "health"
+    }
+  ]
 }
