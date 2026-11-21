@@ -19,6 +19,7 @@ import { extensionsListCommand } from './commands/extensions-list.js';
 import { extensionMutationCommand } from './commands/extensions-manage.js';
 import { loginCommand, logoutCommand } from './commands/login.js';
 import { rollbackCommand } from './commands/rollback.js';
+import { rotateKeysCommand } from './commands/rotate-keys.js';
 import { versionCommand } from './commands/version-cmd.js';
 import { updateCommand } from './commands/update.js';
 import { statusCommand } from './commands/status.js';
@@ -80,6 +81,9 @@ program.addCommand(migrateCommand);
 
 // ── zveltio rollback ──────────────────────────────────────────────────────────
 program.addCommand(rollbackCommand);
+
+// ── zveltio rotate-keys ───────────────────────────────────────────────────────
+program.addCommand(rotateKeysCommand);
 
 // ── zveltio status ────────────────────────────────────────────────────────────
 program
