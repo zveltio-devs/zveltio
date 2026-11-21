@@ -33,7 +33,15 @@
 --
 -- A chain cut to its last entry continues from its genesis, not from seq 1.
 --
--- DDL only, before any audit write (55006). Re-runnable.
+-- THE 129 PURGE'S LEFTOVERS. Between 129 and this migration the purge deleted
+-- the oldest rows and left their entries. Per chain with no genesis yet, the
+-- leading run of entries whose rows are gone — contiguous from seq 1, up to
+-- the first row still there or the first gap — is cut once here, the genesis
+-- at its last entry. An entry missing its row after a row still there is not
+-- touched: verify reports it. RLS is lifted from the owner for that read
+-- (NO FORCE, restored below, inside this migration's transaction), as in 129.
+--
+-- DDL first, before any audit write (55006). Re-runnable.
 
 CREATE TABLE IF NOT EXISTS zv_audit_chain_cut (
   tenant_id uuid,
@@ -170,6 +178,42 @@ CREATE TRIGGER zv_audit_chain_cut_append_only BEFORE UPDATE OR DELETE ON zv_audi
 DROP TRIGGER IF EXISTS zv_audit_chain_cut_no_truncate ON zv_audit_chain_cut;
 CREATE TRIGGER zv_audit_chain_cut_no_truncate BEFORE TRUNCATE ON zv_audit_chain_cut
   FOR EACH STATEMENT EXECUTE FUNCTION zveltio_audit_append_only();
+
+ALTER TABLE zv_audit_log NO FORCE ROW LEVEL SECURITY;
+
+DO $$
+DECLARE
+  t    record;
+  last bigint;
+BEGIN
+  FOR t IN
+    SELECT c.tenant_id FROM zv_audit_chain c
+     WHERE c.seq = 1
+       AND NOT EXISTS (SELECT 1 FROM zv_audit_log a WHERE a.id = c.audit_id)
+       AND NOT EXISTS (SELECT 1 FROM zv_audit_chain_cut k
+                        WHERE k.tenant_id IS NOT DISTINCT FROM c.tenant_id)
+  LOOP
+    -- The first entry that ends the run: its row is there, or an entry is
+    -- missing before it (its seq is past its position).
+    SELECT min(e.n) - 1 INTO last FROM (
+      SELECT c.seq, row_number() OVER (ORDER BY c.seq) AS n,
+             EXISTS (SELECT 1 FROM zv_audit_log a WHERE a.id = c.audit_id) AS kept
+        FROM zv_audit_chain c WHERE c.tenant_id IS NOT DISTINCT FROM t.tenant_id) e
+     WHERE e.kept OR e.seq <> e.n;
+    IF last IS NULL THEN
+      SELECT max(c.seq) INTO last FROM zv_audit_chain c
+       WHERE c.tenant_id IS NOT DISTINCT FROM t.tenant_id;
+    END IF;
+    INSERT INTO zv_audit_chain_cut (tenant_id, seq, hash)
+    SELECT c.tenant_id, c.seq, c.hash FROM zv_audit_chain c
+     WHERE c.tenant_id IS NOT DISTINCT FROM t.tenant_id AND c.seq = last;
+    DELETE FROM zv_audit_chain c
+     WHERE c.tenant_id IS NOT DISTINCT FROM t.tenant_id AND c.seq <= last;
+  END LOOP;
+END
+$$;
+
+ALTER TABLE zv_audit_log FORCE ROW LEVEL SECURITY;
 
 -- DOWN
 -- A chain already cut does not survive the way down: 129's link restarts an

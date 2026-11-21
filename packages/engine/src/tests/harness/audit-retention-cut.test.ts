@@ -217,6 +217,62 @@ d('audit retention per tenant, chain cut from the oldest end (ADR 0060 decision 
     }
   });
 
+  it("130 cuts a chain's leading prefix the 129 purge left orphaned, and no gap inside a chain", async () => {
+    const m = parseMigrationFile(
+      await Bun.file(
+        new URL('../../db/migrations/sql/130_audit_retention_cut.sql', import.meta.url),
+      ).text(),
+    );
+    const run = async (trx: Database, part: string) => {
+      for (const stmt of splitSqlStatements(part)) await sql.raw(stmt).execute(trx);
+    };
+    const [lead, mid] = [crypto.randomUUID(), crypto.randomUUID()];
+    const rollback = new Error('rollback');
+    let after: { tenant: string; seqs: number[]; cut: number | null }[] = [];
+    await db
+      .transaction()
+      .execute(async (trx) => {
+        await run(trx, m.down ?? '');
+        // Linked as each row is written, not at a COMMIT this never reaches.
+        await sql`SET CONSTRAINTS zv_audit_log_chain IMMEDIATE`.execute(trx);
+        for (const [tenant, ages] of [
+          [lead, [400, 400, 0]],
+          [mid, [0, 400, 0]],
+        ] as const) {
+          await sql`SELECT set_config('zveltio.current_tenant', ${tenant}, true)`.execute(trx);
+          for (const [i, age] of ages.entries()) {
+            await sql`INSERT INTO zv_audit_log (event_type, resource_id, tenant_id, created_at)
+                      VALUES (${EV}, ${`pre-${i}`}, ${tenant}::uuid,
+                              now() - make_interval(days => ${age}::int))`.execute(trx);
+          }
+        }
+        // The 129 purge: its expired rows go, their entries stay.
+        await sql`SELECT set_config('zveltio.current_tenant', '', true),
+                         set_config('role', 'zveltio_audit_purge', true),
+                         set_config('zveltio.audit_retention_days', '365', true)`.execute(trx);
+        await sql`DELETE FROM zv_audit_log WHERE event_type = ${EV}`.execute(trx);
+        await sql`RESET ROLE`.execute(trx);
+        await run(trx, m.up);
+        const r = await sql<{ tenant: string; seqs: number[]; cut: number | null }>`
+          SELECT t.id::text AS tenant,
+                 coalesce((SELECT array_agg(c.seq::int ORDER BY c.seq) FROM zv_audit_chain c
+                            WHERE c.tenant_id = t.id), '{}') AS seqs,
+                 (SELECT max(k.seq)::int FROM zv_audit_chain_cut k WHERE k.tenant_id = t.id) AS cut
+            FROM unnest(${[lead, mid]}::uuid[]) WITH ORDINALITY AS t(id, n) ORDER BY t.n`.execute(
+          trx,
+        );
+        after = r.rows;
+        throw rollback;
+      })
+      .catch((err) => {
+        if (err !== rollback) throw err;
+      });
+    expect(after).toEqual([
+      { tenant: lead, seqs: [3], cut: 2 },
+      { tenant: mid, seqs: [1, 2, 3], cut: null },
+    ]);
+  });
+
   it('130 runs twice, rolls back and runs again', async () => {
     const m = parseMigrationFile(
       await Bun.file(

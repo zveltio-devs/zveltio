@@ -78,7 +78,7 @@ describe('runGarbageCollector — retention purges', () => {
 
   // `parseInt('1y')` is 1: a value written as a duration purged every audit row
   // older than a day. A value that is not a whole number of days purges nothing.
-  for (const bad of ['1y', '30d', '1e3', '-5', '12.5', 'forever']) {
+  for (const bad of ['1y', '30d', '1e3', '-5', '12.5', 'forever', '36501', '99999999999']) {
     it(`purges nothing when a retention knob is ${JSON.stringify(bad)}`, async () => {
       process.env.REQUEST_LOG_RETENTION_DAYS = bad;
       process.env.AUDIT_LOG_RETENTION_DAYS = bad;
@@ -189,6 +189,25 @@ describe('runGarbageCollector — retention purges', () => {
       ['7', T],
     ]);
   });
+
+  // A window past what Postgres' int holds made every purge of that chain throw,
+  // and the catch only warned: the chain was never purged again.
+  for (const days of ['36501', '2147483648']) {
+    it(`purges no audit row when a tenant window is ${days} days`, async () => {
+      process.env.AUDIT_LOG_RETENTION_TENANT_DAYS = `3f725dbc-0bf6-4768-bfec-df2e49abe30c=${days}`;
+      const db = new CannedDb();
+      db.when(/SELECT DISTINCT tenant_id::text AS tenant_id FROM zv_audit_chain/i, [
+        { tenant_id: '3f725dbc-0bf6-4768-bfec-df2e49abe30c' },
+      ]);
+      const q = quiet();
+      try {
+        await runGarbageCollector(asDb(db));
+      } finally {
+        q.restore();
+      }
+      expect(db.executed(/DELETE FROM zv_audit_log/i)).toHaveLength(0);
+    });
+  }
 });
 
 describe('scheduleGarbageCollector', () => {

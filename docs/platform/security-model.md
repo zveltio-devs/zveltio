@@ -472,9 +472,9 @@ pass; flip back to `strict` for production.
 | `zv_audit_log` | 365 days | `AUDIT_LOG_RETENTION_DAYS`, per tenant `AUDIT_LOG_RETENTION_TENANT_DAYS` |
 | `zv_sync_tombstones` | 30 days | hard-coded |
 
-Values are whole days. Set to `0` to disable purge for a given table. A value
-that is not a whole number of days (`1y`, `30d`) purges nothing and logs a
-warning. Purges run nightly at
+Values are whole days, at most 36500. Set to `0` to disable purge for a given
+table. A value that is not a whole number of days (`1y`, `30d`) or is larger
+purges nothing and logs a warning. Purges run nightly at
 03:00 from the garbage collector (`lib/runtime/garbage-collector.ts`), on one
 replica. Trashed records are purged by the trash scheduler, not by this sweep.
 
@@ -535,7 +535,9 @@ replica. Trashed records are purged by the trash scheduler, not by this sweep.
   there, from the genesis when every entry was cut. A row deleted any other
   way — the owner with the append-only trigger off — cuts nothing, and verify
   reports it `row_missing`. A row that is missing stops the purge of its chain
-  at that row.
+  at that row. Migration 130 cut, once, the leading run of entries whose rows
+  the purge had deleted under 129 (which left them); a missing row after a row
+  still there it left as it was.
 - Erasing a user (`DELETE /api/me`, an admin, SCIM, `compliance/gdpr`) deletes
   the profile and leaves the trail as it was: `user_id` keeps the id, which no
   longer names anyone. The engine writes ids, not emails, into its rows.

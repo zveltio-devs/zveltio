@@ -21,6 +21,16 @@ const ABANDONED_RUN_HOURS = 6;
 export const SYNC_TOMBSTONE_RETENTION_DAYS = 30;
 
 /**
+ * The longest window a knob may name: a hundred years. Postgres reads the window
+ * as an int, and one past 2147483647 made every purge on it throw — caught and
+ * only warned, so nothing was ever purged and nothing said why but a warning.
+ */
+const MAX_RETENTION_DAYS = 36500;
+
+/** Whole days, 0 to a hundred years; anything else is not a window. */
+const isRetentionDays = (raw: string) => /^\d+$/.test(raw) && Number(raw) <= MAX_RETENTION_DAYS;
+
+/**
  * A retention knob in whole days; 0 keeps forever. Anything else purges
  * nothing: `parseInt('1y')` is 1, so a value written as a duration purged every
  * row older than a day. Deleting on a value nobody meant is the one wrong way to
@@ -29,9 +39,10 @@ export const SYNC_TOMBSTONE_RETENTION_DAYS = 30;
 function retentionDaysFromEnv(name: string, fallback: number): number {
   const raw = process.env[name]?.trim();
   if (raw === undefined || raw === '') return fallback;
-  if (/^\d+$/.test(raw)) return Number(raw);
+  if (isRetentionDays(raw)) return Number(raw);
   console.warn(
-    `[GC] ${name}=${JSON.stringify(raw)} is not a whole number of days; nothing is purged.`,
+    `[GC] ${name}=${JSON.stringify(raw)} is not a whole number of days up to ` +
+      `${MAX_RETENTION_DAYS}; nothing is purged.`,
   );
   return 0;
 }
@@ -40,7 +51,7 @@ const TENANT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
 
 /**
  * `AUDIT_LOG_RETENTION_TENANT_DAYS`: `<tenant id>=<days>,…`, each a whole
- * number of days (0 keeps that tenant's trail). A tenant id, not a slug: the
+ * number of days up to `MAX_RETENTION_DAYS` (0 keeps that tenant's trail). A tenant id, not a slug: the
  * window must still hold for a purged tenant's rows, which outlive its slug.
  * null when any entry is malformed: an entry nobody can read may be the one
  * meant to keep a tenant's trail longer, so the audit purge does nothing.
@@ -52,10 +63,11 @@ export function tenantRetentionDaysFromEnv(): Map<string, number> | null {
     if (entry.trim() === '') continue;
     const m = /^\s*([0-9a-fA-F-]{36})\s*=\s*(\d+)\s*$/.exec(entry);
     const id = m?.[1]?.toLowerCase();
-    if (!m || !id || !TENANT_ID.test(id) || out.has(id)) {
+    if (!m?.[2] || !id || !TENANT_ID.test(id) || !isRetentionDays(m[2]) || out.has(id)) {
       console.warn(
         `[GC] AUDIT_LOG_RETENTION_TENANT_DAYS entry ${JSON.stringify(entry.trim())} is not ` +
-          '`<tenant id>=<whole days>` (or names a tenant twice); no audit row is purged.',
+          `\`<tenant id>=<whole days up to ${MAX_RETENTION_DAYS}>\` (or names a tenant twice); ` +
+          'no audit row is purged.',
       );
       return null;
     }
