@@ -1268,12 +1268,15 @@ extension off and on in `/admin/extensions` to apply a new migration.
 ### Sign it, once per developer
 
 An unsigned directory never runs — not inline, not on the runner, not in
-development (ADR 0056 amendment 2026-11-18). Your own extension loads at level 3
+development or test (ADR 0056 amendments 2026-11-18 and 2026-11-21). Your own extension loads at level 3
 on a key you trust: `zveltio keys generate --id <id>` once, its public half
 (`zveltio keys export <id>`) on the engine's `OPERATOR_PUBLIC_KEYS_JSON`, then
 `zveltio extension pack` and `zveltio extension sign --dir . --key-id <id>`
 after each change before enabling or reloading it. The steps are in
-[signatures](signatures.md#your-own-extensions-level-3).
+[signatures](signatures.md#your-own-extensions-level-3). A checkout of the
+first-party extensions is signed with a development registry key instead
+(`bun scripts/sign-as-registry.ts <dir> --key-id <id>`, ADR 0056 amendment
+2026-11-21): [signatures](signatures.md#a-first-party-source-checkout).
 
 ### Where extension files live (`EXTENSIONS_DIR`)
 

@@ -926,6 +926,11 @@ jobs:
         run: |
           PGPASSWORD=postgres psql -h localhost -U postgres -d zveltio_test -c "\dt" | head -40 || true
           PGPASSWORD=postgres psql -h localhost -U postgres -d zveltio_test -c "SELECT version, name FROM zv_schema_versions ORDER BY version DESC LIMIT 5" || true
+      # An unsigned directory never runs, NODE_ENV=test included (ADR 0056
+      # amendment 2026-11-21): without this every sibling extension below is
+      # refused and the lane tests a core-only engine, green.
+      - name: Sign the sibling extensions as a registry download leaves them
+        run: bun scripts/sign-as-registry.ts ../zveltio-extensions >> "$GITHUB_ENV"
       - name: Start engine in background
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test

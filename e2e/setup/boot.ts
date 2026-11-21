@@ -73,8 +73,32 @@ async function run(cmd: string[], env: Record<string, string>): Promise<void> {
   if (code !== 0) throw new Error(`${cmd.join(' ')} exited ${code}`);
 }
 
+/**
+ * An unsigned directory never runs, in any `NODE_ENV` (ADR 0056 amendment
+ * 2026-11-21): sign the checkout's `crm` as a registry download leaves it and
+ * trust the key this run made.
+ */
+function signExtensions(env: Record<string, string>): void {
+  if (!env.EXTENSIONS_DIR) return;
+  const r = Bun.spawnSync(
+    [
+      'bun',
+      'scripts/sign-as-registry.ts',
+      env.EXTENSIONS_DIR,
+      ...env.ZVELTIO_EXTENSIONS.split(','),
+    ],
+    { cwd: ROOT, env },
+  );
+  if (r.exitCode !== 0) throw new Error(`sign-as-registry: ${r.stderr.toString()}`);
+  env.REGISTRY_PUBLIC_KEYS_JSON = r.stdout
+    .toString()
+    .trim()
+    .replace(/^REGISTRY_PUBLIC_KEYS_JSON=/, '');
+}
+
 async function main(): Promise<void> {
   const env = engineEnv();
+  signExtensions(env);
 
   // The Studio integration lane (packages/studio, vitest.integration.config.ts)
   // reuses this boot for its engine, but mounts pages from SOURCE through vite
