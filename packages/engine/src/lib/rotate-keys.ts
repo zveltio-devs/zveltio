@@ -155,6 +155,8 @@ export async function rotateKeys(
       const t = sql.id(table);
       const col = sql.id(field);
       const store = `${table}.${field}`;
+      // ponytail: one query per tenant per column even where a tenant has no row;
+      // read the distinct tenant_ids first if installs ever hold thousands of tenants.
       for (const tenant of tenants) {
         let after = FIRST_ID;
         for (;;) {
@@ -190,7 +192,7 @@ export async function rotateKeys(
 
   // ── zv_revisions: the stored copies of those fields ─────────────────────────
   // Bound as the live row is, to the snapshot's own tenant and id (the readers
-  // open a copy the same way); a delta carries neither and takes the revision's.
+  // open a copy the same way); a delta carries neither and borrows the full copy's.
   for (const [collection, fields] of sealedByCollection) {
     const store = 'zv_revisions';
     for (const tenant of tenants) {
