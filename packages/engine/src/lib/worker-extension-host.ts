@@ -68,7 +68,6 @@ import {
 import { activePoolMax, getDb, type Database } from '../db/index.js';
 import { auditLog } from './audit.js';
 import { verifyExtensionDir } from './security/index.js';
-import { verifyRegistrySignedDir } from './extensions/extension-download.js';
 import { sqlState } from '../db/bun-sql-quirks.js';
 import { CompiledQuery } from 'kysely';
 import { Turns, transactionTurns } from '../db/trx-sequencer.js';
@@ -81,6 +80,7 @@ import {
   extensionLoader,
   guardEventHandler,
   refusalProblem,
+  verifyRegistrySignedDir,
 } from './extensions/index.js';
 import type { ActionHost } from '@zveltio/sdk/extension';
 import { compilePattern, extensionRequestRefused } from '../middleware/extension-auth-gate.js';
