@@ -2118,9 +2118,17 @@ export async function ensureRlsEnforcementRole(db: Database): Promise<void> {
             GRANT SELECT, DELETE ON public.zv_audit_log TO zveltio_audit_purge;
           END IF;
         END IF;
-        -- Its hash chain (migration 129) is written by the owner's trigger alone.
+        -- Its hash chain (migration 129) and the chain's cuts (130) are written
+        -- by the owner's triggers alone; the purge role reads the chain to find
+        -- its oldest end.
         IF to_regclass('public.zv_audit_chain') IS NOT NULL THEN
           REVOKE ALL ON public.zv_audit_chain FROM zveltio_rls;
+          IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'zveltio_audit_purge') THEN
+            GRANT SELECT ON public.zv_audit_chain TO zveltio_audit_purge;
+          END IF;
+        END IF;
+        IF to_regclass('public.zv_audit_chain_cut') IS NOT NULL THEN
+          REVOKE ALL ON public.zv_audit_chain_cut FROM zveltio_rls;
         END IF;
         -- A preview token is a credential too (migration 068): every column of
         -- zv_schema_branches but that one. The loop above just granted the table

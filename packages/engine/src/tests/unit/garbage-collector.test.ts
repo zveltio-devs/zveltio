@@ -31,6 +31,7 @@ function quiet(): { restore: () => void } {
 afterEach(() => {
   delete process.env.REQUEST_LOG_RETENTION_DAYS;
   delete process.env.AUDIT_LOG_RETENTION_DAYS;
+  delete process.env.AUDIT_LOG_RETENTION_TENANT_DAYS;
 });
 
 describe('runGarbageCollector — retention purges', () => {
@@ -42,6 +43,9 @@ describe('runGarbageCollector — retention purges', () => {
     db.when(/DELETE FROM zv_request_logs/i, [{ deleted: 5 }]);
     db.when(/DELETE FROM zv_slow_queries/i, [{ deleted: 3 }]);
     db.when(/DELETE FROM zv_audit_log/i, [{ deleted: 8 }]);
+    db.when(/SELECT DISTINCT tenant_id::text AS tenant_id FROM zv_audit_chain/i, [
+      { tenant_id: null },
+    ]);
 
     const q = quiet();
     try {
@@ -74,7 +78,7 @@ describe('runGarbageCollector — retention purges', () => {
 
   // `parseInt('1y')` is 1: a value written as a duration purged every audit row
   // older than a day. A value that is not a whole number of days purges nothing.
-  for (const bad of ['1y', '30d', '1e3', '-5', '12.5', 'forever']) {
+  for (const bad of ['1y', '30d', '1e3', '-5', '12.5', 'forever', '36501', '99999999999']) {
     it(`purges nothing when a retention knob is ${JSON.stringify(bad)}`, async () => {
       process.env.REQUEST_LOG_RETENTION_DAYS = bad;
       process.env.AUDIT_LOG_RETENTION_DAYS = bad;
@@ -96,6 +100,9 @@ describe('runGarbageCollector — retention purges', () => {
     const db = new CannedDb();
     db.when(/DELETE FROM zv_request_logs/i, [{ deleted: 0 }]);
     db.when(/DELETE FROM zv_audit_log/i, [{ deleted: 0 }]);
+    db.when(/SELECT DISTINCT tenant_id::text AS tenant_id FROM zv_audit_chain/i, [
+      { tenant_id: null },
+    ]);
 
     const q = quiet();
     try {
@@ -116,6 +123,9 @@ describe('runGarbageCollector — retention purges', () => {
     db.fail(/DELETE FROM zv_request_logs/i, new Error('lock timeout'));
     db.when(/DELETE FROM zv_slow_queries/i, [{ deleted: 2 }]);
     db.when(/DELETE FROM zv_audit_log/i, [{ deleted: 1 }]);
+    db.when(/SELECT DISTINCT tenant_id::text AS tenant_id FROM zv_audit_chain/i, [
+      { tenant_id: null },
+    ]);
 
     const q = quiet();
     try {
@@ -133,6 +143,9 @@ describe('runGarbageCollector — retention purges', () => {
     db.when(/DELETE FROM zv_request_logs/i, [{ deleted: 11 }]);
     db.when(/DELETE FROM zv_slow_queries/i, [{ deleted: 6 }]);
     db.when(/DELETE FROM zv_audit_log/i, [{ deleted: 4 }]);
+    db.when(/SELECT DISTINCT tenant_id::text AS tenant_id FROM zv_audit_chain/i, [
+      { tenant_id: null },
+    ]);
 
     const log = spyOn(console, 'log').mockImplementation(() => {});
     const warn = spyOn(console, 'warn').mockImplementation(() => {});
@@ -146,6 +159,55 @@ describe('runGarbageCollector — retention purges', () => {
       warn.mockRestore();
     }
   });
+
+  it('purges each audit chain in its own window: the tenant override, else the instance one', async () => {
+    const T = '3f725dbc-0bf6-4768-bfec-df2e49abe30c';
+    const KEPT = 'a1b2c3d4-0000-4000-8000-000000000000';
+    process.env.AUDIT_LOG_RETENTION_TENANT_DAYS = ` ${T.toUpperCase()}=7 , ${KEPT}=0 `;
+    const db = new CannedDb();
+    db.when(/SELECT DISTINCT tenant_id::text AS tenant_id FROM zv_audit_chain/i, [
+      { tenant_id: null },
+      { tenant_id: T },
+      { tenant_id: KEPT },
+    ]);
+    db.when(/DELETE FROM zv_audit_log/i, [{ deleted: 1 }]);
+    const q = quiet();
+    try {
+      await runGarbageCollector(asDb(db));
+    } finally {
+      q.restore();
+    }
+    const deletes = db.executed(/DELETE FROM zv_audit_log/i);
+    expect(deletes.map((d) => d.parameters.filter((p) => typeof p === 'number'))).toEqual([
+      [365],
+      [7],
+    ]);
+    expect(deletes[1]!.parameters).toContain(T);
+    const stated = db.executed(/zveltio\.audit_purge_tenant/i).map((s) => s.parameters);
+    expect(stated).toEqual([
+      ['365', 'instance'],
+      ['7', T],
+    ]);
+  });
+
+  // A window past what Postgres' int holds made every purge of that chain throw,
+  // and the catch only warned: the chain was never purged again.
+  for (const days of ['36501', '2147483648']) {
+    it(`purges no audit row when a tenant window is ${days} days`, async () => {
+      process.env.AUDIT_LOG_RETENTION_TENANT_DAYS = `3f725dbc-0bf6-4768-bfec-df2e49abe30c=${days}`;
+      const db = new CannedDb();
+      db.when(/SELECT DISTINCT tenant_id::text AS tenant_id FROM zv_audit_chain/i, [
+        { tenant_id: '3f725dbc-0bf6-4768-bfec-df2e49abe30c' },
+      ]);
+      const q = quiet();
+      try {
+        await runGarbageCollector(asDb(db));
+      } finally {
+        q.restore();
+      }
+      expect(db.executed(/DELETE FROM zv_audit_log/i)).toHaveLength(0);
+    });
+  }
 });
 
 describe('scheduleGarbageCollector', () => {

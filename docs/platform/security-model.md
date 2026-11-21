@@ -469,30 +469,41 @@ pass; flip back to `strict` for production.
 |---|---|---|
 | `zv_request_logs` | 30 days | `REQUEST_LOG_RETENTION_DAYS` |
 | `zv_slow_queries` | 30 days | `REQUEST_LOG_RETENTION_DAYS` (shared) |
-| `zv_audit_log` | 365 days | `AUDIT_LOG_RETENTION_DAYS` |
+| `zv_audit_log` | 365 days | `AUDIT_LOG_RETENTION_DAYS`, per tenant `AUDIT_LOG_RETENTION_TENANT_DAYS` |
 | `zv_sync_tombstones` | 30 days | hard-coded |
 
-Values are whole days. Set to `0` to disable purge for a given table. A value
-that is not a whole number of days (`1y`, `30d`) purges nothing and logs a
-warning. Purges run nightly at
+Values are whole days, at most 36500. Set to `0` to disable purge for a given
+table. A value that is not a whole number of days (`1y`, `30d`) or is larger
+purges nothing and logs a warning. Purges run nightly at
 03:00 from the garbage collector (`lib/runtime/garbage-collector.ts`), on one
 replica. Trashed records are purged by the trash scheduler, not by this sweep.
 
 ### Audit trail (ADR 0060)
 
-**Today (migrations 128 and 129):**
+**Today (migrations 128, 129 and 130):**
 
 - The request role `zveltio_rls` may only insert and read audit rows; UPDATE,
   DELETE and TRUNCATE are refused, and the boot reconciler keeps it that way.
 - The retention purge is the one path that deletes, as its own role
-  `zveltio_audit_purge` (SELECT and DELETE on `zv_audit_log`, nothing else).
-  The database lets it delete only rows older than the window the purge states,
-  at least one day; without the role the purge fails and logs why.
-  `scripts/bootstrap-db-role.sh` creates it where the engine cannot.
+  `zveltio_audit_purge` (SELECT and DELETE on `zv_audit_log`, SELECT on
+  `zv_audit_chain`, nothing else). It purges one chain per transaction — each
+  tenant's, a purged tenant's included, and the instance's — and states the
+  chain and its window; the database lets it read and delete only that chain's
+  rows older than that window, at least one day. Without the role the purge
+  fails and logs why. `scripts/bootstrap-db-role.sh` creates it where the
+  engine cannot.
+- The window is an operator setting: `AUDIT_LOG_RETENTION_DAYS` for every
+  chain, and `AUDIT_LOG_RETENTION_TENANT_DAYS=<tenant id>=<days>,…` for a
+  tenant under another jurisdiction (longer or shorter; `0` keeps that
+  tenant's trail; the instance's own rows follow `AUDIT_LOG_RETENTION_DAYS`).
+  A tenant id rather than a slug, so the window still holds for a purged
+  tenant's rows. One malformed entry and the nightly run purges no audit row,
+  and logs why. Neither a tenant admin nor an instance admin can change it
+  from the API.
 - No other role may change the trail either, the table owner and a superuser
   included: a trigger refuses UPDATE, DELETE and TRUNCATE on `zv_audit_log` and
-  on its chain table `zv_audit_chain`, the purge role's expired-row DELETE
-  aside. The owner can still switch that trigger off, which is DDL; the hash
+  on its chain table `zv_audit_chain` and on `zv_audit_chain_cut`, the purge
+  role's expired-row DELETE and its cut aside. The owner can still switch that trigger off, which is DDL; the hash
   chain is what shows what was done meanwhile.
 - Each tenant's rows form a SHA-256 hash chain, and the instance's own rows
   (no tenant) another. The engine links every row when its transaction
@@ -507,25 +518,35 @@ replica. Trashed records are purged by the trash scheduler, not by this sweep.
   chained by it, in `(created_at, id)` order per tenant: the chain shows what
   changed after that point, not before.
 - `GET /api/admin/audit/verify` (instance admins, like the rest of
-  `/api/admin/audit`) walks every chain and answers, per tenant, `ok`, the
-  entries it verified and its head (`seq`, `hash`), or the first broken link:
-  `gap` (an entry is missing), `link` (an entry does not follow from the one
-  before), `row_changed` (the row no longer hashes to its entry), `row_missing`
-  (a row is gone after one that is still there). Rows gone at the oldest end only are
-  the retention purge's and are counted as `purged`, their links still checked.
-  `unchained` names a row outside every chain (written with the chain trigger
-  off).
+  `/api/admin/audit`) walks every chain from its genesis and answers, per
+  tenant, `ok`, the entries it verified, the `genesis` it started from
+  (`seq`, `hash`, `cut_at` of the last cut; `null` while nothing was cut) and
+  its head (`seq`, `hash`), or the first broken link: `gap` (an entry is
+  missing), `link` (an entry does not follow from the one before),
+  `row_changed` (the row no longer hashes to its entry), `row_missing` (the row
+  is gone and its entry is still there, at the oldest end too). `unchained`
+  names a row outside every chain (written with the chain trigger off).
+- The purge cuts each chain from its oldest end only. It deletes the chain's
+  oldest rows up to the first one still inside the window, and a trigger on
+  the delete checks they are the chain's oldest entries, contiguous from its
+  genesis — anything else is refused with the delete — then records the new
+  genesis (the last cut entry's `seq` and `hash`, and when) in
+  `zv_audit_chain_cut` and removes the cut entries. The chain goes on from
+  there, from the genesis when every entry was cut. A row deleted any other
+  way — the owner with the append-only trigger off — cuts nothing, and verify
+  reports it `row_missing`. A row that is missing stops the purge of its chain
+  at that row. Migration 130 cut, once, the leading run of entries whose rows
+  the purge had deleted under 129 (which left them); a missing row after a row
+  still there it left as it was.
 - Erasing a user (`DELETE /api/me`, an admin, SCIM, `compliance/gdpr`) deletes
   the profile and leaves the trail as it was: `user_id` keeps the id, which no
   longer names anyone. The engine writes ids, not emails, into its rows.
-- Purging a tenant leaves its trail and its chain; the retention purge removes
-  the rows with every other firm's.
+- Purging a tenant leaves its trail, its chain and its cuts; the retention
+  purge removes the rows with every other firm's, in the tenant's window.
 
 **Still to come (accepted 2026-11-19):**
 
-- Operator settings: a per-tenant retention override for tenants under other
-  jurisdictions (the purge cuts the chain from its oldest end only and records
-  the new genesis), and where each tenant's chain head is anchored outside the
+- Operator setting: where each tenant's chain head is anchored outside the
   database (file or object storage), so a cut tail with a rewritten chain is
   still detected.
 

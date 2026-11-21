@@ -5,8 +5,8 @@ import { type AuditChainEntry, startChainWalk, walkAuditChain } from '../../lib/
 /**
  * The verify walk over one tenant's chain (ADR 0060 decision 3): the link
  * `hash = SHA-256(prev || content_hash)` from a zero genesis, contiguous `seq`,
- * each row against its entry, and rows gone at the oldest end only (retention)
- * counted rather than flagged.
+ * each row against its entry, and a walk starting from the genesis the
+ * retention purge recorded when it cut the chain's oldest end (decision 4).
  */
 const sha = (...hex: string[]) => {
   const h = createHash('sha256');
@@ -31,7 +31,7 @@ describe('walkAuditChain', () => {
     const walk = startChainWalk();
     expect(walkAuditChain(walk, all.slice(0, 2))).toBeNull();
     expect(walkAuditChain(walk, all.slice(2))).toBeNull();
-    expect(walk).toMatchObject({ seq: 5, hash: all[4]!.hash, purged: 0 });
+    expect(walk).toMatchObject({ seq: 5, hash: all[4]!.hash, verified: 5 });
   });
 
   it('names the first break and its kind', () => {
@@ -58,13 +58,26 @@ describe('walkAuditChain', () => {
     }
   });
 
-  it('counts rows gone at the oldest end as purged, and still checks their links', () => {
-    const c = chain(4).map((e, i) => (i < 2 ? { ...e, row_hash: null } : e));
-    const walk = startChainWalk();
-    expect(walkAuditChain(walk, c)).toBeNull();
-    expect(walk).toMatchObject({ seq: 4, purged: 2 });
+  it('flags a row gone at the oldest end; after a cut, walks from the genesis', () => {
+    const c = chain(4);
+    const gone = c.map((e, i) => (i < 2 ? { ...e, row_hash: null } : e));
+    expect(walkAuditChain(startChainWalk(), gone)).toEqual({
+      seq: 1,
+      audit_id: 'a1',
+      reason: 'row_missing',
+    });
 
-    const forged = c.map((e, i) => (i === 0 ? { ...e, content_hash: content(99) } : e));
-    expect(walkAuditChain(startChainWalk(), forged)).toMatchObject({ seq: 1, reason: 'link' });
+    // The purge cut seq 1-2: the genesis is entry 2, the walk checks 3-4 from it.
+    const walk = startChainWalk({ seq: 2, hash: c[1]!.hash });
+    expect(walkAuditChain(walk, c.slice(2))).toBeNull();
+    expect(walk).toMatchObject({ seq: 4, verified: 2 });
+    // A genesis that is not the cut entry's hash breaks the first link after it.
+    expect(walkAuditChain(startChainWalk({ seq: 2, hash: content(99) }), c.slice(2))).toEqual({
+      seq: 3,
+      audit_id: 'a3',
+      reason: 'link',
+    });
+    // Entries cut without a genesis past them: a gap.
+    expect(walkAuditChain(startChainWalk(), c.slice(2))).toMatchObject({ seq: 1, reason: 'gap' });
   });
 });

@@ -306,9 +306,11 @@ engine's own cross-firm work (retention purges under `withEveryTenant`), bounded
 by the read reach. `zv_audit_log` carries the same two (migration 066), and is
 append-only besides: `zveltio_rls` may not update or delete it at all, and its
 retention purge runs as `zveltio_audit_purge`, which reaches every firm's
-expired rows and no other (migration 128, ADR 0060). Since migration 129 a
-trigger refuses UPDATE, DELETE and TRUNCATE to every other role, the owner
-included, and each tenant's rows form a hash chain (`docs/platform/security-model.md`).
+expired rows and no other (migration 128, ADR 0060), one firm at a time in that
+firm's window, cutting its hash chain from the oldest end (migration 130). Since
+migration 129 a trigger refuses UPDATE, DELETE and TRUNCATE to every other role,
+the owner included, and each tenant's rows form a hash chain
+(`docs/platform/security-model.md`).
 
 Extension-owned tables carry the same three. Many extension migrations write
 `zveltio_tenant_scope_ok(tenant_id)` in both clauses; the engine rewrites every
@@ -494,8 +496,9 @@ until then the old reach applies.
   child tenants (and no tenant merged into it). One transaction deletes the
   tenant's rows from every `public` table with a `tenant_id` column — engine,
   extension, collection and BYOD tables alike, junction tables through their
-  cascading keys; not `zv_audit_log` nor its hash chain `zv_audit_chain`, which
-  are append-only and left to the retention purge (ADR 0060) — drops the legacy `tenant_*` schemas older versions created
+  cascading keys; not `zv_audit_log`, its hash chain `zv_audit_chain` nor the
+  chain's cuts `zv_audit_chain_cut`, which are append-only and left to the
+  retention purge (ADR 0060) — drops the legacy `tenant_*` schemas older versions created
   for it (`tenant_<slug>`, and each environment's `tenant_<slug>_<env>` that its
   `schema_name` still names; a name another tenant's base or environment schema
   also spells is kept), then the tenant row. Media

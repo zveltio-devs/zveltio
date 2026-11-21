@@ -253,7 +253,7 @@ async function writeAuditRow(db: Database, event: AuditEvent): Promise<void> {
   }
 }
 
-// ── Hash chain (ADR 0060 decision 3, migration 129) ─────────────
+// ── Hash chain (ADR 0060 decisions 3 and 4, migrations 129 and 130) ─────
 
 /** One `zv_audit_chain` entry, with the content hash of the row it names now. */
 export interface AuditChainEntry {
@@ -273,8 +273,9 @@ export type AuditChainBreak = {
   /**
    * `gap`: no entry at `seq`. `link`: the entry's hash does not follow from the
    * one before. `row_changed`: the row no longer hashes to its entry.
-   * `row_missing`: a row is gone after one that is still there; rows gone at the
-   * oldest end only are the retention purge's, counted as `purged`.
+   * `row_missing`: the row is gone and its entry is still there. The retention
+   * purge cuts the entries of the rows it deletes and moves the genesis past
+   * them (migration 130), so a row gone at the oldest end is missing too.
    */
   reason: 'gap' | 'link' | 'row_changed' | 'row_missing';
 };
@@ -285,8 +286,13 @@ export interface AuditChainReport {
   ok: boolean;
   /** Entries checked: the whole chain when `ok`, else those before the break. */
   verified: number;
-  purged: number;
-  /** The last entry verified: the whole chain's head when `ok`. */
+  /**
+   * Where the walk started: the last entry the retention purge cut (its seq and
+   * hash) and when; null while nothing was cut, the walk starting from 32 zero
+   * bytes at seq 0.
+   */
+  genesis: { seq: number; hash: string; cut_at: string } | null;
+  /** The last entry verified (the genesis when none was): the head when `ok`. */
   head: { seq: number; hash: string } | null;
   broken?: AuditChainBreak;
 }
@@ -297,15 +303,14 @@ const GENESIS = '00'.repeat(32);
 export interface ChainWalk {
   seq: number;
   hash: string;
-  purged: number;
-  rowSeen: boolean;
+  verified: number;
 }
 
-export const startChainWalk = (): ChainWalk => ({
-  seq: 0,
-  hash: GENESIS,
-  purged: 0,
-  rowSeen: false,
+/** From the chain's latest genesis, or from 32 zero bytes at seq 0. */
+export const startChainWalk = (genesis?: { seq: number; hash: string } | null): ChainWalk => ({
+  seq: genesis?.seq ?? 0,
+  hash: genesis?.hash ?? GENESIS,
+  verified: 0,
 });
 
 /**
@@ -323,17 +328,13 @@ export function walkAuditChain(
       .update(Buffer.from(e.content_hash, 'hex'))
       .digest('hex');
     if (link !== e.hash) return { seq: e.seq, audit_id: e.audit_id, reason: 'link' };
-    if (e.row_hash === null) {
-      if (walk.rowSeen) return { seq: e.seq, audit_id: e.audit_id, reason: 'row_missing' };
-      walk.purged++;
-    } else {
-      if (e.row_hash !== e.content_hash) {
-        return { seq: e.seq, audit_id: e.audit_id, reason: 'row_changed' };
-      }
-      walk.rowSeen = true;
+    if (e.row_hash === null) return { seq: e.seq, audit_id: e.audit_id, reason: 'row_missing' };
+    if (e.row_hash !== e.content_hash) {
+      return { seq: e.seq, audit_id: e.audit_id, reason: 'row_changed' };
     }
     walk.seq = e.seq;
     walk.hash = e.hash;
+    walk.verified++;
   }
   return null;
 }
@@ -362,15 +363,25 @@ export async function verifyAuditChains(db: Database): Promise<{
                  SELECT tenant_id AS t FROM zv_audit_chain WHERE tenant_id IS NOT NULL
                  UNION SELECT id FROM zv_tenants) s), ''), true)
     `.execute(trx);
+    // A chain cut to its last entry is listed by its genesis.
     const tenants = await sql<{ tenant_id: string | null }>`
-      SELECT DISTINCT tenant_id::text AS tenant_id FROM zv_audit_chain
+      SELECT tenant_id::text AS tenant_id FROM zv_audit_chain
+       UNION SELECT tenant_id::text FROM zv_audit_chain_cut
        ORDER BY tenant_id NULLS FIRST`.execute(trx);
 
     const chains: AuditChainReport[] = [];
     for (const { tenant_id } of tenants.rows) {
       const own =
         tenant_id === null ? sql`c.tenant_id IS NULL` : sql`c.tenant_id = ${tenant_id}::uuid`;
-      const walk = startChainWalk();
+      const genesis =
+        (
+          await sql<{ seq: number; hash: string; cut_at: string }>`
+            SELECT seq::float8 AS seq, encode(hash, 'hex') AS hash, cut_at::text AS cut_at
+              FROM zv_audit_chain_cut
+             WHERE tenant_id IS NOT DISTINCT FROM ${tenant_id}::uuid
+             ORDER BY seq DESC LIMIT 1`.execute(trx)
+        ).rows[0] ?? null;
+      const walk = startChainWalk(genesis);
       let broken: AuditChainBreak | null = null;
       for (;;) {
         const batch = await sql<AuditChainEntry>`
@@ -389,8 +400,8 @@ export async function verifyAuditChains(db: Database): Promise<{
       chains.push({
         tenant_id,
         ok: !broken,
-        verified: walk.seq,
-        purged: walk.purged,
+        verified: walk.verified,
+        genesis,
         head: walk.seq ? { seq: walk.seq, hash: walk.hash } : null,
         ...(broken ? { broken } : {}),
       });
