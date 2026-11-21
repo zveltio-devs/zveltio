@@ -5,7 +5,9 @@
  * download and re-verified against them at every load.
  *
  * Production (the default `NODE_ENV`) through the engine's own loader and
- * download path, from directories on disk.
+ * download path, from directories on disk; development and test refuse the
+ * same (ADR 0056 amendment 2026-11-21: no local-dev exception), and run a
+ * source checkout signed with `scripts/sign-as-registry.ts --key-id`.
  */
 
 import { afterAll, afterEach, beforeAll, describe, expect, it, spyOn } from 'bun:test';
@@ -32,6 +34,9 @@ const SIGNED = `u3signed${STAMP}`;
 const TAMPERED = `u3tamper${STAMP}`;
 const BORROWED = `u3borrow${STAMP}`;
 const ALL = [UNSIGNED, SIGNED, TAMPERED, BORROWED];
+// The CLI from source, as `ext-operator-signed` runs it: CI builds no CLI dist for this lane.
+const CLI = join(import.meta.dir, '../../../../cli/src/index.ts');
+const SIGN = join(import.meta.dir, '../../../../../scripts/sign-as-registry.ts');
 
 type Ran = { __u3Ran?: string[] };
 const ran = (name: string) => ((globalThis as Ran).__u3Ran ?? []).includes(name);
@@ -140,6 +145,52 @@ d('an unsigned directory never runs inline, whatever its name (U3)', () => {
     expect(ran(UNSIGNED)).toBe(false);
     expect(extensionLoader.loaded.has(UNSIGNED)).toBe(false);
     expect(extensionLoader.getLastLoadError(UNSIGNED)).toMatch(/not signed by the registry/);
+  }, 60_000);
+
+  // ADR 0056 amendment 2026-11-21 point 2: no local-dev exception. A source
+  // checkout under `NODE_ENV=development` or `test` is refused like any other.
+  for (const mode of ['development', 'test']) {
+    it(`refuses it under NODE_ENV=${mode} too: no local-dev exception`, async () => {
+      const name = `${UNSIGNED}${mode[0]}`;
+      ALL.push(name);
+      write(join(base, name), name);
+      process.env.NODE_ENV = mode;
+      try {
+        await load(name);
+      } finally {
+        process.env.NODE_ENV = 'production';
+      }
+      expect(ran(name)).toBe(false);
+      expect(extensionLoader.loaded.has(name)).toBe(false);
+      expect(extensionLoader.getLastLoadError(name)).toMatch(/not signed by the registry/);
+    }, 60_000);
+  }
+
+  it('runs a source checkout a developer signed with their own test key (development)', async () => {
+    const name = `u3dev${STAMP}`;
+    ALL.push(name);
+    write(join(base, name), name);
+    const home = mkdtempSync(join(tmpdir(), 'u3-home-'));
+    const run = (cmd: string[]) => {
+      const r = Bun.spawnSync(cmd, { env: { ...process.env, HOME: home } });
+      expect(r.stderr.toString()).not.toMatch(/error|usage/i);
+      expect(r.exitCode).toBe(0);
+      return r.stdout.toString();
+    };
+    try {
+      run(['bun', CLI, 'keys', 'generate', '--id', `dev-${STAMP}`]);
+      const sign = ['bun', SIGN, base, name, '--key-id', `dev-${STAMP}`];
+      const line = run(sign).trim();
+      expect(line).toBe(run(sign).trim()); // the same key on every run: one .env line
+      process.env.REGISTRY_PUBLIC_KEYS_JSON = line.slice('REGISTRY_PUBLIC_KEYS_JSON='.length);
+      process.env.NODE_ENV = 'development';
+      await load(name);
+    } finally {
+      process.env.NODE_ENV = 'production';
+      rmSync(home, { recursive: true, force: true });
+    }
+    expect(extensionLoader.getLastLoadError(name)).toBeUndefined();
+    expect(ran(name)).toBe(true);
   }, 60_000);
 
   it('runs inline what the registry signed, re-verified at load', async () => {

@@ -403,15 +403,19 @@ export async function enforcePublisherTier(
   // U3 (ADR 0056 amendment 4, ADR 0058): only the registry's signature, kept
   // with the files and re-verified at this load, lets code run inline — never
   // the name. An unsigned directory (put there by hand, a source checkout) is
-  // not first-party, whatever the catalogue says of its name. Development
-  // and test (`NODE_ENV`) keep the catalogue's word, to run a source checkout.
-  if (!registrySigned && isProduction()) {
+  // not first-party, whatever the catalogue says of its name, in every
+  // `NODE_ENV`: no local-dev exception (amendment 2026-11-21 point 2). A source
+  // checkout is signed with a key on REGISTRY_PUBLIC_KEYS_JSON
+  // (`scripts/sign-as-registry.ts`).
+  if (!registrySigned) {
     const msg =
       `Extension "${extName}" is not signed by the registry (no registry signature kept with its ` +
       `files holds at load), so it is not first-party whatever its name, and only first-party ` +
       `code runs in the engine. Install it from the registry, or pack it with engine.isolation ` +
       `"worker" (bundled) to run it on the extension runner. Your own extension: sign it with a ` +
-      `key on OPERATOR_PUBLIC_KEYS_JSON — docs/extensions/signatures.md#your-own-extensions-level-3.`;
+      `key on OPERATOR_PUBLIC_KEYS_JSON — docs/extensions/signatures.md#your-own-extensions-level-3. ` +
+      `A first-party source checkout: \`bun scripts/sign-as-registry.ts\` — ` +
+      `docs/extensions/signatures.md#a-first-party-source-checkout.`;
     return { ok: false, logLevel: 'error', logArgs: [`❌ ${msg}`], lastLoadError: msg };
   }
 
