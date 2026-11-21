@@ -334,9 +334,9 @@ function refusing(extName: string, what: 'app' | 'ctx'): never {
     {
       get(_target, key) {
         throw new Error(
-          `register() used ${what}.${String(key)}: "${extName}" is signed by an operator key ` +
-            '(level 3), which is declared model only — collections, actions, jobs, declared ' +
-            'routes (ADR 0056). Move it into a declared action, job or route.',
+          `register() used ${what}.${String(key)}: "${extName}" is signed (level 2 or 3), ` +
+            'which is declared model only — collections, actions, jobs, declared routes ' +
+            '(ADR 0056). Move it into a declared action, job or route.',
         );
       },
     },

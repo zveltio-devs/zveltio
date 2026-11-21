@@ -721,6 +721,8 @@ async function registerExtensionRoutes(
     routes?: RouteSpec[];
     /** The operator key its directory signature verified against (ADR 0056 d1). */
     keyId?: string;
+    /** The registry key its kept archive signature verified against (level 2). */
+    registryKeyId?: string;
   } | null,
   db: Database,
   serviceDeps: ServiceDeps,
@@ -781,6 +783,7 @@ async function registerExtensionRoutes(
             return hostCall(restrictedCtx.host(c).collections, call as HostCall, args);
           },
           keyId: isolation.keyId,
+          registryKeyId: isolation.registryKeyId,
         },
       );
     } finally {
@@ -934,6 +937,8 @@ export async function finalizeExtensionLoad(
   absentOptional: readonly string[] = [],
   /** The operator key its directory signature verified against (ADR 0056 d1), if any. */
   keyId?: string,
+  /** The registry key the archive kept with its files verified against, if any. */
+  registryKeyId?: string,
 ): Promise<void> {
   const worker = manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true;
   // First, so a mismatch refuses the load before anything is granted for it. A
@@ -1046,6 +1051,7 @@ export async function finalizeExtensionLoad(
           forwardCredentials: manifest.forwardCredentials,
           routes: manifest.routes,
           keyId,
+          registryKeyId,
         }
       : undefined;
   const routes = routeCollections(manifest);
