@@ -175,7 +175,8 @@ export async function rotateKeys(
       const kid = env.startsWith('enc:v2:')
         ? env.split(':')[2]!
         : ((await openFieldValue(env))?.keyId ?? 'none');
-      const at = (report.unvisited[where] ??= {});
+      report.unvisited[where] ??= {};
+      const at = report.unvisited[where];
       at[kid] = (at[kid] ?? 0) + 1;
     }
   };
