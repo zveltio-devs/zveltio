@@ -34,7 +34,7 @@ const K0 = process.env.FIELD_ENCRYPTION_KEY ?? '';
 const K1 = '1'.repeat(64);
 const K9 = '9'.repeat(64);
 const id = () => crypto.randomUUID();
-const R = { v1: id(), v2: id(), foreign: id(), copied: id(), secret: id() };
+const R = { v1: id(), v2: id(), v1k1: id(), foreign: id(), copied: id(), secret: id() };
 const HOOK = id();
 const REV = id();
 
@@ -114,6 +114,9 @@ d('rotate-keys (in-process)', () => {
     // A key the operator never listed: nothing can open it.
     process.env.FIELD_ENCRYPTION_KEY = K9;
     const foreign = await encryptFieldUnbound('lost');
+    // Already under the new key, but unbound: still rewritten, as v2.
+    process.env.FIELD_ENCRYPTION_KEY = K1;
+    const v1k1 = await encryptFieldUnbound('plain-v1k1');
     process.env.FIELD_ENCRYPTION_KEY = K0;
 
     await asDefaultTenant(db, async (trx) => {
@@ -123,6 +126,7 @@ d('rotate-keys (in-process)', () => {
             VALUES (${rid}::uuid, ${DEFAULT_TENANT_ID}::uuid, ${note}, ${tok})`.execute(trx);
       await ins(R.v1, v1, null);
       await ins(R.v2, v2, null);
+      await ins(R.v1k1, v1k1, null);
       await ins(R.foreign, foreign, null);
       // R.v2's v2 value copied here: bound to R.v2, it opens nowhere else.
       await ins(R.copied, v2, null);
@@ -179,8 +183,9 @@ d('rotate-keys (in-process)', () => {
     const r = await rotateKeys(db, { dryRun: true });
     expect(r.currentKeyId).toBe(fieldKeyId(K1));
     expect(mine(r)).toEqual([R.copied, R.foreign].sort());
-    // v1, v2, secret, revision data + delta, webhook, S3: seven values at least.
-    expect(r.rewritten).toBeGreaterThanOrEqual(7);
+    // v1 (K0 and K1), v2, secret, revision data + delta, webhook, S3: eight at least.
+    expect(r.rewritten).toBeGreaterThanOrEqual(8);
+    expect(r.unbound).toBeGreaterThanOrEqual(7);
     expect(r.left[fieldKeyId(K0)]).toBeGreaterThanOrEqual(7);
     expect(await read()).toEqual(planted);
     expect((await revision()).delta.note.startsWith('enc:v1:')).toBe(true);
@@ -189,7 +194,8 @@ d('rotate-keys (in-process)', () => {
   it('rewrites every openable value under the current key, bound to where it lives', async () => {
     const r = await rotateKeys(db, { batchSize: 2 });
     const now = await read();
-    for (const rid of [R.v1, R.v2]) expect(under(now.get(rid)!.note, K1)).toBe(true);
+    for (const rid of [R.v1, R.v2, R.v1k1]) expect(under(now.get(rid)!.note, K1)).toBe(true);
+    expect(await decryptField(now.get(R.v1k1)!.note!, aad(R.v1k1))).toBe('plain-v1k1');
     expect(await decryptField(now.get(R.v1)!.note!, aad(R.v1))).toBe('plain-v1');
     expect(await decryptField(now.get(R.v2)!.note!, aad(R.v2))).toBe('plain-v2');
     expect(under(now.get(R.secret)!.token, K1)).toBe(true);
