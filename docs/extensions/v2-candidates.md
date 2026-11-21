@@ -246,3 +246,29 @@ v1; rotation destroys these hashes, as `docs/platform/security.md` says.
 
 **What v2 should do.** Remove `deriveTokenHash`. An extension that stores a
 token issues it as an API key, or hashes it under a secret it declares itself.
+
+## 11. Identity-provider identifiers reach the audit trail in clear — narrowing
+
+**What happens.** The `auth/ldap` and `auth/saml` sign-in path hands the
+engine the identity provider's `subject` (an LDAP DN, a SAML NameID), and
+`signInRefused` carries the `identifier` the person typed. Both are written
+into `zv_audit_log` as given, and either may be an email or a name. ADR 0060
+keeps ids only in the trail (amendment 2026-11-21).
+
+**What v1 does.** Nothing. The fields are part of the frozen contract.
+
+**What v2 should do.** The engine stores a keyed hash of `subject` and
+`identifier` (enough to correlate attempts, not to read the value), and the
+contract says so.
+
+## 12. `ctx.internals.audit` accepts any metadata — narrowing
+
+**What happens.** An extension may put any JSON into an audit row's metadata
+through `ctx.internals.audit`, personal data included. ADR 0060 keeps ids only
+in the trail (amendment 2026-11-21).
+
+**What v1 does.** Logs a warning when the metadata holds a value that is not
+an id, a number, a boolean or an enum-like token (to be added in v1, additive).
+
+**What v2 should do.** Refuse such metadata with a problem the extension sees.
+
