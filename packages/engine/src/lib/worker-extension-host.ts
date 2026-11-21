@@ -850,8 +850,8 @@ export class WorkerExtensionHost {
     // Levels 3 and 2 serve their declared routes, whatever the worker says it registered.
     managed.routes =
       signedLevel(source) !== null
-      ? (source.declaredRoutes ?? []).map(({ method, path }) => ({ method, path }))
-      : (init.routes ?? []);
+        ? (source.declaredRoutes ?? []).map(({ method, path }) => ({ method, path }))
+        : (init.routes ?? []);
     return managed;
   }
 
