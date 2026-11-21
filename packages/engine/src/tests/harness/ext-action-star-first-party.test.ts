@@ -27,6 +27,8 @@ import {
   markInstalled,
 } from '../../testing/app-harness.js';
 
+const SIGN = join(import.meta.dir, '../../../../../scripts/sign-as-registry.ts');
+
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = String(Date.now()).slice(-7);
 const WORKER = `starwkr${STAMP}`;
@@ -112,6 +114,15 @@ d('"*" in an action is first-party only (ADR 0053 d5)', () => {
     write(INLINE, undefined, ['*']);
     await markInstalled(db, INLINE);
     wasInline = _setInlineForTests(false);
+    // Inline needs the registry's signature, in every NODE_ENV (ADR 0056
+    // amendment 2026-11-21): signed as a download leaves it, with a run key.
+    const signed = Bun.spawnSync(['bun', SIGN, base, INLINE]);
+    expect(signed.exitCode).toBe(0);
+    const keys = process.env.REGISTRY_PUBLIC_KEYS_JSON;
+    process.env.REGISTRY_PUBLIC_KEYS_JSON = signed.stdout
+      .toString()
+      .trim()
+      .replace(/^REGISTRY_PUBLIC_KEYS_JSON=/, '');
     const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockResolvedValue([
       { name: INLINE, publisher_tier: 'first-party' } as never,
     ]);
@@ -119,6 +130,8 @@ d('"*" in an action is first-party only (ADR 0053 d5)', () => {
       await extensionLoader.loadExtension(INLINE, app, ctx(), base);
     } finally {
       spy.mockRestore();
+      if (keys === undefined) delete process.env.REGISTRY_PUBLIC_KEYS_JSON;
+      else process.env.REGISTRY_PUBLIC_KEYS_JSON = keys;
     }
     expect(extensionLoader.getLastLoadError(INLINE)).toBeUndefined();
     expect(extensionLoader.loaded.has(INLINE)).toBe(true);
