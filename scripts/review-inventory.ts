@@ -424,6 +424,7 @@ const SECTIONS: Section[] = [
     focus: 'The audit writer itself, and the routes that read or reshape whole instances.',
     match: [
       `${E}lib/audit.ts`,
+      `${E}lib/audit-anchor.ts`,
       `${E}routes/settings.ts`,
       // The theme validator behind the public settings and the tenant theme route.
       `${E}lib/theme.ts`,
