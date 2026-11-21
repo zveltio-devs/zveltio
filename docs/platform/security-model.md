@@ -480,7 +480,7 @@ replica. Trashed records are purged by the trash scheduler, not by this sweep.
 
 ### Audit trail (ADR 0060)
 
-**Today (migrations 128, 129 and 130):**
+**Today (migrations 128, 129 and 130, and the external anchor):**
 
 - The request role `zveltio_rls` may only insert and read audit rows; UPDATE,
   DELETE and TRUNCATE are refused, and the boot reconciler keeps it that way.
@@ -544,11 +544,46 @@ replica. Trashed records are purged by the trash scheduler, not by this sweep.
 - Purging a tenant leaves its trail, its chain and its cuts; the retention
   purge removes the rows with every other firm's, in the tenant's window.
 
-**Still to come (accepted 2026-11-19):**
-
-- Operator setting: where each tenant's chain head is anchored outside the
-  database (file or object storage), so a cut tail with a rewritten chain is
-  still detected.
+- The chain alone cannot show its newest rows deleted together with their
+  chain entries: what is left is a shorter chain that verifies. So each
+  chain's head is anchored outside the database. `AUDIT_ANCHOR_TARGET` names
+  where: an absolute directory, or `s3://<bucket>/<prefix>` (with the engine's
+  `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` from the
+  environment — never the Studio's storage settings, which live in the
+  database the anchor guards). At boot and every hour one replica writes a new
+  file `zveltio-audit-anchor-<…>.json` holding, per chain, the tenant id, the
+  head (`seq`, `hash`; the genesis when every entry was cut), the genesis
+  (`seq`, `hash`, or `null`) and when — ids and hashes only, each later than
+  the one before even if the clock stepped back. A directory file is written
+  whole to a temporary name and linked into place, which refuses an existing
+  name, so none is ever rewritten. The engine never creates the directory: an
+  absent one is an unmounted target, and verify reports it as an `error`. Object
+  storage gets a new key per write, but Bun's S3 client has no conditional PUT:
+  write-once there requires the bucket's object lock (retention mode), which the
+  operator turns on. Unset, nothing is anchored, boot says so, and verify
+  answers `anchor: { "configured": false }`.
+- Verify compares every chain with the latest anchor and answers, per anchored
+  chain, `ok` (the anchored entry is still on the chain, unchanged),
+  `covered` (a cut past it, made after the anchor was written), `behind` (the chain ends
+  before the anchored entry: its newest rows were removed), `changed` (the
+  entry at the anchored `seq` is gone or hashes differently: the chain was
+  rewritten, or a cut past it dated before the anchor) or `genesis_changed`
+  (the genesis moved back or changed). Any of the last three, an anchor that
+  cannot be read (`error`), or a target holding no anchor while the database
+  holds chains (`missing: true`), makes `ok` false. The boot writes the first
+  anchor at once, so a fresh install answers `missing` only until then. Before each write the engine compares the same way, and a chain no
+  longer matching keeps its anchored head in the new file — the engine does
+  not launder a cut by anchoring the shorter chain. The evidence stays until
+  the operator, having looked, moves the old anchor files away; emptying the
+  target re-baselines on the next write.
+- What the anchor does not show: rows written after the latest anchor (at
+  most an hour's), and whether a cut was due — a cut row the database owner
+  forges, dated after the anchor, is `covered` like the purge's. Write access to
+  the target is outside the anchor's threat model: whoever can delete or replace
+  anchor files can re-baseline it. Point the target at
+  storage the database host cannot write (another machine, a bucket with object
+  lock); a directory on the same disk survives a database rewrite, not a host
+  compromise.
 
 ---
 

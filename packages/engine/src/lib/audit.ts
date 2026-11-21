@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { sql } from 'kysely';
 import { type Database, getDb } from '../db/index.js';
 import { getCurrentTenantTrx, onAfterCommit, withTenantIsolation } from './tenancy/index.js';
+import { type AnchorReport, anchorHolds, verifyAnchor } from './audit-anchor.js';
 
 export type AuditEventType =
   | 'auth.login_failed'
@@ -354,8 +355,10 @@ export async function verifyAuditChains(db: Database): Promise<{
   ok: boolean;
   chains: AuditChainReport[];
   unchained: { audit_id: string; tenant_id: string | null } | null;
+  /** Each chain against the latest external anchor (decision 5). */
+  anchor: AnchorReport;
 }> {
-  return db.transaction().execute(async (trx) => {
+  const walked = await db.transaction().execute(async (trx) => {
     await sql`
       SELECT set_config('zveltio.current_tenant', '', true),
              set_config('zveltio.visible_tenants', coalesce((
@@ -414,4 +417,6 @@ export async function verifyAuditChains(db: Database): Promise<{
     const unchained = loose.rows[0] ?? null;
     return { ok: !unchained && chains.every((c) => c.ok), chains, unchained };
   });
+  const anchor = await verifyAnchor(db);
+  return { ...walked, ok: walked.ok && anchorHolds(anchor), anchor };
 }
