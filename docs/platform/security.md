@@ -325,8 +325,9 @@ ADR 0059. Each key has a list beside the single variable:
 - The **first** entry is current: every new value is encrypted under it.
 - A value is read under whichever listed key wrote it. A field value written
   since ADR 0059 names its key (below); an older one is tried under each key.
-- Without the list, the single variable is a one-element list. The list wins
-  when both are set.
+- Without the list, the single variable is a one-element list. When both are
+  set the list is current, and the single variable stays readable after it, so
+  values written under it before the list was set keep opening.
 - In production the engine refuses to start only when the **current** key is
   malformed. An older entry that is not a key is skipped (values under it stay
   unreadable until it is fixed), and a key left out of the list is the
@@ -341,7 +342,9 @@ of the key (it names the key, it does not reveal it). The associated data is
 copied to another row, field, collection or tenant does not decrypt there: the
 read returns it sealed, as it does for a value under a dropped key. Renaming an
 encrypted or `secret` field re-encrypts its column under the new name, in the
-rename's transaction.
+rename's transaction. Turning an encrypted field into a `secret` one reseals
+each value bound (an `enc:v1:` one as `enc:v2:`); a value that does not open
+under any listed key aborts the change instead of being encrypted a second time.
 
 `enc:v1:` values, written before, bind nothing and stay readable under any
 listed key until `zveltio rotate-keys` (step 2 of ADR 0059, not shipped yet)

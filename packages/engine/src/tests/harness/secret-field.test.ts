@@ -430,7 +430,33 @@ d('a secret field: write-only, read back by its own extension alone (ADR 0024)',
       );
       expect(delivered.rows[0]!.n).toBeGreaterThan(0);
 
+      // An `encrypted: true` value written as enc:v1 before ADR 0059, and one
+      // under a key no longer listed. Planted in SQL: the data API refuses both.
+      const v1 = await encryptFieldUnbound('k-from-before');
+      const key = process.env.FIELD_ENCRYPTION_KEY;
+      process.env.FIELD_ENCRYPTION_KEY = 'f'.repeat(64);
+      const orphan = await encryptFieldUnbound('k-under-a-dropped-key');
+      process.env.FIELD_ENCRYPTION_KEY = key;
+      const plant = async (k: string) =>
+        (
+          await asDefaultTenant(
+            db,
+            sql<{ id: string }>`
+            INSERT INTO ${sql.table(`zvd_${R}`)} (k) VALUES (${k}) RETURNING id::text AS id`,
+          )
+        ).rows[0]!.id;
+      const v1Id = await plant(v1);
+      const orphanId = await plant(orphan);
+      // The value that does not open aborts the retype; nothing changes.
+      await expect(alterField(db, R, 'k', { newType: 'secret' })).rejects.toThrow();
+      expect(await stored(R, orphanId, 'k')).toBe(orphan);
+      expect(await stored(R, v1Id, 'k')).toBe(v1);
+      await asDefaultTenant(db, sql`DELETE FROM ${sql.table(`zvd_${R}`)} WHERE id = ${orphanId}`);
+
       for (const f of ['p', 'k', 'b']) await alterField(db, R, f, { newType: 'secret' });
+      // The enc:v1 value is resealed bound to its row.
+      expect((await stored(R, v1Id, 'k'))?.startsWith('enc:v2:')).toBe(true);
+      expect(await open(R, v1Id, 'k')).toBe('k-from-before');
 
       const after = await copies();
       expect(after).not.toContain('plain-value');

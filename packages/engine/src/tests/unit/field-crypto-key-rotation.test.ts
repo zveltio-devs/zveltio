@@ -150,6 +150,22 @@ describe('key list (ADR 0059 decision 1)', () => {
     expect(await decryptField(old, AT)).toBe('under A');
   });
 
+  it('the single variable stays readable after the list, once', async () => {
+    keys({ FIELD_ENCRYPTION_KEY: KEY_A });
+    const old = await encryptField('under A', AT);
+    keys({ FIELD_ENCRYPTION_KEY: KEY_A, FIELD_ENCRYPTION_KEYS: KEY_B });
+    expect(keyList('field').keys).toEqual([KEY_B, KEY_A]);
+    expect(await decryptField(old, AT)).toBe('under A');
+    expect((await encryptField('new', AT)).startsWith(`enc:v2:${fieldKeyId(KEY_B)}:`)).toBe(true);
+    keys({ FIELD_ENCRYPTION_KEY: KEY_A, FIELD_ENCRYPTION_KEYS: `${KEY_A},${KEY_B}` });
+    expect(keyList('field').keys).toEqual([KEY_A, KEY_B]);
+  });
+
+  it('numbers a malformed entry by its place in the list, empty entries counted', () => {
+    keys({ FIELD_ENCRYPTION_KEYS: `${KEY_B},,not-a-key` });
+    expect(keyList('field').malformed).toEqual([3]);
+  });
+
   it('the mail keyring takes a list too', async () => {
     const MAIL_A = 'a'.repeat(64);
     keys({ MAIL_ENCRYPTION_KEY: MAIL_A });
@@ -175,6 +191,18 @@ describe('enc:v2: is sealed to where it lives (ADR 0059 amendment)', () => {
       expect(await maybeDecrypt(v, true, moved)).toBe(v);
     }
     await expect(decryptField(v)).rejects.toThrow(/bound/);
+  });
+
+  it('refuses a tampered value, an unknown key id and a value naming no key', async () => {
+    keys({ FIELD_ENCRYPTION_KEY: KEY_A });
+    const v = await encryptField('x', AT);
+    const last = v.at(-2) === 'A' ? 'B' : 'A';
+    await expect(decryptField(`${v.slice(0, -2)}${last}${v.at(-1)}`, AT)).rejects.toThrow();
+    const body = v.slice('enc:v2:'.length);
+    await expect(decryptField(`enc:v2:${fieldKeyId(KEY_B)}${body.slice(8)}`, AT)).rejects.toThrow(
+      /No configured field key/,
+    );
+    await expect(decryptField(`enc:v2:${body.slice(9)}`, AT)).rejects.toThrow(/names no key id/);
   });
 
   it('a record id spelled another way Postgres accepts is the same record', async () => {

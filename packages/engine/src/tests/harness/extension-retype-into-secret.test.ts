@@ -168,23 +168,29 @@ d("an extension's update turns its text field secret (ADR 0024 §6)", () => {
     await applyDeclaredCollections(db, EXT, file('secret'), true);
 
     const [one, two] = await raw();
-    // The field key's ciphertext, byte for byte: re-encrypting it is not needed.
-    expect([one!.tok, two!.tok]).toEqual(sealed);
-    // Plaintext is ciphertext now, and still the value it was.
+    // The field key's enc:v1 ciphertext is resealed bound to its row (ADR 0059);
+    // plaintext is ciphertext now. Both still the value they were.
     for (const [r, n] of [
       [one!, 1],
       [two!, 2],
     ] as const) {
-      expect(r.pin.startsWith('enc:v2:')).toBe(true);
-      expect(
-        await decryptField(r.pin, {
-          tenant: DEFAULT_TENANT_ID,
-          collection: C,
-          field: 'pin',
-          record: r.id,
-        }),
-      ).toBe(`pin-${n}`);
+      for (const [field, value] of [
+        ['tok', r.tok],
+        ['pin', r.pin],
+      ] as const) {
+        expect(value.startsWith('enc:v2:')).toBe(true);
+        expect(
+          await decryptField(value, {
+            tenant: DEFAULT_TENANT_ID,
+            collection: C,
+            field,
+            record: r.id,
+          }),
+        ).toBe(`${field}-${n}`);
+      }
     }
+    const resealed = [one!.tok, two!.tok];
+    expect(resealed).not.toEqual(sealed);
 
     // The metadata is the file's: no `encrypted`, unique key, index or default.
     const def = await DDLManager.getCollection(db, C);
@@ -214,7 +220,7 @@ d("an extension's update turns its text field secret (ADR 0024 §6)", () => {
     expect(await planExtensionSchema(db, EXT, file('secret'))).toEqual([]);
     await applyDeclaredCollections(db, EXT, file('secret'), false);
     await applyDeclaredCollections(db, EXT, file('secret'), true);
-    expect((await raw()).map((r) => r.tok)).toEqual(sealed);
+    expect((await raw()).map((r) => r.tok)).toEqual(resealed);
   });
 
   it('the owning extension reads both back through host.collections', async () => {

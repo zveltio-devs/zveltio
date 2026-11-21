@@ -95,22 +95,26 @@ export function keyList(keyring: Keyring, env: Env = process.env): KeyList {
   const names = ENV_NAMES[keyring];
   const listed = env[names.list]?.trim();
   const source = listed ? names.list : names.single;
-  const raw = listed ? listed.split(',') : [env[names.single] ?? ''];
-  const entries = raw.map((e) => e.trim()).filter((e, i) => e !== '' || i === 0);
-  if (entries.length === 1 && entries[0] === '') {
+  const single = env[names.single]?.trim() ?? '';
+  // The single variable stays readable next to the list: values sealed under it
+  // before the list was set must not turn unreadable without a word.
+  const raw = listed ? [...listed.split(','), single] : [single];
+  const entries = raw.map((e, i) => [e.trim(), i] as const).filter(([e, i]) => e !== '' || i === 0);
+  if (entries.length === 1 && entries[0][0] === '') {
     return { keys: [], currentOk: false, malformed: [], source };
   }
   const keys: string[] = [];
   const malformed: number[] = [];
-  entries.forEach((hex, i) => {
+  entries.forEach(([hex, i]) => {
     // The mail extension sliced to 64 hex chars, tolerating a longer value.
     // Reproduced so a deployment with an over-long mail key keeps decrypting.
     // The field key is held to exactly 64: `parseInt('zz', 16)` is NaN, which a
     // Uint8Array stores as 0, so 64 non-hex characters imported as an all-zero
     // AES key and encrypted without a word.
     const usable = keyring === 'mail' ? hex.slice(0, 64) : hex;
-    if (/^[0-9a-fA-F]{64}$/.test(usable)) keys.push(usable.toLowerCase());
-    else malformed.push(i + 1);
+    if (/^[0-9a-fA-F]{64}$/.test(usable)) {
+      if (!keys.includes(usable.toLowerCase())) keys.push(usable.toLowerCase());
+    } else malformed.push(i + 1);
   });
   return { keys, currentOk: !malformed.includes(1), malformed, source };
 }
@@ -375,12 +379,13 @@ export async function decryptWithKeyring(
     }
     const body = value.slice(FIELD_V2_PREFIX.length);
     const sep = body.indexOf(':');
+    if (sep < 0) throw new Error('An enc:v2: value names no key id.');
     const kid = body.slice(0, sep);
-    const combined = fromBase64Url(body.slice(sep + 1));
     const keys = readKeys('field').filter((hex) => fieldKeyId(hex) === kid);
-    if (sep < 0 || keys.length === 0) {
+    if (keys.length === 0) {
       throw new Error(`No configured field key has id ${JSON.stringify(kid)}.`);
     }
+    const combined = fromBase64Url(body.slice(sep + 1));
     return trialDecrypt(
       keys,
       new Uint8Array(combined.slice(0, 12)),

@@ -511,14 +511,13 @@ async function intoSecretColumn(
   await sql`ALTER TABLE ${t} ALTER COLUMN ${col} DROP DEFAULT`.execute(trx);
   await everyTenantRows(trx, table, async () => {
     await rewriteColumn(trx, table, column, async (v, aad) => {
-      const kept =
-        wasEncrypted &&
-        isEncryptedValue(v) &&
-        (await decryptField(v, { ...aad, collection }).then(
-          () => true,
-          () => false,
-        ));
-      return kept ? v : encryptField(v, { ...aad, collection });
+      const bound = { ...aad, collection };
+      if (!wasEncrypted || !isEncryptedValue(v)) return encryptField(v, bound);
+      // A value this column already sealed must open: one that does not (its key
+      // gone from the list) aborts the ALTER rather than be sealed a second time
+      // around ciphertext nobody can read. An enc:v1 value is resealed bound.
+      const plain = await decryptField(v, bound);
+      return isBoundFieldValue(v) ? v : encryptField(String(plain), bound);
     });
     await sql`ALTER TABLE ${t} ADD ${sql.raw(secretCheckSql(column))}`.execute(trx);
   });
