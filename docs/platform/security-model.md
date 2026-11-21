@@ -553,24 +553,34 @@ replica. Trashed records are purged by the trash scheduler, not by this sweep.
   database the anchor guards). At boot and every hour one replica writes a new
   file `zveltio-audit-anchor-<…>.json` holding, per chain, the tenant id, the
   head (`seq`, `hash`; the genesis when every entry was cut), the genesis
-  (`seq`, `hash`, or `null`) and when — ids and hashes only. A file is never
-  rewritten (`wx` on a directory, a new key per write on object storage). Unset,
-  nothing is anchored, boot says so, and verify answers
-  `anchor: { "configured": false }`.
+  (`seq`, `hash`, or `null`) and when — ids and hashes only, each later than
+  the one before even if the clock stepped back. A directory file is written
+  whole to a temporary name and linked into place, which refuses an existing
+  name, so none is ever rewritten. The engine never creates the directory: an
+  absent one is an unmounted target, and verify reports it as an `error`. Object
+  storage gets a new key per write, but Bun's S3 client has no conditional PUT:
+  write-once there requires the bucket's object lock (retention mode), which the
+  operator turns on. Unset, nothing is anchored, boot says so, and verify
+  answers `anchor: { "configured": false }`.
 - Verify compares every chain with the latest anchor and answers, per anchored
   chain, `ok` (the anchored entry is still on the chain, unchanged),
-  `covered` (the retention purge cut past it), `behind` (the chain ends
+  `covered` (a cut past it, made after the anchor was written), `behind` (the chain ends
   before the anchored entry: its newest rows were removed), `changed` (the
   entry at the anchored `seq` is gone or hashes differently: the chain was
-  rewritten) or `genesis_changed` (the genesis moved back or changed). Any
-  of the last three, or an anchor that cannot be read (`error`), makes `ok`
-  false. Before each write the engine compares the same way, and a chain no
+  rewritten, or a cut past it dated before the anchor) or `genesis_changed`
+  (the genesis moved back or changed). Any of the last three, an anchor that
+  cannot be read (`error`), or a target holding no anchor while the database
+  holds chains (`missing: true`), makes `ok` false. The boot writes the first
+  anchor at once, so a fresh install answers `missing` only until then. Before each write the engine compares the same way, and a chain no
   longer matching keeps its anchored head in the new file — the engine does
   not launder a cut by anchoring the shorter chain. The evidence stays until
-  the operator, having looked, moves the old anchor files away.
+  the operator, having looked, moves the old anchor files away; emptying the
+  target re-baselines on the next write.
 - What the anchor does not show: rows written after the latest anchor (at
-  most an hour's), and whether a cut was due — a genesis past the anchored head
-  is `covered` whether the purge or the owner wrote it. Point the target at
+  most an hour's), and whether a cut was due — a cut row the database owner
+  forges, dated after the anchor, is `covered` like the purge's. Write access to
+  the target is outside the anchor's threat model: whoever can delete or replace
+  anchor files can re-baseline it. Point the target at
   storage the database host cannot write (another machine, a bucket with object
   lock); a directory on the same disk survives a database rewrite, not a host
   compromise.
