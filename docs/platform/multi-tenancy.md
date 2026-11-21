@@ -396,6 +396,17 @@ background work — cron flows, jobs, webhooks, purges — already names its
 tenant or publishes every tenant (`withEveryTenant`). Before migration 123 the
 default was the opposite, and `ZVELTIO_FAIL_CLOSED_TENANT=1` was the opt-in.
 
+The variable is the only way to open it. A connection also takes the setting
+from the login role (which wins over the database) and from the client's
+startup options — `options=-c zveltio.fail_closed_tenant=off` in
+`DATABASE_URL`, or `PGOPTIONS` (masked by the engine's own `options` unless
+`DB_IDLE_IN_TXN_TIMEOUT_MS=0`) — and no catalog shows the latter. So the boot,
+after storing its value, renews the pool and reads what a fresh connection
+actually gets. If that differs from what the variable asks — open without
+`=0`, or closed with it (a role-level `'on'` overriding the database's
+`'off'`, say) — the engine warns in development and test and refuses to start
+in production.
+
 ### The tables a tenant is resolved from
 
 `zv_api_keys`, `zv_invitations`, `zv_media_shares` and `zv_tenant_users`
