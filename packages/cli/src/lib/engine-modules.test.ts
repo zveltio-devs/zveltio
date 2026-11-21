@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'bun:test';
-import { loadEngineMigrationModules, EngineModulesUnavailable } from './engine-modules.js';
+import {
+  loadEngineMigrationModules,
+  loadEngineRotateKeys,
+  EngineModulesUnavailable,
+} from './engine-modules.js';
 
 /**
  * `migrate --database-url` and `rollback` reached the engine's runner with a
@@ -23,5 +27,14 @@ describe('loadEngineMigrationModules', () => {
     // Never a module path: that is what the old failure printed, and it told an
     // operator nothing about what to do next.
     expect(err.message).not.toContain('/db/index.js');
+  });
+});
+
+describe('loadEngineRotateKeys', () => {
+  it('resolves the engine pass from inside the repository', async () => {
+    const engine = await loadEngineRotateKeys();
+    expect(typeof engine?.db.initDatabase).toBe('function');
+    expect(typeof engine?.rotate.rotateKeys).toBe('function');
+    expect(typeof engine?.rotate.formatRotateKeysReport).toBe('function');
   });
 });

@@ -391,6 +391,7 @@ const SECTIONS: Section[] = [
       `${E}lib/data/field-type-registry.ts`,
       `${E}lib/data/field-type-conversions.ts`,
       `${E}lib/data/field-crypto.ts`,
+      `${E}lib/rotate-keys.ts`,
       `${E}lib/validation-engine.ts`,
       `${E}lib/validation-writes.ts`,
       `${E}routes/validation.ts`,

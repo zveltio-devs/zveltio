@@ -99,6 +99,30 @@ zveltio rollback
 
 ---
 
+### `zveltio rotate-keys`
+
+Rewrites every field value the engine sealed (encrypted and `secret` fields,
+their revision copies, webhook secrets, the storage S3 secret) under the current
+`FIELD_ENCRYPTION_KEYS` key as `enc:v2:`, bound to its row, and reports what is
+left under each key id. A value no listed key opens is reported, never
+rewritten. Idempotent; run it again after an interruption.
+
+```bash
+zveltio rotate-keys --dry-run                  # report only
+zveltio rotate-keys --database-url postgres://… [--batch 500]
+zveltio rotate-keys --check-missing-tenants    # also count rows of deleted tenants
+```
+
+It also counts the ciphertext it does not rewrite (rows of missing tenants,
+revision copies of fields no longer sealed, delivery and job payloads) and says
+"older keys can leave the list" only when nothing is under an older key.
+
+The npm CLI runs the engine's code from a repository checkout; on an install,
+use the release binary's `zveltio rotate-keys`. Procedure and exit codes:
+[security.md](../platform/security.md#zveltio-rotate-keys).
+
+---
+
 ### `zveltio create-god`
 
 Create a recovery override account: a `god` user, over HTTP against a running

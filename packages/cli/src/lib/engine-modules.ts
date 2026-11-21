@@ -72,19 +72,48 @@ export class EngineModulesUnavailable extends Error {
   }
 }
 
-/** Resolve and import the engine's `db` + `db/migrations` modules. */
-export async function loadEngineMigrationModules(): Promise<EngineModules> {
+/** The engine's `src/db/` directory in this checkout, or null outside one. */
+function engineDbBase(): string | null {
   for (const base of CANDIDATES) {
     const dbUrl = new URL(`${base}index.js`, import.meta.url);
     // The `.js` specifier is what the runtime imports; the file on disk in a
     // checkout is `.ts`, and Bun resolves either — so probe for both.
     const path = fileURLToPath(dbUrl);
-    if (!existsSync(path) && !existsSync(path.replace(/\.js$/, '.ts'))) continue;
-    const db = (await import(dbUrl.href)) as EngineDbModule;
-    const migrations = (await import(
-      new URL(`${base}migrations/index.js`, import.meta.url).href
-    )) as EngineMigrationsModule;
-    return { db, migrations };
+    if (existsSync(path) || existsSync(path.replace(/\.js$/, '.ts'))) return base;
   }
-  throw new EngineModulesUnavailable();
+  return null;
+}
+
+/** Resolve and import the engine's `db` + `db/migrations` modules. */
+export async function loadEngineMigrationModules(): Promise<EngineModules> {
+  const base = engineDbBase();
+  if (!base) throw new EngineModulesUnavailable();
+  const db = (await import(new URL(`${base}index.js`, import.meta.url).href)) as EngineDbModule;
+  const migrations = (await import(
+    new URL(`${base}migrations/index.js`, import.meta.url).href
+  )) as EngineMigrationsModule;
+  return { db, migrations };
+}
+
+/** What `rotate-keys` calls in the engine (ADR 0059): the report is the engine's. */
+export interface EngineRotateKeysModule {
+  rotateKeys(
+    db: EngineDb,
+    opts: { dryRun?: boolean; batchSize?: number; checkMissingTenants?: boolean },
+  ): Promise<{ unopenable: unknown[]; oldKeysDroppable: boolean }>;
+  formatRotateKeysReport(report: { unopenable: unknown[]; oldKeysDroppable: boolean }): string;
+}
+
+/** The engine's `db` module and `lib/rotate-keys`, from a checkout; null outside one. */
+export async function loadEngineRotateKeys(): Promise<{
+  db: EngineDbModule;
+  rotate: EngineRotateKeysModule;
+} | null> {
+  const base = engineDbBase();
+  if (!base) return null;
+  const db = (await import(new URL(`${base}index.js`, import.meta.url).href)) as EngineDbModule;
+  const rotate = (await import(
+    new URL(`${base}../lib/rotate-keys.js`, import.meta.url).href
+  )) as EngineRotateKeysModule;
+  return { db, rotate };
 }

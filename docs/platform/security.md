@@ -347,8 +347,8 @@ each value bound (an `enc:v1:` one as `enc:v2:`); a value that does not open
 under any listed key aborts the change instead of being encrypted a second time.
 
 `enc:v1:` values, written before, bind nothing and stay readable under any
-listed key until `zveltio rotate-keys` (step 2 of ADR 0059, not shipped yet)
-rewrites them as `enc:v2:`. Three writers still produce `enc:v1:`, because their
+listed key until `zveltio rotate-keys` ([below](#zveltio-rotate-keys)) rewrites
+them as `enc:v2:`. Three writers still produce `enc:v1:`, because their
 extension-facing contract documents it and names no row:
 `ctx.internals.encryptSecret` (field keyring), `ctx.internals.maybeEncrypt`, and
 an inline extension's `ctx.db` update whose `WHERE` is not a single `id =`
@@ -362,11 +362,83 @@ an inline extension's `ctx.db` update whose `WHERE` is not a single `id =`
    current, and every replica can now read what `<new>` will write.
 3. When every replica runs step 2: `FIELD_ENCRYPTION_KEYS=<new>,<old>`. New
    values are written under `<new>`; old ones keep reading under `<old>`.
-4. Keep `<old>` listed until `zveltio rotate-keys` reports no value left under
-   it. Until that command ships, there is no way to retire `<old>` without
-   losing the values it wrote: leave it in the list.
+4. Run `zveltio rotate-keys` (once, from one host). It rewrites what is still
+   under `<old>`, or still `enc:v1:`, under `<new>`.
+5. Drop `<old>` from the list only when the run reports nothing under its key
+   id. A key left out leaves every value still under it unreadable.
 
-The same steps apply to `MAIL_ENCRYPTION_KEYS`.
+The same list applies to `MAIL_ENCRYPTION_KEYS`; no engine-owned value is
+sealed with it, so `rotate-keys` has nothing of its own to rewrite there (see
+what it leaves, below): keep an old mail key listed.
+
+##### `zveltio rotate-keys`
+
+```sh
+zveltio rotate-keys --dry-run      # report only
+zveltio rotate-keys [--batch 500]  # rewrite, 500 rows per transaction
+zveltio rotate-keys --check-missing-tenants   # see below
+```
+
+The release binary's command (`/usr/local/bin/zveltio`, `DATABASE_URL` and the
+key list from the same environment as the engine; `NATIVE_DATABASE_URL`
+bypasses PgDog as for `migrate`). The npm CLI runs the same code from a
+repository checkout (`--database-url`). Never at boot (ADR 0059 decision 2).
+
+What it rewrites, in every tenant: each `encrypted` and `secret` column of
+every collection, the copies of those fields in `zv_revisions` (`data` and
+`delta`), webhook signing secrets (`$webhooks`) and the S3 secret of the storage
+setting (`$settings`). Each value is opened under whichever listed key wrote it
+and, unless it is already `enc:v2:` under the current key, sealed again as
+`enc:v2:` under the current key, bound to where it lives (above). A revision's
+copies (its `delta` too) are bound to the row its full copy names (`id`,
+`tenant_id`), the row the revision read opens them under; a copy kept in the
+old jsonb-string shape is written back in that shape.
+
+- **Fail closed.** A value no listed key opens where it lives (its key is not
+  listed, or it was copied from another row) is listed by store, field, tenant
+  and record id, and left as it is. Values are never printed.
+- **Idempotent and resumable.** Each batch commits on its own; a value already
+  current is not rewritten, so a run cut short is finished by running it again.
+- **Live engines keep running.** A value is written only while it is still the
+  one read; one a live write changed meanwhile is counted ("changed by a live
+  write") and left for the next run. A rewritten row's `updated_at` moves, as on
+  any write.
+- **The report** gives the number of values under each key id after the run
+  (`--dry-run`: as they are now), how many are still `enc:v1:`, the unopenable
+  ones (with the key id a v2 one names), and the ciphertext it did not rewrite
+  (below), counted per place and key id. Its last line says whether older keys
+  can leave the list: only when no value — rewritten, unopenable or not
+  visited — is under an older listed key, no write raced the run, and every
+  table could be read whole. Exit code 0: done and older keys can go; 2: done,
+  but a value is unopenable or an older key must stay; 1: refused (no usable
+  current key) or failed.
+
+What it does not rewrite, and counts:
+
+- Rows whose `tenant_id` is NULL or names a tenant `zv_tenants` no longer
+  holds: no request reads them (as when a field becomes `secret`). Under FORCE
+  row-level security a NOSUPERUSER NOBYPASSRLS owner (the production role) does
+  not see them either, so the report names those tables as *not checked* and
+  keeps every key until a run with `--check-missing-tenants`. That flag lifts
+  FORCE on each such table for one counting statement, inside a transaction,
+  under the table's ACCESS EXCLUSIVE lock (writes to it wait for one scan;
+  `lock_timeout` 5 s): run it at a quiet moment. A superuser or BYPASSRLS
+  connection counts them without it.
+- Revision copies of a field that is no longer `encrypted` or `secret` (or of a
+  dropped collection), and copies whose full copy names no `id`/`tenant_id`:
+  their row is not known for certain, and nothing serves them.
+- Webhook delivery payloads and pg-boss job payloads: the outbound copy drops
+  sealed fields, so only an older one can hold ciphertext; nothing reads it back.
+
+What it leaves uncounted:
+
+- Values an extension sealed itself through `ctx.internals.encryptSecret`, and
+  the mail keyring (`aes256gcm:`), stored in a column that is not `encrypted` or
+  `secret`: their readers name no row, so they stay `enc:v1:` (ADR 0059 step 3,
+  [v2-candidates](../extensions/v2-candidates.md)). No first-party extension
+  writes one. Such a value in an `encrypted` column *is* rewritten as `enc:v2:`,
+  and `ctx.internals.maybeDecrypt` / `decryptSecret` do not open `enc:v2:`: read
+  encrypted fields through the data API or `host.collections`.
 
 #### API Key Security
 
