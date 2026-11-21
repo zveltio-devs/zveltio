@@ -934,7 +934,7 @@ jobs:
       - name: Sign the sibling extensions as a registry download leaves them
         run: |
           (cd ../zveltio-extensions && for d in */; do
-            [ -f "$d/manifest.json" ] && echo "${d%/}"; done) > /tmp/signed-extensions.txt
+            if [ -f "$d/manifest.json" ]; then echo "${d%/}"; fi; done) > /tmp/signed-extensions.txt
           test -s /tmp/signed-extensions.txt
           bun scripts/sign-as-registry.ts ../zveltio-extensions $(cat /tmp/signed-extensions.txt) >> "$GITHUB_ENV"
       - name: Start engine in background
@@ -1004,7 +1004,7 @@ jobs:
             grep -q '✅ Extensions loaded:' /tmp/engine.log && break
             sleep 1
           done
-          loaded=", $(grep -m1 '✅ Extensions loaded:' /tmp/engine.log | sed 's/.*loaded: //'), "
+          loaded=", $(grep -m1 '✅ Extensions loaded:' /tmp/engine.log | sed 's/.*loaded: //' || true), "
           fail=0
           while read -r n; do
             case "$loaded" in *", $n, "*) ;; *) echo "::error::$n was signed but did not load"; fail=1 ;; esac

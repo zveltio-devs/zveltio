@@ -49,6 +49,7 @@ import {
   getTestApp,
   harnessAvailable,
 } from '../../testing/app-harness.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 // In the bundled catalog as first-party, so it may load inline and god may enable it.
@@ -133,7 +134,11 @@ d('an extension declares its collections; the engine creates and owns them', () 
                                        WHERE name = ${NAME} AND tenant_id IS NULL`.execute(db)
     ).rows[0]?.e;
 
+  // Unsigned fixtures: the test override stands in for a registry signature,
+  // set here — never inherited from a file run before this one.
+  let wasInline = false;
   beforeAll(async () => {
+    wasInline = _setInlineForTests(true);
     const t = await getTestApp();
     db = t.db;
     ({ app: engine, cookie: god } = await createSteppedUpGod(t.app, db));
@@ -156,6 +161,7 @@ d('an extension declares its collections; the engine creates and owns them', () 
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(wasInline);
     await extensionLoader.unload(NAME).catch(() => undefined);
     extensionLoader.ctx = saved.ctx;
     if (saved.extDir === undefined) delete process.env.EXTENSIONS_DIR;
