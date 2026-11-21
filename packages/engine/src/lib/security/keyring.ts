@@ -371,6 +371,13 @@ export async function decryptWithKeyring(
     return trialDecrypt(readKeys('field'), new Uint8Array(raw.slice(0, 12)), joined);
   }
 
+  // A v2 value is always the field key's; a v1 one under the keyring named.
+  const v1Mail = keyring === 'mail' && !value.startsWith(FIELD_V2_PREFIX);
+  return openField(value, readKeys(v1Mail ? 'mail' : 'field'), aad);
+}
+
+/** Open an `enc:v2:` or `enc:v1:` value under `keys`; throws when none opens it. */
+async function openField(value: string, keys: string[], aad?: FieldAad): Promise<string> {
   if (value.startsWith(FIELD_V2_PREFIX)) {
     if (!aad) {
       throw new Error(
@@ -381,25 +388,46 @@ export async function decryptWithKeyring(
     const sep = body.indexOf(':');
     if (sep < 0) throw new Error('An enc:v2: value names no key id.');
     const kid = body.slice(0, sep);
-    const keys = readKeys('field').filter((hex) => fieldKeyId(hex) === kid);
-    if (keys.length === 0) {
+    const named = keys.filter((hex) => fieldKeyId(hex) === kid);
+    if (named.length === 0) {
       throw new Error(`No configured field key has id ${JSON.stringify(kid)}.`);
     }
     const combined = fromBase64Url(body.slice(sep + 1));
     return trialDecrypt(
-      keys,
+      named,
       new Uint8Array(combined.slice(0, 12)),
       new Uint8Array(combined.slice(12)),
       aadBytes(aad),
     );
   }
-
   const combined = fromBase64Url(value.slice(FIELD_PREFIX.length));
   return trialDecrypt(
-    readKeys(keyring === 'mail' ? 'mail' : 'field'),
+    keys,
     new Uint8Array(combined.slice(0, 12)),
     new Uint8Array(combined.slice(12)),
   );
+}
+
+/**
+ * Which listed field key opens `value` where it lives (`aad`), and what it
+ * holds — for `rotate-keys` (ADR 0059 decision 2). Null when no listed key
+ * opens it: such a value is reported, never rewritten. `current` is whether
+ * that key is the one writes use.
+ */
+export async function openFieldValue(
+  value: string,
+  aad: FieldAad,
+): Promise<{ plaintext: string; keyId: string; current: boolean } | null> {
+  const keys = readKeys('field');
+  for (const [i, hex] of keys.entries()) {
+    try {
+      const plaintext = await openField(value, [hex], aad);
+      return { plaintext, keyId: fieldKeyId(hex), current: i === 0 && keyList('field').currentOk };
+    } catch {
+      // Not this key (or not this row): try the next.
+    }
+  }
+  return null;
 }
 
 /**

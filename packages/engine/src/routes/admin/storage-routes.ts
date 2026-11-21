@@ -17,12 +17,14 @@ import { clientIpForAudit, validateStorageEndpoint } from '../../lib/security/in
 import { probeLocal, probeS3, setStorageOverlay, storageConfig } from '../../lib/storage/index.js';
 import { DEFAULT_QUOTA_BYTES } from '../../lib/storage-quota.js';
 
-const SETTINGS_KEY = 'storage_config';
+/** The `zv_settings` row of the storage overlay (rotate-keys rewrites its S3 secret). */
+export const STORAGE_SETTINGS_KEY = 'storage_config';
+const SETTINGS_KEY = STORAGE_SETTINGS_KEY;
 
 type Overlay = ReturnType<typeof normalizeOverlay>;
 
 /** Where the S3 secret lives, for its `enc:v2:` envelope (ADR 0059): an instance setting. */
-const S3_SECRET_AAD = {
+export const S3_SECRET_AAD = {
   tenant: '',
   collection: '$settings',
   field: 's3.secretKey',
