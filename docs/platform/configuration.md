@@ -147,6 +147,7 @@ endpoint) when you want shared/off-host storage or horizontal scaling.
 | `S3_REGION` | `us-east-1` | Region (any value for non-AWS) |
 | `S3_PUBLIC_URL` | — | Base URL for **public** objects only (`public/`, `media/` keys). Private objects are always served by presigned URL. |
 | `BACKUP_DIR` | `/tmp/zveltio-backups` | Local directory for backup files |
+| `AUDIT_ANCHOR_TARGET` | — (no anchor) | Where each audit chain's head is anchored outside the database, at boot and hourly, one new file per write (ADR 0060 decision 5): an absolute directory, or `s3://<bucket>/<prefix>` with `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY` and `S3_SECRET_KEY` read from the environment, never from the Studio's storage settings. `GET /api/admin/audit/verify` compares the chains with the latest anchor. Point it at storage the database host cannot rewrite. See [security-model.md](security-model.md#audit-trail-adr-0060). |
 
 ### local driver (default)
 

@@ -480,7 +480,7 @@ replica. Trashed records are purged by the trash scheduler, not by this sweep.
 
 ### Audit trail (ADR 0060)
 
-**Today (migrations 128, 129 and 130):**
+**Today (migrations 128, 129 and 130, and the external anchor):**
 
 - The request role `zveltio_rls` may only insert and read audit rows; UPDATE,
   DELETE and TRUNCATE are refused, and the boot reconciler keeps it that way.
@@ -544,11 +544,36 @@ replica. Trashed records are purged by the trash scheduler, not by this sweep.
 - Purging a tenant leaves its trail, its chain and its cuts; the retention
   purge removes the rows with every other firm's, in the tenant's window.
 
-**Still to come (accepted 2026-11-19):**
-
-- Operator setting: where each tenant's chain head is anchored outside the
-  database (file or object storage), so a cut tail with a rewritten chain is
-  still detected.
+- The chain alone cannot show its newest rows deleted together with their
+  chain entries: what is left is a shorter chain that verifies. So each
+  chain's head is anchored outside the database. `AUDIT_ANCHOR_TARGET` names
+  where: an absolute directory, or `s3://<bucket>/<prefix>` (with the engine's
+  `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` from the
+  environment — never the Studio's storage settings, which live in the
+  database the anchor guards). At boot and every hour one replica writes a new
+  file `zveltio-audit-anchor-<…>.json` holding, per chain, the tenant id, the
+  head (`seq`, `hash`; the genesis when every entry was cut), the genesis
+  (`seq`, `hash`, or `null`) and when — ids and hashes only. A file is never
+  rewritten (`wx` on a directory, a new key per write on object storage). Unset,
+  nothing is anchored, boot says so, and verify answers
+  `anchor: { "configured": false }`.
+- Verify compares every chain with the latest anchor and answers, per anchored
+  chain, `ok` (the anchored entry is still on the chain, unchanged),
+  `covered` (the retention purge cut past it), `behind` (the chain ends
+  before the anchored entry: its newest rows were removed), `changed` (the
+  entry at the anchored `seq` is gone or hashes differently: the chain was
+  rewritten) or `genesis_changed` (the genesis moved back or changed). Any
+  of the last three, or an anchor that cannot be read (`error`), makes `ok`
+  false. Before each write the engine compares the same way, and a chain no
+  longer matching keeps its anchored head in the new file — the engine does
+  not launder a cut by anchoring the shorter chain. The evidence stays until
+  the operator, having looked, moves the old anchor files away.
+- What the anchor does not show: rows written after the latest anchor (at
+  most an hour's), and whether a cut was due — a genesis past the anchored head
+  is `covered` whether the purge or the owner wrote it. Point the target at
+  storage the database host cannot write (another machine, a bucket with object
+  lock); a directory on the same disk survives a database rewrite, not a host
+  compromise.
 
 ---
 
