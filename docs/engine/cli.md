@@ -110,7 +110,12 @@ rewritten. Idempotent; run it again after an interruption.
 ```bash
 zveltio rotate-keys --dry-run                  # report only
 zveltio rotate-keys --database-url postgres://… [--batch 500]
+zveltio rotate-keys --check-missing-tenants    # also count rows of deleted tenants
 ```
+
+It also counts the ciphertext it does not rewrite (rows of missing tenants,
+revision copies of fields no longer sealed, delivery and job payloads) and says
+"older keys can leave the list" only when nothing is under an older key.
 
 The npm CLI runs the engine's code from a repository checkout; on an install,
 use the release binary's `zveltio rotate-keys`. Procedure and exit codes:

@@ -376,6 +376,7 @@ what it leaves, below): keep an old mail key listed.
 ```sh
 zveltio rotate-keys --dry-run      # report only
 zveltio rotate-keys [--batch 500]  # rewrite, 500 rows per transaction
+zveltio rotate-keys --check-missing-tenants   # see below
 ```
 
 The release binary's command (`/usr/local/bin/zveltio`, `DATABASE_URL` and the
@@ -388,8 +389,10 @@ every collection, the copies of those fields in `zv_revisions` (`data` and
 `delta`), webhook signing secrets (`$webhooks`) and the S3 secret of the storage
 setting (`$settings`). Each value is opened under whichever listed key wrote it
 and, unless it is already `enc:v2:` under the current key, sealed again as
-`enc:v2:` under the current key, bound to where it lives (above). A `delta` copy
-is bound to its revision's row, as the revision read opens it.
+`enc:v2:` under the current key, bound to where it lives (above). A revision's
+copies (its `delta` too) are bound to the row its full copy names (`id`,
+`tenant_id`), the row the revision read opens them under; a copy kept in the
+old jsonb-string shape is written back in that shape.
 
 - **Fail closed.** A value no listed key opens where it lives (its key is not
   listed, or it was copied from another row) is listed by store, field, tenant
@@ -401,14 +404,34 @@ is bound to its revision's row, as the revision read opens it.
   write") and left for the next run. A rewritten row's `updated_at` moves, as on
   any write.
 - **The report** gives the number of values under each key id after the run
-  (`--dry-run`: as they are now), how many are still `enc:v1:`, and the
-  unopenable ones. Exit code 0: done; 2: done, but a value is unopenable or
-  changed during the run; 1: refused (no usable current key) or failed.
+  (`--dry-run`: as they are now), how many are still `enc:v1:`, the unopenable
+  ones (with the key id a v2 one names), and the ciphertext it did not rewrite
+  (below), counted per place and key id. Its last line says whether older keys
+  can leave the list: only when no value — rewritten, unopenable or not
+  visited — is under an older listed key, no write raced the run, and every
+  table could be read whole. Exit code 0: done and older keys can go; 2: done,
+  but a value is unopenable or an older key must stay; 1: refused (no usable
+  current key) or failed.
 
-What it leaves:
+What it does not rewrite, and counts:
 
-- Rows whose `tenant_id` names no tenant: no request reads them either (as when
-  a field becomes `secret`).
+- Rows whose `tenant_id` is NULL or names a tenant `zv_tenants` no longer
+  holds: no request reads them (as when a field becomes `secret`). Under FORCE
+  row-level security a NOSUPERUSER NOBYPASSRLS owner (the production role) does
+  not see them either, so the report names those tables as *not checked* and
+  keeps every key until a run with `--check-missing-tenants`. That flag lifts
+  FORCE on each such table for one counting statement, inside a transaction,
+  under the table's ACCESS EXCLUSIVE lock (writes to it wait for one scan;
+  `lock_timeout` 5 s): run it at a quiet moment. A superuser or BYPASSRLS
+  connection counts them without it.
+- Revision copies of a field that is no longer `encrypted` or `secret` (or of a
+  dropped collection), and copies whose full copy names no `id`/`tenant_id`:
+  their row is not known for certain, and nothing serves them.
+- Webhook delivery payloads and pg-boss job payloads: the outbound copy drops
+  sealed fields, so only an older one can hold ciphertext; nothing reads it back.
+
+What it leaves uncounted:
+
 - Values an extension sealed itself through `ctx.internals.encryptSecret`, and
   the mail keyring (`aes256gcm:`), stored in a column that is not `encrypted` or
   `secret`: their readers name no row, so they stay `enc:v1:` (ADR 0059 step 3,
