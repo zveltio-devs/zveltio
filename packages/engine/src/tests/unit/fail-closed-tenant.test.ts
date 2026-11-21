@@ -1,18 +1,19 @@
 /**
- * applyFailClosedTenantSetting — the tenant fallback is closed by default
- * (DR-03, migration 123); ZVELTIO_FAIL_CLOSED_TENANT=0 opts out.
+ * The stored half of applyFailClosedTenantSetting — the tenant fallback is
+ * closed by default (DR-03, migration 123); ZVELTIO_FAIL_CLOSED_TENANT=0 opts
+ * out. What a new connection gets is checked against a real database in
+ * harness/fail-closed-tenant-effective.test.ts.
  */
 import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import type { Database } from '../../db/index.js';
-import {
-  applyFailClosedTenantSetting,
-  failClosedTenantEnabled,
-} from '../../lib/tenancy/fail-closed-tenant.js';
+import { failClosedTenantEnabled, storeSetting } from '../../lib/tenancy/fail-closed-tenant.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
 function asDb(db: CannedDb): Database {
   return db.kysely as unknown as Database;
 }
+
+const applyFailClosedTenantSetting = (db: Database) => storeSetting(db, failClosedTenantEnabled());
 
 /** A database whose stored values are `first`, then `after` once read again. */
 function canned(first: string[], after: string[] = []): CannedDb {
@@ -24,8 +25,11 @@ function canned(first: string[], after: string[] = []): CannedDb {
   return db;
 }
 
+const savedNodeEnv = process.env.NODE_ENV;
 afterEach(() => {
   delete process.env.ZVELTIO_FAIL_CLOSED_TENANT;
+  if (savedNodeEnv === undefined) delete process.env.NODE_ENV;
+  else process.env.NODE_ENV = savedNodeEnv;
 });
 
 describe('failClosedTenantEnabled', () => {
@@ -92,5 +96,13 @@ describe('applyFailClosedTenantSetting', () => {
     } finally {
       warn.mockRestore();
     }
+  });
+
+  it('=0 that cannot be applied refuses to boot in production, naming the permission', async () => {
+    process.env.ZVELTIO_FAIL_CLOSED_TENANT = '0';
+    process.env.NODE_ENV = 'production';
+    const db = canned([]);
+    db.fail(/ALTER DATABASE/i, new Error('must be owner of database zveltio_test'));
+    await expect(applyFailClosedTenantSetting(asDb(db))).rejects.toThrow('GRANT SET ON PARAMETER');
   });
 });

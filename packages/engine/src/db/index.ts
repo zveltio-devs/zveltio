@@ -81,13 +81,12 @@ export function activePoolMax(): number {
  * Creates a standalone Kysely instance for a given connection string.
  * Used primarily in integration tests to get an isolated db connection.
  */
-export function createDb(connectionString: string): Database {
+export function createDb(connectionString: string, max = resolvePoolMax()): Database {
   // The same budget as the engine's pool. Without it the dialect's default of
   // 20 applied, and Bun.SQL opens a pool's whole `max` on its first query: every
   // handle a test or a one-off admin run opened took 20 backends, outside the
   // `DB_POOL_MAX` arithmetic, and a full harness run reached the CI server's
-  // `max_connections` (measured 2026-10-27).
-  const max = resolvePoolMax();
+  // `max_connections` (measured 2026-10-27). A one-off probe passes 1.
   return sequenceTransactions(
     new Kysely({
       dialect:

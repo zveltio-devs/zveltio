@@ -184,10 +184,10 @@ d(TITLE, () => {
     const own = createDb(urlFor(APP, PASS));
     try {
       process.env.ZVELTIO_FAIL_CLOSED_TENANT = '0';
-      await applyFailClosedTenantSetting(own);
+      await applyFailClosedTenantSetting(own, urlFor(APP, PASS));
       expect(await dbSetting('zveltio.fail_closed_tenant')).toBe('zveltio.fail_closed_tenant=off');
       delete process.env.ZVELTIO_FAIL_CLOSED_TENANT;
-      await applyFailClosedTenantSetting(own);
+      await applyFailClosedTenantSetting(own, urlFor(APP, PASS));
       expect(await dbSetting('zveltio.fail_closed_tenant')).toBeNull();
     } finally {
       if (prev === undefined) delete process.env.ZVELTIO_FAIL_CLOSED_TENANT;

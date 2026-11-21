@@ -396,6 +396,40 @@ background work — cron flows, jobs, webhooks, purges — already names its
 tenant or publishes every tenant (`withEveryTenant`). Before migration 123 the
 default was the opposite, and `ZVELTIO_FAIL_CLOSED_TENANT=1` was the opt-in.
 
+The variable is the only way to open it. A connection also takes the setting
+from the login role (which wins over the database) and from the client's
+startup options — `options=-c zveltio.fail_closed_tenant=off` in
+`DATABASE_URL`, or `PGOPTIONS` (masked by the engine's own `options` unless
+`DB_IDLE_IN_TXN_TIMEOUT_MS=0`) — and no catalog shows the latter. So the boot,
+after storing its value, opens one new connection with the engine's driver and
+options and reads what it actually gets. If that differs from what the variable
+asks — open without `=0`, or closed with it (a role-level `'on'` overriding the
+database's `'off'`, say) — the engine warns in development and test and refuses
+to start in production. A `=0` the engine role cannot store (it must own the
+database and hold `SET` on the parameter; `scripts/bootstrap-db-role.sh` grants
+both) refuses to start in production too, and only warns elsewhere.
+
+Behind a transaction pooler (PgBouncer, PgDog) a new client connection is a
+backend the pooler already holds — opened before the value was stored, or left
+with another client's `SET` — so it proves nothing. Set `NATIVE_DATABASE_URL`:
+the check then opens its connection there, and reads `DATABASE_URL`'s own
+startup options and `PGOPTIONS` as text, refusing any `zveltio.*` they set.
+Without it the check runs over `DATABASE_URL`, and a stale pooled backend can
+refuse a production boot until the pooler recycles it.
+
+The same fresh connection must carry none of the engine's per-transaction
+context. Every other `zveltio.*` setting a policy, function or column default
+in the database reads — `zveltio.current_tenant`, `zveltio.actor`,
+`zveltio.rls_bypass`, the grant lists — is set by the engine inside each
+transaction, never on a connection. Preset by a startup option or a stored
+setting, it applies to every statement that sets nothing: a preset
+`zveltio.current_tenant` makes a contextless query read and write that tenant's
+rows. The engine refuses to start, in every environment, when a fresh
+connection holds a value for any of them. The names are read from the database
+itself — functions, policies, column defaults, CHECK constraints, views and
+rules, index and trigger conditions — because Postgres lists such settings in
+no catalog.
+
 ### The tables a tenant is resolved from
 
 `zv_api_keys`, `zv_invitations`, `zv_media_shares` and `zv_tenant_users`

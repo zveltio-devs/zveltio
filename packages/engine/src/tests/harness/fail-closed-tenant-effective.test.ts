@@ -1,0 +1,231 @@
+/**
+ * The boot checks the tenant fallback a new engine connection actually gets,
+ * not only what the catalog stores (DR-03, A04 2026-11-20, owner 2026-11-21).
+ *
+ * `zveltio.fail_closed_tenant` reaches a connection from three places: the
+ * database's stored value, the login role's (which wins over the database's),
+ * and the client's startup options — `options=-c …` in DATABASE_URL or
+ * PGOPTIONS, which no catalog shows. The boot used to read only the catalog, so
+ * a startup option opened the fallback on every connection without a word, and
+ * a role-level 'on' silently closed what ZVELTIO_FAIL_CLOSED_TENANT=0 asked
+ * open. Now any difference warns in development and test and refuses to boot
+ * in production.
+ *
+ * Driven through `createDb`, the engine's own driver config, so it runs on
+ * both lanes (Bun.SQL and pg honour the startup options alike).
+ */
+
+import { afterAll, afterEach, beforeAll, describe, expect, it, spyOn } from 'bun:test';
+import { sql } from 'kysely';
+import { createDb, type Database } from '../../db/index.js';
+import { applyFailClosedTenantSetting } from '../../lib/tenancy/fail-closed-tenant.js';
+import { asEveryTenant, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+
+const d = harnessAvailable() ? describe : describe.skip;
+const URL_ = process.env.TEST_DATABASE_URL ?? '';
+
+function withStartupOption(url: string, options: string): string {
+  const u = new URL(url);
+  u.searchParams.set('options', options);
+  return u.toString();
+}
+
+const ENV_KEYS = ['ZVELTIO_FAIL_CLOSED_TENANT', 'NODE_ENV'] as const;
+
+d('the tenant fallback a fresh engine connection gets', () => {
+  const saved = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
+  const handles: Database[] = [];
+  const open = (url: string) => {
+    const db = createDb(url);
+    handles.push(db);
+    return db;
+  };
+
+  afterEach(async () => {
+    for (const k of ENV_KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+    const admin = open(URL_);
+    const name = (await sql<{ d: string }>`SELECT current_database() AS d`.execute(admin)).rows[0]!
+      .d;
+    await sql.raw(`ALTER DATABASE "${name}" RESET zveltio.fail_closed_tenant`).execute(admin);
+    await sql
+      .raw(`ALTER ROLE CURRENT_USER IN DATABASE "${name}" RESET zveltio.fail_closed_tenant`)
+      .execute(admin);
+    for (const h of handles.splice(0)) await h.destroy();
+  });
+
+  it('closed asked, options=-c opens it: production refuses to boot', async () => {
+    delete process.env.ZVELTIO_FAIL_CLOSED_TENANT;
+    process.env.NODE_ENV = 'production';
+    const url = withStartupOption(URL_, '-c zveltio.fail_closed_tenant=off');
+    await expect(applyFailClosedTenantSetting(open(url), url)).rejects.toThrow('PGOPTIONS');
+  });
+
+  it('closed asked, options=-c opens it: test only warns', async () => {
+    delete process.env.ZVELTIO_FAIL_CLOSED_TENANT;
+    process.env.NODE_ENV = 'test';
+    const url = withStartupOption(URL_, '-c zveltio.fail_closed_tenant=off');
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await applyFailClosedTenantSetting(open(url), url);
+      expect(warn.mock.calls.some((c) => String(c[0]).includes('fail-open'))).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('=0 asked, a role-level on closes it: production refuses to boot', async () => {
+    process.env.ZVELTIO_FAIL_CLOSED_TENANT = '0';
+    process.env.NODE_ENV = 'production';
+    const admin = open(URL_);
+    const name = (await sql<{ d: string }>`SELECT current_database() AS d`.execute(admin)).rows[0]!
+      .d;
+    // Stored before the handle under test opens, so its connections already see
+    // both: the role's 'on' wins over the database's 'off'.
+    await sql.raw(`ALTER DATABASE "${name}" SET zveltio.fail_closed_tenant = 'off'`).execute(admin);
+    await sql
+      .raw(`ALTER ROLE CURRENT_USER IN DATABASE "${name}" SET zveltio.fail_closed_tenant = 'on'`)
+      .execute(admin);
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await expect(applyFailClosedTenantSetting(open(URL_), URL_)).rejects.toThrow('PGOPTIONS');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('what is asked is what a connection gets: no warning, no refusal', async () => {
+    delete process.env.ZVELTIO_FAIL_CLOSED_TENANT;
+    process.env.NODE_ENV = 'production';
+    await expect(applyFailClosedTenantSetting(open(URL_), URL_)).resolves.toBeUndefined();
+  });
+});
+
+/**
+ * Any other `zveltio.*` setting the database's policies, functions or column
+ * defaults read is the engine's per-transaction context, never a connection
+ * default. Preset by a startup option, `zveltio.current_tenant` makes every
+ * contextless statement on the connection run as that tenant. The boot refuses
+ * it in every environment: a preset context is never a mode.
+ */
+d('a session context preset by a startup option', () => {
+  const OTHER = crypto.randomUUID();
+  const STAMP = `preset_${Date.now()}`;
+  let db: Database;
+  const handles: Database[] = [];
+  const open = (url: string) => {
+    const h = createDb(url);
+    handles.push(h);
+    return h;
+  };
+
+  beforeAll(async () => {
+    ({ db } = await getTestApp());
+    await sql`INSERT INTO zv_tenants (id, slug, name, status)
+              VALUES (${OTHER}::uuid, ${STAMP}, ${STAMP}, 'active')`.execute(db);
+    await db.transaction().execute(async (trx) => {
+      await sql`SELECT set_config('zveltio.current_tenant', ${OTHER}, true)`.execute(trx);
+      await sql`SET LOCAL ROLE zveltio_rls`.execute(trx);
+      await sql`INSERT INTO zv_media_tags (name) VALUES (${STAMP})`.execute(trx);
+    });
+  }, 60_000);
+
+  afterAll(async () => {
+    for (const h of handles.splice(0)) await h.destroy();
+    if (!db) return;
+    await asEveryTenant(db, sql`DELETE FROM zv_media_tags WHERE name = ${STAMP}`);
+    await sql`DELETE FROM zv_tenants WHERE id = ${OTHER}::uuid`.execute(db);
+  });
+
+  const count = async (h: Database) =>
+    (
+      await sql<{ n: number }>`
+        SELECT count(*)::int AS n FROM zv_media_tags WHERE name = ${STAMP}`.execute(h)
+    ).rows[0]!.n;
+
+  it("a contextless query on such a connection sees that tenant's rows", async () => {
+    expect(await count(open(withStartupOption(URL_, '-c role=zveltio_rls')))).toBe(0);
+    const preset = open(
+      withStartupOption(URL_, `-c role=zveltio_rls -c zveltio.current_tenant=${OTHER}`),
+    );
+    expect(await count(preset)).toBe(1);
+  });
+
+  it('the boot refuses it, outside production too', async () => {
+    const savedEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'test';
+    try {
+      const url = withStartupOption(URL_, `-c zveltio.current_tenant=${OTHER}`);
+      await expect(applyFailClosedTenantSetting(open(url), url)).rejects.toThrow(
+        'zveltio.current_tenant',
+      );
+    } finally {
+      process.env.NODE_ENV = savedEnv;
+    }
+  });
+
+  /** Runs `body` with NODE_ENV=test, so only what refuses everywhere throws. */
+  const inTest = async (body: () => Promise<void>) => {
+    const savedEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'test';
+    try {
+      await body();
+    } finally {
+      process.env.NODE_ENV = savedEnv;
+    }
+  };
+
+  it('the check opens its own connection, not one the handle already pooled', () =>
+    inTest(async () => {
+      const warm = open(URL_);
+      await count(warm);
+      const name = (await sql<{ d: string }>`SELECT current_database() AS d`.execute(db)).rows[0]!
+        .d;
+      await sql
+        .raw(
+          `ALTER ROLE CURRENT_USER IN DATABASE "${name}" SET zveltio.current_tenant = '${OTHER}'`,
+        )
+        .execute(db);
+      try {
+        await expect(applyFailClosedTenantSetting(warm, URL_)).rejects.toThrow(
+          'zveltio.current_tenant',
+        );
+      } finally {
+        // 001's database default stays: the role's own value goes.
+        await sql
+          .raw(`ALTER ROLE CURRENT_USER IN DATABASE "${name}" RESET zveltio.current_tenant`)
+          .execute(db);
+      }
+    }));
+
+  it('with NATIVE_DATABASE_URL the check opens there and reads the engine URL as text', () =>
+    inTest(async () => {
+      // The engine URL is never connected to: a pooler's backend proves nothing.
+      await expect(
+        applyFailClosedTenantSetting(db, 'postgresql://nobody@127.0.0.1:9/none', URL_),
+      ).resolves.toBeUndefined();
+      const pooled = withStartupOption(URL_, `-c zveltio.current_tenant=${OTHER}`);
+      await expect(applyFailClosedTenantSetting(db, pooled, URL_)).rejects.toThrow(
+        'zveltio.current_tenant',
+      );
+    }));
+
+  it('a setting only a view or a CHECK constraint reads is checked too', () =>
+    inTest(async () => {
+      await sql`CREATE VIEW zv_fct_probe_v AS
+                SELECT current_setting('zveltio.planted_view', true) AS v`.execute(db);
+      await sql`CREATE TABLE zv_fct_probe_t
+                (x text CHECK (x <> current_setting('zveltio.planted_check', true)))`.execute(db);
+      try {
+        const url = withStartupOption(URL_, '-c zveltio.planted_view=1 -c zveltio.planted_check=1');
+        await expect(applyFailClosedTenantSetting(open(url), url)).rejects.toThrow(
+          'zveltio.planted_check, zveltio.planted_view',
+        );
+      } finally {
+        await sql`DROP VIEW IF EXISTS zv_fct_probe_v`.execute(db);
+        await sql`DROP TABLE IF EXISTS zv_fct_probe_t`.execute(db);
+      }
+    }));
+});

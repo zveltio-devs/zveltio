@@ -58,7 +58,7 @@ d('the tenant fallback after a pool recycle on the pg driver', () => {
     const saved = process.env.ZVELTIO_FAIL_CLOSED_TENANT;
     delete process.env.ZVELTIO_FAIL_CLOSED_TENANT;
     try {
-      await applyFailClosedTenantSetting(db);
+      await applyFailClosedTenantSetting(db, process.env.TEST_DATABASE_URL!);
     } finally {
       if (saved !== undefined) process.env.ZVELTIO_FAIL_CLOSED_TENANT = saved;
     }
