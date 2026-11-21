@@ -79,10 +79,14 @@ async function purgeAuditChains(
   instanceDays: number,
   tenantDays: Map<string, number>,
 ): Promise<number> {
+  // As the purge role, which may read the chain: a plain-role pool may not.
   // ponytail: a full scan of the chain's tenant column each night; a skip scan
   // over (tenant_id, seq) when the chain is large enough for it to show.
-  const chains = await sql<{ tenant_id: string | null }>`
-    SELECT DISTINCT tenant_id::text AS tenant_id FROM zv_audit_chain`.execute(db);
+  const chains = await db.transaction().execute(async (trx) => {
+    await sql`SELECT set_config('role', 'zveltio_audit_purge', true)`.execute(trx);
+    return sql<{ tenant_id: string | null }>`
+      SELECT DISTINCT tenant_id::text AS tenant_id FROM zv_audit_chain`.execute(trx);
+  });
   let total = 0;
   for (const { tenant_id } of chains.rows) {
     const days = (tenant_id === null ? undefined : tenantDays.get(tenant_id)) ?? instanceDays;

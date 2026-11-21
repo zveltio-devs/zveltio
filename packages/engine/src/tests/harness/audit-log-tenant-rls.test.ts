@@ -204,22 +204,26 @@ d('zv_audit_log under tenant RLS', () => {
     expect(rows.length).toBe(100);
   });
 
-  it('retention purges every firm’s and the instance’s old rows on a plain-role pool', async () => {
+  it('retention purges a firm’s old rows on a plain-role pool', async () => {
     const OLD = `${TAG}.old` as AuditEventType;
-    await withTenantIsolation(B, (trx) => auditLog(trx, { type: OLD, resourceId: 'b' }));
-    await auditLog(db, { type: OLD, resourceId: 'instance' });
-    // Aged by the owner with the append-only trigger off (migration 129).
-    await asAuditOwner(
-      db,
-      sql`UPDATE zv_audit_log SET created_at = now() - interval '400 days'
-           WHERE event_type = ${OLD}`,
+    // A firm whose chain starts with an expired row (migration 130 cuts from the
+    // oldest end only), written already old: the chain links it as it is.
+    const C = crypto.randomUUID();
+    await withTenantIsolation(C, (trx) =>
+      sql`INSERT INTO zv_audit_log (event_type, resource_id, tenant_id, created_at)
+          VALUES (${OLD}, 'c', ${C}::uuid, now() - interval '400 days')`.execute(trx),
     );
+    const left = () =>
+      asEveryTenant(db, async (trx) => {
+        await sql`SELECT set_config('zveltio.visible_tenants', ${C}, true)`.execute(trx);
+        return (
+          await sql<{ n: number }>`
+          SELECT count(*)::int AS n FROM zv_audit_log WHERE event_type = ${OLD}`.execute(trx)
+        ).rows[0]!.n;
+      });
+    expect(await left()).toBe(1);
     await runGarbageCollector(plain);
-    const left = await asEveryTenant(db, (trx) =>
-      sql<{ n: number }>`
-      SELECT count(*)::int AS n FROM zv_audit_log WHERE event_type = ${OLD}`.execute(trx),
-    );
-    expect(left.rows[0]!.n).toBe(0);
+    expect(await left()).toBe(0);
   });
 
   it('040 runs twice, rolls back and runs again; 041 runs twice', async () => {
@@ -227,11 +231,20 @@ d('zv_audit_log under tenant RLS', () => {
     const m41 = await migration('041_audit_log_tenant_index.sql');
     // 066's policy names the column 040's DOWN drops; a rollback undoes 066 first.
     const m66 = await migration('066_audit_log_own_node_writes.sql');
+    // And 130's purge policies name it too.
+    const m130 = await migration('130_audit_retention_cut.sql');
     const rollback = new Error('rollback');
     await db
       .transaction()
       .execute(async (trx) => {
-        for (const part of [m40.up, m40.up, m66.down ?? '', m40.down ?? '', m40.up]) {
+        for (const part of [
+          m40.up,
+          m40.up,
+          m130.down ?? '',
+          m66.down ?? '',
+          m40.down ?? '',
+          m40.up,
+        ]) {
           for (const stmt of splitSqlStatements(part)) await sql.raw(stmt).execute(trx);
         }
         throw rollback;

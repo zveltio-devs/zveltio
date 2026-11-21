@@ -124,9 +124,7 @@ d('audit retention per tenant, chain cut from the oldest end (ADR 0060 decision 
     const cut = await chainOf(T.short);
     expect(cut).toMatchObject({ ok: true, verified: 1, genesis: { seq: 2 }, head: { seq: 3 } });
     const entries = await sql<{ n: number }>`
-      SELECT count(*)::int AS n FROM zv_audit_chain WHERE tenant_id = ${T.short}::uuid`.execute(
-      db,
-    );
+      SELECT count(*)::int AS n FROM zv_audit_chain WHERE tenant_id = ${T.short}::uuid`.execute(db);
     expect(entries.rows[0]!.n).toBe(1);
 
     await withTenantIsolation(T.short, (trx) => auditLog(trx, { type: EV, resourceId: 's4' }));
@@ -159,6 +157,17 @@ d('audit retention per tenant, chain cut from the oldest end (ADR 0060 decision 
     await expect(asPurge(T.order, 10, del('r2'))).rejects.toThrow(/oldest end only/);
     expect(await rowsOf(T.order)).toEqual(['r2', 'r1']);
     expect(await chainOf(T.order)).toMatchObject({ ok: true, verified: 2, genesis: null });
+
+    // The instance's chain, stated as `instance`: an old instance row behind a
+    // younger one is in reach and refused the same way.
+    await auditLog(db, { type: EV, resourceId: 'i1', tenantId: null });
+    await _settleAuditWrites();
+    await asTenant(db, '', (trx) =>
+      sql`INSERT INTO zv_audit_log (event_type, resource_id, created_at)
+          VALUES (${EV}, 'i2', now() - interval '40 days')`.execute(trx),
+    );
+    expect(Number((await asPurge(T.order, 10, del('i2'))).numAffectedRows)).toBe(0);
+    await expect(asPurge('instance', 10, del('i2'))).rejects.toThrow(/oldest end only/);
 
     // The engine's purge stops at the first row inside the window.
     process.env[ENV] = `${T.order}=10`;
