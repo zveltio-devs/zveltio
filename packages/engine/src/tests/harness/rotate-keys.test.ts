@@ -14,7 +14,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { DDLManager, decryptField, encryptField, encryptFieldUnbound } from '../../lib/data/index.js';
+import {
+  DDLManager,
+  decryptField,
+  encryptField,
+  encryptFieldUnbound,
+} from '../../lib/data/index.js';
 import { fieldKeyId } from '../../lib/security/index.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/index.js';
 import { webhookSecretAad } from '../../lib/webhooks.js';
@@ -83,7 +88,10 @@ d('rotate-keys (in-process)', () => {
   const under = (v: string | null | undefined, key: string) =>
     typeof v === 'string' && v.startsWith(`enc:v2:${fieldKeyId(key)}:`);
   const mine = (r: Awaited<ReturnType<typeof rotateKeys>>) =>
-    r.unopenable.filter((u) => u.store === `${TABLE}.note`).map((u) => u.record).sort();
+    r.unopenable
+      .filter((u) => u.store === `${TABLE}.note`)
+      .map((u) => u.record)
+      .sort();
 
   let planted: Awaited<ReturnType<typeof read>>;
 
@@ -93,7 +101,14 @@ d('rotate-keys (in-process)', () => {
     await DDLManager.createCollection(db, {
       name: COLLECTION,
       fields: [
-        { name: 'note', type: 'text', required: false, unique: false, indexed: false, encrypted: true },
+        {
+          name: 'note',
+          type: 'text',
+          required: false,
+          unique: false,
+          indexed: false,
+          encrypted: true,
+        },
         { name: 'token', type: 'secret', required: false, unique: false, indexed: false },
       ],
     } as never);
@@ -148,9 +163,9 @@ d('rotate-keys (in-process)', () => {
                         ARRAY['insert'], ${hook})`.execute(trx);
     });
     savedSettings = (
-      await sql<{ raw: string }>`SELECT value::text AS raw FROM zv_settings WHERE key = 'storage_config'`.execute(
-        db,
-      )
+      await sql<{
+        raw: string;
+      }>`SELECT value::text AS raw FROM zv_settings WHERE key = 'storage_config'`.execute(db)
     ).rows[0]?.raw;
     // The shape the storage route writes: a jsonb string holding the JSON.
     const conf = JSON.stringify({ driver: 's3', s3: { bucket: 'b', secretKey: s3 } });
@@ -165,8 +180,15 @@ d('rotate-keys (in-process)', () => {
     delete process.env.FIELD_ENCRYPTION_KEYS;
     process.env.FIELD_ENCRYPTION_KEY = K0;
     if (!db) return;
-    await sql.raw(`DROP TABLE IF EXISTS "${TABLE}" CASCADE`).execute(db).catch(() => {});
-    await db.deleteFrom('zvd_collections').where('name', '=', COLLECTION).execute().catch(() => {});
+    await sql
+      .raw(`DROP TABLE IF EXISTS "${TABLE}" CASCADE`)
+      .execute(db)
+      .catch(() => {});
+    await db
+      .deleteFrom('zvd_collections')
+      .where('name', '=', COLLECTION)
+      .execute()
+      .catch(() => {});
     await asDefaultTenant(db, async (trx) => {
       await trx.deleteFrom('zv_revisions').where('collection', '=', COLLECTION).execute();
       await trx.deleteFrom('zvd_webhooks').where('id', '=', HOOK).execute();
@@ -175,7 +197,9 @@ d('rotate-keys (in-process)', () => {
       await sql`DELETE FROM zv_settings WHERE key = 'storage_config'`.execute(db).catch(() => {});
     } else {
       await sql`UPDATE zv_settings SET value = ${savedSettings}::text::jsonb
-                WHERE key = 'storage_config'`.execute(db).catch(() => {});
+                WHERE key = 'storage_config'`
+        .execute(db)
+        .catch(() => {});
     }
   });
 
@@ -236,10 +260,9 @@ d('rotate-keys (in-process)', () => {
     try {
       const get = await app.request(`/api/data/${COLLECTION}/${R.v1}`, { headers: { cookie } });
       expect(((await get.json()) as { note?: string }).note).toBe('plain-v1');
-      const revs = await app.request(
-        `/api/revisions?collection=${COLLECTION}&record_id=${R.v1}`,
-        { headers: { cookie } },
-      );
+      const revs = await app.request(`/api/revisions?collection=${COLLECTION}&record_id=${R.v1}`, {
+        headers: { cookie },
+      });
       const body = JSON.stringify(await revs.json());
       expect(body).toContain('plain-v1');
       expect(body).not.toContain('enc:v');

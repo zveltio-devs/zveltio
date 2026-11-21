@@ -128,8 +128,9 @@ export async function rotateKeys(
     report.left[report.currentKeyId] = (report.left[report.currentKeyId] ?? 0) + written;
   };
 
-  const tenants = (await sql<{ id: string }>`SELECT id::text AS id FROM zv_tenants ORDER BY id`.execute(db))
-    .rows.map((r) => r.id);
+  const tenants = (
+    await sql<{ id: string }>`SELECT id::text AS id FROM zv_tenants ORDER BY id`.execute(db)
+  ).rows.map((r) => r.id);
 
   // ── Collections: every `encrypted` / `secret` column ────────────────────────
   const names = (await db.selectFrom('zvd_collections').select('name').execute()).map(
@@ -196,16 +197,17 @@ export async function rotateKeys(
       let after = FIRST_ID;
       for (;;) {
         const more = await asTenant(db, tenant, async (trx) => {
-          const rows = (
+          const rows =
             // As text: compared byte for byte on the way back, and a copy stored
             // as a jsonb string (migration 009's shape) is parsed here, not by the driver.
-            await sql<{ id: string; record_id: string; data: string; delta: string | null }>`
+            (
+              await sql<{ id: string; record_id: string; data: string; delta: string | null }>`
               SELECT id::text AS id, record_id, data::text AS data, delta::text AS delta
                 FROM zv_revisions
                WHERE tenant_id = ${tenant}::uuid AND collection = ${collection}
                  AND id > ${after}::uuid
                ORDER BY id LIMIT ${batch}`.execute(trx)
-          ).rows;
+            ).rows;
           const writes: Array<{
             id: string;
             data: unknown;

@@ -87,7 +87,8 @@ export async function shapeRevisionData(
   // A delta names no row, and an `enc:v2:` value opens only with the row it is
   // sealed to (ADR 0059): it borrows the `id` and `tenant_id` of the revision's
   // full copy, and gives them back after.
-  const borrowed = row === undefined ? [] : (['id', 'tenant_id'] as const).filter((k) => !(k in copy));
+  const borrowed =
+    row === undefined ? [] : (['id', 'tenant_id'] as const).filter((k) => !(k in copy));
   const whole = asObject(row);
   for (const k of borrowed) copy[k] = whole[k];
   const shaped = await serializeSnapshot(

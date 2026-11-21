@@ -534,7 +534,10 @@ if (_cmd === 'rotate-keys') {
   const _db = await _initDb3();
   const { rotateKeys, formatRotateKeysReport } = await import('./lib/rotate-keys.js');
   try {
-    const _report = await rotateKeys(_db, { dryRun: _args.includes('--dry-run'), batchSize: _batch });
+    const _report = await rotateKeys(_db, {
+      dryRun: _args.includes('--dry-run'),
+      batchSize: _batch,
+    });
     console.log(formatRotateKeysReport(_report));
     // 2: finished, but a value is unopenable or changed under the run.
     process.exit(_report.unopenable.length > 0 || _report.changed > 0 ? 2 : 0);
