@@ -372,7 +372,8 @@ COMMANDS
   migrate                            Run pending database migrations.
   create-god --email E --password P  Create the instance's god (first admin) through
                                      better-auth; refused once a god exists. [--name N]
-  rotate-keys [--dry-run] [--batch N] Rewrite every engine-sealed field value under the
+  rotate-keys [--dry-run] [--batch N] [--check-missing-tenants]
+                                     Rewrite every engine-sealed field value under the
                                      current FIELD_ENCRYPTION_KEYS key, bound to its row;
                                      report what is left under each key id.
   status                             Show service status.
@@ -521,11 +522,12 @@ if (_cmd === 'rotate-keys') {
   const _args = process.argv.slice(3);
   const _bi = _args.indexOf('--batch');
   const _batch = _bi >= 0 ? Number(_args[_bi + 1]) : undefined;
-  const _unknown = _args.filter(
-    (a, i) => a !== '--dry-run' && a !== '--batch' && !(_bi >= 0 && i === _bi + 1),
-  );
+  const _flags = new Set(['--dry-run', '--batch', '--check-missing-tenants']);
+  const _unknown = _args.filter((a, i) => !_flags.has(a) && !(_bi >= 0 && i === _bi + 1));
   if (_unknown.length > 0 || (_bi >= 0 && !(Number.isInteger(_batch) && (_batch ?? 0) > 0))) {
-    console.error('Usage: zveltio rotate-keys [--dry-run] [--batch <rows per transaction>]');
+    console.error(
+      'Usage: zveltio rotate-keys [--dry-run] [--batch <rows per transaction>] [--check-missing-tenants]',
+    );
     process.exit(1);
   }
   // A one-shot command beside a live engine: see create-god.
@@ -537,10 +539,11 @@ if (_cmd === 'rotate-keys') {
     const _report = await rotateKeys(_db, {
       dryRun: _args.includes('--dry-run'),
       batchSize: _batch,
+      checkMissingTenants: _args.includes('--check-missing-tenants'),
     });
     console.log(formatRotateKeysReport(_report));
-    // 2: finished, but a value is unopenable or changed under the run.
-    process.exit(_report.unopenable.length > 0 || _report.changed > 0 ? 2 : 0);
+    // 2: finished, but a value is unopenable or an older key cannot leave the list yet.
+    process.exit(_report.unopenable.length > 0 || !_report.oldKeysDroppable ? 2 : 0);
   } catch (err) {
     console.error(`❌ rotate-keys failed: ${(err as Error).message}`);
     process.exit(1);

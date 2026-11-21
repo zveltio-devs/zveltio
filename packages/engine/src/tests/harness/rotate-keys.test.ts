@@ -27,6 +27,7 @@ import { S3_SECRET_AAD } from '../../routes/admin/storage-routes.js';
 import { rotateKeys } from '../../lib/rotate-keys.js';
 import {
   asDefaultTenant,
+  asTenant,
   createGodSession,
   getTestApp,
   harnessAvailable,
@@ -42,6 +43,14 @@ const id = () => crypto.randomUUID();
 const R = { v1: id(), v2: id(), v1k1: id(), foreign: id(), copied: id(), secret: id() };
 const HOOK = id();
 const REV = id();
+// A tenant `zv_tenants` does not hold, and revisions the pass must not rewrite.
+const ORPHAN = id();
+const ORPHAN_ROW = id();
+const REV_PLAIN = id();
+const REV_NOROW = id();
+const REV_STR = id();
+const REV_ODD = id();
+const DELIVERY = id();
 
 d('rotate-keys (in-process)', () => {
   let app: Hono;
@@ -110,6 +119,7 @@ d('rotate-keys (in-process)', () => {
           encrypted: true,
         },
         { name: 'token', type: 'secret', required: false, unique: false, indexed: false },
+        { name: 'label', type: 'text', required: false, unique: false, indexed: false },
       ],
     } as never);
     for (let i = 0; i < 100; i++) {
@@ -126,6 +136,7 @@ d('rotate-keys (in-process)', () => {
     const token = await encryptFieldUnbound('plain-token');
     const hook = await encryptFieldUnbound('hook-secret');
     const s3 = await encryptFieldUnbound('s3-secret');
+    const str = await encryptFieldUnbound('plain-str');
     // A key the operator never listed: nothing can open it.
     process.env.FIELD_ENCRYPTION_KEY = K9;
     const foreign = await encryptFieldUnbound('lost');
@@ -161,7 +172,31 @@ d('rotate-keys (in-process)', () => {
       await sql`INSERT INTO zvd_webhooks (id, tenant_id, name, url, events, secret)
                 VALUES (${HOOK}::uuid, ${DEFAULT_TENANT_ID}::uuid, 'rk', 'https://example.com/h',
                         ARRAY['insert'], ${hook})`.execute(trx);
+      const rev = (rid: string, data: unknown, delta: unknown = null) =>
+        sql`INSERT INTO zv_revisions (id, collection, record_id, action, data, delta, tenant_id)
+            VALUES (${rid}::uuid, ${COLLECTION}, ${R.v2}, 'update', ${data}, ${delta},
+                    ${DEFAULT_TENANT_ID}::uuid)`.execute(trx);
+      const json = (o: unknown) => sql`${JSON.stringify(o)}::text::jsonb`;
+      // A copy of a field that is not sealed: counted, never rewritten.
+      await rev(REV_PLAIN, json({ id: R.v2, tenant_id: DEFAULT_TENANT_ID, label: v1 }));
+      // A copy that names no row (no id): the reader cannot open it, so it stays.
+      await rev(REV_NOROW, json({ tenant_id: DEFAULT_TENANT_ID, note: v1 }));
+      // Migration 009's shape, a jsonb string holding the JSON: rewritten in that shape.
+      await rev(
+        REV_STR,
+        sql`to_jsonb(${JSON.stringify({ id: R.v2, tenant_id: DEFAULT_TENANT_ID, note: str })}::text)`,
+      );
+      // A delta that is not an object: the listing must not fail on it.
+      await rev(REV_ODD, json({ id: R.v2, tenant_id: DEFAULT_TENANT_ID }), json('oops'));
+      await sql`INSERT INTO zvd_webhook_deliveries (id, webhook_id, url, method, payload, tenant_id)
+                VALUES (${DELIVERY}::uuid, ${HOOK}::uuid, 'https://example.com/h', 'POST',
+                        ${JSON.stringify({ data: { note: v1 } })}::text::jsonb,
+                        ${DEFAULT_TENANT_ID}::uuid)`.execute(trx);
     });
+    await asTenant(db, ORPHAN, (trx) =>
+      sql`INSERT INTO ${sql.table(TABLE)} (id, tenant_id, note)
+          VALUES (${ORPHAN_ROW}::uuid, ${ORPHAN}::uuid, ${v1})`.execute(trx),
+    );
     savedSettings = (
       await sql<{
         raw: string;
@@ -191,6 +226,7 @@ d('rotate-keys (in-process)', () => {
       .catch(() => {});
     await asDefaultTenant(db, async (trx) => {
       await trx.deleteFrom('zv_revisions').where('collection', '=', COLLECTION).execute();
+      await trx.deleteFrom('zvd_webhook_deliveries').where('id', '=', DELIVERY).execute();
       await trx.deleteFrom('zvd_webhooks').where('id', '=', HOOK).execute();
     }).catch(() => {});
     if (savedSettings === undefined) {
@@ -216,7 +252,7 @@ d('rotate-keys (in-process)', () => {
   });
 
   it('rewrites every openable value under the current key, bound to where it lives', async () => {
-    const r = await rotateKeys(db, { batchSize: 2 });
+    const r = await rotateKeys(db, { batchSize: 2, checkMissingTenants: true });
     const now = await read();
     for (const rid of [R.v1, R.v2, R.v1k1]) expect(under(now.get(rid)!.note, K1)).toBe(true);
     expect(await decryptField(now.get(R.v1k1)!.note!, aad(R.v1k1))).toBe('plain-v1k1');
@@ -244,6 +280,49 @@ d('rotate-keys (in-process)', () => {
     expect(r.left[fieldKeyId(K0)]).toBeUndefined();
     expect(r.unbound).toBe(0);
     expect(r.changed).toBe(0);
+
+    // Ciphertext it does not rewrite is counted under its key, and keeps K0 listed.
+    const k0 = fieldKeyId(K0);
+    expect(r.unvisited[`${TABLE} (tenant missing)`]?.[k0]).toBe(1);
+    expect(r.unvisited[`zv_revisions.${COLLECTION} (field not sealed)`]?.[k0]).toBe(1);
+    expect(r.unvisited[`zv_revisions.${COLLECTION} (names no row)`]?.[k0]).toBe(1);
+    expect(r.unvisited['zvd_webhook_deliveries.payload']?.[k0]).toBeGreaterThanOrEqual(1);
+    expect(r.oldKeysDroppable).toBe(false);
+    const raw = await asDefaultTenant(
+      db,
+      sql<{ id: string; t: string; data: string }>`
+        SELECT id::text AS id, jsonb_typeof(data) AS t, data::text AS data
+          FROM zv_revisions WHERE id IN (${REV_NOROW}::uuid, ${REV_STR}::uuid, ${REV_PLAIN}::uuid)`,
+    );
+    const byId = new Map(raw.rows.map((x) => [x.id, x]));
+    expect(byId.get(REV_NOROW)!.data).toContain('enc:v1:');
+    expect(byId.get(REV_PLAIN)!.data).toContain('enc:v1:');
+    expect(byId.get(REV_STR)!.t).toBe('string');
+    const inner = JSON.parse(JSON.parse(byId.get(REV_STR)!.data)) as { note: string };
+    expect(under(inner.note, K1)).toBe(true);
+    expect(await decryptField(inner.note, aad(R.v2))).toBe('plain-str');
+  });
+
+  it('rows of a missing tenant: counted when it can see them, else the table is named', async () => {
+    const exempt = (
+      await sql<{ ok: boolean }>`
+        SELECT rolsuper OR rolbypassrls AS ok FROM pg_roles WHERE rolname = current_user`.execute(
+        db,
+      )
+    ).rows[0]!.ok;
+    const r = await rotateKeys(db, { dryRun: true });
+    if (exempt) expect(r.unvisited[`${TABLE} (tenant missing)`]?.[fieldKeyId(K0)]).toBe(1);
+    else expect(r.unchecked).toContain(TABLE);
+    expect(r.oldKeysDroppable).toBe(false);
+  });
+
+  it('a revision listing with an odd delta answers, and opens the string-shaped copy', async () => {
+    const res = await app.request(`/api/revisions?collection=${COLLECTION}&record_id=${R.v2}`, {
+      headers: { cookie },
+    });
+    expect(res.status).toBe(200);
+    const body = JSON.stringify(await res.json());
+    expect(body).toContain('plain-str');
   });
 
   it('a second run rewrites nothing', async () => {
@@ -270,5 +349,28 @@ d('rotate-keys (in-process)', () => {
       process.env.FIELD_ENCRYPTION_KEYS = `${K1},${K0}`;
       process.env.FIELD_ENCRYPTION_KEY = K0;
     }
+  });
+
+  it('once the uncounted are gone, the verdict follows what is left', async () => {
+    await asTenant(db, ORPHAN, (trx) =>
+      sql`DELETE FROM ${sql.table(TABLE)} WHERE id = ${ORPHAN_ROW}::uuid`.execute(trx),
+    );
+    await asDefaultTenant(db, async (trx) => {
+      await sql`DELETE FROM zv_revisions WHERE id IN (${REV_PLAIN}::uuid, ${REV_NOROW}::uuid)`.execute(
+        trx,
+      );
+      await sql`DELETE FROM zvd_webhook_deliveries WHERE id = ${DELIVERY}::uuid`.execute(trx);
+      await sql`DELETE FROM ${sql.table(TABLE)} WHERE id = ${R.copied}::uuid`.execute(trx);
+    });
+    const r = await rotateKeys(db, { checkMissingTenants: true });
+    const k0 = fieldKeyId(K0);
+    expect(Object.keys(r.unvisited).filter((k) => k.includes(COLLECTION))).toEqual([]);
+    expect(r.unopenable.filter((u) => u.store.includes(COLLECTION))).toHaveLength(1);
+    // The rest of the database may hold its own K0 values; the verdict must say so.
+    const elsewhere =
+      Object.values(r.unvisited).some((byKid) => byKid[k0]) ||
+      r.unopenable.some((u) => u.keyId === k0) ||
+      r.left[k0] !== undefined;
+    expect(r.oldKeysDroppable).toBe(!elsewhere && r.unchecked.length === 0 && r.changed === 0);
   });
 });

@@ -69,6 +69,18 @@ function asObject(v: unknown): Record<string, unknown> {
 }
 
 /**
+ * The row a revision's copies are sealed to (ADR 0059): the `id` and
+ * `tenant_id` of its full copy (`data`), or null when it names either not.
+ * The one answer for the reader below and for `rotate-keys`, so a value is
+ * never resealed to a row its reader would not open it under.
+ */
+export function revisionRowOf(data: unknown): { id: string; tenant_id: string } | null {
+  const whole = asObject(data);
+  if (whole.id == null || whole.tenant_id == null) return null;
+  return { id: String(whole.id), tenant_id: String(whole.tenant_id) };
+}
+
+/**
  * A stored copy as this caller reads the record: serialized as `GET
  * /api/data/:collection/:id` serializes the live row — their column
  * permissions, a `password` field left out, an encrypted one decrypted, the
@@ -87,10 +99,9 @@ export async function shapeRevisionData(
   // A delta names no row, and an `enc:v2:` value opens only with the row it is
   // sealed to (ADR 0059): it borrows the `id` and `tenant_id` of the revision's
   // full copy, and gives them back after.
-  const borrowed =
-    row === undefined ? [] : (['id', 'tenant_id'] as const).filter((k) => !(k in copy));
-  const whole = asObject(row);
-  for (const k of borrowed) copy[k] = whole[k];
+  const who = row === undefined ? null : revisionRowOf(row);
+  const borrowed = who ? (['id', 'tenant_id'] as const).filter((k) => copy[k] == null) : [];
+  for (const k of borrowed) copy[k] = who![k];
   const shaped = await serializeSnapshot(
     copy,
     await DDLManager.getCollection(db, collection),

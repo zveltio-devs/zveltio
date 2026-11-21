@@ -99,9 +99,9 @@ export async function loadEngineMigrationModules(): Promise<EngineModules> {
 export interface EngineRotateKeysModule {
   rotateKeys(
     db: EngineDb,
-    opts: { dryRun?: boolean; batchSize?: number },
-  ): Promise<{ unopenable: unknown[]; changed: number }>;
-  formatRotateKeysReport(report: { unopenable: unknown[]; changed: number }): string;
+    opts: { dryRun?: boolean; batchSize?: number; checkMissingTenants?: boolean },
+  ): Promise<{ unopenable: unknown[]; oldKeysDroppable: boolean }>;
+  formatRotateKeysReport(report: { unopenable: unknown[]; oldKeysDroppable: boolean }): string;
 }
 
 /** The engine's `db` module and `lib/rotate-keys`, from a checkout; null outside one. */

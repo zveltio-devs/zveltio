@@ -411,12 +411,13 @@ async function openField(value: string, keys: string[], aad?: FieldAad): Promise
 /**
  * Which listed field key opens `value` where it lives (`aad`), and what it
  * holds — for `rotate-keys` (ADR 0059 decision 2). Null when no listed key
- * opens it: such a value is reported, never rewritten. `current` is whether
+ * opens it: such a value is reported, never rewritten. Without `aad` only an
+ * `enc:v1:` value can open. `current` is whether
  * that key is the one writes use.
  */
 export async function openFieldValue(
   value: string,
-  aad: FieldAad,
+  aad?: FieldAad,
 ): Promise<{ plaintext: string; keyId: string; current: boolean } | null> {
   const keys = readKeys('field');
   for (const [i, hex] of keys.entries()) {

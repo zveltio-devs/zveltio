@@ -15,6 +15,13 @@
  * Extension-sealed values (`ctx.internals.encryptSecret`, the mail keyring) are
  * step 3: their readers name no row, so they cannot move to v2.
  *
+ * Ciphertext it does not rewrite is still COUNTED, per key id ("unvisited"):
+ * rows of a tenant missing from `zv_tenants`, revision copies of a field that
+ * is no longer sealed or of a row they do not name, webhook delivery payloads
+ * and pg-boss job payloads. The verdict "older keys can leave the list" holds
+ * only when nothing, visited or not, is under an older listed key — and when
+ * every table could be read whole (`unchecked`).
+ *
  * Fail closed: a value no listed key opens is reported by location, never
  * rewritten or dropped. Idempotent: a value already under the current key as v2
  * is left as it is, so a re-run after an interruption only does what is left;
@@ -25,7 +32,7 @@
 
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
-import { DDLManager, normalizeFields } from './data/index.js';
+import { DDLManager, normalizeFields, revisionRowOf } from './data/index.js';
 import {
   type FieldAad,
   fieldKeyId,
@@ -43,6 +50,12 @@ export interface RotateKeysOptions {
   dryRun?: boolean;
   /** Rows read and written per transaction. */
   batchSize?: number;
+  /**
+   * Count the ciphertext of rows whose tenant is missing from `zv_tenants` even
+   * when row-level security binds this role: lifts FORCE on each table for one
+   * counting statement, under the table's ACCESS EXCLUSIVE lock.
+   */
+  checkMissingTenants?: boolean;
 }
 
 export interface RotateKeysReport {
@@ -58,10 +71,29 @@ export interface RotateKeysReport {
   /** Values a live write changed between the read and the rewrite: run again. */
   changed: number;
   /** Values no listed key opens where they live. Never rewritten. */
-  unopenable: Array<{ store: string; tenant: string; record: string; field: string }>;
+  unopenable: Array<{
+    store: string;
+    tenant: string;
+    record: string;
+    field: string;
+    /** The key id a v2 value names (`none` for v1): bound elsewhere, it still keeps that key listed. */
+    keyId: string;
+  }>;
+  /** Ciphertext not rewritten, per place (and why) and key id (`none`: no listed key opens it). */
+  unvisited: Record<string, Record<string, number>>;
+  /** Tables whose rows of missing tenants could not be read (see `checkMissingTenants`). */
+  unchecked: string[];
+  /** Whether no value, visited or not, is left under an older listed key. */
+  oldKeysDroppable: boolean;
 }
 
 const FIRST_ID = '00000000-0000-0000-0000-000000000000';
+/** Field envelopes inside JSON text; base64url and the key id need no escaping. */
+const ENVELOPES = /enc:v1:[A-Za-z0-9_-]+|enc:v2:[0-9a-f]{8}:[A-Za-z0-9_-]+/g;
+/** A row a tenant pass cannot see: no tenant, or one `zv_tenants` no longer holds. */
+const MISSING_TENANT = sql.raw(
+  '(tenant_id IS NULL OR NOT EXISTS (SELECT 1 FROM zv_tenants z WHERE z.id = tenant_id))',
+);
 
 /** Run `fn` as the engine in `tenant`: the policies' WITH CHECK is the own node. */
 function asTenant<T>(db: Database, tenant: string, fn: (trx: Database) => Promise<T>): Promise<T> {
@@ -92,6 +124,9 @@ export async function rotateKeys(
     unbound: 0,
     changed: 0,
     unopenable: [],
+    unvisited: {},
+    unchecked: [],
+    oldKeysDroppable: false,
   };
   const count = (kid: string, unbound: boolean) => {
     report.left[kid] = (report.left[kid] ?? 0) + 1;
@@ -106,7 +141,14 @@ export async function rotateKeys(
     if (!isFieldEnvelope(v)) return null;
     const opened = await openFieldValue(v, aad);
     if (!opened) {
-      report.unopenable.push({ store, tenant: aad.tenant, record: aad.record, field: aad.field });
+      const keyId = v.startsWith('enc:v2:') ? v.split(':')[2]! : 'none';
+      report.unopenable.push({
+        store,
+        tenant: aad.tenant,
+        record: aad.record,
+        field: aad.field,
+        keyId,
+      });
       return null;
     }
     const bound = isBoundFieldValue(v);
@@ -127,6 +169,56 @@ export async function rotateKeys(
     report.changed += planned - written;
     report.left[report.currentKeyId] = (report.left[report.currentKeyId] ?? 0) + written;
   };
+  /** Count every envelope in `text` under `where`: a v2 by the key id it names, a v1 by the key that opens it. */
+  const tally = async (where: string, text: string | null | undefined) => {
+    for (const env of text?.match(ENVELOPES) ?? []) {
+      const kid = env.startsWith('enc:v2:')
+        ? env.split(':')[2]!
+        : ((await openFieldValue(env))?.keyId ?? 'none');
+      const at = (report.unvisited[where] ??= {});
+      at[kid] = (at[kid] ?? 0) + 1;
+    }
+  };
+
+  // ── Rows of missing tenants: counted, never rewritten ───────────────────────
+  // No tenant pass sees them (as in migration 084 and `intoSecretColumn`), and
+  // under FORCE row-level security this role does not either, unless it is
+  // exempt or lifts FORCE for the count.
+  const exempt =
+    (
+      await sql<{ ok: boolean }>`
+        SELECT rolsuper OR rolbypassrls AS ok FROM pg_roles WHERE rolname = current_user`.execute(
+        db,
+      )
+    ).rows[0]?.ok === true;
+  const countMissing = async (table: string, text: ReturnType<typeof sql.raw>) => {
+    const t = sql.id(table);
+    const forced =
+      (
+        await sql<{ f: boolean }>`
+          SELECT relforcerowsecurity AS f FROM pg_class WHERE oid = to_regclass(quote_ident(${table}))`.execute(
+          db,
+        )
+      ).rows[0]?.f === true;
+    if (forced && !exempt && !opts.checkMissingTenants) {
+      report.unchecked.push(table);
+      return;
+    }
+    const rows = await db.transaction().execute(async (trx) => {
+      const lift = forced && !exempt;
+      if (lift) {
+        await sql`SET LOCAL lock_timeout = '5s'`.execute(trx);
+        await sql`ALTER TABLE ${t} NO FORCE ROW LEVEL SECURITY`.execute(trx);
+      }
+      const found = await sql<{ v: string }>`
+        SELECT ${text} AS v FROM ${t} WHERE ${MISSING_TENANT} AND ${text} LIKE '%enc:v_:%'`.execute(
+        trx,
+      );
+      if (lift) await sql`ALTER TABLE ${t} FORCE ROW LEVEL SECURITY`.execute(trx);
+      return found.rows;
+    });
+    for (const { v } of rows) await tally(`${table} (tenant missing)`, v);
+  };
 
   const tenants = (
     await sql<{ id: string }>`SELECT id::text AS id FROM zv_tenants ORDER BY id`.execute(db)
@@ -136,13 +228,13 @@ export async function rotateKeys(
   const names = (await db.selectFrom('zvd_collections').select('name').execute()).map(
     (r) => r.name as string,
   );
-  const sealedByCollection = new Map<string, string[]>();
+  const sealedByCollection = new Map<string, Set<string>>();
   for (const name of names) {
     const def = await DDLManager.getCollection(db, name);
     const sealed = normalizeFields(def)
       .filter((f) => f.encrypted || f.type === 'secret')
       .map((f) => f.name);
-    if (sealed.length > 0) sealedByCollection.set(name, sealed);
+    if (sealed.length > 0) sealedByCollection.set(name, new Set(sealed));
   }
 
   for (const [collection, fields] of sealedByCollection) {
@@ -151,7 +243,7 @@ export async function rotateKeys(
       SELECT column_name AS c FROM information_schema.columns
        WHERE table_schema = current_schema() AND table_name = ${table}`.execute(db);
     const columns = new Set(present.rows.map((r) => r.c));
-    for (const field of fields.filter((f) => columns.has(f))) {
+    for (const field of [...fields].filter((f) => columns.has(f))) {
       const t = sql.id(table);
       const col = sql.id(field);
       const store = `${table}.${field}`;
@@ -187,89 +279,100 @@ export async function rotateKeys(
           if (!more) break;
         }
       }
+      await countMissing(table, sql.raw(`${quoteIdent(field)}::text`));
     }
   }
 
-  // ── zv_revisions: the stored copies of those fields ─────────────────────────
-  // Bound as the live row is, to the snapshot's own tenant and id (the readers
-  // open a copy the same way); a delta carries neither and borrows the full copy's.
-  for (const [collection, fields] of sealedByCollection) {
-    const store = 'zv_revisions';
-    for (const tenant of tenants) {
-      let after = FIRST_ID;
-      for (;;) {
-        const more = await asTenant(db, tenant, async (trx) => {
-          const rows =
-            // As text: compared byte for byte on the way back, and a copy stored
-            // as a jsonb string (migration 009's shape) is parsed here, not by the driver.
-            (
-              await sql<{ id: string; record_id: string; data: string; delta: string | null }>`
-              SELECT id::text AS id, record_id, data::text AS data, delta::text AS delta
-                FROM zv_revisions
-               WHERE tenant_id = ${tenant}::uuid AND collection = ${collection}
-                 AND id > ${after}::uuid
-               ORDER BY id LIMIT ${batch}`.execute(trx)
-            ).rows;
-          const writes: Array<{
-            id: string;
-            data: unknown;
-            delta: unknown;
-            od: string;
-            ol: string | null;
-            n: number;
-          }> = [];
-          for (const row of rows) {
-            const data = asObject(row.data);
-            const where = {
-              tenant: typeof data?.tenant_id === 'string' ? data.tenant_id : tenant,
-              record: typeof data?.id === 'string' ? data.id : row.record_id,
-            };
-            let touched = 0;
-            const rewrite = async (o: Record<string, unknown> | null) => {
-              if (!o) return o;
-              const copy = { ...o };
-              for (const field of fields) {
-                const out = await next(copy[field], { ...where, collection, field }, store);
-                if (out !== null) {
-                  copy[field] = out;
-                  touched++;
-                }
-              }
-              return copy;
-            };
-            const nextData = await rewrite(data);
-            const nextDelta = await rewrite(asObject(row.delta));
-            if (touched > 0) {
-              writes.push({
-                id: row.id,
-                data: nextData ?? JSON.parse(row.data),
-                delta: nextDelta ?? (row.delta === null ? null : JSON.parse(row.delta)),
-                od: row.data,
-                ol: row.delta,
-                n: touched,
-              });
+  // ── zv_revisions: the stored copies ─────────────────────────────────────────
+  // A copy of a sealed field is bound to the row `revisionRowOf` names — the
+  // one the revision read opens it under; its `delta` borrows the same row.
+  // Ciphertext under any other key, or in a revision that names no row, is
+  // counted, not rewritten.
+  for (const tenant of tenants) {
+    let after = FIRST_ID;
+    for (;;) {
+      const more = await asTenant(db, tenant, async (trx) => {
+        // As text: compared byte for byte on the way back, and a copy stored
+        // as a jsonb string (migration 009's shape) is parsed here, not by the driver.
+        const rows = (
+          await sql<{ id: string; collection: string; data: string; delta: string | null }>`
+            SELECT id::text AS id, collection, data::text AS data, delta::text AS delta
+              FROM zv_revisions
+             WHERE tenant_id = ${tenant}::uuid AND id > ${after}::uuid
+               AND (data::text LIKE '%enc:v_:%' OR delta::text LIKE '%enc:v_:%')
+             ORDER BY id LIMIT ${batch}`.execute(trx)
+        ).rows;
+        const writes: Array<{
+          id: string;
+          data: unknown;
+          delta: unknown;
+          od: string;
+          ol: string | null;
+          n: number;
+        }> = [];
+        for (const row of rows) {
+          const sealed = sealedByCollection.get(row.collection);
+          const who = revisionRowOf(JSON.parse(row.data));
+          let touched = 0;
+          /** The copy rewritten, in the shape it was stored in (a jsonb string stays one). */
+          const rewrite = async (text: string | null): Promise<unknown> => {
+            const stored = text === null ? null : JSON.parse(text);
+            const o = asObject(text);
+            if (!o) {
+              await tally(`zv_revisions.${row.collection} (not an object)`, text);
+              return stored;
             }
+            const copy = { ...o };
+            for (const [field, v] of Object.entries(o)) {
+              if (!isFieldEnvelope(v)) continue;
+              if (!sealed?.has(field)) {
+                await tally(`zv_revisions.${row.collection} (field not sealed)`, v);
+                continue;
+              }
+              if (!who) {
+                await tally(`zv_revisions.${row.collection} (names no row)`, v);
+                continue;
+              }
+              const aad = {
+                tenant: who.tenant_id,
+                collection: row.collection,
+                field,
+                record: who.id,
+              };
+              const out = await next(v, aad, 'zv_revisions');
+              if (out !== null) {
+                copy[field] = out;
+                touched++;
+              }
+            }
+            return typeof stored === 'string' ? JSON.stringify(copy) : copy;
+          };
+          const data = await rewrite(row.data);
+          const delta = await rewrite(row.delta);
+          if (touched > 0) {
+            writes.push({ id: row.id, data, delta, od: row.data, ol: row.delta, n: touched });
           }
-          if (writes.length > 0) {
-            const done = await sql`
-              UPDATE zv_revisions r SET data = w.data, delta = w.delta
-                FROM jsonb_to_recordset(${JSON.stringify(writes)}::text::jsonb)
-                     AS w(id uuid, data jsonb, delta jsonb, od text, ol text)
-               WHERE r.id = w.id AND r.tenant_id = ${tenant}::uuid
-                 AND r.data::text = w.od AND r.delta::text IS NOT DISTINCT FROM w.ol
-              RETURNING r.id::text AS id`.execute(trx);
-            const hit = new Set((done.rows as Array<{ id: string }>).map((r) => r.id));
-            const values = (only: boolean) =>
-              writes.filter((w) => !only || hit.has(w.id)).reduce((n, w) => n + w.n, 0);
-            landed(values(false), values(true));
-          }
-          if (rows.length > 0) after = rows[rows.length - 1]!.id;
-          return rows.length === batch;
-        });
-        if (!more) break;
-      }
+        }
+        if (writes.length > 0) {
+          const done = await sql`
+            UPDATE zv_revisions r SET data = w.data, delta = w.delta
+              FROM jsonb_to_recordset(${JSON.stringify(writes)}::text::jsonb)
+                   AS w(id uuid, data jsonb, delta jsonb, od text, ol text)
+             WHERE r.id = w.id AND r.tenant_id = ${tenant}::uuid
+               AND r.data::text = w.od AND r.delta::text IS NOT DISTINCT FROM w.ol
+            RETURNING r.id::text AS id`.execute(trx);
+          const hit = new Set((done.rows as Array<{ id: string }>).map((r) => r.id));
+          const values = (only: boolean) =>
+            writes.filter((w) => !only || hit.has(w.id)).reduce((n, w) => n + w.n, 0);
+          landed(values(false), values(true));
+        }
+        if (rows.length > 0) after = rows[rows.length - 1]!.id;
+        return rows.length === batch;
+      });
+      if (!more) break;
     }
   }
+  await countMissing('zv_revisions', sql.raw(`concat(data::text, ' ', delta::text)`));
 
   // ── Webhook signing secrets ─────────────────────────────────────────────────
   for (const tenant of tenants) {
@@ -293,6 +396,33 @@ export async function rotateKeys(
       }
       if (planned > 0) landed(planned, written);
     });
+  }
+  await countMissing('zvd_webhooks', sql.raw('secret'));
+
+  // ── Copies outside ADR 0059 step 2: counted ─────────────────────────────────
+  // A delivery keeps what was sent and a job what it carries; since the outbound
+  // copy drops sealed columns neither should hold ciphertext, but an older one
+  // may. Nothing reads a sealed value back from them, so there is no row to
+  // bind it to: counted, never rewritten.
+  // ponytail: whole payloads read into memory per tenant; page them if a table
+  // of old deliveries ever holds ciphertext by the million.
+  for (const tenant of tenants) {
+    await asTenant(db, tenant, async (trx) => {
+      const rows = await sql<{ v: string }>`
+        SELECT payload::text AS v FROM zvd_webhook_deliveries
+         WHERE tenant_id = ${tenant}::uuid AND payload::text LIKE '%enc:v_:%'`.execute(trx);
+      for (const { v } of rows.rows) await tally('zvd_webhook_deliveries.payload', v);
+    });
+  }
+  await countMissing('zvd_webhook_deliveries', sql.raw('payload::text'));
+  for (const table of ['pgboss.job', 'pgboss.archive']) {
+    const exists = await sql<{
+      ok: boolean;
+    }>`SELECT to_regclass(${table}) IS NOT NULL AS ok`.execute(db);
+    if (!exists.rows[0]?.ok) continue;
+    const rows = await sql<{ v: string }>`
+      SELECT data::text AS v FROM ${sql.raw(table)} WHERE data::text LIKE '%enc:v_:%'`.execute(db);
+    for (const { v } of rows.rows) await tally(`${table}.data`, v);
   }
 
   // ── The storage setting's S3 secret (instance-wide) ─────────────────────────
@@ -319,7 +449,22 @@ export async function rotateKeys(
     landed(1, done.rows.length);
   });
 
+  // The verdict: no value under an older LISTED key, visited, unopenable (a v2
+  // bound elsewhere names its key) or not visited, and every table read whole. A v2 naming an unlisted key id, or `none`, is under no key
+  // the list still holds, so it does not keep one there.
+  const older = new Set(list.keys.slice(1).map(fieldKeyId));
+  const kids = [
+    ...Object.keys(report.left),
+    ...Object.values(report.unvisited).flatMap((byKid) => Object.keys(byKid)),
+    ...report.unopenable.map((u) => u.keyId),
+  ];
+  report.oldKeysDroppable =
+    report.changed === 0 && report.unchecked.length === 0 && !kids.some((k) => older.has(k));
   return report;
+}
+
+function quoteIdent(name: string): string {
+  return `"${name.replace(/"/g, '""')}"`;
 }
 
 /** JSON text of a jsonb copy as an object; one stored as a jsonb string (migration 009's shape) is parsed again. */
@@ -343,23 +488,32 @@ export function formatRotateKeysReport(r: RotateKeysReport): string {
     `rotate-keys${r.dryRun ? ' (dry run, nothing written)' : ''}: ` +
       `${r.rewritten} value(s) ${r.dryRun ? 'to rewrite' : 'rewritten'} under key ${r.currentKeyId}`,
   ];
-  const kids = Object.keys(r.left).sort((a, b) =>
-    a === r.currentKeyId ? -1 : b === r.currentKeyId ? 1 : a.localeCompare(b),
-  );
-  for (const kid of kids) {
-    lines.push(`  under ${kid}${kid === r.currentKeyId ? ' (current)' : ''}: ${r.left[kid]}`);
-  }
+  const byKid = (o: Record<string, number>) =>
+    Object.keys(o)
+      .sort((a, b) => (a === r.currentKeyId ? -1 : b === r.currentKeyId ? 1 : a.localeCompare(b)))
+      .map((kid) => `${kid}${kid === r.currentKeyId ? ' (current)' : ''}: ${o[kid]}`);
+  for (const line of byKid(r.left)) lines.push(`  under ${line}`);
   if (r.unbound > 0) lines.push(`  of which enc:v1 (unbound): ${r.unbound}`);
   if (r.changed > 0) {
     lines.push(`  changed by a live write during the run: ${r.changed} (run again)`);
   }
   lines.push(`  unopenable under every listed key: ${r.unopenable.length}`);
   for (const u of r.unopenable) {
-    lines.push(`    ${u.store} field=${u.field} tenant=${u.tenant || '-'} record=${u.record}`);
+    lines.push(
+      `    ${u.store} field=${u.field} tenant=${u.tenant || '-'} record=${u.record} key=${u.keyId}`,
+    );
   }
-  const old = kids.filter((k) => k !== r.currentKeyId);
+  const places = Object.keys(r.unvisited).sort();
+  if (places.length > 0) lines.push('  not rewritten (counted per key id; none = no listed key):');
+  for (const where of places) lines.push(`    ${where}: ${byKid(r.unvisited[where]!).join(', ')}`);
+  if (r.unchecked.length > 0) {
+    lines.push(
+      `  not checked for rows of missing tenants (row-level security binds this role; ` +
+        `run with --check-missing-tenants): ${r.unchecked.join(', ')}`,
+    );
+  }
   lines.push(
-    old.length === 0 && r.changed === 0
+    r.oldKeysDroppable
       ? '  No value is left under an older key: older keys can leave the list.'
       : '  Keep every listed key until a run reports nothing under an older one.',
   );
