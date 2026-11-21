@@ -72,6 +72,7 @@ import {
 } from '../../lib/runtime/index.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/index.js';
 import { createSteppedUpGod, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const VALKEY = process.env.HARNESS_VALKEY_URL;
@@ -104,7 +105,10 @@ d('extension lifecycle on another replica: this one follows', () => {
 
   const unloadHere = () => extensionLoader.unload(NAME).catch(() => undefined);
 
+  // Unsigned fixtures: the test override stands in for a registry signature.
+  let wasInline = false;
   beforeAll(async () => {
+    wasInline = _setInlineForTests(true);
     const t = await getTestApp();
     db = t.db;
     ({ app: engine, cookie: god } = await createSteppedUpGod(t.app, db));
@@ -128,6 +132,7 @@ d('extension lifecycle on another replica: this one follows', () => {
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(wasInline);
     await unloadHere();
     extensionLoader.setReloadCallback(async () => {});
     extensionLoader.ctx = saved.ctx;

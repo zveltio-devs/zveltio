@@ -21,10 +21,15 @@ describe('enforcePublisherTier — catalog fetch fallback', () => {
       new Error('registry offline'),
     );
     try {
-      const r = await enforcePublisherTier('sideloaded', {
-        name: 'sideloaded',
-        version: '1.0.0',
-      } as never);
+      const r = await enforcePublisherTier(
+        'sideloaded',
+        {
+          name: 'sideloaded',
+          version: '1.0.0',
+        } as never,
+        null,
+        true,
+      );
       expect(r.ok).toBe(true);
     } finally {
       spy.mockRestore();
