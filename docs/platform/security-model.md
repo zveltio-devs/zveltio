@@ -541,6 +541,14 @@ replica. Trashed records are purged by the trash scheduler, not by this sweep.
 - Erasing a user (`DELETE /api/me`, an admin, SCIM, `compliance/gdpr`) deletes
   the profile and leaves the trail as it was: `user_id` keeps the id, which no
   longer names anyone. The engine writes ids, not emails, into its rows.
+- Two personal fields stay in the trail by design: the `ip` column and the
+  `user_agent` metadata. They are kept for security investigation (GDPR
+  art. 6(1)(f), legitimate interest) and only as long as the retention window.
+  The identifiers an identity provider sends (an LDAP DN, a SAML NameID, the
+  login a refused sign-in named) are still written as the extension passes
+  them; extension-api v2 hashes them, and refuses non-id metadata on
+  `ctx.internals.audit` ([v2-candidates](../extensions/v2-candidates.md)
+  entries 11 and 12).
 - Purging a tenant leaves its trail, its chain and its cuts; the retention
   purge removes the rows with every other firm's, in the tenant's window.
 
