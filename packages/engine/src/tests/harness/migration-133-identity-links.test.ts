@@ -47,7 +47,9 @@ d('identity links: 133 carries every tenant over, 134 writes the own node only',
         user_id text, active boolean DEFAULT true,
         suspended_at timestamptz, held_valid_to timestamptz)`.execute(trx);
       await sql`INSERT INTO zvd_scim_users (tenant_id, user_id) VALUES
-        (${DEFAULT_TENANT}, ${`${TAG}_default`}), (${OTHER_TENANT}, ${`${TAG}_other`})`.execute(trx);
+        (${DEFAULT_TENANT}, ${`${TAG}_default`}), (${OTHER_TENANT}, ${`${TAG}_other`})`.execute(
+        trx,
+      );
       await sql`ALTER TABLE zvd_scim_users ENABLE ROW LEVEL SECURITY`.execute(trx);
       await sql`ALTER TABLE zvd_scim_users FORCE ROW LEVEL SECURITY`.execute(trx);
       await sql`CREATE POLICY tenant_isolation ON zvd_scim_users
@@ -97,9 +99,11 @@ d('identity links: 133 carries every tenant over, 134 writes the own node only',
       throw ROLLBACK;
     });
     // 42501: new row violates row-level security policy.
-    expect(await run.then(
-      () => null,
-      (e: { errno?: string }) => (e === ROLLBACK ? 'written' : e.errno),
-    )).toBe('42501');
+    expect(
+      await run.then(
+        () => null,
+        (e: { errno?: string }) => (e === ROLLBACK ? 'written' : e.errno),
+      ),
+    ).toBe('42501');
   }, 60_000);
 });
