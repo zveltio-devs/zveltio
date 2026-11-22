@@ -77,6 +77,12 @@ d('bytea and char through the data API', () => {
     expect((await post({ bin: 'not base64!' })).status).toBe(422);
   });
 
+  it('a number, boolean, object or list is refused, not stored or a 500', async () => {
+    for (const bin of [5, true, { a: 1 }, [1, 2]]) {
+      expect((await post({ bin })).status).toBe(422);
+    }
+  });
+
   it('a value too long for a char column answers 422', async () => {
     const res = await post({ code: 'too long' });
     expect(res.status).toBe(422);

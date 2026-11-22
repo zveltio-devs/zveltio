@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Fixed — a `bytea` field refuses a number, boolean, object or list (A14).** Only a base64 string was checked: a number or boolean reached the driver and answered 500, and an object or list was stored as the bytes of its JSON text. Each now answers 422 `Must be base64`.
+
 **Changed — a magic-link sign-in counts as a recent sign-in for the first factor (owner 2026-11-22).** An account with no password could enroll its first passkey or TOTP, or erase itself (`DELETE /api/me`), only from a session an OAuth sign-in had created at most five minutes before; a session from a magic link answered 403 `recent_sign_in_required`, so a magic-link-only account could never add a factor. A session `/magic-link/verify` creates now counts too (`first_factor: "recent_sign_in"`). The audit's `confirmed_by` names the sign-in: `oauth` or, new, `magic_link`.
 
 **Fixed — two m2m fields between the same collections get a junction table each (A13).** The junction was named after the pair alone, so `posts.tags` and `posts.featured` shared one table, and removing either field dropped the other's links. A new m2m now takes the next free name; removing a relation keeps a legacy shared table while another relation still names it.
