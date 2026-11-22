@@ -34,6 +34,7 @@ import { registerSystemRoutes } from '../../routes/admin/system-routes.js';
 import {
   asAuditOwner,
   asEveryTenant,
+  asTenant,
   createGodSession,
   getTestApp,
   harnessAvailable,
@@ -207,9 +208,10 @@ d('zv_audit_log under tenant RLS', () => {
   it('retention purges a firm’s old rows on a plain-role pool', async () => {
     const OLD = `${TAG}.old` as AuditEventType;
     // A firm whose chain starts with an expired row (migration 130 cuts from the
-    // oldest end only), written already old: the chain links it as it is.
+    // oldest end only), written already old: the chain links it as it is. As
+    // the table owner: the request role cannot date a row (migration 135).
     const C = crypto.randomUUID();
-    await withTenantIsolation(C, (trx) =>
+    await asTenant(db, C, (trx) =>
       sql`INSERT INTO zv_audit_log (event_type, resource_id, tenant_id, created_at)
           VALUES (${OLD}, 'c', ${C}::uuid, now() - interval '400 days')`.execute(trx),
     );

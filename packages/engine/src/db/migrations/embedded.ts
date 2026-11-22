@@ -144,6 +144,7 @@ import m125 from './sql/131_secret_check_enc_v2.sql' with { type: 'text' };
 import m126 from './sql/132_rule_object_locked.sql' with { type: 'text' };
 import m127 from './sql/133_identity_links_every_tenant.sql' with { type: 'text' };
 import m128 from './sql/134_identity_links_write_own_node.sql' with { type: 'text' };
+import m129 from './sql/135_audit_log_created_at_fixed.sql' with { type: 'text' };
 
 /** Sorted map of filename → SQL content, embedded at compile time. */
 export const EMBEDDED_MIGRATIONS: Record<string, string> = {
@@ -276,4 +277,5 @@ export const EMBEDDED_MIGRATIONS: Record<string, string> = {
   '132_rule_object_locked.sql': m126,
   '133_identity_links_every_tenant.sql': m127,
   '134_identity_links_write_own_node.sql': m128,
+  '135_audit_log_created_at_fixed.sql': m129,
 };
