@@ -15,7 +15,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { enqueueDDLJob, getDDLJob } from '../../lib/data/ddl-queue.js';
-import { schemaWriteSettled } from '../../lib/schema-artifact/dev-writer.js';
+import { schemaDir, schemaWriteSettled } from '../../lib/schema-artifact/dev-writer.js';
 import {
   createGodSession,
   dropTestCollection,
@@ -142,6 +142,15 @@ d('schema dev writer', () => {
     expect(lastOps()).toEqual([{ op: 'dropRole', role: ROLE }]);
     expect(files()['roles.json']).not.toContain(ROLE);
     expect(await planSteps()).toEqual([]);
+  });
+
+  it('an unset NODE_ENV counts as production: the writer is off (DR-10)', () => {
+    delete process.env.NODE_ENV;
+    try {
+      expect(schemaDir()).toBeNull();
+    } finally {
+      if (before.env !== undefined) process.env.NODE_ENV = before.env;
+    }
   });
 
   it('in production nothing is written', async () => {
