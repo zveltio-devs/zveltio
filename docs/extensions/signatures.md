@@ -43,6 +43,8 @@ public half on your engine's `OPERATOR_PUBLIC_KEYS_JSON`, and sign the directory
 before you enable or reload it. The signature covers every file, so sign again
 after each change (`zveltio extension pack` then `zveltio extension sign`); a
 directory changed since it was signed is refused at load, naming the file.
+`zveltio extension dev` does both for you on each edit, with the key that
+signed the directory, before it asks the engine to reload.
 Every error, timeout and crash of your code is then logged with your key id —
 the reason an unsigned directory never runs: its faults would have no one to
 name but Zveltio.
@@ -152,7 +154,9 @@ bun scripts/sign-as-registry.ts ../zveltio-extensions --key-id dev-registry
 The signature covers every file of each directory, so sign again after a change
 — name the extension to sign only it (`… ../zveltio-extensions crm --key-id
 dev-registry`) — then reload or restart; a directory changed since it was signed
-is refused at load, naming the file. `.zveltio-registry/` is gitignored there.
+is refused at load, naming the file. `zveltio extension dev` does not sign a
+first-party checkout (only an operator-signed `signature.json`): run the
+script again after an edit. `.zveltio-registry/` is gitignored there.
 
 Why a registry key and not an operator key: an operator key confers level 3
 only (ADR 0056 d1) — the runner, declared model only — while a first-party

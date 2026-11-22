@@ -134,7 +134,10 @@ zveltio extension dev
   `http://localhost:3000/__zveltio_dev_reload`. The engine drops the
   cached module + scoped state (services, queryAlter, entityAccess, cron)
   and re-imports with a cache-buster — your next request hits the new
-  code without an engine restart.
+  code without an engine restart. A directory with an operator
+  `signature.json` is first packed and signed again with the key that signed
+  it (`zveltio extension pack`, `zveltio extension sign`): the engine verifies
+  the signature at every load, so an unsigned edit would be refused.
 - **Studio preview**: a view needs no build. *Developer → View preview*
   (`/admin/developer/views`) draws a `view/2` document as you type, on your
   own data and permissions.
