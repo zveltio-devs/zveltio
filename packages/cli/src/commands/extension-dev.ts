@@ -31,7 +31,8 @@
 import { existsSync, statSync } from 'fs';
 import { watch as fsWatch } from 'fs';
 import { join, basename, resolve, relative } from 'path';
-import { readdirSync } from 'fs';
+import { readdirSync, readFileSync } from 'fs';
+import { DIR_SIGNATURE_FILE } from './extension-sign.js';
 
 const c = {
   bold: (s: string) => `\x1b[1m${s}\x1b[0m`,
@@ -81,6 +82,42 @@ function readManifestName(dir: string, override?: string): string {
   }
   if (typeof m.name !== 'string') throw new Error('manifest.json missing string `name`');
   return m.name;
+}
+
+/**
+ * The CLI runs a signed directory needs before a reload: the engine verifies
+ * `signature.json` at every load, so an edit is refused until the bundle is
+ * packed and signed again with the same key. Null when the directory is not
+ * operator-signed (nothing to redo).
+ */
+export function resignSteps(dir: string): string[][] | null {
+  const file = join(dir, DIR_SIGNATURE_FILE);
+  if (!existsSync(file)) return null;
+  const keyId = (JSON.parse(readFileSync(file, 'utf8')) as { keyId?: unknown }).keyId;
+  if (typeof keyId !== 'string' || keyId === '') {
+    throw new Error(`${file} names no keyId; sign it once by hand: zveltio extension sign`);
+  }
+  return [
+    ['extension', 'pack', '--dir', dir],
+    ['extension', 'sign', '--dir', dir, '--key-id', keyId],
+  ];
+}
+
+/** Run each step as this same CLI; false (output already printed) at the first failure. */
+async function runSteps(steps: string[][]): Promise<boolean> {
+  for (const args of steps) {
+    const proc = Bun.spawn([process.execPath, process.argv[1]!, ...args], {
+      stdout: 'ignore',
+      stderr: 'inherit',
+    });
+    if ((await proc.exited) !== 0) {
+      console.log(
+        `  ${c.red('✗')} \`zveltio ${args.slice(0, 2).join(' ')}\` failed — not reloaded`,
+      );
+      return false;
+    }
+  }
+  return true;
 }
 
 /** Walk `engine/` once and return all `.ts/.js` files to watch. */
@@ -215,11 +252,25 @@ export async function extensionDevCommand(opts: ExtensionDevOptions = {}): Promi
     let lastTrigger = '';
     const debounceMs = 250;
 
+    // `pack` writes engine/index.js: a change there is our own output, not an edit.
+    const bundleOut = join(engineDir, 'index.js');
     const onChange = (filePath: string) => {
+      if (filePath === bundleOut && existsSync(join(dir, DIR_SIGNATURE_FILE))) return;
       lastTrigger = relative(dir, filePath);
       if (timer) clearTimeout(timer);
       timer = setTimeout(async () => {
         console.log(`\n${c.dim('→')} ${c.cyan(lastTrigger)} ${c.dim('changed — reloading…')}`);
+        let steps: string[][] | null;
+        try {
+          steps = resignSteps(dir);
+        } catch (e) {
+          console.log(`  ${c.red('✗')} ${(e as Error).message}`);
+          return;
+        }
+        if (steps) {
+          console.log(`  ${c.dim('signed directory — packing and signing again…')}`);
+          if (!(await runSteps(steps))) return;
+        }
         const result = await postReload(url, extName);
         if (result.ok) {
           console.log(`  ${c.green('✓')} engine reloaded ${c.dim(`(${result.status})`)}`);
