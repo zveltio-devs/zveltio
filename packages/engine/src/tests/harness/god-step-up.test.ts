@@ -16,7 +16,12 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { _settleAuditWrites } from '../../lib/audit.js';
 import { github } from 'better-auth/social-providers';
-import { getAuth, passkeyRelyingParty } from '../../lib/auth.js';
+import {
+  _internalForTests as authTesting,
+  getAuth,
+  initAuth,
+  passkeyRelyingParty,
+} from '../../lib/auth.js';
 import { firstFactorRule, noteSessionOrigin } from '../../lib/step-up.js';
 import {
   asEveryTenant,
@@ -24,6 +29,7 @@ import {
   createMemberSession,
   getTestApp,
   harnessAvailable,
+  plantMagicLink,
   recoverGod,
 } from '../../testing/app-harness.js';
 import {
@@ -714,11 +720,12 @@ d('a passkey registered to another account', () => {
 });
 
 /**
- * Only an OAuth sign-in marks a session as one that may enroll a first factor
- * without a password; any other session create (email sign-in, a refresh) must not.
+ * Only an OAuth or magic-link sign-in marks a session as one that may enroll a
+ * first factor without a password; any other session create (email sign-in, a
+ * refresh) must not.
  */
 d('noteSessionOrigin', () => {
-  it('records the OAuth sign-in paths and no other', async () => {
+  it('records the OAuth and magic-link sign-in paths and no other', async () => {
     await getTestApp();
     const noPasswordUser = crypto.randomUUID();
     const tokenFor = async (path: string | undefined) => {
@@ -729,8 +736,61 @@ d('noteSessionOrigin', () => {
     for (const path of ['/sign-in/email', '/sign-up/email', '/get-session', undefined]) {
       expect(await tokenFor(path)).toBe('sign_in_again');
     }
-    for (const path of ['/callback/:id', '/sign-in/social']) {
+    for (const path of ['/callback/:id', '/sign-in/social', '/magic-link/verify']) {
       expect(await tokenFor(path)).toBe('recent_sign_in');
+    }
+  });
+
+  // Owner 2026-11-22: a magic link proves the mailbox as an OAuth sign-in proves
+  // the provider account. Through Better Auth's real verify endpoint, so the path
+  // the session hook sees is the one it really passes.
+  it('a fresh magic-link sign-in may enroll a first factor without a password', async () => {
+    const { app, db } = await getTestApp();
+    const { userId, email } = await createMemberSession(app, db);
+    await sql`UPDATE "user" SET "emailVerified" = true WHERE id = ${userId}`.execute(db);
+    await sql`DELETE FROM account WHERE "userId" = ${userId} AND "providerId" = 'credential'`.execute(
+      db,
+    );
+    // Mail configured is what turns on the magic-link plugin.
+    const smtp = process.env.SMTP_HOST;
+    const appAuth = getAuth();
+    process.env.SMTP_HOST = '127.0.0.1';
+    try {
+      const auth = await initAuth(db);
+      if (!auth) throw new Error('initAuth returned no instance');
+      const res = await auth.handler(new Request(await plantMagicLink(await auth.$context, email)));
+      expect(res.status).toBeLessThan(400);
+      const s = await sql<{ token: string }>`
+        SELECT token FROM session WHERE "userId" = ${userId}
+         ORDER BY "createdAt" DESC LIMIT 1`.execute(db);
+      expect(await firstFactorRule(userId, s.rows[0]?.token ?? '')).toBe('recent_sign_in');
+      // The passkey route accepts it, and the audit names the sign-in it really was.
+      const cookie = res.headers
+        .getSetCookie()
+        .map((c) => c.split(';')[0])
+        .join('; ');
+      const req = (path: string, init?: RequestInit) => app.request(path, init);
+      const pk = await registerSoftPasskey(
+        req,
+        cookie,
+        await newSoftPasskey(),
+        passkeyRelyingParty().origin,
+      );
+      expect(pk.status).toBe(200);
+      await _settleAuditWrites();
+      const rows = await asEveryTenant(
+        db,
+        sql<{ metadata: { change: string; confirmed_by: string } }>`
+        SELECT metadata FROM zv_audit_log
+         WHERE event_type = 'auth.factor_changed' AND user_id = ${userId}`,
+      );
+      expect(rows.rows.map((r) => `${r.metadata.change}/${r.metadata.confirmed_by}`)).toEqual([
+        'passkey.add/magic_link',
+      ]);
+    } finally {
+      if (smtp === undefined) delete process.env.SMTP_HOST;
+      else process.env.SMTP_HOST = smtp;
+      authTesting.setAuthForTests(appAuth);
     }
   });
 });
