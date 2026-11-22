@@ -14,21 +14,79 @@
  * `node_modules/` (never run on the runner: `OPERATOR_UNLISTED`), so a byte
  * changed, a file added or removed, the tier rewritten or the directory renamed
  * after signing changes the digest. A symbolic link is refused: what it points
- * to is outside what was signed. The CLI builds it with the same function
- * (`@zveltio/sdk/publish/dir`); `tests/harness/ext-operator-signed.test.ts`
- * signs with the CLI and loads here.
+ * to is outside what was signed. The CLI builds the same listing
+ * (`packages/cli/src/commands/extension-sign.ts`); the two are held together by
+ * `tests/harness/ext-operator-signed.test.ts`, which signs with the CLI and
+ * loads here. The engine keeps its own copy: it runs from source and as a
+ * binary without a built SDK, so it imports no SDK code at run time.
  *
  * Verified at every load, against the operator's key list only: a key there
  * confers level 3 and never more. An unknown key is a refusal, not a fallback.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { DIR_SIGNATURE_FILE, extensionDirListing } from '@zveltio/sdk/publish/dir';
 import { findOperatorKeyById } from './registry-keys.js';
 import { parseSignature, SignatureInvalidError, verifySignature } from './signature-verify.js';
 
-export { DIR_SIGNATURE_FILE, extensionDirListing };
+export const DIR_SIGNATURE_FILE = 'signature.json';
+
+/**
+ * Left out of an operator's listing, at the root only: `bun install` puts the
+ * dependency tree and its `.bin` links there. Nothing of it runs on the
+ * extension runner, where an operator-signed extension always runs: the worker
+ * imports only the signed bundle's bytes, from a blob URL, in a process whose
+ * working directory is `/`, so no specifier resolves from this directory. Not
+ * left out of a download's listing: a registry-signed extension may run inline,
+ * where a bare specifier in its bundle would resolve from it.
+ */
+export const OPERATOR_UNLISTED = 'node_modules';
+
+export interface DirListingOptions {
+  /** Receives each listed path's sha256. */
+  files?: Map<string, string>;
+  /** The listing an operator signature covers: `OPERATOR_UNLISTED` left out. */
+  operator?: boolean;
+}
+
+/**
+ * Every regular file but `signature.json`, so a byte changed, a file added or
+ * removed, the tier rewritten or the directory renamed changes the listing.
+ * Throws on a symbolic link (what it points to is outside what was signed) or
+ * a name a line cannot hold.
+ */
+export function extensionDirListing(
+  dir: string,
+  name: string,
+  tier: string,
+  { files, operator = false }: DirListingOptions = {},
+): Uint8Array {
+  const lines: string[] = [];
+  const walk = (rel: string): void => {
+    for (const entry of readdirSync(join(dir, rel))) {
+      const path = rel ? `${rel}/${entry}` : entry;
+      if (path === DIR_SIGNATURE_FILE || (operator && path === OPERATOR_UNLISTED)) continue;
+      if (/[\r\n]/.test(path))
+        throw new Error(`file name ${JSON.stringify(path)} cannot be listed`);
+      const st = lstatSync(join(dir, path));
+      if (st.isDirectory()) walk(path);
+      else if (st.isFile()) {
+        const hash = createHash('sha256')
+          .update(readFileSync(join(dir, path)))
+          .digest('hex');
+        files?.set(path, hash);
+        lines.push(`${hash} ${path}`);
+      } else
+        throw new Error(`"${path}" is not a regular file or directory (a link is never signed)`);
+    }
+  };
+  walk('');
+  lines.sort();
+  return new TextEncoder().encode(
+    `zveltio-extension-dir/1\nname ${name}\ntier ${tier}\n${lines.map((l) => `${l}\n`).join('')}`,
+  );
+}
 
 /**
  * Where a download keeps the archive the registry signed and its signature

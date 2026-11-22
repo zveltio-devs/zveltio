@@ -2,8 +2,7 @@ import { existsSync } from 'fs';
 import { readFile, mkdir, cp, rm } from 'fs/promises';
 import { join, resolve } from 'path';
 import { type EngineTarget, engineFetch, errorOf } from '../lib/engine-session.js';
-import { OPERATOR_UNLISTED } from '@zveltio/sdk/publish/dir';
-import { verifyExtensionDirSignature } from './extension-sign.js';
+import { OPERATOR_UNLISTED, verifyExtensionDirSignature } from './extension-sign.js';
 
 /**
  * zveltio install <extension-name> [--path <path>] [--url <engine-url>] [--force]
