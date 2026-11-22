@@ -157,7 +157,10 @@ key for field-level encryption:
   encrypts such a value again (ADR 0024).
 - LDAP `bindPassword` and SAML `privateKey` in `zv_settings` are
   encrypted via `ctx.internals.encryptSecret` / `decryptSecret`.
-- Mail provider passwords are encrypted (existing — `MAIL_ENCRYPTION_KEY`).
+- Mail account passwords are `secret` fields, encrypted under
+  `FIELD_ENCRYPTION_KEY` like any other. `MAIL_ENCRYPTION_KEY` only reads
+  `aes256gcm:` values left by mail 1.x and serves extensions that seal with
+  `keyring: 'mail'`.
 
 If `FIELD_ENCRYPTION_KEY` is unset, the engine logs a loud warning at
 boot listing every collection that has an `encrypted: true` field but

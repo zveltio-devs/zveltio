@@ -299,7 +299,7 @@ cat zveltio/zveltio.log
 | `VALKEY_URL` | ✅ | Valkey connection string (e.g. `redis://:password@host:6379`) |
 | `PORT` | — | HTTP port (default: `3000`) |
 | `NODE_ENV` | — | `production` (also when unset) / `development` / `test`. Only `development` and `test` turn the production guards off |
-| `MAIL_ENCRYPTION_KEY` | ✅ if using mail | AES-256-GCM key for IMAP/SMTP passwords (`openssl rand -hex 32`) |
+| `MAIL_ENCRYPTION_KEY` | optional | Seals nothing the engine or a first-party extension writes today: mail 2.0 stores its passwords as `secret` fields under `FIELD_ENCRYPTION_KEY`. Set it only to read `aes256gcm:` values left by mail 1.x, or for an extension that seals with `keyring: 'mail'` (`openssl rand -hex 32`) |
 | `METRICS_TOKEN` | ✅ | Bearer token protecting `GET /metrics`, shared with Prometheus; both installers (Docker and native) generate it. If unset, `/metrics` returns 403 (and the repository's `docker-compose.yml` refuses to start). |
 | `SLOW_QUERY_THRESHOLD_MS` | — | Log requests slower than this (default: `200`) |
 | `TRUSTED_PROXY` | — | Set to `true` to trust `X-Forwarded-For` headers (behind nginx/ALB) |

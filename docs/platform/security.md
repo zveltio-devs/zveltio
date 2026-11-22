@@ -644,7 +644,7 @@ invocation, in production always on the extension runner (ADR 0058; details in
 | Secret | Encryption | Env var |
 |---|---|---|
 | Collection fields marked `encrypted: true`, `secret` fields, webhook signing secrets, the S3 secret key | AES-256-GCM, `enc:v2:` bound to tenant, collection, field and record | `FIELD_ENCRYPTION_KEYS` / `FIELD_ENCRYPTION_KEY` |
-| IMAP/SMTP passwords | AES-256-GCM | `MAIL_ENCRYPTION_KEYS` / `MAIL_ENCRYPTION_KEY` |
+| Values an extension seals with `keyring: 'mail'`, and `aes256gcm:` values left by mail 1.x (mail 2.0 passwords are `secret` fields, row above) | AES-256-GCM | `MAIL_ENCRYPTION_KEYS` / `MAIL_ENCRYPTION_KEY` |
 
 Generate keys with: `openssl rand -hex 32`
 
