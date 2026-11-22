@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Docs — the anchor's own S3 account needs list and read, not write only (A17).** beta.131 documented `AUDIT_ANCHOR_S3_ACCESS_KEY` / `_SECRET_KEY` for a write-only account, but each anchor write and each verify lists and reads the latest anchor first: with a write-only account nothing was ever written and verify answered `error`. The account may list, read and write under the prefix, never delete. One anchor target per instance: two instances sharing one read each other's anchors and verify fails on both.
+
 **Fixed — `GET /api/admin/audit/verify` no longer reports a gap while a retention purge runs (A17).** The walk read each statement under its own snapshot, so a cut committed mid-walk read as a break (`ok: false`, `reason: gap`). The walk now uses one `repeatable read` snapshot.
 
 **Fixed — the request role cannot date an audit row (A17).** `zveltio_rls` could INSERT into `zv_audit_log` with any `created_at`; one row dated in the future stopped its tenant's retention purge for good. Migration 135 sets `created_at := now()` for every role that is not the table owner; an owner-run restore or import keeps its timestamps.
