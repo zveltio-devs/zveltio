@@ -50,6 +50,8 @@ const STAMP = String(Date.now()).slice(-7);
 const EXT = `drt-ext-${STAMP}`;
 const WEXT = `drtw${STAMP}`;
 const BAD = `drtb${STAMP}`;
+/** A name of two segments: the worker proxy must strip both. */
+const NWEXT = `drtn${STAMP}/sub`;
 const RES = `drt_res_${STAMP}`;
 
 type Rec = Record<string, unknown>;
@@ -85,6 +87,18 @@ export default {
   async register(app) {
     app.get('/legacy', (c) => c.text('legacy'));
   },
+};
+`;
+/** A public route, and a caller route of a shape that `/sub/login` would fill. */
+const nestedEntry = `
+export default {
+  name: '${NWEXT}',
+  mountStrategy: 'subapp',
+  routes: {
+    login: () => Response.json({ login: true }),
+    secret: (request, { params }) => Response.json({ secret: params }),
+  },
+  async register() {},
 };
 `;
 /** Names a handler its module does not export. */
@@ -202,6 +216,12 @@ d('a declared route answered by a plain function (ADR 0039)', () => {
       );
     };
     await worker(WEXT, workerEntry, { publicRoutes: ['/legacy'], routes });
+    await worker(NWEXT, nestedEntry, {
+      routes: [
+        { method: 'GET', path: '/login', access: 'public', handler: 'login' },
+        { method: 'GET', path: '/:a/:b', access: 'caller', handler: 'secret' },
+      ],
+    });
     invalidateActivationCache();
   }, 60_000);
 
@@ -209,7 +229,7 @@ d('a declared route answered by a plain function (ADR 0039)', () => {
     invalidateActivationCache();
     if (saved.transport === undefined) delete process.env.ZVELTIO_EXT_TRANSPORT;
     else process.env.ZVELTIO_EXT_TRANSPORT = saved.transport;
-    for (const n of [WEXT, BAD]) {
+    for (const n of [WEXT, NWEXT, BAD]) {
       await getWorkerHost(app)
         .stop(n)
         .catch(() => undefined);
@@ -221,7 +241,7 @@ d('a declared route answered by a plain function (ADR 0039)', () => {
     // The refused loads leave registry rows too (`${BAD}i`, `u`, `g`); a row with no
     // manifest makes every later default grant refuse, so they all go.
     await sql`DELETE FROM zv_extension_registry
-               WHERE name IN (${EXT}, ${WEXT}) OR name LIKE ${`${BAD}%`}`.execute(db);
+               WHERE name IN (${EXT}, ${WEXT}, ${NWEXT}) OR name LIKE ${`${BAD}%`}`.execute(db);
     await sql`DELETE FROM pgboss.job WHERE name = ${jobQueueName(EXT, 'ingest')}`
       .execute(db)
       .catch(() => {});
@@ -273,6 +293,17 @@ d('a declared route answered by a plain function (ADR 0039)', () => {
       expect([res.status, await res.text()]).toEqual([200, 'legacy']);
     }, 30_000);
   }
+
+  it('worker: a name of two segments is served the route the gate decided on', async () => {
+    // The proxy stripped a fixed `/ext/<one segment>`, so the worker was handed
+    // `/sub/login`: the anonymous caller of the public `/login` was answered by
+    // the `caller` route `/:a/:b`, and every route of the name 404ed.
+    const pub = await call(NWEXT, '/login');
+    expect([pub.status, await pub.json()]).toEqual([200, { login: true }]);
+    expect((await call(NWEXT, '/q/w')).status).toBe(401);
+    const own = await call(NWEXT, '/q/w', 'GET', member);
+    expect([own.status, await own.json()]).toEqual([200, { secret: { a: 'q', b: 'w' } }]);
+  }, 30_000);
 
   it('inline: host.enqueue queues a job that names the declared public route', async () => {
     const res = await call(EXT, '/hook/77', 'POST', undefined, 'x');
