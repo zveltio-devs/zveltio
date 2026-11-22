@@ -288,9 +288,11 @@ envelope untouched, so ciphertext copied from anywhere passes through them.
 **What v1 does.** Keeps all three on `enc:v1:` under the current key of
 `FIELD_ENCRYPTION_KEYS`, and keeps the pass-through. `decryptSecret` and
 `maybeDecrypt` read `enc:v1:` and refuse `enc:v2:` (they name no row). No
-first-party extension calls any of them (checked 2026-11-21); `rotate-keys`
-rewrites what they wrote into an `encrypted` or `secret` column as `enc:v2:`,
-and leaves a value they wrote anywhere else (ADR 0059 step 3).
+first-party extension calls any of them (checked 2026-11-21, again
+2026-11-22); `rotate-keys` rewrites what they wrote into an `encrypted` or
+`secret` column as `enc:v2:`, and reseals a whole value they wrote into any
+other declared field in its own unbound format under the current key of its
+keyring, the mail keyring's `aes256gcm:` included (ADR 0059 step 3).
 
 **What v2 should do.** Remove `maybeEncrypt` / `maybeDecrypt` (the data API
 seals and opens field values); make `encryptSecret` / `decryptSecret` take the

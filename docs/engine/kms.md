@@ -54,6 +54,7 @@ ZVELTIO_KEY_COMMAND="sops -d /opt/zveltio/secrets.enc.env"
   Emit the list from the KMS and keep the old key in it: a key left out leaves
   every value written under it unreadable (an encrypted field reads back as its
   ciphertext, a mail password fails to decrypt). `zveltio rotate-keys`
-  rewrites the engine's field values under the current key and reports what is
+  rewrites the engine's field values under the current key, reseals what
+  extensions sealed under the current field or mail key, and reports what is
   left under each key id; drop an old key only once nothing is
   ([security.md](../platform/security.md#zveltio-rotate-keys)).

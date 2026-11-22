@@ -359,21 +359,27 @@ export async function decryptWithKeyring(
   }
   if (typeof value !== 'string' || !isKeyringValue(value)) return value;
 
-  if (value.startsWith(MAIL_PREFIX)) {
-    const [ivHex, ctHex] = value.slice(MAIL_PREFIX.length).split(':');
-    return trialDecrypt(readKeys('mail'), fromHex(ivHex ?? ''), fromHex(ctHex ?? ''));
-  }
+  if (value.startsWith(MAIL_PREFIX)) return openMail(value, readKeys('mail'));
 
-  if (value.startsWith(LEGACY_ENC1_PREFIX)) {
-    // iv(12) | tag(16) | ct  →  WebCrypto wants iv, then ct with the tag appended.
-    const raw = fromBase64(value.slice(LEGACY_ENC1_PREFIX.length));
-    const joined = new Uint8Array(concat(raw.slice(28), raw.slice(12, 28)));
-    return trialDecrypt(readKeys('field'), new Uint8Array(raw.slice(0, 12)), joined);
-  }
+  if (value.startsWith(LEGACY_ENC1_PREFIX)) return openLegacy(value, readKeys('field'));
 
   // A v2 value is always the field key's; a v1 one under the keyring named.
   const v1Mail = keyring === 'mail' && !value.startsWith(FIELD_V2_PREFIX);
   return openField(value, readKeys(v1Mail ? 'mail' : 'field'), aad);
+}
+
+/** Open an `enc1:` value under `keys`; throws when none opens it. */
+function openLegacy(value: string, keys: string[]): Promise<string> {
+  // iv(12) | tag(16) | ct  →  WebCrypto wants iv, then ct with the tag appended.
+  const raw = fromBase64(value.slice(LEGACY_ENC1_PREFIX.length));
+  const joined = new Uint8Array(concat(raw.slice(28), raw.slice(12, 28)));
+  return trialDecrypt(keys, new Uint8Array(raw.slice(0, 12)), joined);
+}
+
+/** Open an `aes256gcm:` value under `keys`; throws when none opens it. */
+function openMail(value: string, keys: string[]): Promise<string> {
+  const [ivHex, ctHex] = value.slice(MAIL_PREFIX.length).split(':');
+  return trialDecrypt(keys, fromHex(ivHex ?? ''), fromHex(ctHex ?? ''));
 }
 
 /** Open an `enc:v2:` or `enc:v1:` value under `keys`; throws when none opens it. */
@@ -426,6 +432,63 @@ export async function openFieldValue(
       return { plaintext, keyId: fieldKeyId(hex), current: i === 0 && keyList('field').currentOk };
     } catch {
       // Not this key (or not this row): try the next.
+    }
+  }
+  return null;
+}
+
+/** How `rotate-keys` names a mail key: as `fieldKeyId`, in its own domain, `mail:` in front. */
+export function mailKeyId(hex: string): string {
+  const id = createHash('sha256')
+    .update('zveltio mail key id\0')
+    .update(Buffer.from(hex, 'hex'))
+    .digest('hex')
+    .slice(0, 8);
+  return `mail:${id}`;
+}
+
+/**
+ * Whether a value is a whole envelope that binds no row: `enc:v1:` and the
+ * mail `aes256gcm:` (what `internals.encryptSecret` seals), or the legacy
+ * `enc1:` (ADR 0059 step 3).
+ */
+export function isUnboundValue(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    (/^enc:v1:[A-Za-z0-9_-]+$/.test(value) ||
+      /^enc1:[A-Za-z0-9+/]+=*$/.test(value) ||
+      /^aes256gcm:[0-9a-fA-F]+:[0-9a-fA-F]+$/.test(value))
+  );
+}
+
+/**
+ * Which listed key opens an unbound value — `enc:v1:` and `enc1:` under the
+ * field list, `aes256gcm:` under the mail list — and what it holds, for `rotate-keys`
+ * (ADR 0059 step 3). What `internals.encryptSecret` seals names no row, so it
+ * is resealed in its own format (`encryptWithKeyring`), never bound. Null when
+ * no listed key opens it.
+ */
+export async function openUnboundValue(value: string): Promise<{
+  plaintext: string;
+  keyring: Keyring;
+  keyId: string;
+  current: boolean;
+} | null> {
+  if (!isUnboundValue(value)) return null;
+  const keyring: Keyring = value.startsWith(MAIL_PREFIX) ? 'mail' : 'field';
+  const list = keyList(keyring);
+  for (const [i, hex] of list.keys.entries()) {
+    try {
+      const plaintext =
+        keyring === 'mail'
+          ? await openMail(value, [hex])
+          : value.startsWith(LEGACY_ENC1_PREFIX)
+            ? await openLegacy(value, [hex])
+            : await openField(value, [hex]);
+      const keyId = keyring === 'mail' ? mailKeyId(hex) : fieldKeyId(hex);
+      return { plaintext, keyring, keyId, current: i === 0 && list.currentOk };
+    } catch {
+      // Not this key: try the next.
     }
   }
   return null;

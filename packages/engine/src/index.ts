@@ -374,8 +374,10 @@ COMMANDS
                                      better-auth; refused once a god exists. [--name N]
   rotate-keys [--dry-run] [--batch N] [--check-missing-tenants]
                                      Rewrite every engine-sealed field value under the
-                                     current FIELD_ENCRYPTION_KEYS key, bound to its row;
-                                     report what is left under each key id.
+                                     current FIELD_ENCRYPTION_KEYS key, bound to its row,
+                                     and what extensions sealed under the current field or
+                                     MAIL_ENCRYPTION_KEYS key; report what is left under
+                                     each key id.
   status                             Show service status.
   update                             How to update (points to update.sh).
   version                            Print version.
