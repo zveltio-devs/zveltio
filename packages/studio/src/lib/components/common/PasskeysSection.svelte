@@ -35,8 +35,8 @@ let registering = $state(false);
 let deletingId = $state<string | null>(null);
 
 // The first sign-in factor is confirmed with the password — or, on an account with
-// none, by a fresh OAuth sign-in, which needs nothing asked here; every later
-// change with a step-up from an existing factor.
+// none, by a fresh OAuth or magic-link sign-in, which needs nothing asked here;
+// every later change with a step-up from an existing factor.
 let passwordAsk = $state<((pw: string | null) => void) | null>(null);
 let password = $state('');
 function askPassword(): Promise<string | null> {

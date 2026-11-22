@@ -92,7 +92,7 @@ The client names the action, confirms it, and sends the token it gets back as
   expired or for another action/session) or `step_up_enrollment_required` (no
   passkey and no TOTP on the account; add one first). From `options`, that refusal
   carries `errors.first_factor`: `password`, `recent_sign_in` (no password, and an
-  OAuth sign-in created this session under 5 minutes ago: nothing to ask) or
+  OAuth or magic-link sign-in created this session under 5 minutes ago: nothing to ask) or
   `sign_in_again`. A `step_up_required` refusal names the action to confirm in
   `errors.action`.
 
@@ -116,9 +116,10 @@ password (`password` in the `verify-registration` body for a passkey; 403
 `password_not_used` when the account already has a factor or no password — so a wrong
 one is refused before the WebAuthn ceremony, which otherwise leaves the authenticator
 holding a passkey the server never stored. It decides nothing:
-`verify-registration` still checks the password. An account with no password (OAuth only) instead needs a
-session created by an OAuth sign-in at most 5 minutes ago (403
-`recent_sign_in_required`: sign in with the provider again). After that, adding a
+`verify-registration` still checks the password. An account with no password (OAuth or magic link only) instead needs a
+session created by an OAuth or magic-link sign-in at most 5 minutes ago (403
+`recent_sign_in_required`: sign in again). The audit row's `confirmed_by` names
+which: `oauth` or `magic_link`. After that, adding a
 passkey or TOTP, deleting a passkey, disabling TOTP, reading the TOTP URI back or
 regenerating backup codes needs a step-up token.
 Each change writes an `auth.factor_changed` audit row and, with SMTP configured,
@@ -138,8 +139,9 @@ Re-authenticated in the request, by the rule that confirms a first factor: an ac
 with a passkey or TOTP sends a step-up token for `account.delete` in
 `X-Zveltio-Step-Up` (403 `step_up_required`; its password alone is not enough); one
 without sends `password` (403 `password_required`, wrong or missing); one with no
-password either (OAuth only) needs a session an OAuth sign-in created at most 5
-minutes ago (403 `recent_sign_in_required`). `erasure_id` is optional and opaque — a
+password either (OAuth or magic link only) needs a session an OAuth or magic-link
+sign-in created at most 5 minutes ago (403 `recent_sign_in_required`; `confirmed_by`
+is then `oauth` or `magic_link`). `erasure_id` is optional and opaque — a
 UUID of your own (a GDPR request's id) that the audit row carries; any other field is
 refused (400). Counts against the per-address auth limit (10/min).
 
@@ -154,7 +156,7 @@ the instance owner (`god`): transfer or demote the role first.
 Deletes a user's passkeys and TOTP, for a user who lost them, and ends every session
 the user has (as deactivation does: a reset usually follows a lost or stolen device).
 The user then enrolls again under the first-factor rule above: the password, or a
-fresh OAuth sign-in.
+fresh OAuth or magic-link sign-in.
 
 - God may reset anyone but itself; an instance admin may reset ordinary users only
   (403 for another admin or god). Your own factors are reset through recovery

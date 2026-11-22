@@ -27,6 +27,7 @@ import {
   hasStepUpFactor,
   mailFactorChange,
   requireStepUp,
+  signInOrigin,
   stepUpOptions,
   stepUpVerify,
   totpActive,
@@ -85,7 +86,8 @@ async function passwordMatches(c: Context): Promise<boolean> {
 
 /**
  * What confirms `change`, or the refusal: a step-up from an existing factor; for
- * the first one, the password — or, on an account that has none, a fresh OAuth sign-in.
+ * the first one, the password — or, on an account that has none, a fresh OAuth or
+ * magic-link sign-in.
  */
 async function confirmChange(
   c: Context,
@@ -103,7 +105,9 @@ async function confirmChange(
       403,
     );
   }
-  if (rule === 'recent_sign_in') return 'oauth';
+  // Read again, not assumed: the row may have expired since the rule was asked.
+  const origin = rule === 'recent_sign_in' && (await signInOrigin(session.session.token));
+  if (origin) return origin;
   return c.json(
     {
       error:

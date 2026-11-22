@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Changed — a magic-link sign-in counts as a recent sign-in for the first factor (owner 2026-11-22).** An account with no password could enroll its first passkey or TOTP, or erase itself (`DELETE /api/me`), only from a session an OAuth sign-in had created at most five minutes before; a session from a magic link answered 403 `recent_sign_in_required`, so a magic-link-only account could never add a factor. A session `/magic-link/verify` creates now counts too (`first_factor: "recent_sign_in"`). The audit's `confirmed_by` names the sign-in: `oauth` or, new, `magic_link`.
+
 **Fixed — two m2m fields between the same collections get a junction table each (A13).** The junction was named after the pair alone, so `posts.tags` and `posts.featured` shared one table, and removing either field dropped the other's links. A new m2m now takes the next free name; removing a relation keeps a legacy shared table while another relation still names it.
 
 **Fixed — a collection whose create job failed can be deleted and created again (A13).** `POST /api/collections` registers the row before it queues the job; a job that failed left the row with no table, listed, holding the name (409) and refused by `DELETE` as not found. The failed job now removes the row, and `DELETE` drops a row that has no table.

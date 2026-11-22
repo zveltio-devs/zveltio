@@ -104,35 +104,52 @@ export function mailFactorChange(to: string, line: string): void {
   }).catch((err: Error) => console.error('[step-up] factor-change mail failed:', err.message));
 }
 
-/** Better Auth's endpoints that create a session from an OAuth provider's answer. */
-const OAUTH_SIGN_IN_PATHS = new Set(['/callback/:id', '/sign-in/social']);
-const OAUTH_SIGN_IN_SECONDS = 300;
+/**
+ * Better Auth's endpoints that create a session from an OAuth provider's answer
+ * or a magic link: each proves who signs in without a password (owner 2026-11-22).
+ */
+const SIGN_IN_ORIGIN_PATHS = new Set(['/callback/:id', '/sign-in/social', '/magic-link/verify']);
+const SIGN_IN_ORIGIN_SECONDS = 300;
+/** Which sign-in it was: the audit's `confirmed_by` for a first factor it confirms. */
+export type SignInOrigin = 'oauth' | 'magic_link';
+// The row kind keeps its first name: renaming it would only orphan live rows.
+const SIGN_IN_ORIGIN_KIND = 'oauth-sign-in';
 
 /**
- * Note a session an OAuth sign-in is creating; called from Better Auth's session
- * create hook, the one place that sees both the new token and the endpoint. The
- * session row records neither the method nor survives a replacement unchanged, so
- * this row — five minutes, keyed by the token's hash — is the record.
+ * Note a session an OAuth or magic-link sign-in is creating; called from Better
+ * Auth's session create hook, the one place that sees both the new token and the
+ * endpoint. The session row records neither the method nor survives a replacement
+ * unchanged, so this row — five minutes, keyed by the token's hash — is the record.
  */
 export async function noteSessionOrigin(token: string, path: string | undefined): Promise<void> {
-  if (!path || !OAUTH_SIGN_IN_PATHS.has(path)) return;
-  await put(rowId('oauth-sign-in', token), 'oauth-sign-in', '', OAUTH_SIGN_IN_SECONDS);
+  if (!path || !SIGN_IN_ORIGIN_PATHS.has(path)) return;
+  const origin: SignInOrigin = path === '/magic-link/verify' ? 'magic_link' : 'oauth';
+  await put(rowId(SIGN_IN_ORIGIN_KIND, token), SIGN_IN_ORIGIN_KIND, origin, SIGN_IN_ORIGIN_SECONDS);
+}
+
+/** The sign-in that created this session at most five minutes ago, if one did. */
+export async function signInOrigin(sessionToken: string): Promise<SignInOrigin | undefined> {
+  const r = await sql<{ value: string }>`
+    SELECT value FROM verification
+     WHERE id = ${rowId(SIGN_IN_ORIGIN_KIND, sessionToken)} AND "expiresAt" > now()`.execute(
+    authPool(),
+  );
+  const v = r.rows[0]?.value;
+  if (v === undefined) return undefined;
+  // A row written before the origin was recorded holds '': only OAuth wrote those.
+  return v === 'magic_link' ? 'magic_link' : 'oauth';
 }
 
 /**
  * What enrolls this account's first factor: its password; or, with none, this
- * session if an OAuth sign-in created it at most five minutes ago, else a new sign-in.
+ * session if an OAuth or magic-link sign-in created it at most five minutes ago,
+ * else a new sign-in.
  */
 export type FirstFactor = 'password' | 'recent_sign_in' | 'sign_in_again';
 
 export async function firstFactorRule(userId: string, sessionToken: string): Promise<FirstFactor> {
   if (await hasPassword(userId)) return 'password';
-  const r = await sql<{ id: string }>`
-    SELECT id FROM verification
-     WHERE id = ${rowId('oauth-sign-in', sessionToken)} AND "expiresAt" > now()`.execute(
-    authPool(),
-  );
-  return r.rows.length === 1 ? 'recent_sign_in' : 'sign_in_again';
+  return (await signInOrigin(sessionToken)) ? 'recent_sign_in' : 'sign_in_again';
 }
 
 /** Store a row; false when one with this id is already there (a replayed TOTP code). */
@@ -465,14 +482,15 @@ export async function requireStepUp(c: Context, action: string): Promise<StepUpM
  * rule that confirms a first factor (routes/step-up.ts), asked every time. An
  * account with a passkey or TOTP steps up for `action` — no password fallback,
  * as above; one without, its password; one with no password either, a session an
- * OAuth sign-in created at most five minutes ago. How it was confirmed, or the 403.
+ * OAuth or magic-link sign-in created at most five minutes ago. How it was
+ * confirmed, or the 403.
  */
 export async function reauthenticate(
   c: Context,
   session: RequestSession,
   action: string,
   password: string | undefined,
-): Promise<StepUpMethod | 'password' | 'oauth' | Response> {
+): Promise<StepUpMethod | 'password' | SignInOrigin | Response> {
   const userId = session.user.id;
   if (await hasStepUpFactor(userId)) return requireStepUp(c, action);
   const rule = await firstFactorRule(userId, session.session.token);
@@ -487,7 +505,9 @@ export async function reauthenticate(
     }
     return c.json({ error: 'Enter your password to confirm', code: 'password_required' }, 403);
   }
-  if (rule === 'recent_sign_in') return 'oauth';
+  // Read again, not assumed: the row may have expired since the rule was asked.
+  const origin = rule === 'recent_sign_in' && (await signInOrigin(session.session.token));
+  if (origin) return origin;
   return c.json(
     {
       error: 'Sign in again with your sign-in provider, then confirm within five minutes.',

@@ -676,7 +676,7 @@ export async function initAuth(db: Database) {
             // Not fatal: without the note that account re-signs in, nothing else is lost.
             const { noteSessionOrigin } = await import('./step-up.js');
             await noteSessionOrigin(session.token, ctx?.path).catch((err: Error) =>
-              console.error('[auth] OAuth sign-in note failed:', err.message),
+              console.error('[auth] sign-in origin note failed:', err.message),
             );
             return { data: session };
           },
@@ -812,7 +812,7 @@ export async function initAuth(db: Database) {
         // had the second factor for every account that enabled 2FA.
         backupCodeOptions: { storeBackupCodes: 'encrypted' },
         // An account with no password has none to give. Better Auth then asks for
-        // nothing; routes/step-up.ts asks for a step-up or a fresh OAuth sign-in.
+        // nothing; routes/step-up.ts asks for a step-up or a fresh OAuth or magic-link sign-in.
         allowPasswordless: true,
       }),
 
