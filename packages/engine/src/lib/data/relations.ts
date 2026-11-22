@@ -434,6 +434,7 @@ export async function createRelation(
       db,
       data.source_collection,
       data.target_collection,
+      data.source_field,
     );
     fieldsToAdd.push([
       data.source_collection,

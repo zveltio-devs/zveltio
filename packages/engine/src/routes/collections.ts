@@ -545,7 +545,12 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
         });
       } else if (field.type === 'm2m' && relatedCollection) {
         // m2m — junction table with FK columns for both sides
-        const junctionTable = await DDLManager.createJunctionTable(db, name, relatedCollection);
+        const junctionTable = await DDLManager.createJunctionTable(
+          db,
+          name,
+          relatedCollection,
+          field.name,
+        );
         await DDLManager.registerRelation(db, {
           name: `${name}_${field.name}`,
           type: 'm2m',
