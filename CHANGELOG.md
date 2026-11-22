@@ -5,6 +5,7 @@ All notable changes to Zveltio will be documented in this file.
 ## [Unreleased]
 
 **Fixed — a rule written while its collection was being dropped no longer outlives the drop (ADR 0002 step 5, A06).** Migration 116's trigger read the collection row with a plain read, so under READ COMMITTED a grant or revoked default written after an open drop had deleted the collection's rules, and before it committed, passed and stayed; a collection created again under the name inherited it. Migration 132 locks the row the rule names (`FOR KEY SHARE`, as a foreign key does): the write waits for the drop, then is refused with 23503.
+
 **Fixed — one request could empty the request log (A02).** The request log writes its rows in one multi-row INSERT per 250 ms (DR-41). A path such as `/api/a%00b` decodes to a NUL, which a Postgres text column refuses, and the refusal dropped the whole batch: one such request every 250 ms dropped every other request's row. A NUL in any logged value is now written as U+FFFD.
 
 **Security — the boot check reads a preset setting's name in any case (A04).** With `NATIVE_DATABASE_URL` set, the boot reads `DATABASE_URL`'s startup options as text and matched `zveltio.*` names case-sensitively, while Postgres matches them in any case: `options=-c Zveltio.Current_Tenant=<uuid>` behind a pooler preset the tenant and still passed the check. The name is now matched case-insensitively.
