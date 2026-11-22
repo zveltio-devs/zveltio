@@ -434,7 +434,22 @@ export async function runCreateCollection(
 ): Promise<void> {
   // Tenant RLS is part of the create (DDLManager's `createIsolatedTable`): a
   // table it cannot isolate is not created, and the job fails.
-  await DDLManager.createCollection(db, definition, owner);
+  try {
+    await DDLManager.createCollection(db, definition, owner);
+  } catch (err) {
+    // POST /api/collections registers the row before it queues this job. A
+    // create that failed left no table, and the row outlived the job: listed,
+    // holding the name (409), and refused by DELETE as "not found". A retry
+    // that succeeds writes it again.
+    await sql`DELETE FROM zvd_collections WHERE name = ${definition.name}
+                AND to_regclass(format('public.%I', ${`zvd_${definition.name}`}::text)) IS NULL`
+      .execute(db)
+      .then(() => DDLManager.invalidateCache(definition.name))
+      .catch((e: Error) =>
+        console.warn(`[ddl] ${definition.name}: row of a failed create kept:`, e.message),
+      );
+    throw err;
+  }
   announceSchemaChange(definition.name, 'create');
 }
 

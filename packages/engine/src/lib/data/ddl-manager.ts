@@ -622,12 +622,25 @@ export class DDLManager {
     return /^zvd_jnc_[a-z][a-z0-9_]*$/.test(junctionTable);
   }
 
-  /** Drops a m2m junction table by its full name. Validates the name is a safe zvd_jnc_ table. */
+  /**
+   * Drops a m2m junction table by its full name. Validates the name is a safe
+   * zvd_jnc_ table. One that another relation still names stays: before
+   * `createJunctionTable` took the relation's field, two m2m between one pair
+   * shared a table, and removing either dropped the other's links.
+   */
   static async dropJunctionTable(db: Database, junctionTable: string): Promise<void> {
     if (!DDLManager.isEngineJunction(junctionTable)) {
       throw new Error(`Invalid junction table name: "${junctionTable}"`);
     }
+    // Callers drop the table before deleting their own relation row.
+    const holders = await db
+      .selectFrom('zvd_relations')
+      .select((eb) => eb.fn.countAll<number>().as('n'))
+      .where('junction_table', '=', junctionTable)
+      .executeTakeFirst();
+    if (Number(holders?.n ?? 0) > 1) return;
     await withLockTimeout(db, async (trx) => {
+      // raw-ident-ok: isEngineJunction (above) admits only ^zvd_jnc_[a-z][a-z0-9_]*$
       await sql.raw(`DROP TABLE IF EXISTS "${junctionTable}" CASCADE`).execute(trx);
     });
   }
@@ -640,11 +653,18 @@ export class DDLManager {
    * still running when the next request dropped the junction waited on that
    * request while its DROP waited on the build (55P03 after lock_timeout).
    * Returns the junction table name.
+   *
+   * `field`: the m2m field the junction is for. A name another relation's
+   * junction has is skipped for the next free one, so two m2m between one pair
+   * (`posts.tags`, `posts.featured`) get a table each — they shared one, and
+   * removing either dropped the other's links. The name is the relation row's
+   * `junction_table`; nothing derives it again.
    */
   static async createJunctionTable(
     db: Database,
     sourceName: string,
     targetName: string,
+    field?: string,
   ): Promise<string> {
     // Validated here, not only in the caller. Both names are interpolated into
     // identifiers below, and `createCollection` happens to test `target` before
@@ -658,7 +678,20 @@ export class DDLManager {
 
     const sourceTable = this.getTableName(sourceName);
     const targetTable = this.getTableName(targetName);
-    const junctionTable = pgIdentifier(`zvd_jnc_${sourceName}_${targetName}`);
+    const base = `zvd_jnc_${sourceName}_${targetName}`;
+    let junctionTable = pgIdentifier(base);
+    for (let n = 2; field; n++) {
+      const holder = await db
+        .selectFrom('zvd_relations')
+        .select(['source_collection', 'source_field'])
+        .where('junction_table', '=', junctionTable)
+        .executeTakeFirst();
+      // Free, or this field's own (a retried create).
+      if (!holder || (holder.source_collection === sourceName && holder.source_field === field)) {
+        break;
+      }
+      junctionTable = pgIdentifier(`${base}_${n}`);
+    }
     // The links are tenant rows: the collection tables' tenant_id, policy and
     // narrow-role grants. Without them any tenant read and deleted every other
     // tenant's links (migration 042). IF NOT EXISTS makes a retry idempotent.
@@ -918,7 +951,7 @@ export class DDLManager {
           );
           continue;
         }
-        const junctionTable = await this.createJunctionTable(h, validated.name, target);
+        const junctionTable = await this.createJunctionTable(h, validated.name, target, field.name);
         await this.registerRelation(h, {
           name: `${validated.name}_${field.name}`,
           type: 'm2m',
@@ -1101,7 +1134,15 @@ export class DDLManager {
     const tableName = this.getTableName(name);
 
     if (!opts.gone && !(await this.tableExists(db, name))) {
-      throw new Error(`Collection '${name}' not found`);
+      // A row with no table (a create job that failed after POST registered it)
+      // is still dropped: refused here, nothing could remove it, and it held
+      // the name against a new create.
+      const row = await db
+        .selectFrom('zvd_collections')
+        .select('name')
+        .where('name', '=', name)
+        .executeTakeFirst();
+      if (!row) throw new Error(`Collection '${name}' not found`);
     }
 
     const deps = await this.getTableDependents(db, name);
@@ -1141,8 +1182,13 @@ export class DDLManager {
       // Use stored junction_table name if available; fall back to legacy naming
       const junctionName: string =
         rel.junction_table || `zvd_jnc_${rel.source_collection}_${rel.target_collection}`;
-      if (/^zvd_[a-z][a-z0-9_]*$/.test(junctionName)) {
+      // Only a table the engine made for the m2m (`zvd_jnc_`). A relation that
+      // joins through a collection of its own (crm's contact_organizations)
+      // names that collection's `zvd_` table, and dropping the far side
+      // dropped it, rows and all, under a collection still registered.
+      if (DDLManager.isEngineJunction(junctionName)) {
         await withLockTimeout(db, async (trx) => {
+          // raw-ident-ok: isEngineJunction admits only ^zvd_jnc_[a-z][a-z0-9_]*$
           await sql.raw(`DROP TABLE IF EXISTS "${junctionName}" CASCADE`).execute(trx);
         }).catch((err: Error) => {
           // Rethrown, not warned past. Continuing here left the junction table

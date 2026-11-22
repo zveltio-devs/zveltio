@@ -4,6 +4,12 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Fixed — two m2m fields between the same collections get a junction table each (A13).** The junction was named after the pair alone, so `posts.tags` and `posts.featured` shared one table, and removing either field dropped the other's links. A new m2m now takes the next free name; removing a relation keeps a legacy shared table while another relation still names it.
+
+**Fixed — a collection whose create job failed can be deleted and created again (A13).** `POST /api/collections` registers the row before it queues the job; a job that failed left the row with no table, listed, holding the name (409) and refused by `DELETE` as not found. The failed job now removes the row, and `DELETE` drops a row that has no table.
+
+**Fixed — dropping a collection no longer drops another collection's table (A13).** The drop removed every table an m2m relation named as its junction, including a collection an extension joins through (crm's `contact_organizations`), with its rows, while that collection stayed registered. It now drops only junction tables the engine made (`zvd_jnc_`).
+
 **Fixed — a collection created again under a dropped one's name no longer serves the dropped one's records (A12).** A drop keeps the collection's revisions, and `?as_of=` (list and single record) and `/api/revisions` chose revisions by collection name alone: whoever was granted read on the new collection read the last state of every record of the old one, which it had never been granted, through `?as_of=<now>`. Every revision reader now takes only revisions written since the collection was created (`zvd_collections.created_at`); a dropped collection has no such row, so none of its revisions are served. The revisions themselves are kept.
 
 **Fixed — `?as_of=` refuses a filter or a search instead of ignoring it (A12).** The time-travel list applied neither `filter`, the bracket form nor `search`, and answered every row the caller may read as if they had matched — what ADR 0019 decision 6 forbids. It now answers 400.
