@@ -15,6 +15,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager, runCreateCollection } from '../../lib/data/index.js';
 import { createRelation } from '../../lib/data/relations.js';
+import { DEFAULT_TENANT_ID } from '../../lib/tenancy/index.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -35,6 +36,13 @@ d('m2m junctions and failed-create rows', () => {
       ?.t != null;
   const row = async (name: string) =>
     (await sql`SELECT 1 FROM zvd_collections WHERE name = ${name}`.execute(db)).rows.length;
+  const asTenant = <T>(fn: (trx: Database) => Promise<T>) =>
+    db.transaction().execute(async (trx) => {
+      await sql`SELECT set_config('zveltio.current_tenant', ${DEFAULT_TENANT_ID}, true)`.execute(
+        trx,
+      );
+      return fn(trx as unknown as Database);
+    });
   const m2m = (name: string, field: string) =>
     createRelation(db, {
       name,
@@ -67,12 +75,16 @@ d('m2m junctions and failed-create rows', () => {
     expect(featured!.junction_table).not.toBe(tags!.junction_table);
 
     const j = tags!.junction_table as string;
-    const tag = await sql<{ id: string }>`
-      INSERT INTO ${sql.id(`zvd_${TAGS}`)} (n) VALUES ('x') RETURNING id`.execute(db);
-    const post = await sql<{ id: string }>`
-      INSERT INTO ${sql.id(`zvd_${POSTS}`)} (t) VALUES ('p') RETURNING id`.execute(db);
-    await sql`INSERT INTO ${sql.id(j)} (${sql.id(`${POSTS}_id`)}, ${sql.id(`${TAGS}_id`)})
-              VALUES (${post.rows[0]!.id}, ${tag.rows[0]!.id})`.execute(db);
+    // As a tenant: the tables are under tenant RLS, which the non-superuser
+    // CI lane enforces on these raw inserts.
+    await asTenant(async (trx) => {
+      const tag = await sql<{ id: string }>`
+        INSERT INTO ${sql.id(`zvd_${TAGS}`)} (n) VALUES ('x') RETURNING id`.execute(trx);
+      const post = await sql<{ id: string }>`
+        INSERT INTO ${sql.id(`zvd_${POSTS}`)} (t) VALUES ('p') RETURNING id`.execute(trx);
+      await sql`INSERT INTO ${sql.id(j)} (${sql.id(`${POSTS}_id`)}, ${sql.id(`${TAGS}_id`)})
+                VALUES (${post.rows[0]!.id}, ${tag.rows[0]!.id})`.execute(trx);
+    });
 
     const res = await app.request(`/api/relations/${featured!.id}`, {
       method: 'DELETE',
@@ -80,7 +92,7 @@ d('m2m junctions and failed-create rows', () => {
     });
     expect(res.status).toBe(200);
     expect(await exists(featured!.junction_table as string)).toBe(false);
-    const links = await sql`SELECT 1 FROM ${sql.id(j)}`.execute(db);
+    const links = await asTenant((trx) => sql`SELECT 1 FROM ${sql.id(j)}`.execute(trx));
     expect(links.rows.length).toBe(1);
   });
 
