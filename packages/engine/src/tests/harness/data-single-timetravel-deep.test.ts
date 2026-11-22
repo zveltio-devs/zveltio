@@ -31,6 +31,10 @@ d('data single time-travel deep (in-process)', () => {
       name: COLLECTION,
       fields: [{ name: 'title', type: 'text', required: true, unique: false, indexed: false }],
     } as never);
+    // The planted revision predates now: so must the collection, or time travel
+    // reads it as a predecessor's.
+    await sql`UPDATE zvd_collections SET created_at = now() - interval '1 hour'
+              WHERE name = ${COLLECTION}`.execute(db);
 
     const create = await app.request(`/api/data/${COLLECTION}`, {
       method: 'POST',

@@ -61,6 +61,7 @@ import {
 } from '../write-pipeline.js';
 import { tenantId } from '../../route-db.js';
 import { readScope } from '../read-scope.js';
+import { sinceCreated } from '../revisions-read.js';
 import { rowAuthorId, checkAccess } from '../auth.js';
 import { cascadeRefusal, writtenByBody, writtenByRefusal } from '../written-by.js';
 import { claimRefusal, claimRefusalBody, releaseOwnedFiles } from '../owned-files.js';
@@ -190,6 +191,7 @@ export async function getRecord(c: Context, db: Database): Promise<Response> {
           AND record_id = ${id}
           AND tenant_id = ${tenantId(c)}::uuid
           AND created_at <= ${asOf.toISOString()}
+          AND ${sinceCreated('zvv__revisions.created_at', collection)}
         ORDER BY created_at DESC
         LIMIT 1
       `.execute(effectiveDbTTSingle);
