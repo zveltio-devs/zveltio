@@ -1718,8 +1718,13 @@ export class WorkerExtensionHost {
             .catch(() => undefined);
           // Drop the `/ext/<name>` segments rather than string-replacing the
           // name: Hono matched a percent-encoded name (`/ext/%70robe/x`), and
-          // a replace left the whole path for the worker to 404 on.
-          const subPath = `/${new URL(c.req.raw.url).pathname.split('/').slice(3).join('/')}`;
+          // a replace left the whole path for the worker to 404 on. As many as
+          // the name has: a fixed three left `/b` of `a/b` in the path, so the
+          // worker served another route than the one the gate decided on.
+          const subPath = `/${new URL(c.req.raw.url).pathname
+            .split('/')
+            .slice(2 + managed.name.split('/').length)
+            .join('/')}`;
           // Read from the running worker, not closed over at mount: Hono cannot
           // unmount, so an earlier proxy on the same app answers a restarted
           // worker's requests and kept forwarding the set approved back then.

@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Security — a worker-isolated extension with a name of two or more segments is served the route the gate decided on (A02).** The worker proxy dropped a fixed `/ext/<one segment>` from the path, so `/ext/a/b/login` reached the worker as `/b/login`: the gate admitted an anonymous request to the declared public route `/login`, and the worker could answer it with a `caller` route whose pattern fit `/b/login`. Every declared route of such an extension (auth/saml, auth/ldap, auth/scim, content/pages, compliance/ro/efactura, integrations/api-connector) answered 404 in worker transport. No first-party manifest has the overlapping shape. The proxy now drops as many segments as the name has.
+
 **Fixed — a rule written while its collection was being dropped no longer outlives the drop (ADR 0002 step 5, A06).** Migration 116's trigger read the collection row with a plain read, so under READ COMMITTED a grant or revoked default written after an open drop had deleted the collection's rules, and before it committed, passed and stayed; a collection created again under the name inherited it. Migration 132 locks the row the rule names (`FOR KEY SHARE`, as a foreign key does): the write waits for the drop, then is refused with 23503.
 
 **Fixed — one request could empty the request log (A02).** The request log writes its rows in one multi-row INSERT per 250 ms (DR-41). A path such as `/api/a%00b` decodes to a NUL, which a Postgres text column refuses, and the refusal dropped the whole batch: one such request every 250 ms dropped every other request's row. A NUL in any logged value is now written as U+FFFD.
