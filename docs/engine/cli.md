@@ -381,7 +381,9 @@ zveltio keys export my-org-2026   # the entry for the engine's OPERATOR_PUBLIC_K
 ```
 
 It writes `signature.json` at the directory's root: an Ed25519 signature over
-every file in the directory, its name and the tier `private`. A level-3
+every file in the directory but a root `node_modules/` (what `bun install`
+left there never runs on the runner, and `zveltio install --path` does not copy
+it), its name and the tier `private`. A level-3
 extension is declared model only: its `register()` may use neither its app nor
 its `ctx`, and `engine/migrations/*.sql` is refused. `extension publish` leaves
 the root `signature.json` out of its archive. See

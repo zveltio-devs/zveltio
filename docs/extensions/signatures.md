@@ -82,7 +82,11 @@ nothing else (ADR 0056 d1):
   above plus `"tier": "private"`. Its `bundleSha256` is the sha256 of a listing
   of the directory: a `zveltio-extension-dir/1` header, the name the engine
   loads it as, the tier, then `<sha256> <path>` for every regular file but
-  `signature.json`, sorted. A symbolic link is refused.
+  `signature.json`, sorted. A symbolic link is refused. A `node_modules/` at the
+  root is left out, links and all, so a directory signs after `bun install`:
+  nothing in it runs. The runner imports only the signed bundle's bytes, in a
+  process whose working directory is `/`, so no import resolves from it; pack
+  your dependencies into the bundle. `zveltio install --path` does not copy it.
 - **Verified at every load**, not once at install, and again before every
   respawn of its process, against
   `OPERATOR_PUBLIC_KEYS_JSON` only. The process imports only the bundle bytes
@@ -118,7 +122,8 @@ checks that at every load, not once at install (ADR 0056 amendment 4, ADR 0058):
 - **Every load re-verifies it.** The signature against the registry keys
   (`BUILTIN_KEYS` and `REGISTRY_PUBLIC_KEYS_JSON`, never an operator key), then
   every file of the directory against the archive: a byte changed, a file added
-  or removed since the download refuses the load. So does an archive whose
+  or removed since the download refuses the load, a `node_modules/` included
+  (the archive never carries one, and an inline bundle would resolve from it). So does an archive whose
   manifest names another extension — a signed archive copied under a
   first-party name is not that extension. A kept signature that does not hold is
   refused; the directory is never loaded as if it were unsigned.

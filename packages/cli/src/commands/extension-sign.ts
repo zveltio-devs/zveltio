@@ -4,53 +4,26 @@
  * its `OPERATOR_PUBLIC_KEYS_JSON` list, verifies it at every load, and runs it
  * on the extension runner, never inline.
  *
- * What is signed is the listing below, byte for byte the engine's
- * (`packages/engine/src/lib/security/extension-dir-signature.ts`; the engine's
- * `ext-operator-signed` harness test signs with this CLI to hold the two
- * together):
- *
- *     zveltio-extension-dir/1
- *     name <manifest name>
- *     tier private
- *     <sha256 hex> <relative path>   (every regular file but signature.json, sorted)
+ * What is signed is the listing `@zveltio/sdk/publish/dir` builds, the function
+ * the engine verifies with: every regular file but `signature.json` and a root
+ * `node_modules/`, which never runs on the runner (the engine's
+ * `ext-operator-signed` harness test signs with this CLI and loads the result).
  */
 
-import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { _bytes, type ExtensionSignature, signBundle, verifyBundle } from '@zveltio/sdk/publish';
+import { DIR_SIGNATURE_FILE, extensionDirListing } from '@zveltio/sdk/publish/dir';
 import { readKeyFile, resolveKeyId } from './keys.js';
 
-export const DIR_SIGNATURE_FILE = 'signature.json';
+export { DIR_SIGNATURE_FILE };
 
 /** The envelope written to `signature.json`: the archive envelope plus the tier it confers. */
 export type DirSignature = ExtensionSignature & { tier: 'private' };
 
-export function extensionDirListing(dir: string, name: string, tier: string): Uint8Array {
-  const lines: string[] = [];
-  const walk = (rel: string): void => {
-    for (const entry of readdirSync(join(dir, rel))) {
-      const path = rel ? `${rel}/${entry}` : entry;
-      if (path === DIR_SIGNATURE_FILE) continue;
-      if (/[\r\n]/.test(path))
-        throw new Error(`file name ${JSON.stringify(path)} cannot be listed`);
-      const st = lstatSync(join(dir, path));
-      if (st.isDirectory()) walk(path);
-      else if (st.isFile())
-        lines.push(
-          `${createHash('sha256')
-            .update(readFileSync(join(dir, path)))
-            .digest('hex')} ${path}`,
-        );
-      else throw new Error(`"${path}" is not a regular file or directory (a link is never signed)`);
-    }
-  };
-  walk('');
-  lines.sort();
-  return new TextEncoder().encode(
-    `zveltio-extension-dir/1\nname ${name}\ntier ${tier}\n${lines.map((l) => `${l}\n`).join('')}`,
-  );
-}
+/** What an operator signs, built by the same function the engine verifies with. */
+const operatorListing = (dir: string, name: string): Uint8Array =>
+  extensionDirListing(dir, name, 'private', { operator: true });
 
 function manifestName(dir: string): string {
   const path = join(dir, 'manifest.json');
@@ -65,7 +38,7 @@ export async function extensionSignCommand(opts: { dir?: string; keyId?: string 
     const dir = resolve(opts.dir ?? process.cwd());
     const name = manifestName(dir);
     const keypair = readKeyFile(resolveKeyId(opts.keyId));
-    const envelope = await signBundle(extensionDirListing(dir, name, 'private'), keypair);
+    const envelope = await signBundle(operatorListing(dir, name), keypair);
     const signed: DirSignature = { ...envelope, tier: 'private' };
     writeFileSync(join(dir, DIR_SIGNATURE_FILE), `${JSON.stringify(signed, null, 2)}\n`);
     console.log(
@@ -129,7 +102,7 @@ export async function verifyExtensionDirSignature(dir: string, name: string): Pr
       `signed with key "${sig.keyId}", which is neither in OPERATOR_PUBLIC_KEYS_JSON nor in ~/.zveltio/keys`,
     );
   }
-  const r = await verifyBundle(extensionDirListing(dir, name, 'private'), sig, key.jwk);
+  const r = await verifyBundle(operatorListing(dir, name), sig, key.jwk);
   if (!r.ok) {
     throw new Error(
       `the directory no longer matches what key "${sig.keyId}" signed (a file changed, was ` +

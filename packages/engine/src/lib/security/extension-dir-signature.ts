@@ -10,24 +10,25 @@
  *     tier private
  *     <sha256 hex> <path relative to the root, "/"-separated>   (one per file, sorted)
  *
- * Every regular file is listed but `signature.json` itself, so a byte changed,
- * a file added or removed, the tier rewritten or the directory renamed after
- * signing changes the digest. A symbolic link is refused: what it points to is
- * outside what was signed. The CLI builds the same listing
- * (`packages/cli/src/commands/extension-sign.ts`); the two are held together by
- * `tests/harness/ext-operator-signed.test.ts`, which signs with the CLI.
+ * Every regular file is listed but `signature.json` itself and a root
+ * `node_modules/` (never run on the runner: `OPERATOR_UNLISTED`), so a byte
+ * changed, a file added or removed, the tier rewritten or the directory renamed
+ * after signing changes the digest. A symbolic link is refused: what it points
+ * to is outside what was signed. The CLI builds it with the same function
+ * (`@zveltio/sdk/publish/dir`); `tests/harness/ext-operator-signed.test.ts`
+ * signs with the CLI and loads here.
  *
  * Verified at every load, against the operator's key list only: a key there
  * confers level 3 and never more. An unknown key is a refusal, not a fallback.
  */
 
-import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { DIR_SIGNATURE_FILE, extensionDirListing } from '@zveltio/sdk/publish/dir';
 import { findOperatorKeyById } from './registry-keys.js';
 import { parseSignature, SignatureInvalidError, verifySignature } from './signature-verify.js';
 
-export const DIR_SIGNATURE_FILE = 'signature.json';
+export { DIR_SIGNATURE_FILE, extensionDirListing };
 
 /**
  * Where a download keeps the archive the registry signed and its signature
@@ -35,42 +36,6 @@ export const DIR_SIGNATURE_FILE = 'signature.json';
  * inline, re-verified at every load (`verifyRegistrySignedDir`, U3).
  */
 export const REGISTRY_SIGNED_DIR = '.zveltio-registry';
-
-/**
- * The canonical listing an operator signature covers. Throws on a link or an
- * unlistable name. `files`, when given, receives each listed path's sha256.
- */
-export function extensionDirListing(
-  dir: string,
-  name: string,
-  tier: string,
-  files?: Map<string, string>,
-): Uint8Array {
-  const lines: string[] = [];
-  const walk = (rel: string): void => {
-    for (const entry of readdirSync(join(dir, rel))) {
-      const path = rel ? `${rel}/${entry}` : entry;
-      if (path === DIR_SIGNATURE_FILE) continue;
-      if (/[\r\n]/.test(path))
-        throw new Error(`file name "${JSON.stringify(path)}" cannot be listed`);
-      const st = lstatSync(join(dir, path));
-      if (st.isDirectory()) walk(path);
-      else if (st.isFile()) {
-        const hash = createHash('sha256')
-          .update(readFileSync(join(dir, path)))
-          .digest('hex');
-        files?.set(path, hash);
-        lines.push(`${hash} ${path}`);
-      } else
-        throw new Error(`"${path}" is not a regular file or directory (a link is never signed)`);
-    }
-  };
-  walk('');
-  lines.sort();
-  return new TextEncoder().encode(
-    `zveltio-extension-dir/1\nname ${name}\ntier ${tier}\n${lines.map((l) => `${l}\n`).join('')}`,
-  );
-}
 
 /**
  * The operator key that signed `extDir` and the sha256 of each file it signed
@@ -114,7 +79,7 @@ export async function verifyExtensionDir(
   let listing: Uint8Array;
   const files = new Map<string, string>();
   try {
-    listing = extensionDirListing(extDir, extName, tier, files);
+    listing = extensionDirListing(extDir, extName, tier, { files, operator: true });
   } catch (err) {
     throw new SignatureInvalidError(extName, (err as Error).message);
   }

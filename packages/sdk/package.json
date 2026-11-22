@@ -30,6 +30,10 @@
       "types": "./dist/publish/index.d.ts",
       "import": "./dist/publish/index.js"
     },
+    "./publish/dir": {
+      "types": "./dist/publish/dir.d.ts",
+      "import": "./dist/publish/dir.js"
+    },
     "./build": {
       "types": "./dist/build/index.d.ts",
       "import": "./dist/build/index.js"

@@ -191,6 +191,17 @@ for (const m of [
     }
   }, 60_000);
 
+  it('refuses a node_modules/ added since the download: unlike an operator listing, this one covers it', async () => {
+    // A registry-signed directory may run inline, where a bare specifier in its
+    // bundle resolves from its node_modules/; the archive never carries one.
+    const name = `l2${STAMP}/deps`;
+    await write(name);
+    mkdirSync(join(base, name, 'node_modules', 'dep'), { recursive: true });
+    writeFileSync(join(base, name, 'node_modules', 'dep', 'index.js'), 'module.exports = 1;\n');
+    expect(await load(name)).toMatch(/"node_modules\/dep\/index\.js" was added since the download/);
+    expect(running(name)).toBe(false);
+  }, 60_000);
+
   it('verifies the registry signature again before a crash respawn imports the bundle', async () => {
     const name = `l2${STAMP}/respawn`;
     await write(name);
