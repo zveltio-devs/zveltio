@@ -8,6 +8,9 @@
  * The copy runs here under a role RLS binds (`zveltio_rls`, given the grants
  * inside the transaction), so the superuser lane proves what the owner lane
  * would. Everything is planted in a transaction that is rolled back.
+ *
+ * 134: a link lands in the own tenant only. 120's WITH CHECK was the read
+ * predicate, so a parent whose visible set holds a child wrote into the child.
  */
 
 import { describe, expect, it } from 'bun:test';
@@ -21,7 +24,7 @@ const DEFAULT_TENANT = '00000000-0000-0000-0000-000000000001';
 const OTHER_TENANT = crypto.randomUUID();
 const TAG = `m133_${Date.now()}`;
 
-d('133 carries every tenant SCIM link over', () => {
+d('identity links: 133 carries every tenant over, 134 writes the own node only', () => {
   it('copies the rows of a tenant other than the default one, under RLS', async () => {
     const { db } = await getTestApp();
     const { up } = parseMigrationFile(
@@ -73,5 +76,30 @@ d('133 carries every tenant SCIM link over', () => {
       { tenant_id: DEFAULT_TENANT, user_id: `${TAG}_default` },
       { tenant_id: OTHER_TENANT, user_id: `${TAG}_other` },
     ]);
+  }, 60_000);
+
+  it('refuses a link in a child tenant written from the parent context', async () => {
+    const { db } = await getTestApp();
+    const run = db.transaction().execute(async (trx) => {
+      await sql`INSERT INTO zv_tenants (id, slug, name) VALUES (${OTHER_TENANT}, ${TAG}, ${TAG})`.execute(
+        trx,
+      );
+      await sql`INSERT INTO "user" (id, name, email, "emailVerified", "createdAt", "updatedAt")
+                VALUES (${TAG}, ${TAG}, ${`${TAG}@example.test`}, true, now(), now())`.execute(trx);
+      await sql`GRANT SELECT, INSERT ON zv_identity_links TO zveltio_rls`.execute(trx);
+      await sql`SET LOCAL ROLE zveltio_rls`.execute(trx);
+      await sql`SELECT set_config('zveltio.current_tenant', ${DEFAULT_TENANT}, true),
+                       set_config('zveltio.visible_tenants', ${`${DEFAULT_TENANT},${OTHER_TENANT}`}, true)`.execute(
+        trx,
+      );
+      await sql`INSERT INTO zv_identity_links (tenant_id, provider, subject, user_id)
+                VALUES (${OTHER_TENANT}, 'auth/scim', ${TAG}, ${TAG})`.execute(trx);
+      throw ROLLBACK;
+    });
+    // 42501: new row violates row-level security policy.
+    expect(await run.then(
+      () => null,
+      (e: { errno?: string }) => (e === ROLLBACK ? 'written' : e.errno),
+    )).toBe('42501');
   }, 60_000);
 });

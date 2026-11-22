@@ -10,25 +10,29 @@
 -- A superuser connection bypassed RLS and copied all of them; this then adds
 -- nothing.
 --
--- The same copy, with every tenant published as visible for this transaction
--- (`set_config(…, true)`), so the policies on both tables admit each tenant's
--- rows. A link already there is kept (ON CONFLICT DO NOTHING). An install whose
--- `zvd_scim_users` is gone has nothing left to recover. Re-runnable.
+-- The same copy, one tenant at a time with that tenant set for this
+-- transaction (`set_config(…, true)`), so the policies on both tables admit
+-- its rows, the links' WITH CHECK included (134). A link already there is kept
+-- (ON CONFLICT DO NOTHING). An install whose `zvd_scim_users` is gone has
+-- nothing left to recover. Re-runnable.
 
 DO $$
+DECLARE
+  t record;
 BEGIN
   IF to_regclass('public.zvd_scim_users') IS NOT NULL THEN
-    PERFORM set_config('zveltio.visible_tenants',
-                       coalesce((SELECT string_agg(id::text, ',') FROM zv_tenants), ''), true);
-    INSERT INTO zv_identity_links (tenant_id, provider, subject, user_id, active,
-                                   suspended_at, held_valid_to)
-    SELECT s.tenant_id, 'auth/scim', s.user_id, s.user_id, COALESCE(s.active, true),
-           s.suspended_at, s.held_valid_to
-      FROM zvd_scim_users s
-      JOIN "user" u ON u.id = s.user_id
-      JOIN zv_tenants t ON t.id = s.tenant_id
-    ON CONFLICT DO NOTHING;
-    PERFORM set_config('zveltio.visible_tenants', '', true);
+    FOR t IN SELECT id FROM zv_tenants LOOP
+      PERFORM set_config('zveltio.current_tenant', t.id::text, true);
+      INSERT INTO zv_identity_links (tenant_id, provider, subject, user_id, active,
+                                     suspended_at, held_valid_to)
+      SELECT s.tenant_id, 'auth/scim', s.user_id, s.user_id, COALESCE(s.active, true),
+             s.suspended_at, s.held_valid_to
+        FROM zvd_scim_users s
+        JOIN "user" u ON u.id = s.user_id
+       WHERE s.tenant_id = t.id
+      ON CONFLICT DO NOTHING;
+    END LOOP;
+    PERFORM set_config('zveltio.current_tenant', '', true);
   END IF;
 END
 $$;
