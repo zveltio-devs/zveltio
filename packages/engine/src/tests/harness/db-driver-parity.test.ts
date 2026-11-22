@@ -8,9 +8,8 @@
  * bound as `BunSqlDialect` binds them. And a failed statement carries its
  * SQLSTATE on `errno`, which is where the engine reads it.
  *
- * A bare number or boolean into `jsonb` is left out: `Bun.SQL` types it itself
- * and refuses it ("expression is of type integer"), so no stored row exists to
- * compare. `toJsonb` is the form that works on both.
+ * A bare number, boolean or Date into `jsonb` is JSON-encoded the same way, on
+ * its own in a statement too; `toJsonb` stays the form to write.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -90,6 +89,44 @@ d('the pg dialect stores what Bun.SQL stores', () => {
       Object.fromEntries(stored.rows.filter((r) => r.driver === driver).map((r) => [r.k, r.v]));
     expect(by('pg')).toEqual(by('bun'));
     expect(Object.keys(by('pg'))).toHaveLength(VALUES.length);
+  });
+
+  // The row above always binds `driver` and `k`, strings. A statement whose only
+  // parameters are a number, a boolean or a Date was sent to Bun.SQL as typed
+  // (int4, bool, timestamptz) without asking the server what they bind to: into
+  // jsonb it failed (42804, 22P02) on Bun.SQL alone, and the same value stored
+  // fine beside any string parameter.
+  it('a value bound to jsonb stores the same with no string parameter beside it', async () => {
+    for (const v of [42, true, new Date('2026-10-16T12:00:00.123Z')]) {
+      const out: Record<string, string> = {};
+      for (const [driver, db] of [
+        ['bun', bun],
+        ['pg', pgdb],
+      ] as const) {
+        const r = await db
+          .insertInto(T)
+          .values({ j: v })
+          .returning(sql<string>`j::text`.as('v'))
+          .executeTakeFirstOrThrow()
+          .catch((err: Error) => {
+            throw new Error(`${driver} could not store ${String(v)}: ${err.message}`);
+          });
+        out[driver] = r.v;
+      }
+      expect(out.bun).toBe(out.pg);
+    }
+  });
+
+  // Both drivers ask the server what a statement's parameters bind to with
+  // `PREPARE`, which refuses EXPLAIN (42601) although EXPLAIN runs with
+  // parameters: the question failed before the statement ran.
+  it('an EXPLAIN with parameters runs through both drivers', async () => {
+    for (const db of [bun, pgdb]) {
+      const r = await sql`EXPLAIN SELECT * FROM ${sql.id(T)} WHERE k = ${'x'} LIMIT ${20}`.execute(
+        db,
+      );
+      expect(r.rows.length).toBeGreaterThan(0);
+    }
   });
 
   it('reads back the same JavaScript values through both drivers', async () => {

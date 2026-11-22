@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Fixed — two parameter-binding defects shared by both database drivers (A08).** On Bun.SQL a number, boolean or Date bound to a json/jsonb column with no string parameter beside it was sent typed and refused (`42804`, `22P02` for a Date; the Date stored before #1714); the dialect now asks the server what such a parameter binds to, as the pg driver does. And an `EXPLAIN` with parameters failed on both drivers with `42601` before it ran, because the type question used `PREPARE`, which refuses EXPLAIN: such a statement now binds as sent.
+
 **Fixed — a retried directory provision answers 409, not 500 (A07).** Two `host.identity` provisions of the same subject at once (what a SCIM identity provider does when it retries a POST that timed out) both passed the "subject taken" check; the second lost `zv_identity_links_pkey` and answered 500 with the raw Postgres error. It now answers 409 `account_exists`, and leaves no second account.
 
 **Security — a worker-isolated extension with a name of two or more segments is served the route the gate decided on (A02).** The worker proxy dropped a fixed `/ext/<one segment>` from the path, so `/ext/a/b/login` reached the worker as `/b/login`: the gate admitted an anonymous request to the declared public route `/login`, and the worker could answer it with a `caller` route whose pattern fit `/b/login`. Every declared route of such an extension (auth/saml, auth/ldap, auth/scim, content/pages, compliance/ro/efactura, integrations/api-connector) answered 404 in worker transport. No first-party manifest has the overlapping shape. The proxy now drops as many segments as the name has.

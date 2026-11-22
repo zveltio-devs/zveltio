@@ -533,6 +533,9 @@ function arrayLiteral(items: readonly unknown[]): string {
  * change triggers here and, through the bus, on every replica.
  */
 const TYPE_CACHE_MAX = 5_000;
+/** The statements `PREPARE` accepts, after leading blanks, comments and parentheses. */
+const PREPARABLE =
+  /^(?:\s|--[^\r\n]*|\/\*[\s\S]*?\*\/|\()*(?:select|insert|update|delete|merge|values|with|table)\b/i;
 const paramTypeCache = new Map<string, readonly string[]>();
 let describeSeq = 0;
 
@@ -550,6 +553,10 @@ export async function paramTypes(
   text: string,
   simple: (sql: string) => Promise<readonly (readonly { t?: string[] }[] | undefined)[]>,
 ): Promise<readonly string[]> {
+  // PREPARE takes only these. Asked of another — `EXPLAIN … $1`, which runs
+  // with parameters — it failed with 42601 before the statement ran: a 500,
+  // and inside a transaction an abort. Such a statement binds as sent.
+  if (!PREPARABLE.test(text)) return [];
   const hit = paramTypeCache.get(text);
   if (hit) return hit;
   const name = `zv_param_types_${++describeSeq}`;
@@ -578,8 +585,13 @@ async function unsafeBound<R>(
   params: unknown[],
 ): Promise<R[]> {
   if (params.length === 0) return conn.unsafe<R>(sql);
-  // Only a string binds differently: an object or array is JSON either way.
-  if (!params.some((v) => typeof v === 'string')) return conn.unsafe<R>(sql, params);
+  // An object is JSON either way, and an array is a literal string by now. A
+  // number, boolean or Date is sent typed (int4, bool, timestamptz), which a
+  // json/jsonb parameter refuses: asked about too, or the same value stored
+  // beside a string parameter and failed without one.
+  const scalar = (v: unknown) =>
+    typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' || v instanceof Date;
+  if (!params.some(scalar)) return conn.unsafe<R>(sql, params);
   const types = await paramTypes(
     sql,
     async (q) => (await conn.unsafe(q)) as unknown as { t?: string[] }[][],
