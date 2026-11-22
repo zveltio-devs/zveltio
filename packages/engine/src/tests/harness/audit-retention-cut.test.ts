@@ -41,6 +41,7 @@ const T = {
   whole: crypto.randomUUID(),
   bad: crypto.randomUUID(),
   dated: crypto.randomUUID(),
+  race: crypto.randomUUID(),
 };
 const ENV = 'AUDIT_LOG_RETENTION_TENANT_DAYS';
 
@@ -224,6 +225,50 @@ d('audit retention per tenant, chain cut from the oldest end (ADR 0060 decision 
     );
     expect(old.rows[0]!.days).toBe(40);
     expect(await chainOf(T.dated)).toMatchObject({ ok: true, verified: 4 });
+  });
+
+  it('a purge committed while verify walks does not read as a break', async () => {
+    for (const [r, age] of [
+      ['v1', 40],
+      ['v2', 20],
+      ['v3', 0],
+    ] as const) {
+      await write(T.race, r, age);
+    }
+    process.env[ENV] = `${T.race}=30`;
+    await runGarbageCollector(db);
+    expect(await chainOf(T.race)).toMatchObject({ ok: true, genesis: { seq: 1 } });
+
+    // The purge commits on another connection right after verify has read this
+    // chain's genesis and before it reads the entries.
+    const genesisRead = new Set<unknown>();
+    let purged = false;
+    const racing = db.withPlugin({
+      transformQuery(args) {
+        const text = JSON.stringify(args.node);
+        if (text.includes('zv_audit_chain_cut') && text.includes(T.race)) {
+          genesisRead.add(args.queryId);
+        }
+        return args.node;
+      },
+      async transformResult(args) {
+        if (!purged && genesisRead.has(args.queryId)) {
+          purged = true;
+          process.env[ENV] = `${T.race}=10`;
+          await runGarbageCollector(db);
+        }
+        return args.result;
+      },
+    });
+    const chain = (await verifyAuditChains(racing)).chains.find((c) => c.tenant_id === T.race);
+    expect(purged).toBe(true);
+    expect(await rowsOf(T.race)).toEqual(['v3']);
+    expect(chain).toMatchObject({ ok: true, genesis: { seq: 1 }, head: { seq: 3 } });
+    expect(await chainOf(T.race)).toMatchObject({
+      ok: true,
+      genesis: { seq: 2 },
+      head: { seq: 3 },
+    });
   });
 
   it('a malformed override purges no audit row', async () => {
