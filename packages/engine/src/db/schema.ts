@@ -332,8 +332,6 @@ export interface ZvFlowStepsTable {
     | 'send_email'
     | 'webhook'
     | 'condition'
-    | 'transform'
-    | 'delay'
     | 'send_notification'
     | 'export_collection';
   config: Generated<unknown>; // JSONB DEFAULT '{}'

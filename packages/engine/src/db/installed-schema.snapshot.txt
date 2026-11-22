@@ -472,7 +472,7 @@ table zv_identity_links
   uq  zv_identity_links_tenant_id_provider_user_id_key UNIQUE (tenant_id, provider, user_id)
   fk  zv_identity_links_user_id_fkey FOREIGN KEY (user_id) REFERENCES "user"(id) ON DELETE CASCADE
   rls enabled forced
-  pol tenant_isolation_zv_identity_links FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_scope_ok(tenant_id)
+  pol tenant_isolation_zv_identity_links FOR * USING zveltio_tenant_scope_ok(tenant_id) CHECK zveltio_tenant_write_ok(tenant_id)
 
 table zv_import_logs
   col collection                     text NOT NULL

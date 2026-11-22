@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
+import type { ZvFlowStepsTable as HandTyped } from '../../db/schema.js';
 import type { ZvFlowStepsTable } from '../../db/schema.generated.js';
 import {
   EXECUTABLE_STEP_TYPES,
@@ -47,7 +48,10 @@ describe('flow step types', () => {
   it('the zv_flow_steps.type CHECK admits exactly the executable types', () => {
     type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
     const same: Same<ZvFlowStepsTable['type'], ExecutableStepType> = true;
-    expect(same).toBe(true);
+    // And the hand-written schema.ts the engine queries through: it admitted
+    // `transform` and `delay`, which the CHECK has refused since the 062 baseline.
+    const handTyped: Same<HandTyped['type'], ExecutableStepType> = true;
+    expect([same, handTyped]).toEqual([true, true]);
   });
 
   // Two of the three the Studio offered and the executor never had; `condition`
