@@ -31,4 +31,25 @@ describe('request log batching', () => {
     expect(inserts.length).toBe(1);
     expect(inserts[0]!.length).toBe(50);
   });
+
+  it('a NUL in the path cannot reach the INSERT, which it would reject whole', async () => {
+    const inserts: { path: string }[][] = [];
+    const poolDb = {
+      insertInto: () => ({
+        values: (rows: { path: string }[]) => ({
+          execute: async () => {
+            inserts.push(rows);
+          },
+        }),
+      }),
+    } as unknown as Database;
+    const app = new Hono();
+    app.use('*', requestLogMiddleware(poolDb));
+    app.get('*', (c) => c.json({ ok: true }));
+
+    await app.request('/api/a%00b');
+    for (let i = 0; i < 40 && inserts.length === 0; i++) await Bun.sleep(25);
+
+    expect(inserts[0]![0]!.path).toBe('/api/a\uFFFDb');
+  });
 });
