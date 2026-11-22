@@ -46,6 +46,13 @@ describe('operational-mode register', () => {
     }
   });
 
+  // It lifts the admin gate on /api/openapi.json in production: a hatch, so registered.
+  test('OPENAPI_PUBLIC=true is a mode the boot warns about', () => {
+    expect(operationalModeWarnings({ OPENAPI_PUBLIC: 'true' })).toEqual([
+      expect.stringContaining('OPENAPI_PUBLIC=true'),
+    ]);
+  });
+
   test('modeValue reads the environment it is given', () => {
     expect(modeValue('ZVELTIO_SINGLE_INSTANCE', { ZVELTIO_SINGLE_INSTANCE: '1' })).toBe('1');
   });

@@ -4,6 +4,12 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Changed — a mode is on exactly when the boot warns about it (A01).** Each reader parsed its variable itself: `ZVELTIO_REGISTRATION_ENABLED=TRUE` opened public sign-up with no boot warning. Every on/off reader now asks the register (`modeOn`); `TRUE` no longer turns registration on, use `1` or `true`.
+
+**Changed — `OPENAPI_PUBLIC` is a registered escape hatch (A01).** It lifts the production admin gate on `/api/openapi.json`; the boot now warns while it is on, and it is listed in the escape-hatch table.
+
+**Fixed — production refuses an unbundled extension even with `ZVELTIO_EXTENSION_DEV_RELOAD=1` (A01).** The variable lifted the refusal, so an extension loaded its core dependencies from an unsigned shared `node_modules` inside the engine. The docs also said it mounts the dev reload endpoint; `NODE_ENV` decides that.
+
 **Docs — the anchor's own S3 account needs list and read, not write only (A17).** beta.131 documented `AUDIT_ANCHOR_S3_ACCESS_KEY` / `_SECRET_KEY` for a write-only account, but each anchor write and each verify lists and reads the latest anchor first: with a write-only account nothing was ever written and verify answered `error`. The account may list, read and write under the prefix, never delete. One anchor target per instance: two instances sharing one read each other's anchors and verify fails on both.
 
 **Fixed — `GET /api/admin/audit/verify` no longer reports a gap while a retention purge runs (A17).** The walk read each statement under its own snapshot, so a cut committed mid-walk read as a break (`ok: false`, `reason: gap`). The walk now uses one `repeatable read` snapshot.

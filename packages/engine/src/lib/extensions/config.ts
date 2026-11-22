@@ -26,7 +26,7 @@
 import type { ExtensionConfig, ObjectStorageConfig } from '@zveltio/sdk/extension';
 import { storageConfig } from '../storage/index.js';
 import { knownExtensionNames } from './worker-sql-policy.js';
-import { isProduction, modeValue, nodeEnv } from '../operational-modes.js';
+import { isProduction, modeOn, nodeEnv } from '../operational-modes.js';
 import { keyList } from '../security/index.js';
 
 function flag(name: string): boolean {
@@ -193,8 +193,7 @@ export function buildExtensionConfig(
      * not be able to switch off (ADR 0058 d4): those are dated operational modes.
      */
     get allowInsecureLdap(): boolean {
-      const v = modeValue('ALLOW_INSECURE_LDAP');
-      return v === '1' || v === 'true';
+      return modeOn('ALLOW_INSECURE_LDAP');
     },
     /**
      * Skips LDAPS certificate verification (auth/ldap), for every tenant. An
@@ -202,13 +201,11 @@ export function buildExtensionConfig(
      * `tls_verify`, which any tenant admin could turn off.
      */
     get allowUnverifiedLdaps(): boolean {
-      const v = modeValue('ZVELTIO_ALLOW_UNVERIFIED_LDAPS');
-      return v === '1' || v === 'true';
+      return modeOn('ZVELTIO_ALLOW_UNVERIFIED_LDAPS');
     },
     /** Skips the SAML audience check (auth/saml), for every tenant. As above: was `audience_check`. */
     get allowSamlAnyAudience(): boolean {
-      const v = modeValue('ZVELTIO_ALLOW_SAML_ANY_AUDIENCE');
-      return v === '1' || v === 'true';
+      return modeOn('ZVELTIO_ALLOW_SAML_ANY_AUDIENCE');
     },
     get objectStorage(): ObjectStorageConfig | undefined {
       if (!mayReadStorage) return undefined;

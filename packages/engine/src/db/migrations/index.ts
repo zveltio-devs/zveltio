@@ -4,7 +4,7 @@ import { sql } from 'kysely';
 import { join } from 'path';
 import { createHash } from 'crypto';
 import { EMBEDDED_MIGRATIONS } from './embedded.js';
-import { modeValue } from '../../lib/operational-modes.js';
+import { modeOn } from '../../lib/operational-modes.js';
 import { ENGINE_VERSION } from '../../version.js';
 import { AdvisoryLockTimeout, withAdvisoryLock } from '../advisory-lock.js';
 import { assertSupportedPostgres } from '../postgres-version.js';
@@ -398,7 +398,7 @@ function reportDivergence(migrationNumber: number, shipped: string, recorded: st
     'the schema silently behind the binary. Restore from a backup taken on the matching ' +
     'version, or rebuild the database. Set ZVELTIO_ALLOW_MIGRATION_DIVERGENCE=1 to proceed ' +
     'anyway, which accepts a schema this build was not written against.';
-  if (modeValue('ZVELTIO_ALLOW_MIGRATION_DIVERGENCE') !== '1') {
+  if (!modeOn('ZVELTIO_ALLOW_MIGRATION_DIVERGENCE')) {
     throw new Error(message);
   }
   console.warn(
