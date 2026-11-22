@@ -47,6 +47,7 @@ import {
 } from '../query-parse.js';
 import type { ParsedQuery } from '../query-parse.js';
 import { getDb, getTenantId, selectReadable, getVirtualConfig } from '../write-pipeline.js';
+import { sinceCreated } from '../revisions-read.js';
 import { checkAccess } from '../auth.js';
 
 /**
@@ -112,6 +113,11 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
   if (query.as_of) {
     const asOf = new Date(query.as_of);
     if (Number.isNaN(asOf.getTime())) return c.json({ error: 'Invalid as_of date' }, 400);
+    // A snapshot page applies no filter or search: skipped, they answered every
+    // row the caller may read, as if it had matched (ADR 0019 decision 6).
+    if (query.filter || query.search || Object.keys(c.req.query()).some((k) => k.includes('['))) {
+      return c.json({ error: 'as_of does not support filter or search' }, 400);
+    }
     if (scope.altersRestrict) {
       return c.json({ error: TIME_TRAVEL_ALTERED }, 403);
     }
@@ -163,6 +169,7 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
          WHERE collection = ${collection}
            AND tenant_id = ${tenantId(c)}::uuid
            AND created_at <= ${asOf.toISOString()}
+           AND ${sinceCreated('zvv__revisions.created_at', collection)}
          ORDER BY record_id, created_at DESC
       `;
 
@@ -178,6 +185,7 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
          WHERE collection = ${collection}
            AND tenant_id = ${tenantId(c)}::uuid
            AND created_at <= ${asOf.toISOString()}
+           AND ${sinceCreated('zv_revisions.created_at', collection)}
          ORDER BY record_id, created_at DESC
       `
         : latest;

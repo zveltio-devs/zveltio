@@ -24,7 +24,7 @@
  * Session callers only: both routes refuse API keys.
  */
 
-import { sql } from 'kysely';
+import { type RawBuilder, sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { checkPermission, entityAccessRegistry } from '../tenancy/index.js';
 import { DDLManager, SYSTEM_COLUMNS } from './ddl-manager.js';
@@ -55,6 +55,16 @@ export interface RevisionRow {
 }
 
 const UUID_PATTERN = '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
+
+/**
+ * A revision written since `collection` was created. Revisions outlive a drop,
+ * so a collection dropped and created again under its name served its
+ * predecessor's records to whoever may read the new one (`?as_of=`); a dropped
+ * collection has no row here, and none of its revisions pass.
+ */
+export function sinceCreated(createdAt: string, collection: string): RawBuilder<boolean> {
+  return sql<boolean>`${sql.ref(createdAt)} >= (SELECT zc.created_at FROM zvd_collections zc WHERE zc.name = ${collection})`;
+}
 
 function asObject(v: unknown): Record<string, unknown> {
   let value = v;
@@ -135,7 +145,8 @@ export async function readableRevisions(
   if (scopes.size === 0) return none;
 
   const visible = [...scopes].map(([name, scope]) => {
-    if (scope.rls.length === 0 && !scope.altersRestrict) return sql`r.collection = ${name}`;
+    const own = sql`r.collection = ${name} AND ${sinceCreated('r.created_at', name)}`;
+    if (scope.rls.length === 0 && !scope.altersRestrict) return sql`(${own})`;
     // The live row, through the caller's row rules and alters. `record_id` is
     // text; the guarded cast keeps the probe on the primary key.
     const live = scope.query(
@@ -148,7 +159,7 @@ export async function readableRevisions(
           sql`CASE WHEN r.record_id ~* ${UUID_PATTERN} THEN r.record_id::uuid END`,
         ),
     );
-    return sql`(r.collection = ${name} AND EXISTS ${live})`;
+    return sql`(${own} AND EXISTS ${live})`;
   });
 
   const where = sql`r.tenant_id = ${tenant}::uuid AND (${sql.join(visible, sql` OR `)})

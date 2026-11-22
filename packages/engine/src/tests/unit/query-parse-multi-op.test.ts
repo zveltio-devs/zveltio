@@ -42,3 +42,10 @@ describe('parseFilters — several operators on one field', () => {
     expect(kept.ok && Array.isArray(kept.filters.price)).toBe(true);
   });
 });
+
+// A field may be named `constructor`: its first bracket operator read the
+// function `{}` inherits as an earlier condition, and the list answered 500.
+test('bracket on a field named `constructor` is one condition', () => {
+  const r = parseFilters({ 'constructor[eq]': 'x' }, undefined, new Set(['constructor']));
+  expect(r).toEqual({ ok: true, filters: { constructor: { op: 'eq' as const, value: 'x' } } });
+});

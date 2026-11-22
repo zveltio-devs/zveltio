@@ -159,7 +159,9 @@ export function parseFilters(
 ): ParseFiltersResult {
   const filters: Record<string, FilterCondition | FilterCondition[]> = {};
   const add = (field: string, cond: FilterCondition) => {
-    const prev = filters[field];
+    // Own keys only, as `mapOp`: a field named `constructor` read the inherited
+    // function, and it became a condition — a 500 from `buildCondition`.
+    const prev = Object.hasOwn(filters, field) ? filters[field] : undefined;
     filters[field] = prev ? [prev, cond].flat() : cond;
   };
   /** A geo operator on a non-`location` field, a non-geo one on a `location`
