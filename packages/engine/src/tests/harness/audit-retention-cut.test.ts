@@ -40,6 +40,7 @@ const T = {
   order: crypto.randomUUID(),
   whole: crypto.randomUUID(),
   bad: crypto.randomUUID(),
+  dated: crypto.randomUUID(),
 };
 const ENV = 'AUDIT_LOG_RETENTION_TENANT_DAYS';
 
@@ -188,6 +189,41 @@ d('audit retention per tenant, chain cut from the oldest end (ADR 0060 decision 
     });
     await write(T.whole, 'w3');
     expect(await chainOf(T.whole)).toMatchObject({ ok: true, verified: 1, head: { seq: 3 } });
+  });
+
+  it("the request role cannot date a row; the owner's import keeps its time", async () => {
+    // As the request role: a row dated far ahead held every older row of the
+    // chain past its window, since the purge stops at the first row inside it.
+    for (const [r, at] of [
+      ['d1', '-400 days'],
+      ['d2', '+100 years'],
+      ['d3', '-400 days'],
+    ] as const) {
+      await withTenantIsolation(T.dated, async (trx) => {
+        const who = await sql<{ u: string }>`SELECT current_user AS u`.execute(trx);
+        expect(who.rows[0]!.u).toBe('zveltio_rls');
+        await sql`INSERT INTO zv_audit_log (event_type, resource_id, tenant_id, created_at)
+                  VALUES (${EV}, ${r}, ${T.dated}::uuid, now() + ${at}::interval)`.execute(trx);
+      });
+    }
+    process.env[ENV] = `${T.dated}=30`;
+    await runGarbageCollector(db);
+    expect(await rowsOf(T.dated)).toEqual(['d1', 'd2', 'd3']);
+    const skew = await asEveryTenant(db, (trx) =>
+      sql<{ s: number }>`SELECT max(abs(extract(epoch FROM now() - created_at)))::float8 AS s
+          FROM zv_audit_log WHERE event_type = ${EV} AND tenant_id = ${T.dated}::uuid`.execute(trx),
+    );
+    expect(skew.rows[0]!.s).toBeLessThan(600);
+
+    // As the owner (a restore, an import): the time it states stays, and the
+    // chain hashes the row as stored.
+    await write(T.dated, 'd4', 40);
+    const old = await asEveryTenant(db, (trx) =>
+      sql<{ days: number }>`SELECT extract(day FROM now() - created_at)::int AS days
+          FROM zv_audit_log WHERE event_type = ${EV} AND resource_id = 'd4'`.execute(trx),
+    );
+    expect(old.rows[0]!.days).toBe(40);
+    expect(await chainOf(T.dated)).toMatchObject({ ok: true, verified: 4 });
   });
 
   it('a malformed override purges no audit row', async () => {

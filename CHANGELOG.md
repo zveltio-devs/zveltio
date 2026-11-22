@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Fixed — the request role cannot date an audit row (A17).** `zveltio_rls` could INSERT into `zv_audit_log` with any `created_at`; one row dated in the future stopped its tenant's retention purge for good. Migration 135 sets `created_at := now()` for every role that is not the table owner; an owner-run restore or import keeps its timestamps.
+
 **Fixed — a `bytea` field refuses a number, boolean, object or list (A14).** Only a base64 string was checked: a number or boolean reached the driver and answered 500, and an object or list was stored as the bytes of its JSON text. Each now answers 422 `Must be base64`.
 
 **Changed — a magic-link sign-in counts as a recent sign-in for the first factor (owner 2026-11-22).** An account with no password could enroll its first passkey or TOTP, or erase itself (`DELETE /api/me`), only from a session an OAuth sign-in had created at most five minutes before; a session from a magic link answered 403 `recent_sign_in_required`, so a magic-link-only account could never add a factor. A session `/magic-link/verify` creates now counts too (`first_factor: "recent_sign_in"`). The audit's `confirmed_by` names the sign-in: `oauth` or, new, `magic_link`.
@@ -808,7 +810,6 @@ set or remove it, and `ctx.DDLManager` cannot change such a collection.
 **Fixes.** The install template applies declared collections, in load order. An
 SDUI schema may read the collections its dependencies declare, and the SDUI
 probe reads an empty settings list as the page's defaults.
-
 
 ## [3.0.0-beta.92] - 2026-10-30
 
@@ -3071,7 +3072,6 @@ actually runs through the mechanism.
 
 Running from source was never affected.
 
-
 ## [3.0.0-beta.65] - 2026-09-18
 
 **Edge functions did not work in the compiled binary, which is what the image
@@ -3149,7 +3149,6 @@ consequence rather than leaving it implicit.
   every invocation through the extension ran against an empty request object and
   no invocation was ever logged.
 
-
 ## [3.0.0-beta.64] - 2026-08-29
 
 **Presence leaked between tenants on any instance without Valkey.** The Valkey
@@ -3212,7 +3211,6 @@ anything; measured, the meta-gate scored 7/8 on a core-only database and 8/8 aft
 one `amount numeric` column. The CI job that runs it was also the only one that
 never cloned the extensions sibling. New gate: a route may not query a
 tenant-scoped table on `poolDb`.
-
 
 ## [3.0.0-beta.63] - 2026-08-27
 
@@ -4356,7 +4354,6 @@ both older than the code.
   50,000-row CSV should not mean 50,000 webhook deliveries.
 - `sync-ext` no longer re-creates four pages that duplicate core routes.
 
-
 ## [3.0.0-beta.45] - 2026-08-02
 
 **beta.44's release build could not load extensions. This is that release,
@@ -4380,7 +4377,6 @@ plus the fix.**
   the beta.44 release for no reason of ours.
 
 Everything in beta.44 is included; see its entry for the audit work.
-
 
 ## [3.0.0-beta.44] - 2026-08-02
 
@@ -4604,7 +4600,6 @@ A fourth was half true. `broadcastSSE` was reported as an unbounded fan-out and
 dismissed here as dead code on a grep that excluded the file defining it; it had
 callers, and the finding was real.
 
-
 ## [3.0.0-beta.43] - 2026-08-01
 
 **The Studio speaks nine languages everywhere an operator can reach by hand.**
@@ -4733,7 +4728,6 @@ existed, was configurable, was documented, and reached no branch.
   import an authority-bearing `node:*` module. The allowlist is empty. Pure
   `node:*` modules pass — rewriting a working constant-time compare to satisfy a
   grep would trade real risk for tidiness.
-
 
 ## [3.0.0-beta.32] - 2026-07-17
 

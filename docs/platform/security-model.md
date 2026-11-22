@@ -497,10 +497,15 @@ replica. Trashed records are purged by the trash scheduler, not by this sweep.
 
 ### Audit trail (ADR 0060)
 
-**Today (migrations 128, 129 and 130, and the external anchor):**
+**Today (migrations 128, 129, 130 and 135, and the external anchor):**
 
 - The request role `zveltio_rls` may only insert and read audit rows; UPDATE,
   DELETE and TRUNCATE are refused, and the boot reconciler keeps it that way.
+  A row's `created_at` is the database's `now()` for every role but the table
+  owner (migration 135): a row dated ahead would hold its chain's older rows
+  past the window, since the purge stops at the first row inside it. The
+  owner's import keeps its timestamps, and a restore loads the data before it
+  creates the trigger.
 - The retention purge is the one path that deletes, as its own role
   `zveltio_audit_purge` (SELECT and DELETE on `zv_audit_log`, SELECT on
   `zv_audit_chain`, nothing else). It purges one chain per transaction — each
