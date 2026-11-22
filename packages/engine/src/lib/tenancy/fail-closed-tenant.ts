@@ -117,8 +117,9 @@ export function startupOptionNames(text: string): string[] {
   } catch {
     // Not encoded, or malformed: read it as written.
   }
-  const names = [...plain.matchAll(/(?:-c[\s+]*|--)zveltio[.]([a-z_][a-z0-9_]*)[\s+]*=/g)];
-  return [...new Set(names.map((m) => `zveltio.${m[1]}`))];
+  // Case-insensitive: Postgres reads `-c Zveltio.Current_Tenant=…` as zveltio.current_tenant.
+  const names = [...plain.matchAll(/(?:-c[\s+]*|--)zveltio[.]([a-z_][a-z0-9_]*)[\s+]*=/gi)];
+  return [...new Set(names.map((m) => `zveltio.${m[1]!.toLowerCase()}`))];
 }
 
 /**
