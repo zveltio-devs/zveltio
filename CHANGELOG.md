@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Fixed — `zveltio extension sign` signs a directory after `bun install`.** It listed every file, `node_modules/` included, so it signed the whole dependency tree, and a `.bin` link there refused the signature. An operator signature now leaves a root `node_modules/` out: nothing in it runs, since the extension runner imports only the signed bundle's bytes from a process whose working directory is `/`. The CLI and the engine each build the listing; a harness test signs with the CLI and loads with the engine, so the two cannot drift unnoticed. `zveltio install --path` no longer copies `node_modules/`. A registry-signed download still covers every file, `node_modules/` included: it may run inline, where a bundle resolves from it. A signature made by an older CLI over a directory that held `node_modules/` no longer verifies: sign it again.
+
 ## [3.0.0-beta.132] - 2026-11-22
 
 **Security — field and mail encryption keys can rotate (ADR 0059).** `FIELD_ENCRYPTION_KEYS` and `MAIL_ENCRYPTION_KEYS` take a comma list: the first entry is the current key and writes use it; every entry is tried on read. Without a list the single variable is a one-element list, and with both set the single variable stays readable after the list. Only a malformed current key refuses the boot; a malformed older entry is skipped and reported by its place (#1835).

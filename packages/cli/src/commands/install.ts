@@ -1,8 +1,8 @@
 import { existsSync } from 'fs';
 import { readFile, mkdir, cp, rm } from 'fs/promises';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import { type EngineTarget, engineFetch, errorOf } from '../lib/engine-session.js';
-import { verifyExtensionDirSignature } from './extension-sign.js';
+import { OPERATOR_UNLISTED, verifyExtensionDirSignature } from './extension-sign.js';
 
 /**
  * zveltio install <extension-name> [--path <path>] [--url <engine-url>] [--force]
@@ -129,7 +129,9 @@ async function installFromPath(name: string, sourcePath: string, force: boolean)
 
   if (force) await rm(targetDir, { recursive: true, force: true });
   await mkdir(targetDir, { recursive: true });
-  await cp(sourcePath, targetDir, { recursive: true });
+  // Its root node_modules/ is not signed and never runs on the runner: not copied.
+  const unlisted = resolve(sourcePath, OPERATOR_UNLISTED);
+  await cp(sourcePath, targetDir, { recursive: true, filter: (src) => resolve(src) !== unlisted });
   // What landed is what the engine reads: verify the copy, not only the source.
   try {
     await verifyExtensionDirSignature(targetDir, extName);

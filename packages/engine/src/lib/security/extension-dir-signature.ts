@@ -10,12 +10,15 @@
  *     tier private
  *     <sha256 hex> <path relative to the root, "/"-separated>   (one per file, sorted)
  *
- * Every regular file is listed but `signature.json` itself, so a byte changed,
- * a file added or removed, the tier rewritten or the directory renamed after
- * signing changes the digest. A symbolic link is refused: what it points to is
- * outside what was signed. The CLI builds the same listing
+ * Every regular file is listed but `signature.json` itself and a root
+ * `node_modules/` (never run on the runner: `OPERATOR_UNLISTED`), so a byte
+ * changed, a file added or removed, the tier rewritten or the directory renamed
+ * after signing changes the digest. A symbolic link is refused: what it points
+ * to is outside what was signed. The CLI builds the same listing
  * (`packages/cli/src/commands/extension-sign.ts`); the two are held together by
- * `tests/harness/ext-operator-signed.test.ts`, which signs with the CLI.
+ * `tests/harness/ext-operator-signed.test.ts`, which signs with the CLI and
+ * loads here. The engine keeps its own copy: it runs from source and as a
+ * binary without a built SDK, so it imports no SDK code at run time.
  *
  * Verified at every load, against the operator's key list only: a key there
  * confers level 3 and never more. An unknown key is a refusal, not a fallback.
@@ -30,29 +33,42 @@ import { parseSignature, SignatureInvalidError, verifySignature } from './signat
 export const DIR_SIGNATURE_FILE = 'signature.json';
 
 /**
- * Where a download keeps the archive the registry signed and its signature
- * (`archive`, `archive.sig`), inside the extension's directory: what lets it run
- * inline, re-verified at every load (`verifyRegistrySignedDir`, U3).
+ * Left out of an operator's listing, at the root only: `bun install` puts the
+ * dependency tree and its `.bin` links there. Nothing of it runs on the
+ * extension runner, where an operator-signed extension always runs: the worker
+ * imports only the signed bundle's bytes, from a blob URL, in a process whose
+ * working directory is `/`, so no specifier resolves from this directory. Not
+ * left out of a download's listing: a registry-signed extension may run inline,
+ * where a bare specifier in its bundle would resolve from it.
  */
-export const REGISTRY_SIGNED_DIR = '.zveltio-registry';
+export const OPERATOR_UNLISTED = 'node_modules';
+
+export interface DirListingOptions {
+  /** Receives each listed path's sha256. */
+  files?: Map<string, string>;
+  /** The listing an operator signature covers: `OPERATOR_UNLISTED` left out. */
+  operator?: boolean;
+}
 
 /**
- * The canonical listing an operator signature covers. Throws on a link or an
- * unlistable name. `files`, when given, receives each listed path's sha256.
+ * Every regular file but `signature.json`, so a byte changed, a file added or
+ * removed, the tier rewritten or the directory renamed changes the listing.
+ * Throws on a symbolic link (what it points to is outside what was signed) or
+ * a name a line cannot hold.
  */
 export function extensionDirListing(
   dir: string,
   name: string,
   tier: string,
-  files?: Map<string, string>,
+  { files, operator = false }: DirListingOptions = {},
 ): Uint8Array {
   const lines: string[] = [];
   const walk = (rel: string): void => {
     for (const entry of readdirSync(join(dir, rel))) {
       const path = rel ? `${rel}/${entry}` : entry;
-      if (path === DIR_SIGNATURE_FILE) continue;
+      if (path === DIR_SIGNATURE_FILE || (operator && path === OPERATOR_UNLISTED)) continue;
       if (/[\r\n]/.test(path))
-        throw new Error(`file name "${JSON.stringify(path)}" cannot be listed`);
+        throw new Error(`file name ${JSON.stringify(path)} cannot be listed`);
       const st = lstatSync(join(dir, path));
       if (st.isDirectory()) walk(path);
       else if (st.isFile()) {
@@ -71,6 +87,13 @@ export function extensionDirListing(
     `zveltio-extension-dir/1\nname ${name}\ntier ${tier}\n${lines.map((l) => `${l}\n`).join('')}`,
   );
 }
+
+/**
+ * Where a download keeps the archive the registry signed and its signature
+ * (`archive`, `archive.sig`), inside the extension's directory: what lets it run
+ * inline, re-verified at every load (`verifyRegistrySignedDir`, U3).
+ */
+export const REGISTRY_SIGNED_DIR = '.zveltio-registry';
 
 /**
  * The operator key that signed `extDir` and the sha256 of each file it signed
@@ -114,7 +137,7 @@ export async function verifyExtensionDir(
   let listing: Uint8Array;
   const files = new Map<string, string>();
   try {
-    listing = extensionDirListing(extDir, extName, tier, files);
+    listing = extensionDirListing(extDir, extName, tier, { files, operator: true });
   } catch (err) {
     throw new SignatureInvalidError(extName, (err as Error).message);
   }

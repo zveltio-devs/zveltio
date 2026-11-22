@@ -17,6 +17,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -205,7 +206,7 @@ d('an operator-signed extension (ADR 0056 s3)', () => {
         readFileSync(join(home, '.zveltio', 'keys', `${KEY}.json`), 'utf8'),
       ) as ZveltioKeypair;
       // Signed properly, over the listing naming that tier: only the claim is wrong.
-      const env = await signBundle(extensionDirListing(dir, name, tier), kp);
+      const env = await signBundle(extensionDirListing(dir, name, tier, { operator: true }), kp);
       writeFileSync(join(dir, 'signature.json'), JSON.stringify({ ...env, tier }));
       expect(await load(name)).toMatch(/confers level 3 \("private"\) only/);
       expect(running(name)).toBe(false);
@@ -257,6 +258,46 @@ d('an operator-signed extension (ADR 0056 s3)', () => {
     cpSync(join(base, from), join(base, renamed), { recursive: true });
     expect(await load(renamed)).toMatch(/no longer matches what key/);
     expect(existsSync(join(base, renamed, 'signature.json'))).toBe(true);
+  }, 60_000);
+
+  it('signs and loads a directory after `bun install`: its root node_modules/ is not signed and never runs', async () => {
+    const name = `s3${STAMP}/deps`;
+    const probe = `zvprobe${STAMP}`;
+    const dir = write(
+      name,
+      {},
+      {
+        register: `async register() { let r; try { r = (await import('${probe}')).default; } catch { r = 'unresolved'; } console.warn('probe ' + r); }`,
+      },
+    );
+    // What `bun install` leaves: the dependency tree and its .bin links (a link
+    // anywhere signed refuses the signature).
+    mkdirSync(join(dir, 'node_modules', probe), { recursive: true });
+    mkdirSync(join(dir, 'node_modules', '.bin'));
+    writeFileSync(
+      join(dir, 'node_modules', probe, 'package.json'),
+      `{"name":"${probe}","main":"index.js"}`,
+    );
+    writeFileSync(
+      join(dir, 'node_modules', probe, 'index.js'),
+      `module.exports = 'from node_modules';\n`,
+    );
+    symlinkSync(`../${probe}/index.js`, join(dir, 'node_modules', '.bin', probe));
+    sign(dir);
+    // Changed after signing: not what was signed, and never imported.
+    appendFileSync(join(dir, 'node_modules', probe, 'index.js'), `module.exports = 'tampered';\n`);
+    const warn = spyOn(console, 'warn');
+    try {
+      expect(await load(name)).toBeUndefined();
+      expect(running(name)).toBe(true);
+      for (let i = 0; i < 40 && !warn.mock.calls.some((c) => /probe /.test(String(c[0]))); i++)
+        await Bun.sleep(50);
+      expect(warn.mock.calls.map((c) => String(c[0]))).toContain(
+        `[ext:${name} key=${KEY}] probe unresolved`,
+      );
+    } finally {
+      warn.mockRestore();
+    }
   }, 60_000);
 
   it('refuses an unsigned worker extension: it never runs (ADR 0056 amendment 2026-11-18)', async () => {

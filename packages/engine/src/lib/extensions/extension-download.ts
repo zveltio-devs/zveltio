@@ -482,9 +482,11 @@ export async function verifyRegistrySignedDir(
   try {
     const signed = await extractArchive(extName, archive, stage);
     const have = new Map<string, string>();
+    // Every file, `node_modules/` included (not the operator listing): this
+    // directory may run inline, where its bundle's bare specifiers resolve there.
     try {
-      extensionDirListing(signed, extName, '', want);
-      extensionDirListing(extDir, extName, '', have);
+      extensionDirListing(signed, extName, '', { files: want });
+      extensionDirListing(extDir, extName, '', { files: have });
     } catch (err) {
       throw refuse((err as Error).message);
     }
