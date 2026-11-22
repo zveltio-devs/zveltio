@@ -210,6 +210,12 @@ d('a session context preset by a startup option', () => {
       await expect(applyFailClosedTenantSetting(db, pooled, URL_)).rejects.toThrow(
         'zveltio.current_tenant',
       );
+      // Postgres matches a setting's name in any case: this one presets
+      // zveltio.current_tenant as surely as the lowercase spelling.
+      const shouted = withStartupOption(URL_, `-c Zveltio.Current_Tenant=${OTHER}`);
+      await expect(applyFailClosedTenantSetting(db, shouted, URL_)).rejects.toThrow(
+        'zveltio.current_tenant',
+      );
     }));
 
   it('a setting only a view or a CHECK constraint reads is checked too', () =>
