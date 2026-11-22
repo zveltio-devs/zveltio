@@ -24,6 +24,7 @@
 import type { Context } from 'hono';
 import { type RawBuilder, sql } from 'kysely';
 import type { DirectoryAccount, DirectoryProvisionInput } from '@zveltio/sdk/extension';
+import { sqlState } from '../../db/bun-sql-quirks.js';
 import { type Database, getDb } from '../../db/index.js';
 import { gatePrincipal, publicRouteRequest } from '../../middleware/extension-auth-gate.js';
 import { auditLog } from '../audit.js';
@@ -359,9 +360,9 @@ export function routeDirectory(c: Context, extName: string, access: string): Rou
                WHERE tenant_id = ${tenant}::uuid AND provider = ${extName}
                  AND subject = ${subject}`.execute(db),
         );
-        if (taken.rows.length) {
-          throw new IdentityRefusedError('account_exists', 'This subject is already provisioned.');
-        }
+        const subjectTaken = () =>
+          new IdentityRefusedError('account_exists', 'This subject is already provisioned.');
+        if (taken.rows.length) throw subjectTaken();
         // A new account only: one that exists, whoever holds it, is a conflict
         // an administrator resolves (an invitation proves control of the address).
         // One answer whether this tenant could claim it or not: which tenant
@@ -383,10 +384,15 @@ export function routeDirectory(c: Context, extName: string, access: string): Rou
         });
         if (!created) throw exists();
         await addTenantMember(db, user.id, 'member', actor);
+        // An identity provider retries a POST it timed out on: the concurrent
+        // twin passed the check above and lost the primary key here. Answered
+        // as the check answers; the act's savepoint takes back the account.
         await asEngineRole(db, () =>
           sql`INSERT INTO zv_identity_links (tenant_id, provider, subject, user_id, active)
               VALUES (${tenant}::uuid, ${extName}, ${subject}, ${user.id}, ${active})`.execute(db),
-        );
+        ).catch((err) => {
+          throw sqlState(err) === '23505' ? subjectTaken() : err;
+        });
         if (!active) await enforce(db, tenant, await linked(db, tenant, subject), false);
         await audit(db, 'identity.provisioned', tenant, user.id, subject, { active });
         return read(db, tenant, subject);
