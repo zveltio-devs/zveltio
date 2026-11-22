@@ -781,8 +781,12 @@ export function registerCoreFieldTypes(registry: FieldTypeRegistry): void {
     // shape, `{"type":"Buffer","data":[...]}`, so nothing round-tripped.
     api: {
       filterOperators: ['is_null', 'is_not_null'],
+      // A number, boolean, object or list is not bytes: refused here, not
+      // bound by the driver (500, or an object's JSON text stored as bytes).
       validate: (v) =>
-        typeof v === 'string' && (v.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(v))
+        v !== null &&
+        v !== undefined &&
+        (typeof v !== 'string' || v.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(v))
           ? 'Must be base64'
           : null,
       deserialize: (v) => (typeof v === 'string' ? Buffer.from(v, 'base64') : v),
