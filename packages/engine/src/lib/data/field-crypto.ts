@@ -19,7 +19,7 @@ import {
   keyList,
   sealField,
 } from '../security/index.js';
-import { modeValue } from '../operational-modes.js';
+import { modeOn } from '../operational-modes.js';
 
 export type { FieldAad } from '../security/index.js';
 
@@ -156,7 +156,7 @@ export async function maybeEncrypt(
     // (PII / ANSVSA / SAF-T). Silently persisting it in the clear is a data
     // downgrade, so refuse the write — the same posture as BETTER_AUTH_SECRET.
     // An operator who genuinely wants the old degraded behavior must opt in.
-    if (modeValue('ZVELTIO_ALLOW_PLAINTEXT_ENCRYPTED_FIELDS') === '1') {
+    if (modeOn('ZVELTIO_ALLOW_PLAINTEXT_ENCRYPTED_FIELDS')) {
       warnMissingKeyOnce();
       return value;
     }

@@ -588,21 +588,18 @@ export async function resolveEntryPath(
   }
 
   // Legacy / dev path: .ts source + on-disk core deps.
-  // Refuse legacy .ts in production. ZVELTIO_EXTENSION_DEV_RELOAD=1
-  // keeps the door open for local development against unbundled
-  // extensions, but the production binary should never load a
-  // .ts because that pulls in the kysely/hono module-resolution
-  // bug we spent 16 alpha releases fixing. Hard-fail here
-  // surfaces "this extension wasn't packed" loudly instead of
-  // letting it slip through to a cryptic dynamic-import throw.
-  const allowLegacy = process.env.ZVELTIO_EXTENSION_DEV_RELOAD === '1';
-  if (!allowLegacy && isProduction()) {
+  // Refuse legacy .ts in production, with no switch: an unbundled extension
+  // resolves its core deps (hono, kysely, …) from the shared
+  // <EXTENSIONS_DIR>/node_modules, which no signature covers, and the compiled
+  // binary cannot resolve them at all. ZVELTIO_EXTENSION_DEV_RELOAD=1 used to
+  // lift this in production too — a bypass, never a mode (ADR 0058 d4).
+  // Development loads legacy .ts with or without it.
+  if (isProduction()) {
     const msg =
       `Extension "${extName}" is not bundled (manifest.engine.bundled !== true). ` +
-      `Production refuses legacy .ts extensions because Bun's compiled-binary ` +
-      `resolver cannot find core deps via disk node_modules walks. ` +
-      `Run \`zveltio extension pack --dir <ext>\` and re-deploy the ` +
-      `extension, or set ZVELTIO_EXTENSION_DEV_RELOAD=1 in dev environments.`;
+      `Production refuses legacy .ts extensions: their core deps would come from ` +
+      `the unsigned <EXTENSIONS_DIR>/node_modules, and the compiled binary cannot ` +
+      `resolve them. Run \`zveltio extension pack --dir <ext>\` and re-deploy the extension.`;
     return { ok: false, logLevel: 'error', logArgs: [`❌ ${msg}`], lastLoadError: msg };
   }
   const resolvedPath = existsSync(enginePath) ? enginePath : join(extDir, 'engine/index.ts');

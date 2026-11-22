@@ -22,14 +22,14 @@
 
 import { sql } from 'kysely';
 import { createDb, type Database, withIdleInTransactionTimeout } from '../../db/index.js';
-import { isProduction, modeValue } from '../operational-modes.js';
+import { isProduction, modeOn } from '../operational-modes.js';
 
 /** Values the functions in migration 123 read as "fall back to the default tenant". */
 const OPEN = new Set(['off', 'false', '0']);
 
 /** `ZVELTIO_FAIL_CLOSED_TENANT=0` opts out; anything else, unset included, is closed. */
 export function failClosedTenantEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return modeValue('ZVELTIO_FAIL_CLOSED_TENANT', env)?.trim() !== '0';
+  return !modeOn('ZVELTIO_FAIL_CLOSED_TENANT', env);
 }
 
 /**

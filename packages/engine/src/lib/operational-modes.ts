@@ -4,7 +4,9 @@
  *
  * Three rules hang on it:
  *  - this module is the only reader of these variables — everything else asks
- *    `modeValue`, so a new hatch cannot exist without an entry here;
+ *    `modeOn` (or `modeValue` for a value that is not on/off), so a new hatch
+ *    cannot exist without an entry here, and what turns a mode on is what the
+ *    boot warns about;
  *  - the boot warns for every mode that is on (`warnOperationalModes`);
  *  - the "Escape hatches" table in docs/platform/configuration.md is generated
  *    from `MODES` (`bun run scripts/gen-operational-modes.ts`).
@@ -175,6 +177,15 @@ export const MODES = {
     removal: 'permanent',
     on: is('1'),
   },
+  OPENAPI_PUBLIC: {
+    class: 'permanent',
+    weakens:
+      'The admin gate on `/api/openapi.json` in production: with `true` anyone reads the whole ' +
+      'API surface, every route and schema, without signing in.',
+    when: 'An instance that publishes its API reference on purpose.',
+    removal: 'permanent',
+    on: is('true'),
+  },
   RATE_LIMIT_ALLOWLIST: {
     class: 'permanent',
     weakens: 'Rate limiting, for the listed CIDRs.',
@@ -269,6 +280,14 @@ export function nodeEnv(env: Env = process.env): string | undefined {
 /** The one read of a registered variable. */
 export function modeValue(name: ModeVariable, env: Env = process.env): string | undefined {
   return env[name];
+}
+
+/**
+ * Whether a registered mode is on: its register entry decides, so a value a
+ * reader honours is always one the boot warns about.
+ */
+export function modeOn(name: ModeVariable, env: Env = process.env): boolean {
+  return (MODES[name] as Mode).on?.(env[name]) === true;
 }
 
 /** One line per mode that is on, and per removed variable still set. */

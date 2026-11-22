@@ -83,7 +83,7 @@ import {
   httpRequestDuration,
 } from './lib/runtime/index.js';
 import { engineEvents } from './lib/runtime/index.js';
-import { modeValue, nodeEnv, warnOperationalModes } from './lib/operational-modes.js';
+import { modeOn, nodeEnv, warnOperationalModes } from './lib/operational-modes.js';
 import { checkSchemaCompatibility, ENGINE_VERSION } from './version.js';
 import { getMemoryReport } from './lib/runtime/index.js';
 import {
@@ -1056,7 +1056,7 @@ rm studio.tar.gz</pre>
       const provided =
         c.req.header('Authorization')?.replace('Bearer ', '') ?? c.req.query('token');
       if (provided !== metricsToken) return c.json({ error: 'Unauthorized' }, 401);
-    } else if (modeValue('METRICS_ALLOW_UNAUTHENTICATED') !== '1') {
+    } else if (!modeOn('METRICS_ALLOW_UNAUTHENTICATED')) {
       // Fail-CLOSED: with no METRICS_TOKEN configured, refuse rather than leak
       // uptime / heap / request-count internals to any anonymous caller (an
       // information-disclosure surface flagged in the 3.0.0 security review).

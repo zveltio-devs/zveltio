@@ -14,7 +14,7 @@ import {
 import { auditLog } from '../lib/audit.js';
 import { effectiveTheme, themeSchema } from '../lib/theme.js';
 import { mapTiles } from '../lib/map-tiles.js';
-import { modeValue } from '../lib/operational-modes.js';
+import { modeOn, modeValue } from '../lib/operational-modes.js';
 
 /**
  * Settings whose value is a credential and must never be read back.
@@ -132,7 +132,7 @@ export async function isRegistrationEnabled(db: Database): Promise<boolean> {
   // Env override wins over the DB setting — lets an operator force self-signup
   // on/off without DB access (12-factor), and lets test/CI enable it uniformly.
   const env = modeValue('ZVELTIO_REGISTRATION_ENABLED');
-  if (env != null && env !== '') return env === '1' || env.toLowerCase() === 'true';
+  if (env != null && env !== '') return modeOn('ZVELTIO_REGISTRATION_ENABLED');
 
   const row = await db
     .selectFrom('zv_settings')

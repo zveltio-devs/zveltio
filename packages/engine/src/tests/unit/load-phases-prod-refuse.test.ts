@@ -43,4 +43,24 @@ describe('resolveEntryPath — production gate', () => {
       expect(r.logLevel).toBe('error');
     }
   });
+
+  // A development switch, not a production one: lifted in production it loaded
+  // an unbundled extension whose core deps resolve from the shared, unsigned
+  // <EXTENSIONS_DIR>/node_modules, inside the engine.
+  it('still rejects them in production when ZVELTIO_EXTENSION_DEV_RELOAD=1', async () => {
+    delete process.env.NODE_ENV;
+    process.env.ZVELTIO_EXTENSION_DEV_RELOAD = '1';
+
+    const extDir = mkdtempSync(join(tmpdir(), 'zv-prod-ext-'));
+    const jsPath = join(extDir, 'engine/index.js');
+    mkdirSync(join(extDir, 'engine'), { recursive: true });
+    writeFileSync(jsPath, 'export default {}');
+
+    const r = await resolveEntryPath('legacy', extDir, jsPath, {
+      name: 'legacy',
+      version: '1.0.0',
+    } as never);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.lastLoadError).toContain('not bundled');
+  });
 });

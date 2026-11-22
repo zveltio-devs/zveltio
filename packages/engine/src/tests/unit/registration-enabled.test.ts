@@ -7,6 +7,7 @@
 
 import { afterEach, describe, expect, it } from 'bun:test';
 import type { Database } from '../../db/index.js';
+import { operationalModeWarnings } from '../../lib/operational-modes.js';
 import { isRegistrationEnabled } from '../../routes/settings.js';
 import { CannedDb } from './fixtures/canned-db.js';
 
@@ -53,5 +54,19 @@ describe('isRegistrationEnabled', () => {
     const db = new CannedDb();
     db.when(/from "zv_settings"/i, [{ value: 'true' }]);
     expect(await isRegistrationEnabled(asDb(db))).toBe(false);
+  });
+
+  // The boot warns for every mode that is on (ADR 0058 d4): a value that opens
+  // sign-up and earns no warning is a hatch nobody sees. `TRUE` used to.
+  it('opens exactly when the boot warns about it', async () => {
+    for (const v of ['1', 'true', 'TRUE', 'True', ' 1', 'yes', '0', 'false', ' ']) {
+      process.env.ZVELTIO_REGISTRATION_ENABLED = v;
+      const warned = operationalModeWarnings().some((l) =>
+        l.includes('ZVELTIO_REGISTRATION_ENABLED'),
+      );
+      const db = new CannedDb();
+      db.when(/from "zv_settings"/i, [{ value: 'true' }]);
+      expect({ v, open: await isRegistrationEnabled(asDb(db)) }).toEqual({ v, open: warned });
+    }
   });
 });
