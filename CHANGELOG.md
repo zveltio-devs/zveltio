@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Fixed — one request could empty the request log (A02).** The request log writes its rows in one multi-row INSERT per 250 ms (DR-41). A path such as `/api/a%00b` decodes to a NUL, which a Postgres text column refuses, and the refusal dropped the whole batch: one such request every 250 ms dropped every other request's row. A NUL in any logged value is now written as U+FFFD.
+
 **Security — the boot check reads a preset setting's name in any case (A04).** With `NATIVE_DATABASE_URL` set, the boot reads `DATABASE_URL`'s startup options as text and matched `zveltio.*` names case-sensitively, while Postgres matches them in any case: `options=-c Zveltio.Current_Tenant=<uuid>` behind a pooler preset the tenant and still passed the check. The name is now matched case-insensitively.
 
 **Fixed — `zveltio extension sign` signs a directory after `bun install`.** It listed every file, `node_modules/` included, so it signed the whole dependency tree, and a `.bin` link there refused the signature. An operator signature now leaves a root `node_modules/` out: nothing in it runs, since the extension runner imports only the signed bundle's bytes from a process whose working directory is `/`. The CLI and the engine each build the listing; a harness test signs with the CLI and loads with the engine, so the two cannot drift unnoticed. `zveltio install --path` no longer copies `node_modules/`. A registry-signed download still covers every file, `node_modules/` included: it may run inline, where a bundle resolves from it. A signature made by an older CLI over a directory that held `node_modules/` no longer verifies: sign it again.

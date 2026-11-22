@@ -43,6 +43,13 @@ function enqueue(poolDb: Database, row: RequestLogRow): void {
     dropped++;
     return;
   }
+  // A NUL is the one character a text column refuses, and it rejects the whole
+  // multi-row INSERT: `/api/a%00b` decodes to one, so a request sent every
+  // FLUSH_MS would drop every other request's row.
+  for (const [k, v] of Object.entries(row)) {
+    if (typeof v === 'string' && v.includes('\0'))
+      Object.assign(row, { [k]: v.replaceAll('\0', '\uFFFD') });
+  }
   pending.push(row);
   if (pending.length >= FLUSH_ROWS) flush(poolDb);
   else timer ??= setTimeout(() => flush(poolDb), FLUSH_MS);
