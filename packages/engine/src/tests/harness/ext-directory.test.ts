@@ -457,4 +457,17 @@ d('directory provisioning is a narrow engine contract (ADR 0039 decision 9)', ()
       expect([m, all[m]]).toEqual([m, undefined]);
     }
   });
+  it('a retried provision racing its twin is 409 account_exists, and leaves no second account', async () => {
+    const subject = `s-${STAMP}-race`;
+    const [a, b] = [email('race-a'), email('race-b')];
+    const both = await Promise.all([
+      call(DIR, 'provision', [{ subject, email: a }], inT),
+      call(DIR, 'provision', [{ subject, email: b }], inT),
+    ]);
+    expect(both.map((r) => r.status).sort()).toEqual([200, 409]);
+    expect(both.find((r) => r.status === 409)?.code).toBe('account_exists');
+    const users = await sql<{ email: string }>`
+      SELECT email FROM "user" WHERE email IN (${a}, ${b})`.execute(db);
+    expect(users.rows).toHaveLength(1);
+  });
 });
