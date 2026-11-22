@@ -13,7 +13,7 @@ cd charts/zveltio
 # 2. Generate the required secrets
 BETTER_AUTH_SECRET=$(openssl rand -hex 32)
 ENCRYPTION_KEY=$(openssl rand -hex 32)   # 64 hex chars; anything else is refused
-MAIL_ENCRYPTION_KEY=$(openssl rand -base64 32)
+MAIL_ENCRYPTION_KEY=$(openssl rand -hex 32)   # same shape; base64 is refused at boot
 
 # 3. Install
 helm install zveltio . \

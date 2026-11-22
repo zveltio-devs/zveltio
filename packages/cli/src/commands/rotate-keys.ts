@@ -8,7 +8,7 @@ import { loadEngineRotateKeys } from '../lib/engine-modules.js';
  */
 export const rotateKeysCommand = new Command('rotate-keys')
   .description(
-    'Rewrite every engine-sealed field value under the current FIELD_ENCRYPTION_KEYS key, bound to its row, and report what is left under each key',
+    'Rewrite every engine-sealed field value under the current FIELD_ENCRYPTION_KEYS key, bound to its row, reseal what extensions sealed under the current field or MAIL_ENCRYPTION_KEYS key, and report what is left under each key',
   )
   .option('--database-url <url>', 'Direct database URL (env: DATABASE_URL)')
   .option('--dry-run', 'Report only; write nothing')

@@ -12,13 +12,17 @@
  *   - the copies of those fields in `zv_revisions.data` / `.delta`;
  *   - webhook signing secrets (`zvd_webhooks.secret`, `$webhooks`);
  *   - the S3 secret of the storage setting (`zv_settings`, `$settings`).
- * Extension-sealed values (`ctx.internals.encryptSecret`, the mail keyring) are
- * step 3: their readers name no row, so they cannot move to v2.
+ * And what an extension sealed itself (step 3): `ctx.internals.encryptSecret`
+ * and `maybeEncrypt` seal with no row, so their readers open only unbound
+ * envelopes. A whole `enc:v1:` or `aes256gcm:` value in any other text column
+ * of a collection is resealed in its own format under the current key of its
+ * keyring (`FIELD_ENCRYPTION_KEYS` / `MAIL_ENCRYPTION_KEYS`), never bound;
+ * mail keys are reported as `mail:<id>`.
  *
  * Ciphertext it does not rewrite is still COUNTED, per key id ("unvisited"):
  * rows of a tenant missing from `zv_tenants`, revision copies of a field that
- * is no longer sealed or of a row they do not name, webhook delivery payloads
- * and pg-boss job payloads. The verdict "older keys can leave the list" holds
+ * is no longer sealed or of a row they do not name, ciphertext inside a field
+ * value (json, arrays), webhook delivery payloads and pg-boss job payloads. The verdict "older keys can leave the list" holds
  * only when nothing, visited or not, is under an older listed key — and when
  * every table could be read whole (`unchecked`).
  *
@@ -38,8 +42,12 @@ import {
   fieldKeyId,
   isFieldEnvelope,
   isBoundFieldValue,
+  isUnboundValue,
+  encryptWithKeyring,
   keyList,
+  mailKeyId,
   openFieldValue,
+  openUnboundValue,
   sealField,
 } from './security/index.js';
 import { webhookSecretAad } from './webhooks.js';
@@ -62,6 +70,8 @@ export interface RotateKeysReport {
   dryRun: boolean;
   /** The id of the key every value is rewritten under. */
   currentKeyId: string;
+  /** The mail key extension-sealed mail values are resealed under; null when none is usable. */
+  currentMailKeyId: string | null;
   /** Values rewritten (with `dryRun`: that would be). */
   rewritten: number;
   /** Values under each key id after the run (with `dryRun`: as they are now). */
@@ -83,13 +93,21 @@ export interface RotateKeysReport {
   unvisited: Record<string, Record<string, number>>;
   /** Tables whose rows of missing tenants could not be read (see `checkMissingTenants`). */
   unchecked: string[];
-  /** Whether no value, visited or not, is left under an older listed key. */
+  /**
+   * Whether no value, visited or not, is left under an older listed key. Holds
+   * only if every engine already wrote with this current key when the run
+   * started: a replica still on an older list writes under the old key behind
+   * the cursor, so run again once the last one has moved.
+   */
   oldKeysDroppable: boolean;
 }
 
 const FIRST_ID = '00000000-0000-0000-0000-000000000000';
-/** Field envelopes inside JSON text; base64url and the key id need no escaping. */
-const ENVELOPES = /enc:v1:[A-Za-z0-9_-]+|enc:v2:[0-9a-f]{8}:[A-Za-z0-9_-]+/g;
+/** Envelopes inside text; base64url, hex and the key id need no escaping. */
+const ENVELOPES =
+  /enc:v1:[A-Za-z0-9_-]+|enc:v2:[0-9a-f]{8}:[A-Za-z0-9_-]+|enc1:[A-Za-z0-9+/]+=*|aes256gcm:[0-9a-fA-F]+:[0-9a-fA-F]+/g;
+/** A column that may hold one, for a server-side filter. */
+const HOLDS_ENVELOPE = sql.raw(`'enc:v[12]:|enc1:|aes256gcm:'`);
 /** A row a tenant pass cannot see: no tenant, or one `zv_tenants` no longer holds. */
 const MISSING_TENANT = sql.raw(
   '(tenant_id IS NULL OR NOT EXISTS (SELECT 1 FROM zv_tenants z WHERE z.id = tenant_id))',
@@ -114,11 +132,13 @@ export async function rotateKeys(
       `${list.source} has no usable current key: rotate-keys writes under it, so it refuses to start.`,
     );
   }
+  const mail = keyList('mail');
   const dryRun = opts.dryRun === true;
   const batch = Math.max(1, opts.batchSize ?? 500);
   const report: RotateKeysReport = {
     dryRun,
     currentKeyId: fieldKeyId(list.keys[0]!),
+    currentMailKeyId: mail.currentOk ? mailKeyId(mail.keys[0]!) : null,
     rewritten: 0,
     left: {},
     unbound: 0,
@@ -133,11 +153,57 @@ export async function rotateKeys(
     if (unbound) report.unbound++;
   };
 
+  type Out = { value: string; kid: string };
+  type At = { store: string; tenant: string; record: string; field: string };
+  /**
+   * An unbound envelope (`enc:v1:`, legacy `enc1:`, mail `aes256gcm:`) as it
+   * should be stored, and the key it goes under; null when it stays (counted)
+   * or no listed key opens it (reported). Mail stays `aes256gcm:` under the
+   * current mail key. Field ciphertext comes back `enc:v1:` under the current
+   * field key, or bound when `bindTo` names the sealed field it sits in.
+   * `enc1:` is always rewritten, so it drains.
+   */
+  const reseal = async (v: string, at: At, bindTo?: FieldAad): Promise<Out | null> => {
+    const opened = await openUnboundValue(v);
+    if (!opened) {
+      report.unopenable.push({ ...at, keyId: 'none' });
+      return null;
+    }
+    const mailValue = opened.keyring === 'mail';
+    const kid = mailValue ? report.currentMailKeyId : report.currentKeyId;
+    const stays = opened.current && !v.startsWith('enc1:');
+    if (stays || kid === null || dryRun) {
+      count(opened.keyId, false);
+      if (!stays && kid !== null) report.rewritten++;
+      return null;
+    }
+    const value =
+      !mailValue && bindTo
+        ? await sealField(opened.plaintext, bindTo)
+        : await encryptWithKeyring(opened.plaintext, opened.keyring);
+    return { value, kid };
+  };
+  /** Book rewrites: each that landed under the key it went to, the others as changed. */
+  const book = (writes: Array<{ id: string; kid: string }>, hit: Set<string>) => {
+    for (const w of writes) {
+      if (!hit.has(w.id)) {
+        report.changed++;
+        continue;
+      }
+      report.rewritten++;
+      report.left[w.kid] = (report.left[w.kid] ?? 0) + 1;
+    }
+  };
+
   /**
    * The value `v` should be stored as, or null when it stays: already current
-   * and bound, not field ciphertext, or not openable (reported).
+   * and bound, not ciphertext, or not openable (reported). A legacy or mail
+   * envelope in a sealed field is resealed as `reseal` says.
    */
-  const next = async (v: unknown, aad: FieldAad, store: string): Promise<string | null> => {
+  const next = async (v: unknown, aad: FieldAad, store: string): Promise<Out | null> => {
+    if (isUnboundValue(v) && !isFieldEnvelope(v)) {
+      return reseal(v, { store, tenant: aad.tenant, record: aad.record, field: aad.field }, aad);
+    }
     if (!isFieldEnvelope(v)) return null;
     const opened = await openFieldValue(v, aad);
     if (!opened) {
@@ -161,20 +227,20 @@ export async function rotateKeys(
       report.rewritten++;
       return null;
     }
-    return sealField(opened.plaintext, aad);
+    return { value: await sealField(opened.plaintext, aad), kid: report.currentKeyId };
   };
-  /** Book the outcome of `planned` rewrites of which `landed` were written. */
-  const landed = (planned: number, written: number) => {
+  /** Book the outcome of `planned` rewrites under `kid` of which `landed` were written. */
+  const landed = (planned: number, written: number, kid = report.currentKeyId) => {
     report.rewritten += written;
     report.changed += planned - written;
-    report.left[report.currentKeyId] = (report.left[report.currentKeyId] ?? 0) + written;
+    report.left[kid] = (report.left[kid] ?? 0) + written;
   };
-  /** Count every envelope in `text` under `where`: a v2 by the key id it names, a v1 by the key that opens it. */
+  /** Count every envelope in `text` under `where`: a v2 by the key id it names, the others by the key that opens them. */
   const tally = async (where: string, text: string | null | undefined) => {
     for (const env of text?.match(ENVELOPES) ?? []) {
       const kid = env.startsWith('enc:v2:')
         ? env.split(':')[2]!
-        : ((await openFieldValue(env))?.keyId ?? 'none');
+        : ((await openUnboundValue(env))?.keyId ?? 'none');
       report.unvisited[where] ??= {};
       const at = report.unvisited[where];
       at[kid] = (at[kid] ?? 0) + 1;
@@ -201,7 +267,8 @@ export async function rotateKeys(
           db,
         )
       ).rows[0]?.f === true;
-    if (forced && !exempt && !opts.checkMissingTenants) {
+    // A dry run takes no lock: it names the table instead of lifting FORCE.
+    if (forced && !exempt && (!opts.checkMissingTenants || dryRun)) {
       report.unchecked.push(table);
       return;
     }
@@ -212,7 +279,7 @@ export async function rotateKeys(
         await sql`ALTER TABLE ${t} NO FORCE ROW LEVEL SECURITY`.execute(trx);
       }
       const found = await sql<{ v: string }>`
-        SELECT ${text} AS v FROM ${t} WHERE ${MISSING_TENANT} AND ${text} LIKE '%enc:v_:%'`.execute(
+        SELECT ${text} AS v FROM ${t} WHERE ${MISSING_TENANT} AND ${text} ~ ${HOLDS_ENVELOPE}`.execute(
         trx,
       );
       if (lift) await sql`ALTER TABLE ${t} FORCE ROW LEVEL SECURITY`.execute(trx);
@@ -230,12 +297,14 @@ export async function rotateKeys(
     (r) => r.name as string,
   );
   const sealedByCollection = new Map<string, Set<string>>();
+  /** The declared fields that are not sealed: where an extension may have stored its own. */
+  const plainByCollection = new Map<string, Set<string>>();
   for (const name of names) {
-    const def = await DDLManager.getCollection(db, name);
-    const sealed = normalizeFields(def)
-      .filter((f) => f.encrypted || f.type === 'secret')
-      .map((f) => f.name);
+    const fields = normalizeFields(await DDLManager.getCollection(db, name));
+    const isSealed = (f: (typeof fields)[number]) => f.encrypted || f.type === 'secret';
+    const sealed = fields.filter(isSealed).map((f) => f.name);
     if (sealed.length > 0) sealedByCollection.set(name, new Set(sealed));
+    plainByCollection.set(name, new Set(fields.filter((f) => !isSealed(f)).map((f) => f.name)));
   }
 
   for (const [collection, fields] of sealedByCollection) {
@@ -260,19 +329,19 @@ export async function rotateKeys(
                  WHERE tenant_id = ${tenant}::uuid AND ${col} IS NOT NULL AND id > ${after}::uuid
                  ORDER BY id LIMIT ${batch}`.execute(trx)
             ).rows;
-            const writes: Array<{ id: string; old: string; new: string }> = [];
+            const writes: Array<{ id: string; old: string; new: string; kid: string }> = [];
             for (const { id, v } of rows) {
               const out = await next(v, { tenant, collection, field, record: id }, store);
-              if (out !== null) writes.push({ id, old: v, new: out });
+              if (out !== null) writes.push({ id, old: v, new: out.value, kid: out.kid });
             }
             if (writes.length > 0) {
-              const done = await sql`
+              const done = await sql<{ id: string }>`
                 UPDATE ${t} SET ${col} = w.new
                   FROM jsonb_to_recordset(${JSON.stringify(writes)}::text::jsonb)
                        AS w(id uuid, old text, new text)
                  WHERE ${t}.id = w.id AND ${t}.tenant_id = ${tenant}::uuid AND ${t}.${col} = w.old
-                RETURNING ${t}.id`.execute(trx);
-              landed(writes.length, done.rows.length);
+                RETURNING ${t}.id::text AS id`.execute(trx);
+              book(writes, new Set(done.rows.map((r) => r.id)));
             }
             if (rows.length > 0) after = rows[rows.length - 1]!.id;
             return rows.length === batch;
@@ -282,6 +351,73 @@ export async function rotateKeys(
       }
       await countMissing(table, sql.raw(`${quoteIdent(field)}::text`));
     }
+  }
+
+  // ── What an extension sealed itself (ADR 0059 step 3) ───────────────────────
+  // `encryptSecret` / `maybeEncrypt` name no row and their readers open only
+  // unbound envelopes, so a whole one in a text column that is not sealed is
+  // resealed in its own format under the current key of its keyring, never
+  // bound. Ciphertext inside a value (json, an array) or a v2 copied there is
+  // counted, never rewritten. Declared fields only: `search_text` is the search
+  // trigger's copy of the text fields and follows each rewrite by itself.
+  // ponytail: one scan per tenant per column (a regex seq scan); read the
+  // candidate columns of a table in one statement if installs ever hold many.
+  for (const collection of names) {
+    const table = DDLManager.getTableName(collection);
+    const plain = plainByCollection.get(collection);
+    const cols = (
+      await sql<{ c: string; text: boolean }>`
+        SELECT column_name AS c, data_type IN ('text', 'character varying', 'character') AS text
+          FROM information_schema.columns
+         WHERE table_schema = current_schema() AND table_name = ${table}
+           AND data_type IN ('text', 'character varying', 'character', 'json', 'jsonb', 'ARRAY')`.execute(
+        db,
+      )
+    ).rows.filter((r) => plain?.has(r.c));
+    if (cols.length === 0) continue;
+    const t = sql.id(table);
+    for (const { c: field, text } of cols) {
+      const col = sql.id(field);
+      const store = `${table}.${field}`;
+      for (const tenant of tenants) {
+        let after = FIRST_ID;
+        for (;;) {
+          const more = await asTenant(db, tenant, async (trx) => {
+            const rows = (
+              await sql<{ id: string; v: string }>`
+                SELECT id::text AS id, ${col}::text AS v FROM ${t}
+                 WHERE tenant_id = ${tenant}::uuid AND id > ${after}::uuid
+                   AND ${col}::text ~ ${HOLDS_ENVELOPE}
+                 ORDER BY id LIMIT ${batch}`.execute(trx)
+            ).rows;
+            const writes: Array<{ id: string; old: string; new: string; kid: string }> = [];
+            for (const { id, v } of rows) {
+              if (!text || !isUnboundValue(v)) {
+                const why = text && isBoundFieldValue(v) ? 'bound elsewhere' : 'inside a value';
+                await tally(`${store} (${why})`, v);
+                continue;
+              }
+              const out = await reseal(v, { store, tenant, record: id, field });
+              if (out !== null) writes.push({ id, old: v, new: out.value, kid: out.kid });
+            }
+            if (writes.length > 0) {
+              const done = await sql<{ id: string }>`
+                UPDATE ${t} SET ${col} = w.new
+                  FROM jsonb_to_recordset(${JSON.stringify(writes)}::text::jsonb)
+                       AS w(id uuid, old text, new text)
+                 WHERE ${t}.id = w.id AND ${t}.tenant_id = ${tenant}::uuid AND ${t}.${col} = w.old
+                RETURNING ${t}.id::text AS id`.execute(trx);
+              book(writes, new Set(done.rows.map((r) => r.id)));
+            }
+            if (rows.length > 0) after = rows[rows.length - 1]!.id;
+            return rows.length === batch;
+          });
+          if (!more) break;
+        }
+      }
+    }
+    const all = cols.map((r) => `${quoteIdent(r.c)}::text`).join(', ');
+    await countMissing(table, sql.raw(`concat_ws(' ', ${all})`));
   }
 
   // ── zv_revisions: the stored copies ─────────────────────────────────────────
@@ -300,7 +436,7 @@ export async function rotateKeys(
             SELECT id::text AS id, collection, data::text AS data, delta::text AS delta
               FROM zv_revisions
              WHERE tenant_id = ${tenant}::uuid AND id > ${after}::uuid
-               AND (data::text LIKE '%enc:v_:%' OR delta::text LIKE '%enc:v_:%')
+               AND (data::text ~ ${HOLDS_ENVELOPE} OR delta::text ~ ${HOLDS_ENVELOPE})
              ORDER BY id LIMIT ${batch}`.execute(trx)
         ).rows;
         const writes: Array<{
@@ -325,7 +461,12 @@ export async function rotateKeys(
             }
             const copy = { ...o };
             for (const [field, v] of Object.entries(o)) {
-              if (!isFieldEnvelope(v)) continue;
+              if (!isFieldEnvelope(v)) {
+                // A mail envelope, or ciphertext inside a value: not field ciphertext of the row.
+                const raw = typeof v === 'string' ? v : JSON.stringify(v);
+                await tally(`zv_revisions.${row.collection} (field not sealed)`, raw);
+                continue;
+              }
               if (!sealed?.has(field)) {
                 await tally(`zv_revisions.${row.collection} (field not sealed)`, v);
                 continue;
@@ -342,7 +483,7 @@ export async function rotateKeys(
               };
               const out = await next(v, aad, 'zv_revisions');
               if (out !== null) {
-                copy[field] = out;
+                copy[field] = out.value;
                 touched++;
               }
             }
@@ -383,19 +524,15 @@ export async function rotateKeys(
           SELECT id::text AS id, secret AS v FROM zvd_webhooks
            WHERE tenant_id = ${tenant}::uuid AND secret IS NOT NULL`.execute(trx)
       ).rows;
-      let planned = 0;
-      let written = 0;
       for (const { id, v } of rows) {
         const out = await next(v, webhookSecretAad(tenant, id), 'zvd_webhooks.secret');
         if (out === null) continue;
-        planned++;
         const done = await sql`
-          UPDATE zvd_webhooks SET secret = ${out}
+          UPDATE zvd_webhooks SET secret = ${out.value}
            WHERE id = ${id}::uuid AND tenant_id = ${tenant}::uuid AND secret = ${v}
           RETURNING id`.execute(trx);
-        written += done.rows.length;
+        landed(1, done.rows.length, out.kid);
       }
-      if (planned > 0) landed(planned, written);
     });
   }
   await countMissing('zvd_webhooks', sql.raw('secret'));
@@ -411,7 +548,7 @@ export async function rotateKeys(
     await asTenant(db, tenant, async (trx) => {
       const rows = await sql<{ v: string }>`
         SELECT payload::text AS v FROM zvd_webhook_deliveries
-         WHERE tenant_id = ${tenant}::uuid AND payload::text LIKE '%enc:v_:%'`.execute(trx);
+         WHERE tenant_id = ${tenant}::uuid AND payload::text ~ ${HOLDS_ENVELOPE}`.execute(trx);
       for (const { v } of rows.rows) await tally('zvd_webhook_deliveries.payload', v);
     });
   }
@@ -422,7 +559,9 @@ export async function rotateKeys(
     }>`SELECT to_regclass(${table}) IS NOT NULL AS ok`.execute(db);
     if (!exists.rows[0]?.ok) continue;
     const rows = await sql<{ v: string }>`
-      SELECT data::text AS v FROM ${sql.raw(table)} WHERE data::text LIKE '%enc:v_:%'`.execute(db);
+      SELECT data::text AS v FROM ${sql.raw(table)} WHERE data::text ~ ${HOLDS_ENVELOPE}`.execute(
+      db,
+    );
     for (const { v } of rows.rows) await tally(`${table}.data`, v);
   }
 
@@ -440,20 +579,24 @@ export async function rotateKeys(
     const out = await next(s3.secretKey, S3_SECRET_AAD, 'zv_settings.storage_config');
     if (out === null) return;
     // Written back in the shape it was read in (the route stores a jsonb string).
-    const updated = { ...conf, s3: { ...s3, secretKey: out } };
+    const updated = { ...conf, s3: { ...s3, secretKey: out.value } };
     const json = JSON.stringify(updated);
     const done = await sql`
       UPDATE zv_settings
          SET value = ${row.wrapped ? sql`to_jsonb(${json}::text)` : sql`${json}::text::jsonb`}
        WHERE key = ${STORAGE_SETTINGS_KEY} AND value::text = ${row.raw}
       RETURNING key`.execute(trx);
-    landed(1, done.rows.length);
+    landed(1, done.rows.length, out.kid);
   });
 
   // The verdict: no value under an older LISTED key, visited, unopenable (a v2
   // bound elsewhere names its key) or not visited, and every table read whole. A v2 naming an unlisted key id, or `none`, is under no key
   // the list still holds, so it does not keep one there.
-  const older = new Set(list.keys.slice(1).map(fieldKeyId));
+  const older = new Set([
+    ...list.keys.slice(1).map(fieldKeyId),
+    // Without a usable current mail key, every listed one is older.
+    ...(mail.currentOk ? mail.keys.slice(1) : mail.keys).map(mailKeyId),
+  ]);
   const kids = [
     ...Object.keys(report.left),
     ...Object.values(report.unvisited).flatMap((byKid) => Object.keys(byKid)),
@@ -487,12 +630,14 @@ function asObject(text: string | null): Record<string, unknown> | null {
 export function formatRotateKeysReport(r: RotateKeysReport): string {
   const lines = [
     `rotate-keys${r.dryRun ? ' (dry run, nothing written)' : ''}: ` +
-      `${r.rewritten} value(s) ${r.dryRun ? 'to rewrite' : 'rewritten'} under key ${r.currentKeyId}`,
+      `${r.rewritten} value(s) ${r.dryRun ? 'to rewrite' : 'rewritten'} under key ${r.currentKeyId}` +
+      (r.currentMailKeyId ? ` (mail values: ${r.currentMailKeyId})` : ''),
   ];
+  const current = (kid: string) => kid === r.currentKeyId || kid === r.currentMailKeyId;
   const byKid = (o: Record<string, number>) =>
     Object.keys(o)
-      .sort((a, b) => (a === r.currentKeyId ? -1 : b === r.currentKeyId ? 1 : a.localeCompare(b)))
-      .map((kid) => `${kid}${kid === r.currentKeyId ? ' (current)' : ''}: ${o[kid]}`);
+      .sort((a, b) => (current(a) ? -1 : current(b) ? 1 : a.localeCompare(b)))
+      .map((kid) => `${kid}${current(kid) ? ' (current)' : ''}: ${o[kid]}`);
   for (const line of byKid(r.left)) lines.push(`  under ${line}`);
   if (r.unbound > 0) lines.push(`  of which enc:v1 (unbound): ${r.unbound}`);
   if (r.changed > 0) {
@@ -515,7 +660,8 @@ export function formatRotateKeysReport(r: RotateKeysReport): string {
   }
   lines.push(
     r.oldKeysDroppable
-      ? '  No value is left under an older key: older keys can leave the list.'
+      ? '  No value is left under an older key: older keys can leave the list, provided every\n' +
+          '  engine already wrote with this current key when the run started (otherwise run again).'
       : '  Keep every listed key until a run reports nothing under an older one.',
   );
   return lines.join('\n');

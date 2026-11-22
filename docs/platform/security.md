@@ -352,8 +352,9 @@ them as `enc:v2:`. Three writers still produce `enc:v1:`, because their
 extension-facing contract documents it and names no row:
 `ctx.internals.encryptSecret` (field keyring), `ctx.internals.maybeEncrypt`, and
 an inline extension's `ctx.db` update whose `WHERE` is not a single `id =`
-([v2-candidates](../extensions/v2-candidates.md)). Mail passwords keep the
-`aes256gcm:` envelope under the mail key list, with no associated data.
+([v2-candidates](../extensions/v2-candidates.md)). The mail keyring's
+`aes256gcm:` envelope (`encryptSecret` with `keyring: 'mail'`) binds nothing
+either; the mail extension (2.0 on) keeps its passwords in `secret` fields.
 
 **Rotation**, every replica at each step:
 
@@ -365,11 +366,14 @@ an inline extension's `ctx.db` update whose `WHERE` is not a single `id =`
 4. Run `zveltio rotate-keys` (once, from one host). It rewrites what is still
    under `<old>`, or still `enc:v1:`, under `<new>`.
 5. Drop `<old>` from the list only when the run reports nothing under its key
-   id. A key left out leaves every value still under it unreadable.
+   id. A key left out leaves every value still under it unreadable. The run's
+   verdict counts only what was written before it reached each row: a replica
+   still on step 2 writes under `<old>` behind it. Run it after the last
+   replica is on step 3, or run it again.
 
-The same list applies to `MAIL_ENCRYPTION_KEYS`; no engine-owned value is
-sealed with it, so `rotate-keys` has nothing of its own to rewrite there (see
-what it leaves, below): keep an old mail key listed.
+The same steps apply to `MAIL_ENCRYPTION_KEYS`. No engine-owned value is sealed
+with it; `rotate-keys` reseals what extensions sealed with it (below) and
+reports each mail key as `mail:<id>`.
 
 ##### `zveltio rotate-keys`
 
@@ -389,7 +393,21 @@ every collection, the copies of those fields in `zv_revisions` (`data` and
 `delta`), webhook signing secrets (`$webhooks`) and the S3 secret of the storage
 setting (`$settings`). Each value is opened under whichever listed key wrote it
 and, unless it is already `enc:v2:` under the current key, sealed again as
-`enc:v2:` under the current key, bound to where it lives (above). A revision's
+`enc:v2:` under the current key, bound to where it lives (above).
+
+And what an extension sealed itself (ADR 0059 step 3): a whole `enc:v1:` or
+`aes256gcm:` value — what `ctx.internals.encryptSecret` (either keyring) and
+`ctx.internals.maybeEncrypt` return — in any other declared field of a
+collection is opened under its keyring's list and, unless already under that
+list's current key, sealed again **in its own format** under it: `enc:v1:`
+under the current field key, `aes256gcm:` under the current mail key. The
+legacy `enc1:` (field key) is always rewritten, as `enc:v1:`. Such an envelope
+found in an `encrypted` field is resealed the same way, except that field
+ciphertext there comes back bound (`enc:v2:`). Never as
+`enc:v2:`: their reader, `decryptSecret` / `maybeDecrypt`, names no row. Without
+a usable current mail key, mail values are counted, not rewritten. No
+first-party extension writes one: their secrets are `secret` fields, which the
+engine seals and the pass above rewrites. A revision's
 copies (its `delta` too) are bound to the row its full copy names (`id`,
 `tenant_id`), the row the revision read opens them under; a copy kept in the
 old jsonb-string shape is written back in that shape.
@@ -409,7 +427,8 @@ old jsonb-string shape is written back in that shape.
   (below), counted per place and key id. Its last line says whether older keys
   can leave the list: only when no value — rewritten, unopenable or not
   visited — is under an older listed key, no write raced the run, and every
-  table could be read whole. Exit code 0: done and older keys can go; 2: done,
+  table could be read whole. It cannot see an engine that still writes under
+  an older key (a replica not yet on the new list): run it once every engine is. Exit code 0: done and older keys can go; 2: done,
   but a value is unopenable or an older key must stay; 1: refused (no usable
   current key) or failed.
 
@@ -422,23 +441,25 @@ What it does not rewrite, and counts:
   keeps every key until a run with `--check-missing-tenants`. That flag lifts
   FORCE on each such table for one counting statement, inside a transaction,
   under the table's ACCESS EXCLUSIVE lock (writes to it wait for one scan;
-  `lock_timeout` 5 s): run it at a quiet moment. A superuser or BYPASSRLS
+  `lock_timeout` 5 s): run it at a quiet moment. `--dry-run` takes no such
+  lock: it names those tables as *not checked*, flag or not. A superuser or BYPASSRLS
   connection counts them without it.
 - Revision copies of a field that is no longer `encrypted` or `secret` (or of a
   dropped collection), and copies whose full copy names no `id`/`tenant_id`:
   their row is not known for certain, and nothing serves them.
 - Webhook delivery payloads and pg-boss job payloads: the outbound copy drops
   sealed fields, so only an older one can hold ciphertext; nothing reads it back.
+- Ciphertext inside a field value (a json field, an array) or an `enc:v2:`
+  value copied into a field that is not sealed: not a whole value its reader
+  opens, so counted, never rewritten.
 
-What it leaves uncounted:
+What it leaves uncounted: ciphertext an inline extension wrote through `ctx.db`
+into an engine table that is not a collection, or into an undeclared column.
 
-- Values an extension sealed itself through `ctx.internals.encryptSecret`, and
-  the mail keyring (`aes256gcm:`), stored in a column that is not `encrypted` or
-  `secret`: their readers name no row, so they stay `enc:v1:` (ADR 0059 step 3,
-  [v2-candidates](../extensions/v2-candidates.md)). No first-party extension
-  writes one. Such a value in an `encrypted` column *is* rewritten as `enc:v2:`,
-  and `ctx.internals.maybeDecrypt` / `decryptSecret` do not open `enc:v2:`: read
-  encrypted fields through the data API or `host.collections`.
+An extension-sealed value in an `encrypted` or `secret` column *is* rewritten
+as `enc:v2:`, and `ctx.internals.maybeDecrypt` / `decryptSecret` do not open
+`enc:v2:`: read encrypted fields through the data API or `host.collections`
+([v2-candidates](../extensions/v2-candidates.md)).
 
 #### API Key Security
 
