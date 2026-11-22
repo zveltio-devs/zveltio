@@ -14,7 +14,7 @@ import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager, EDGE_SCOPE } from '../../lib/data/index.js';
 import { serialize } from '../../lib/schema-artifact/export.js';
-import { ENGINE_CASBIN_OBJECTS } from '../../lib/tenancy/permissions.js';
+import { ENGINE_CASBIN_OBJECTS, getEnforcer } from '../../lib/tenancy/permissions.js';
 import {
   createGodSession,
   dropTestCollection,
@@ -130,6 +130,32 @@ d('rules live with their object', () => {
            + (SELECT count(*) FROM zv_default_grant_revocations WHERE resource = ${DROPPED})
              AS n`.execute(db);
     expect(Number(left.rows[0]?.n)).toBe(0);
+  });
+
+  it('a grant written while a drop is in flight does not outlive the drop', async () => {
+    // The trigger read the collection row its MVCC snapshot still showed, so a
+    // grant committed after the drop had deleted the rules, and before it
+    // committed, stayed: a collection created again under the name inherited it.
+    const RACED = `rlo_race_${tag}`;
+    await DDLManager.createCollection(db, {
+      name: RACED,
+      fields: [{ name: 'title', type: 'text' }],
+    } as never);
+    // The permissions route's write, without its session lookup: the drop's
+    // DROP TABLE holds a lock on "user" (its FK) that the lookup would wait on.
+    let grant: Promise<unknown> | undefined;
+    await db.transaction().execute(async (trx) => {
+      await DDLManager.dropInTransaction(trx, RACED, {});
+      grant = getEnforcer()
+        .then((e) => e.addPolicy(ROLE, '*', RACED, 'read'))
+        .catch((e: { errno?: string }) => e.errno);
+      // Its trigger runs while the drop is still open.
+      await Promise.race([grant, new Promise((r) => setTimeout(r, 500))]);
+    });
+    expect(await grant).toBe('23503');
+    const left = await sql`SELECT 1 FROM zvd_permissions
+                            WHERE ptype = 'p' AND v2 = ${RACED}`.execute(db);
+    expect(left.rows).toHaveLength(0);
   });
 
   it('a schema plan refuses a grant or a revoked default on a collection the instance will not have', async () => {
