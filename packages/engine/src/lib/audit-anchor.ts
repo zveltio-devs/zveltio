@@ -87,8 +87,10 @@ export function anchorTarget(): Target | null {
     if (!url.hostname) throw new Error('AUDIT_ANCHOR_TARGET s3:// names no bucket');
     const path = decodeURIComponent(url.pathname).replace(/^\/+|\/+$/g, '');
     const env = process.env;
-    // Own credentials (e.g. a write-only account) when set, so whoever holds the
-    // files store's keys cannot delete anchors; both or neither.
+    // Own credentials when set, so whoever holds the files store's keys cannot
+    // delete anchors; both or neither. Not a write-only account: the writer and
+    // verify list and read the latest anchor first, so it needs list, read and
+    // write, and no delete.
     const ownKey = env.AUDIT_ANCHOR_S3_ACCESS_KEY;
     const ownSecret = env.AUDIT_ANCHOR_S3_SECRET_KEY;
     if (!ownKey !== !ownSecret) {
