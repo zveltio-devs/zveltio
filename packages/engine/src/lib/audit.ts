@@ -358,7 +358,11 @@ export async function verifyAuditChains(db: Database): Promise<{
   /** Each chain against the latest external anchor (decision 5). */
   anchor: AnchorReport;
 }> {
-  const walked = await db.transaction().execute(async (trx) => {
+  // One snapshot for the whole walk: read committed takes one per statement, so
+  // a retention cut committed between the genesis read and the entries (or
+  // between two batches) left a hole the walk reported as a `gap`.
+  const snapshot = db.transaction().setIsolationLevel('repeatable read');
+  const walked = await snapshot.execute(async (trx) => {
     await sql`
       SELECT set_config('zveltio.current_tenant', '', true),
              set_config('zveltio.visible_tenants', coalesce((
