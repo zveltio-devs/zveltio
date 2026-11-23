@@ -22,7 +22,7 @@
     "@zveltio/sdk": "workspace:*",
     "@zveltio/ui": "workspace:*",
     "better-auth": "^1.7.14",
-    "dompurify": "3.4.17",
+    "dompurify": "3.4.18",
     "leaflet": "^1.9.4",
     "qrcode": "^1.5.4"
   },
