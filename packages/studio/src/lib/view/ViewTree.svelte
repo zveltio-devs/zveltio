@@ -11,7 +11,16 @@
 import { type TreeView, type ViewScope } from '@zveltio/sdk/view';
 import { m } from '#lib/i18n.svelte.js';
 import { toast } from '#lib/stores/toast.svelte.js';
-import { isWithin, listParams, reorder, treeParents, type ViewHost, WHOLE } from './engine.js';
+import { dataApi } from '#lib/api.js';
+import {
+  isWithin,
+  listParams,
+  reachesUp,
+  reorder,
+  treeParents,
+  type ViewHost,
+  WHOLE,
+} from './engine.js';
 import { readRows, type Row } from './rows.svelte.js';
 import ViewRows from './ViewRows.svelte';
 import ViewValue from './ViewValue.svelte';
@@ -48,7 +57,19 @@ const ROOT = '\u0000root';
 async function moveUnder(row: Row, parent: string | null) {
   if (!view.move || parentOf.get(row.id) === parent) return;
   if (parent !== null && isWithin(row.id, parent, parentOf)) return;
+  // Past one read, the target's ancestors may not be loaded: ask for them.
+  if (parent !== null && data.more && (await reachesUp(row.id, parent, parentRead)))
+    return void toast.error(m['view.moveUnderOwn']());
   await host.change(view.move, view.collection, row, { [view.parent]: parent });
+}
+
+/** A record's raw parent: from the loaded rows, else read; `undefined` if unreadable. */
+async function parentRead(at: string): Promise<string | null | undefined> {
+  const loaded = data.rows.find((r) => r.id === at);
+  const rec = loaded ?? (await dataApi.get(view.collection, at).catch(() => undefined));
+  if (!rec) return undefined;
+  const p = (rec as Record<string, unknown>)[view.parent];
+  return p == null ? null : String(p);
 }
 
 /** The node whose "Move to" menu is open: one menu at a time, not one per node. */

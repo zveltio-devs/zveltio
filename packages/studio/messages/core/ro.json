@@ -1409,6 +1409,7 @@
   "view.loadAllFirst": "Încărcați mai întâi toate înregistrările: un element de pe o pagină necitită și-ar păstra locul.",
   "view.loadMore": "Încarcă mai multe",
   "view.moveDown": "Mută mai jos",
+  "view.moveUnderOwn": "O înregistrare nu poate fi mutată sub unul dintre propriii descendenți.",
   "view.moveTo": "Mută în",
   "view.moveUp": "Mută mai sus",
   "view.none": "(niciuna)",

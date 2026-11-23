@@ -13,6 +13,7 @@ import {
   findAction,
   formPayload,
   isWithin,
+  reachesUp,
   listParams,
   midnightOf,
   period,
@@ -333,5 +334,23 @@ describe('the slice 4 kinds: queries, order, cycles, relations', () => {
       relatedOf({ name: 'r', type: 'text', options: { related_collection: 'roles' } }),
     ).toBeNull();
     expect(relatedOf({ name: 'r', type: 'reference' })).toBeNull();
+  });
+});
+
+describe('reachesUp', () => {
+  // a > b > c > d; only a and d are loaded, b and c are read on demand.
+  const raw: Record<string, string | null> = { a: null, b: 'a', c: 'b', d: 'c' };
+  const read = vi.fn(async (at: string) => (at in raw ? raw[at] : undefined));
+
+  it('finds an ancestor that is not among the loaded rows', async () => {
+    expect(await reachesUp('a', 'd', read)).toBe(true);
+    expect(read).toHaveBeenCalledWith('b');
+  });
+
+  it('a node that is not an ancestor, a record the caller cannot read, a cycle', async () => {
+    expect(await reachesUp('d', 'b', read)).toBe(false);
+    expect(await reachesUp('a', 'hidden', read)).toBe(false);
+    const loop = async (at: string) => (at === 'x' ? 'y' : 'x');
+    expect(await reachesUp('a', 'x', loop)).toBe(false);
   });
 });

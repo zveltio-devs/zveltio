@@ -1409,6 +1409,7 @@
   "view.loadAllFirst": "Előbb töltse be az összes rekordot: egy még be nem töltött oldalon lévő elem megtartaná a helyét.",
   "view.loadMore": "Továbbiak betöltése",
   "view.moveDown": "Lejjebb",
+  "view.moveUnderOwn": "Egy rekord nem helyezhető a saját leszármazottja alá.",
   "view.moveTo": "Áthelyezés ide",
   "view.moveUp": "Feljebb",
   "view.none": "(nincs)",

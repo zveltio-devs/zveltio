@@ -1409,6 +1409,7 @@
   "view.loadAllFirst": "Laden Sie zuerst alle Datensätze: ein Eintrag auf einer noch nicht geladenen Seite behielte seinen Platz.",
   "view.loadMore": "Mehr laden",
   "view.moveDown": "Nach unten",
+  "view.moveUnderOwn": "Ein Datensatz kann nicht unter einen seiner eigenen Nachkommen verschoben werden.",
   "view.moveTo": "Verschieben nach",
   "view.moveUp": "Nach oben",
   "view.none": "(keine)",

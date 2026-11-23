@@ -3660,6 +3660,7 @@
   "view.loadAllFirst": "Load every record first: a sibling on a page not read yet would keep its place.",
   "view.loadMore": "Load more",
   "view.moveDown": "Move down",
+  "view.moveUnderOwn": "A record cannot move under one of its own descendants.",
   "view.moveTo": "Move to",
   "view.moveUp": "Move up",
   "view.none": "(none)",
