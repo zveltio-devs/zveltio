@@ -252,6 +252,30 @@ describe('validateMigrations', () => {
     }
   });
 
+  it('a quote or -- inside a dollar-quoted body does not hide the SQL around it', () => {
+    for (const sql of [
+      'SELECT $$--$$; ALTER TABLE g DROP COLUMN tenant_id;',
+      "SELECT $$'$$; ALTER TABLE g DROP COLUMN tenant_id; SELECT $$'$$;",
+    ]) {
+      const files = [
+        { filename: '001.sql', sql: 'CREATE TABLE g (tenant_id UUID, name TEXT);' },
+        { filename: '002.sql', sql: `${sql}\nCREATE UNIQUE INDEX g_n ON g (name);` },
+      ];
+      expect(validateMigrations({ files })).toEqual([]);
+    }
+    // And the reverse: a stray quote in a body does not expose a quoted drop.
+    const quoted = [
+      { filename: '001.sql', sql: 'CREATE TABLE g (tenant_id UUID, name TEXT);' },
+      {
+        filename: '002.sql',
+        sql: "SELECT $$'$$; COMMENT ON TABLE g IS ' ALTER TABLE g DROP COLUMN tenant_id ';\nCREATE UNIQUE INDEX g_n ON g (name);",
+      },
+    ];
+    expect(validateMigrations({ files: quoted }).map((e) => e.code)).toEqual([
+      'SCHEMA_UNIQUE_WITHOUT_TENANT',
+    ]);
+  });
+
   it('accepts a widened key whose columns are in a different order', () => {
     const errors = validateMigrations({
       files: [

@@ -776,14 +776,26 @@ function columnLevelUniqueColumns(sql: string): string[] {
  * The SQL that runs: comments become a space and every string literal `''`, in
  * one left-to-right pass. Chained regexes get the order wrong (`'--'` opens a
  * "comment", a quote inside a block comment a "string") and miss `E'\''`, so a quoted `DROP COLUMN tenant_id` read as a real one.
- * Quoted identifiers stay, and so does a `$$…$$` body: in `DO $$ … $$` it runs.
+ * Quoted identifiers stay; a `$$…$$` body is scanned on its own (`DO $$ … $$` runs).
  */
+const DOLLAR_TAG = /^\$(?:[a-z_][a-z0-9_]*)?\$/i;
+
 function sqlCode(sql: string): string {
   let out = '';
   let i = 0;
   while (i < sql.length) {
     const c = sql[i];
-    if (sql.startsWith('--', i)) {
+    const dollar =
+      c === '$' && !/[\w$]/.test(sql[i - 1] ?? '') && DOLLAR_TAG.exec(sql.slice(i, i + 64));
+    if (dollar) {
+      // A `$$…$$` body may run (`DO $$ … $$`), so it is scanned on its own: a
+      // quote or `--` inside it must not swallow the SQL around it.
+      const tag = dollar[0];
+      const end = sql.indexOf(tag, i + tag.length);
+      const stop = end < 0 ? sql.length : end;
+      out += ` ${sqlCode(sql.slice(i + tag.length, stop))} `;
+      i = end < 0 ? sql.length : end + tag.length;
+    } else if (sql.startsWith('--', i)) {
       const end = sql.indexOf('\n', i);
       i = end < 0 ? sql.length : end;
       out += ' ';
