@@ -12,11 +12,14 @@ describe('isReservedPath', () => {
       '.well-known/x',
       'favicon.ico',
       'robots.txt',
+      'files/x',
+      'health',
+      'metrics',
     ])
       expect(isReservedPath(p)).toBe(true);
   });
   it('accepts a path that only starts with the same letters', () => {
-    for (const p of ['apps', 'about', 'administrator', 'blog/admin', '', '/'])
+    for (const p of ['apps', 'about', 'administrator', 'blog/admin', 'filesystem', '', '/'])
       expect(isReservedPath(p)).toBe(false);
   });
 });
