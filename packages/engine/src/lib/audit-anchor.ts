@@ -8,10 +8,13 @@
  * (`AUDIT_ANCHOR_TARGET`, env only — never the Studio's storage overlay, a row
  * in the very database the anchor guards), and verify compares.
  *
- * One new file or object per write, never one rewritten. The writer compares
- * the database with the latest anchor first and carries forward the anchored
- * head of any chain now behind it or changed, so the engine itself cannot
- * launder a cut by anchoring the shorter chain.
+ * One new file or object per write, never one rewritten. Each chain is judged
+ * against every anchor in the target, not only the newest (ADR 0060 amendment
+ * 2026-11-23): whoever holds the anchor credentials can add a newer anchor, but
+ * not remove the older ones an object lock keeps, and an added anchor can only
+ * raise what a chain is held to. The writer compares the database with the
+ * newest anchor and carries forward the anchored head of any chain now behind
+ * it or changed, so the engine itself does not anchor the shorter chain.
  *
  * Ids and hashes only: tenant ids, sequence numbers, SHA-256 hex, a timestamp.
  */
@@ -21,6 +24,7 @@ import { isAbsolute, join } from 'node:path';
 import { sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { tryAdvisoryLock } from '../db/advisory-lock.js';
+import { toJsonb } from './jsonb.js';
 
 export interface ChainLink {
   seq: number;
@@ -56,7 +60,7 @@ export type AnchorReport =
   | { configured: true; error: string }
   | {
       configured: true;
-      /** When the latest anchor was written; null before the first. */
+      /** When the newest anchor was written; null before the first. */
       at: string | null;
       chains: { tenant_id: string | null; status: AnchorStatus; anchored: ChainLink }[];
     }
@@ -89,7 +93,7 @@ export function anchorTarget(): Target | null {
     const env = process.env;
     // Own credentials when set, so whoever holds the files store's keys cannot
     // delete anchors; both or neither. Not a write-only account: the writer and
-    // verify list and read the latest anchor first, so it needs list, read and
+    // verify list and read every anchor first, so it needs list, read and
     // write, and no delete.
     const ownKey = env.AUDIT_ANCHOR_S3_ACCESS_KEY;
     const ownSecret = env.AUDIT_ANCHOR_S3_SECRET_KEY;
@@ -119,30 +123,122 @@ export function anchorTarget(): Target | null {
   return { kind: 'dir', dir: raw };
 }
 
-/** Newest first in an ascending listing (S3 lists ascending, one page is enough). */
+/** Newest first in an ascending listing. */
 const anchorName = (ms: number) =>
   `${PREFIX}${String(MAX_MS - ms).padStart(13, '0')}-${new Date(ms).toISOString().replace(/[-:.]/g, '')}.json`;
 
-async function readLatest(t: Target): Promise<AnchorFile | null> {
-  let text: string | null = null;
+/**
+ * Every anchor in the target (~8760 a year at one an hour, read in batches),
+ * or with `newest` only the newest: names sort newest first.
+ */
+async function readAnchors(t: Target, newest = false): Promise<AnchorFile[]> {
+  let texts: { name: string; read: () => Promise<string> }[];
   if (t.kind === 'dir') {
     // Never created: an absent directory is an unmounted target, and anchoring
     // to the root filesystem in its place would look like it worked.
     const names = await readdir(t.dir).catch((e: NodeJS.ErrnoException) => {
       throw new Error(`AUDIT_ANCHOR_TARGET directory ${t.dir} cannot be read (${e.code})`);
     });
-    const newest = names.filter((n) => n.startsWith(PREFIX) && n.endsWith('.json')).sort()[0];
-    if (newest) text = await readFile(join(t.dir, newest), 'utf8');
+    texts = names
+      .filter((n) => n.startsWith(PREFIX) && n.endsWith('.json'))
+      .map((n) => ({ name: n, read: () => readFile(join(t.dir, n), 'utf8') }));
   } else {
-    const list = await t.client.list({ prefix: `${t.prefix}${PREFIX}`, maxKeys: 1 });
-    const key = list.contents?.[0]?.key;
-    if (key) text = await t.client.file(key).text();
+    texts = [];
+    let continuationToken: string | undefined;
+    do {
+      const page = await t.client.list({ prefix: `${t.prefix}${PREFIX}`, continuationToken });
+      for (const o of page.contents ?? []) {
+        texts.push({ name: o.key, read: () => t.client.file(o.key).text() });
+      }
+      if (page.isTruncated && !page.nextContinuationToken) {
+        throw new Error('the anchor listing was cut short with no way to continue it');
+      }
+      continuationToken = page.isTruncated ? page.nextContinuationToken : undefined;
+    } while (continuationToken);
   }
-  if (text === null) return null;
-  const a = JSON.parse(text) as AnchorFile;
-  if (a?.v !== 1 || !Array.isArray(a.chains))
-    throw new Error('the latest audit anchor is malformed');
-  return a;
+  texts.sort((a, b) => (a.name < b.name ? -1 : 1));
+  if (newest) texts = texts.slice(0, 1);
+  const out: AnchorFile[] = [];
+  for (let i = 0; i < texts.length; i += 32) {
+    const batch = texts.slice(i, i + 32);
+    for (const [k, text] of (await Promise.all(batch.map((f) => f.read()))).entries()) {
+      // Any malformed anchor fails verify: one written in place of a good one is
+      // the tampering this guards against, and it says which file.
+      let a: unknown = null;
+      try {
+        a = JSON.parse(text);
+      } catch {}
+      const name = batch[k]!.name;
+      if (!wellFormed(a, name.slice(name.lastIndexOf('/') + 1))) {
+        throw new Error(`the audit anchor ${name} is malformed`);
+      }
+      out.push(a);
+    }
+  }
+  return out;
+}
+
+const HEX = /^[0-9a-f]{64}$/;
+/** A day of clock skew between replicas; an anchor dated later is not one the engine wrote. */
+const SKEW_MS = 24 * 60 * 60_000;
+
+const isLink = (l: unknown): l is ChainLink =>
+  typeof l === 'object' &&
+  l !== null &&
+  Number.isSafeInteger((l as ChainLink).seq) &&
+  (l as ChainLink).seq >= 0 &&
+  typeof (l as ChainLink).hash === 'string' &&
+  HEX.test((l as ChainLink).hash);
+
+/**
+ * The shape the writer writes, under the name it gives it: `at` parses, is not
+ * in the future, and is what the name encodes, so the name sorting first is the
+ * newest `at`.
+ */
+function wellFormed(a: unknown, name: string): a is AnchorFile {
+  const f = a as AnchorFile | null;
+  if (f?.v !== 1 || typeof f.at !== 'string' || !Array.isArray(f.chains)) return false;
+  const at = Date.parse(f.at);
+  if (!Number.isFinite(at) || at > Date.now() + SKEW_MS || anchorName(at) !== name) return false;
+  return f.chains.every(
+    (c) =>
+      typeof c === 'object' &&
+      c !== null &&
+      (c.tenant_id === null || typeof c.tenant_id === 'string') &&
+      isLink(c.head) &&
+      (c.genesis === null || isLink(c.genesis)),
+  );
+}
+
+/** One chain as some anchor holds it, at the latest time an anchor held it so. */
+interface Held {
+  chain: AnchoredChain;
+  at: number;
+}
+
+/**
+ * Per chain, what the anchors hold it to: every distinct (head, genesis) any
+ * anchor names, each at the latest time an anchor named it — so a cut is
+ * `covered` only if made after every anchor that held that head. A chain is
+ * judged against each and answers its worst status, so an added anchor (a
+ * higher head included) never takes an older one out of the judgment.
+ */
+function heldTo(anchors: AnchorFile[]): Map<string | null, Held[]> {
+  const all = new Map<string | null, Map<string, Held>>();
+  for (const a of anchors) {
+    const at = Date.parse(a.at);
+    for (const c of a.chains) {
+      let held = all.get(c.tenant_id);
+      if (!held) {
+        held = new Map();
+        all.set(c.tenant_id, held);
+      }
+      const key = JSON.stringify([c.head, c.genesis]);
+      const was = held.get(key);
+      if (!was || at > was.at) held.set(key, { chain: c, at });
+    }
+  }
+  return new Map([...all].map(([t, held]) => [t, [...held.values()]]));
 }
 
 async function writeAnchor(t: Target, a: AnchorFile): Promise<string> {
@@ -194,39 +290,71 @@ export function judgeAnchor(
 async function chainState(
   db: Database,
   tenantId: string | null,
-  anchoredSeq: number | null,
-): Promise<ChainState> {
+): Promise<Omit<ChainState, 'atAnchored'>> {
   const own = tenantId === null ? sql`tenant_id IS NULL` : sql`tenant_id = ${tenantId}::uuid`;
   const r = await sql<{
     head: ChainLink | null;
     genesis: ChainState['genesis'];
-    at: string | null;
   }>`
     SELECT
       (SELECT json_build_object('seq', seq, 'hash', encode(hash, 'hex')) FROM zv_audit_chain
         WHERE ${own} ORDER BY seq DESC LIMIT 1) AS head,
       (SELECT json_build_object('seq', seq, 'hash', encode(hash, 'hex'),
                                 'cut_ms', extract(epoch FROM cut_at) * 1000)
-         FROM zv_audit_chain_cut WHERE ${own} ORDER BY seq DESC LIMIT 1) AS genesis,
-      (SELECT encode(hash, 'hex') FROM zv_audit_chain
-        WHERE ${own} AND seq = ${anchoredSeq ?? -1}) AS at`.execute(db);
+         FROM zv_audit_chain_cut WHERE ${own} ORDER BY seq DESC LIMIT 1) AS genesis`.execute(db);
   const row = r.rows[0];
   return {
     head: row?.head ?? (row?.genesis ? { seq: row.genesis.seq, hash: row.genesis.hash } : null),
     genesis: row?.genesis ?? null,
-    atAnchored: row?.at ?? null,
   };
 }
 
 const holds = (s: AnchorStatus) => s === 'ok' || s === 'covered';
 
-/** Verify's side: the database against the latest anchor. */
+const SEVERITY: Record<AnchorStatus, number> = {
+  ok: 0,
+  covered: 1,
+  behind: 2,
+  changed: 3,
+  genesis_changed: 4,
+};
+
+/** One chain against what the anchors hold it to: its worst status. */
+async function judgeChain(
+  db: Database,
+  tenantId: string | null,
+  held: Held[],
+): Promise<{ status: AnchorStatus; anchored: AnchoredChain }> {
+  const state = await chainState(db, tenantId);
+  const own = tenantId === null ? sql`tenant_id IS NULL` : sql`tenant_id = ${tenantId}::uuid`;
+  const seqs = toJsonb([...new Set(held.map((h) => h.chain.head.seq))]);
+  const at = await sql<{ seq: string; hash: string }>`
+    SELECT seq::text AS seq, encode(hash, 'hex') AS hash FROM zv_audit_chain
+     WHERE ${own}
+       AND seq IN (SELECT jsonb_array_elements_text(${seqs})::bigint)`.execute(db);
+  const hashAt = new Map(at.rows.map((r) => [Number(r.seq), r.hash]));
+  let worst: { status: AnchorStatus; anchored: AnchoredChain } | null = null;
+  for (const h of held) {
+    const status = judgeAnchor(
+      h.chain,
+      { ...state, atAnchored: hashAt.get(h.chain.head.seq) ?? null },
+      h.at,
+    );
+    const rank = SEVERITY[status] - (worst ? SEVERITY[worst.status] : -1);
+    if (rank > 0 || (rank === 0 && h.chain.head.seq > worst!.anchored.head.seq)) {
+      worst = { status, anchored: h.chain };
+    }
+  }
+  return worst!;
+}
+
+/** Verify's side: the database against every anchor. */
 export async function verifyAnchor(db: Database): Promise<AnchorReport> {
   try {
     const target = anchorTarget();
     if (!target) return { configured: false };
-    const latest = await readLatest(target);
-    if (!latest) {
+    const anchors = await readAnchors(target);
+    if (anchors.length === 0) {
       // An empty target is not a clean one: a fresh install leaves this at its
       // first write (boot writes at once); emptying the target re-baselines.
       const any = await sql<{ any: boolean }>`
@@ -236,17 +364,19 @@ export async function verifyAnchor(db: Database): Promise<AnchorReport> {
         ? { configured: true, missing: true }
         : { configured: true, at: null, chains: [] };
     }
-    const at = Date.parse(latest.at);
     const chains = [];
-    for (const a of latest.chains) {
-      const state = await chainState(db, a.tenant_id, a.head.seq);
-      chains.push({ tenant_id: a.tenant_id, status: judgeAnchor(a, state, at), anchored: a.head });
+    for (const [tenant_id, held] of heldTo(anchors)) {
+      const { status, anchored } = await judgeChain(db, tenant_id, held);
+      chains.push({ tenant_id, status, anchored: anchored.head });
     }
-    return { configured: true, at: latest.at, chains };
+    return { configured: true, at: newestAt(anchors), chains };
   } catch (err) {
     return { configured: true, error: (err as Error).message };
   }
 }
+
+const newestAt = (anchors: AnchorFile[]) =>
+  anchors.reduce((m, a) => (Date.parse(a.at) > Date.parse(m) ? a.at : m), anchors[0]!.at);
 
 export const anchorHolds = (r: AnchorReport): boolean =>
   !('error' in r) &&
@@ -255,16 +385,19 @@ export const anchorHolds = (r: AnchorReport): boolean =>
 
 /**
  * Write every chain's head and genesis as a new anchor. A chain behind the
- * latest anchor or changed against it keeps its anchored values: the evidence
- * stays until the operator, having looked, moves the old anchors away.
+ * newest anchor or changed against it keeps its anchored values: the evidence stays
+ * until the operator, having looked, points AUDIT_ANCHOR_TARGET at a new prefix.
  */
 export async function anchorAuditChains(
   db: Database,
 ): Promise<{ written: boolean; at?: string; carried?: (string | null)[] }> {
   const target = anchorTarget();
   if (!target) return { written: false };
-  const latest = await readLatest(target);
-  const prev = new Map((latest?.chains ?? []).map((c) => [c.tenant_id, c]));
+  // The newest anchor only: verify reads every one, so an added newer anchor
+  // cannot hide a cut from it, and reading them all each hour would grow with
+  // the target. Carrying forward keeps the evidence in the newest file too.
+  const anchors = await readAnchors(target, true);
+  const prev = heldTo(anchors);
   // ponytail: a full scan of the chain's tenant column per write, as the purge
   // does; a skip scan over (tenant_id, seq) when the chain is large enough to show.
   const listed = await sql<{ tenant_id: string | null }>`
@@ -274,25 +407,29 @@ export async function anchorAuditChains(
   const chains: AnchoredChain[] = [];
   const carried: (string | null)[] = [];
   for (const tenant_id of tenants) {
-    const before = prev.get(tenant_id);
-    const state = await chainState(db, tenant_id, before?.head.seq ?? null);
-    if (before && !holds(judgeAnchor(before, state, Date.parse(latest?.at ?? '')))) {
-      chains.push(before);
-      carried.push(tenant_id);
-      continue;
+    const held = prev.get(tenant_id);
+    if (held) {
+      const { status, anchored } = await judgeChain(db, tenant_id, held);
+      if (!holds(status)) {
+        chains.push(anchored);
+        carried.push(tenant_id);
+        continue;
+      }
     }
+    const state = await chainState(db, tenant_id);
     const g = state.genesis;
     if (state.head) {
       chains.push({ tenant_id, head: state.head, genesis: g && { seq: g.seq, hash: g.hash } });
     }
   }
-  // Past the latest anchor even if the clock stepped back, or it would sort behind it.
-  const at = new Date(Math.max(Date.now(), Date.parse(latest?.at ?? '') + 1 || 0)).toISOString();
+  // Past the newest anchor even if the clock stepped back, or it would sort behind it.
+  const last = anchors.length ? Date.parse(newestAt(anchors)) + 1 : 0;
+  const at = new Date(Math.max(Date.now(), last)).toISOString();
   await writeAnchor(target, { v: 1, at, chains });
   if (carried.length) {
     console.error(
       `[audit-anchor] chain(s) ${carried.map((t) => t ?? 'instance').join(', ')} no longer ` +
-        'match the latest anchor; their anchored head is carried forward. See GET /api/admin/audit/verify.',
+        'match the anchors; their anchored head is carried forward. See GET /api/admin/audit/verify.',
     );
   }
   return { written: true, at, carried };

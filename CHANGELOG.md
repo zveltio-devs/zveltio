@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Fixed — a newer audit anchor can no longer hide a cut tail (A17, ADR 0060 amendment 2026-11-23).** Verify read only the newest anchor, which carries no signature, so whoever held the anchor credentials could add a newer anchor (naming the shorter chain, or no chain) and hide newest rows deleted with their chain entries; the older anchors an object lock keeps were never read. Verify now judges each chain against every anchor in the target, with its worst status, so an added anchor can only raise what a chain is held to. An anchor file not named for its own date, dated more than a day ahead, or malformed fails verify. To re-baseline after an incident or a database restore, point `AUDIT_ANCHOR_TARGET` at a new, empty prefix; emptying the old target is no longer needed and, under object lock, not possible.
+
 **Changed — a mode is on exactly when the boot warns about it (A01).** Each reader parsed its variable itself: `ZVELTIO_REGISTRATION_ENABLED=TRUE` opened public sign-up with no boot warning. Every on/off reader now asks the register (`modeOn`); `TRUE` no longer turns registration on, use `1` or `true`.
 
 **Changed — `OPENAPI_PUBLIC` is a registered escape hatch (A01).** It lifts the production admin gate on `/api/openapi.json`; the boot now warns while it is on, and it is listed in the escape-hatch table.
