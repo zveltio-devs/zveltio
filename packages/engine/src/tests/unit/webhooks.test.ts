@@ -19,11 +19,11 @@ import { CannedDb } from './fixtures/canned-db.js';
 let originalFetch: typeof fetch;
 let lastReq: { url: string; init?: RequestInit } | null;
 
-function stubFetch(status = 200, ok = status < 400): void {
+function stubFetch(status = 200): void {
   lastReq = null;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     lastReq = { url: String(input), init };
-    return { status, ok, text: async () => 'ok-body' } as Response;
+    return new Response('ok-body', { status });
   }) as unknown as typeof fetch;
 }
 
@@ -167,15 +167,45 @@ describe('WebhookManager.deliver', () => {
     expect(lastReq).toBeNull();
   });
 
+  it('reads only the start of a response body, however much the receiver sends', async () => {
+    // A receiver that keeps sending: reading it whole held every byte until the
+    // timeout. Now the snippet is read and the stream cancelled.
+    let pulled = 0;
+    let cancelled = false;
+    const chunk = new Uint8Array(1024).fill(0x61);
+    globalThis.fetch = (async () =>
+      new Response(
+        new ReadableStream({
+          pull(c) {
+            // Ends at 1 MiB, so a whole read finishes and fails the check below
+            // instead of hanging the test.
+            if (pulled >= 1024 * 1024) return c.close();
+            pulled += chunk.byteLength;
+            c.enqueue(chunk);
+          },
+          cancel() {
+            cancelled = true;
+          },
+        }),
+        { status: 200 },
+      )) as unknown as typeof fetch;
+    const out = await WebhookManager.deliver({ ...basePayload });
+    expect(out.ok).toBe(true);
+    expect(out.responseBody).toBe('a'.repeat(2_000));
+    expect(cancelled).toBe(true);
+    expect(pulled).toBeLessThan(64 * 1024);
+  });
+
   it('still returns delivery outcome when reading the response body fails', async () => {
     globalThis.fetch = (async () =>
-      ({
-        status: 200,
-        ok: true,
-        text: async () => {
-          throw new Error('body unreadable');
-        },
-      }) as unknown as Response) as unknown as typeof fetch;
+      new Response(
+        new ReadableStream({
+          pull(c) {
+            c.error(new Error('body unreadable'));
+          },
+        }),
+        { status: 200 },
+      )) as unknown as typeof fetch;
     const { ok } = await WebhookManager.deliver({ ...basePayload });
     expect(ok).toBe(true);
   });

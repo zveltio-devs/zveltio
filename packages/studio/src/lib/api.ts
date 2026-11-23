@@ -375,7 +375,10 @@ export const webhooksApi = {
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   update: (id: string, data: any) => api.patch<{ webhook: any }>(`/api/webhooks/${id}`, data),
   delete: (id: string) => api.delete(`/api/webhooks/${id}`),
-  test: (id: string) => api.post(`/api/webhooks/${id}/test`),
+  test: (id: string) =>
+    api.post<{ success: boolean; status: number | null; error?: string }>(
+      `/api/webhooks/${id}/test`,
+    ),
   // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
   deliveries: (id: string) => api.get<{ deliveries: any[] }>(`/api/webhooks/${id}/deliveries`),
 };

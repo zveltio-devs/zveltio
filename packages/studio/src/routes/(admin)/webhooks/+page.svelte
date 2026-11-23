@@ -218,8 +218,12 @@ async function remove(id: string, name: string) {
 async function testWebhook(id: string) {
   testing = id;
   try {
-    await webhooksApi.test(id);
-    testResults = { ...testResults, [id]: { ok: true } };
+    // The route answers 200 whatever the receiver did; `success` says.
+    const r = await webhooksApi.test(id);
+    testResults = {
+      ...testResults,
+      [id]: r.success ? { ok: true } : { ok: false, error: r.error ?? `HTTP ${r.status}` },
+    };
   } catch (err) {
     testResults = {
       ...testResults,
