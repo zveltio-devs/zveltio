@@ -94,9 +94,10 @@ d('two adds of one field name at once', () => {
          WHERE attrelid = ${TABLE}::regclass AND attname = 'code' AND NOT attisdropped`.execute(db)
     ).rows[0]?.t;
     DDLManager.invalidateCache(C);
-    const recorded = (
-      (await DDLManager.getCollection(db, C))?.fields as { name: string; type: string }[]
-    ).filter((f) => f.name === 'code');
+    const meta = await DDLManager.getCollection(db, C);
+    const recorded = (meta!.fields as { name: string; type: string }[]).filter(
+      (f) => f.name === 'code',
+    );
 
     expect(results.filter((r) => r === 'ok').length, String(results)).toBe(1);
     const refused = results.find((r) => r !== 'ok') as Error & { code?: string };
