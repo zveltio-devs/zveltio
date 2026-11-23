@@ -72,7 +72,8 @@ const without = (i: number) => {
       {#each filters as f, i (filterParam(f) + i)}
         <input type="hidden" name={filterParam(f)} value={f.value} />
       {/each}
-      <select bind:value={fieldName} aria-label={labels.field} class="select select-sm join-item">
+      <!-- Shows the field the form submits, even when a new `fields` list drops the one picked. -->
+      <select bind:value={() => field?.name, (v) => (fieldName = v)} aria-label={labels.field} class="select select-sm join-item">
         {#each usable as f (f.name)}
           <option value={f.name}>{f.label ?? f.name}</option>
         {/each}
