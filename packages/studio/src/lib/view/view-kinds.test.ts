@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { localDay, period, shiftDays } from './engine.js';
+import { localDay, midnightOf, period, shiftDays } from './engine.js';
 
 /**
  * The `view/2` kinds of ADR 0042 slice 4 (`board`, `timeline`, `tree`,
@@ -85,7 +85,9 @@ function answer(collection: string, params: Record<string, unknown>) {
         if (op === 'in') return (want as unknown[]).includes(v);
         if (op === 'eq') return v === want;
         if (v == null) return false;
-        return op === 'lt' ? String(v) < String(want) : String(v) >= String(want);
+        // A day against a bound with a time: Postgres compares the day (a date column).
+        const w = String(want).slice(0, String(v).length);
+        return op === 'lt' ? String(v) < w : String(v) >= w;
       });
     }
   }
@@ -329,12 +331,12 @@ describe('view/2 timeline', () => {
       move: 'patch',
     });
     await waitFor(() => expect(container.textContent).toContain('Write spec'));
-    const until = shiftDays(month[month.length - 1], 1);
+    const until = shiftDays(month[month.length - 1], 1) as string;
     expect(calls).toContain(
       `LIST tasks ${JSON.stringify({
         page: 1,
         limit: 500,
-        filter: JSON.stringify({ due: { lt: until, gte: month[0] } }),
+        filter: JSON.stringify({ due: { lt: midnightOf(until), gte: midnightOf(month[0]) } }),
         sort: 'due',
         order: 'asc',
       })}`,
@@ -523,11 +525,14 @@ describe('view/2 timeline with an end', () => {
       .filter((c) => c.startsWith('LIST events '))
       .map((c) => JSON.parse(JSON.parse(c.slice(12)).filter));
     expect(filters).toContainEqual({
-      starts: { lt: shiftDays(month[month.length - 1], 1) },
-      ends: { gte: month[0] },
+      starts: { lt: midnightOf(shiftDays(month[month.length - 1], 1) as string) },
+      ends: { gte: midnightOf(month[0]) },
     });
     expect(filters).toContainEqual({
-      starts: { lt: shiftDays(month[month.length - 1], 1), gte: month[0] },
+      starts: {
+        lt: midnightOf(shiftDays(month[month.length - 1], 1) as string),
+        gte: midnightOf(month[0]),
+      },
       ends: { null: true },
     });
   }, 60_000);
