@@ -1,7 +1,11 @@
 import { CompiledQuery, sql } from 'kysely';
 import type { Database } from '../db/index.js';
 import { webhookDeliveries, webhookDeliveryDuration, webhookRetries } from './runtime/index.js';
-import { validatePublicUrl, safeFetch } from './edge-functions/safe-fetch.js';
+import {
+  isBlockedOutboundHeader,
+  validatePublicUrl,
+  safeFetch,
+} from './edge-functions/safe-fetch.js';
 import {
   type FieldAad,
   type JobQueue,
@@ -653,25 +657,9 @@ export const WebhookManager = {
         timestamp: payload.timestamp,
       });
 
-      // Filter out headers that could be exploited if webhook config is compromised
-      // (e.g. credential injection, cookie theft, host header poisoning).
-      const BLOCKED_HEADERS = new Set([
-        'authorization',
-        'cookie',
-        'set-cookie',
-        'host',
-        'x-forwarded-for',
-        'x-real-ip',
-        'x-forwarded-host',
-        'x-original-url',
-        'x-rewrite-url',
-        'proxy-authorization',
-        'www-authenticate',
-      ]);
-
       const safeCustomHeaders: Record<string, string> = {};
       for (const [k, v] of Object.entries(payload.headers || {})) {
-        if (!BLOCKED_HEADERS.has(k.toLowerCase())) {
+        if (!isBlockedOutboundHeader(k)) {
           safeCustomHeaders[k] = v;
         }
       }

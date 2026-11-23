@@ -22,6 +22,35 @@ import {
 export { validatePublicUrl, assertPublicUrl, assertNonMetadataResolved };
 
 /**
+ * Headers a caller-configured outbound request may not set: the ones that
+ * steer how the request is routed or proxied (host, forwarding, URL-rewrite,
+ * proxy credentials) and the browser credential headers. Everything else is
+ * the author's own business with its own receiver — an API key it types is not
+ * one of the engine's. One list for every caller: the flow webhook step and the
+ * webhook deliveries kept two that disagreed (x-api-key passed one, not the
+ * other; x-forwarded-host the reverse).
+ */
+const BLOCKED_OUTBOUND_HEADERS = new Set([
+  'authorization',
+  'cookie',
+  'set-cookie',
+  'host',
+  'x-forwarded-for',
+  'x-forwarded-host',
+  'x-real-ip',
+  'x-original-url',
+  'x-rewrite-url',
+  'proxy-authorization',
+  'www-authenticate',
+]);
+
+/** Also every `x-zveltio-*`: those are the engine's own (a delivery's signature), never the author's. */
+export function isBlockedOutboundHeader(name: string): boolean {
+  const n = name.toLowerCase();
+  return BLOCKED_OUTBOUND_HEADERS.has(n) || n.startsWith('x-zveltio-');
+}
+
+/**
  * Whether an egress proxy is in play.
  *
  * Bun's fetch honours these and the `proxy` init option — measured: with

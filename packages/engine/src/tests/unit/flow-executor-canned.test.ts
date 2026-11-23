@@ -268,7 +268,7 @@ describe('executeStep — CannedDb branches', () => {
             headers: {
               Authorization: 'secret',
               'X-Custom': 'allowed',
-              'x-api-key': 'blocked',
+              'Proxy-Authorization': 'blocked',
             },
             body: { ok: true },
           },
@@ -278,7 +278,7 @@ describe('executeStep — CannedDb branches', () => {
       );
       expect(seenHeaders?.get('X-Custom')).toBe('allowed');
       expect(seenHeaders?.get('Authorization')).toBeNull();
-      expect(seenHeaders?.get('x-api-key')).toBeNull();
+      expect(seenHeaders?.get('Proxy-Authorization')).toBeNull();
     } finally {
       globalThis.fetch = originalFetch;
     }

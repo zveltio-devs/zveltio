@@ -33,7 +33,11 @@ import { recordsToCsv } from '../security/index.js';
 import { sendNotification } from '../../routes/notifications.js';
 import { traced } from '../runtime/index.js';
 import { evaluateCondition } from '../validation-engine.js';
-import { safeFetch, validatePublicUrl } from '../edge-functions/safe-fetch.js';
+import {
+  isBlockedOutboundHeader,
+  safeFetch,
+  validatePublicUrl,
+} from '../edge-functions/safe-fetch.js';
 
 export interface FlowRunResult {
   runId: string;
@@ -231,23 +235,10 @@ async function executeStep(
     case 'webhook': {
       if (!cfg.url) return { output: prevOutput };
 
-      // Security: sanitize user-supplied headers — block credential injection.
-      const BLOCKED_HEADERS = new Set([
-        'authorization',
-        'cookie',
-        'set-cookie',
-        'x-api-key',
-        'x-auth-token',
-        'x-forwarded-for',
-        'x-real-ip',
-        'x-zveltio-internal',
-        'host',
-        'origin',
-        'referer',
-      ]);
+      // The author's headers, less the ones no outbound request may set.
       const sanitizedHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
       for (const [key, value] of Object.entries((cfg.headers as Record<string, string>) ?? {})) {
-        if (BLOCKED_HEADERS.has(key.toLowerCase())) {
+        if (isBlockedOutboundHeader(key)) {
           console.warn(`[Flow webhook] Blocked header injection attempt: "${key}"`);
           continue;
         }

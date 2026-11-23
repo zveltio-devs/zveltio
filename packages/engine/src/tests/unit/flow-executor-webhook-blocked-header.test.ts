@@ -34,7 +34,13 @@ describe('executeStep — webhook blocked headers', () => {
         config: {
           url: 'https://example.com/hooks/flow',
           method: 'POST',
-          headers: { Authorization: 'Bearer stolen', 'X-Custom': 'ok' },
+          headers: {
+            Authorization: 'Bearer stolen',
+            'X-Forwarded-Host': 'internal',
+            'X-Api-Key': 'receiver-key',
+            'X-Zveltio-Signature': 'forged',
+            'X-Custom': 'ok',
+          },
           body: { ok: true },
         },
       },
@@ -45,6 +51,10 @@ describe('executeStep — webhook blocked headers', () => {
     expect(output.ok).toBe(true);
     // The header is gone from the request itself, not merely warned about.
     expect(sent?.get('Authorization')).toBeNull();
+    expect(sent?.get('X-Forwarded-Host')).toBeNull();
+    expect(sent?.get('X-Zveltio-Signature')).toBeNull();
+    // The same list as a webhook delivery: a key for the author's own receiver passes.
+    expect(sent?.get('X-Api-Key')).toBe('receiver-key');
     expect(sent?.get('X-Custom')).toBe('ok');
     expect(warnSpy.mock.calls.some((c: unknown[]) => String(c[0]).includes('Blocked header'))).toBe(
       true,
