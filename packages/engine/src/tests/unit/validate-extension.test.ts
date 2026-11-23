@@ -239,6 +239,8 @@ describe('validateMigrations', () => {
     for (const drop of [
       '/* ALTER TABLE g DROP COLUMN tenant_id; */',
       "COMMENT ON TABLE g IS 'ALTER TABLE g DROP COLUMN tenant_id';",
+      "COMMENT ON TABLE g IS E'it\\'s ALTER TABLE g DROP COLUMN tenant_id';",
+      "SELECT '--'; /* nested /* */ ALTER TABLE g DROP COLUMN tenant_id; */",
     ]) {
       const files = [
         { filename: '001.sql', sql: 'CREATE TABLE g (tenant_id UUID, name TEXT);' },

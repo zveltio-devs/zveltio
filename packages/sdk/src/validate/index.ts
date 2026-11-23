@@ -772,11 +772,66 @@ function columnLevelUniqueColumns(sql: string): string[] {
   return out;
 }
 
+/**
+ * The SQL that runs: comments become a space and every string literal `''`, in
+ * one left-to-right pass. Chained regexes get the order wrong (`'--'` opens a
+ * "comment", a quote inside a block comment a "string") and miss `E'\''`, so a quoted `DROP COLUMN tenant_id` read as a real one.
+ * Quoted identifiers stay, and so does a `$$…$$` body: in `DO $$ … $$` it runs.
+ */
+function sqlCode(sql: string): string {
+  let out = '';
+  let i = 0;
+  while (i < sql.length) {
+    const c = sql[i];
+    if (sql.startsWith('--', i)) {
+      const end = sql.indexOf('\n', i);
+      i = end < 0 ? sql.length : end;
+      out += ' ';
+    } else if (sql.startsWith('/*', i)) {
+      let depth = 1;
+      i += 2;
+      while (i < sql.length && depth > 0) {
+        if (sql.startsWith('/*', i)) {
+          depth++;
+          i += 2;
+        } else if (sql.startsWith('*/', i)) {
+          depth--;
+          i += 2;
+        } else i++;
+      }
+      out += ' ';
+    } else if (
+      c === "'" ||
+      ((c === 'E' || c === 'e') && sql[i + 1] === "'" && !/\w/.test(sql[i - 1] ?? ''))
+    ) {
+      const escapes = c !== "'";
+      i += escapes ? 2 : 1;
+      while (i < sql.length) {
+        if (escapes && sql[i] === '\\') i += 2;
+        else if (sql[i] === "'" && sql[i + 1] === "'") i += 2;
+        else if (sql[i] === "'") break;
+        else i++;
+      }
+      i++;
+      out += "''";
+    } else if (c === '"') {
+      const end = sql.indexOf('"', i + 1);
+      const stop = end < 0 ? sql.length : end + 1;
+      out += sql.slice(i, stop);
+      i = stop;
+    } else {
+      out += c;
+      i++;
+    }
+  }
+  return out;
+}
+
 /** A key's columns, and its table where the statement names it (`CREATE UNIQUE INDEX … ON t`). */
 type KeyColumns = string[] & { table?: string };
 
 function keyColumnSets(upSql: string): KeyColumns[] {
-  const s = upSql.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  const s = sqlCode(upSql);
   const sets: KeyColumns[] = [];
   const add = (cols: string, table?: string) => {
     const key: KeyColumns = cols
@@ -813,13 +868,9 @@ const bareTable = (t: string) => t.replace(/"/g, '').split('.').pop()!.toLowerCa
  * 004): a key on it is instance-wide and needs no tenant column.
  */
 function tenantColumnChanges(upSql: string): Array<[table: string, dropped: boolean]> {
-  // Comments and string literals out, as in keyColumnSets: a drop that is
-  // commented out or quoted (`COMMENT ON TABLE … IS '… DROP COLUMN tenant_id'`)
-  // takes nothing out of tenancy.
-  const s = upSql
-    .replace(/--[^\n]*/g, '')
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/'(?:[^']|'')*'/g, "''");
+  // A drop that is commented out or quoted (`COMMENT ON TABLE … IS '… DROP
+  // COLUMN tenant_id'`) takes nothing out of tenancy.
+  const s = sqlCode(upSql);
   const out: Array<[string, boolean]> = [];
   for (const m of s.matchAll(
     /ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?([\w."]+)\s[^;]*?\b(ADD|DROP)\s+COLUMN\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?"?tenant_id"?\b/gi,
