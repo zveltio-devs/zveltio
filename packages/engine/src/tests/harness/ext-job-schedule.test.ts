@@ -52,7 +52,7 @@ d('jobs[].schedule enqueues the job per active tenant (ADR 0048 d1)', () => {
   let db: Database;
   let second: PgBoss | undefined;
 
-  async function load(name: string, enabled: boolean): Promise<void> {
+  async function load(name: string, enabled: boolean, scheduled = true): Promise<void> {
     const ext: ZveltioExtension = {
       name,
       category: 'custom',
@@ -73,7 +73,7 @@ d('jobs[].schedule enqueues the job per active tenant (ADR 0048 d1)', () => {
           input: { type: 'object', additionalProperties: false },
           writes: [W],
           retry: { limit: 0 },
-          schedule: '* * * * *',
+          ...(scheduled ? { schedule: '* * * * *' } : {}),
         },
       ],
     });
@@ -224,4 +224,11 @@ d('jobs[].schedule enqueues the job per active tenant (ADR 0048 d1)', () => {
     expect(keys).toEqual([scheduleKey(EXT, 'beat')]);
     expect(await queued(OFF)).toEqual([]);
   }, 35_000);
+
+  it('a job that loses its schedule on reload loses its schedule row', async () => {
+    // An upgrade whose manifest drops `schedule`: the row it left would tick forever.
+    await load(EXT, true, false);
+    const keys = await until(schedules, (k) => k.length === 0, 10_000);
+    expect(keys).toEqual([]);
+  }, 15_000);
 });

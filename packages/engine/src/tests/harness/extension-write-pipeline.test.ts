@@ -21,7 +21,7 @@ import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { _resetExtensionDbRoleForTests } from '../../lib/extensions/ext-db-role.js';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { DDLManager } from '../../lib/data/index.js';
+import { DDLManager, decryptField } from '../../lib/data/index.js';
 import { gateInternals } from '../../lib/extensions/capabilities.js';
 import { createRestrictedDb } from '../../lib/extensions/extension-context.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
@@ -94,6 +94,14 @@ d('extension writes run through the field pipeline', () => {
       .catch(() => {});
   });
 
+  const openAt = (value: string, record: string) =>
+    decryptField(value, {
+      tenant: DEFAULT_TENANT_ID,
+      collection: COLLECTION,
+      field: 'api_key',
+      record,
+    });
+
   it('hashes and encrypts on insert', async () => {
     const id = crypto.randomUUID();
     await asJob(() =>
@@ -114,6 +122,8 @@ d('extension writes run through the field pipeline', () => {
     expect(await Bun.password.verify(PLAINTEXT_PW, row.secret)).toBe(true);
     expect(row.api_key).not.toBe(SECRET);
     expect(row.api_key.startsWith('enc:v2:')).toBe(true);
+    // Sealed to this row (ADR 0059): it opens where it lives.
+    expect(await openAt(row.api_key, id)).toBe(SECRET);
     // An ordinary column is untouched — encrypting everything would break
     // every query and index.
     expect(row.label).toBe('via-extension');
@@ -136,6 +146,8 @@ d('extension writes run through the field pipeline', () => {
     )) as { rows: { secret: string; api_key: string }[] };
     expect(await Bun.password.verify(PLAINTEXT_PW, rows.rows[0]!.secret)).toBe(true);
     expect(rows.rows[0]!.api_key.startsWith('enc:v2:')).toBe(true);
+    // Sealed to the row the WHERE named, not another (ADR 0059).
+    expect(await openAt(rows.rows[0]!.api_key, id)).toBe(SECRET);
   });
 
   it('hashes and encrypts on a bulk update too', async () => {
