@@ -74,6 +74,15 @@ function respondUnparseable(status: number) {
 }
 
 describe('api — successful responses', () => {
+  it('refuses a dot segment instead of letting fetch resolve it', async () => {
+    const f = vi.fn();
+    globalThis.fetch = f as unknown as typeof fetch;
+    await expect(api.delete('/api/data/../me')).rejects.toThrow(TypeError);
+    await expect(api.get('/api/data/%2E%2e/x')).rejects.toThrow(TypeError);
+    await expect(api.fetch('/api/storage/..')).rejects.toThrow(TypeError);
+    expect(f).not.toHaveBeenCalled();
+  });
+
   it('returns the parsed body', async () => {
     respond(200, { records: [{ id: 'a' }] });
     const out = await api.get<{ records: { id: string }[] }>('/api/data/x');
