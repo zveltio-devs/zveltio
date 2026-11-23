@@ -200,6 +200,9 @@ describe('the mail pilot in the view/2 renderer', () => {
       return e as HTMLElement;
     });
     expect(editor.innerHTML.toLowerCase()).not.toContain('onerror');
+    // The quoted HTML keeps `style`: a `position: fixed` box in it must stay in
+    // the editor, not cover Studio (measured in Chrome: paint containment clips it).
+    expect(editor.classList.contains('[contain:paint]')).toBe(true);
     expect(container.querySelector('[data-testid="view-files"]')?.textContent).toContain('a.pdf');
     await fireEvent.click(getByText('Send'));
     await waitFor(() => expect(post).toHaveBeenCalled());
