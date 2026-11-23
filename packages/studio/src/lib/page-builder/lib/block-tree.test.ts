@@ -181,3 +181,26 @@ describe('ensureIds', () => {
     expect(out[0].id).toBe('keep-me');
   });
 });
+
+describe('a data block holding an item template', () => {
+  const list = (): TreeBlock[] => [
+    leaf('a'),
+    { id: 'list', type: 'collection_list', content: { item_template: leaf('tpl') } },
+  ];
+
+  test('takes no second block: a drop or an add leaves the tree as it was', () => {
+    expect(insertAt(list(), 'list', 1, leaf('x'))).toEqual(list());
+    expect(insertAt(list(), 'list', 0, leaf('x'))).toEqual(list());
+  });
+
+  test('a block moved into it stays where it was, and so does its template', () => {
+    expect(moveTo(list(), 'a', 'list', 0)).toEqual(list());
+    expect(moveTo(list(), 'a', 'list', 1)).toEqual(list());
+    expect(moveTo(list(), 'tpl', 'list', 1)).toEqual(list());
+  });
+
+  test('its template can still be moved out of it', () => {
+    const out = moveTo(list(), 'tpl', null, 0);
+    expect(out.map((b) => b.id)).toEqual(['tpl', 'a', 'list']);
+  });
+});

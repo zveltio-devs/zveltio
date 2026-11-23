@@ -48,6 +48,16 @@ export function isContainer(block: TreeBlock | null | undefined): boolean {
 }
 
 /**
+ * Whether a block takes another block among its children: only a `container`.
+ * A data block's item template is one block, set from its properties, so its
+ * slot takes no drop or add; `withChildren` keeps one child there and would
+ * drop any other.
+ */
+export function takesChildren(block: TreeBlock | null | undefined): boolean {
+  return block?.type === CONTAINER_TYPE;
+}
+
+/**
  * The blocks nested inside, whichever slot they use — so every helper below
  * walks the whole tree without knowing which kind of nesting it is looking at.
  */
@@ -139,7 +149,7 @@ export function insertAt(
     return next;
   }
   return blocks.map((b) => {
-    if (b.id === parentId && isContainer(b)) {
+    if (b.id === parentId && takesChildren(b)) {
       const kids = [...childrenOf(b)];
       kids.splice(clamp(index, 0, kids.length), 0, block);
       return withChildren(b, kids);
@@ -165,6 +175,8 @@ export function moveTo(
   index: number,
 ): TreeBlock[] {
   if (parentId !== null && isSelfOrDescendant(blocks, id, parentId)) return blocks;
+  // Removed first, then inserted: a parent that takes no child would lose the block.
+  if (parentId !== null && !takesChildren(findById(blocks, parentId))) return blocks;
   const block = findById(blocks, id);
   if (!block) return blocks;
   return insertAt(removeById(blocks, id), parentId, index, block);

@@ -16,9 +16,9 @@ import {
   ensureIds,
   findById,
   insertAt,
-  isContainer,
   patchById,
   removeById,
+  takesChildren,
 } from '#lib/page-builder/lib/block-tree.js';
 import { BREAKPOINT_LABEL, type Breakpoint } from '#lib/page-builder/lib/breakpoints.js';
 import BlockLibrary from '#lib/page-builder/components/builder/BlockLibrary.svelte';
@@ -77,7 +77,7 @@ function redo() {
 
 function onAdd(block: Block) {
   const selectedBlk = findById(blocks, selectedId);
-  if (selectedBlk && isContainer(selectedBlk)) {
+  if (selectedBlk && takesChildren(selectedBlk)) {
     const kids = (selectedBlk.content?.children ?? []) as Block[];
     commit(insertAt(blocks, selectedBlk.id, kids.length, block));
   } else {
