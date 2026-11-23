@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { sql } from 'kysely';
 import { indexName, pgIdentifier } from '../pg-identifier.js';
 import { z } from 'zod';
+import { tryAdvisoryLock } from '../../db/advisory-lock.js';
 import type { Database } from '../../db/index.js';
 import {
   dynamicSetForeignKeyActions,
@@ -26,6 +27,11 @@ const ON_DELETE_SAFE = new Set(['CASCADE', 'SET NULL', 'RESTRICT', 'NO ACTION'])
 const SAFE_NAME_RE = /^[a-z][a-z0-9_]*$/;
 
 // ─── Safe DDL helpers ─────────────────────────────────────────────────────────
+
+/** The refusal `POST /api/collections/:name/fields` answers 409 (`code` is the route's). */
+function duplicateField(message: string): Error {
+  return Object.assign(new Error(message), { code: 'DUPLICATE' });
+}
 
 async function withLockTimeout(
   db: Database,
@@ -1689,6 +1695,49 @@ export class DDLManager {
     const tableName = this.getTableName(collectionName);
     if (!(await this.tableExists(db, collectionName))) {
       throw new Error(`Collection '${collectionName}' not found`);
+    }
+    // One add of a name at a time, from its ADD to its append: they are two
+    // transactions, the key built CONCURRENTLY between them (DR-37). A second
+    // add found the first's column, recorded its own type for it, and the first
+    // answered success without writing (A15). A caller's transaction holds the
+    // ADD's lock to its commit, the append included, and needs no other.
+    const held = async () => {
+      await this.addFieldHeld(db, collectionName, tableName, validated);
+      return true;
+    };
+    const ran = (db as unknown as { isTransaction?: boolean }).isTransaction
+      ? await held()
+      : await tryAdvisoryLock(db, `zveltio:add-field:${tableName}.${validated.name}`, held);
+    if (!ran) {
+      throw duplicateField(
+        `Field "${validated.name}" is being added to collection "${collectionName}"`,
+      );
+    }
+  }
+
+  private static async addFieldHeld(
+    db: Database,
+    collectionName: string,
+    tableName: string,
+    validated: z.output<typeof FieldSchema>,
+  ): Promise<void> {
+    // Before any DDL: a refused add must not have built a key on the column.
+    const meta = await db
+      .selectFrom('zvd_collections')
+      .selectAll()
+      .where('name', '=', collectionName)
+      .executeTakeFirst();
+    const rawFields: unknown =
+      typeof meta?.fields === 'string' ? JSON.parse(meta.fields) : meta?.fields;
+    const recorded = (Array.isArray(rawFields) ? (rawFields as FieldConfig[]) : []).find(
+      (f) => f.name === validated.name,
+    );
+    if (recorded) {
+      // The same field again is a retried job whose append committed: done.
+      if (Bun.deepEquals(recorded, JSON.parse(JSON.stringify(validated)))) return;
+      throw duplicateField(
+        `Field "${validated.name}" already exists in collection "${collectionName}"`,
+      );
     }
     const colDDL = fieldTypeRegistry.getColumnDDL(validated as FieldConfig);
     const { dropMaskView, sealColumns, storedFields } = await import('./sealed-columns.js');
