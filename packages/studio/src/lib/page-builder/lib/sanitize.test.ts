@@ -3,14 +3,14 @@
  *
  * Svelte escapes interpolated values for HTML, which is not the same as escaping
  * them for the context they land in. Inside a `style="..."` attribute the
- * grammar is CSS, where `;` starts a new declaration; inside `<iframe src>` a
- * `javascript:` URL executes in the current origin. Both fields are typed by a
- * page-builder author, so both are an editor-to-admin escalation: the payload
- * fires when an admin opens the preview.
+ * grammar is CSS, where `;` starts a new declaration. The field is typed by a
+ * page-builder author, so it is an editor-to-admin escalation: the payload
+ * fires when an admin opens the preview. (The canvas frames nothing, so no
+ * frame address needs a sanitiser; see contract.test.ts.)
  */
 
 import { describe, expect, it } from 'vitest';
-import { safeCssColor, safeCssNumber, safeIframeSrc } from './sanitize.js';
+import { safeCssColor, safeCssNumber } from './sanitize.js';
 
 describe('safeCssColor', () => {
   it('passes the colour notations blocks actually use', () => {
@@ -66,33 +66,5 @@ describe('safeCssNumber', () => {
     expect(safeCssNumber(undefined, 48, 0, 2000)).toBe(48);
     expect(safeCssNumber(Number.NaN, 48, 0, 2000)).toBe(48);
     expect(safeCssNumber(Number.POSITIVE_INFINITY, 48, 0, 2000)).toBe(48);
-  });
-});
-
-describe('safeIframeSrc', () => {
-  it('allows http(s) and upgrades protocol-relative', () => {
-    expect(safeIframeSrc('https://youtube.com/embed/x')).toBe('https://youtube.com/embed/x');
-    expect(safeIframeSrc('http://example.com/v')).toBe('http://example.com/v');
-    expect(safeIframeSrc('//youtube.com/embed/x')).toBe('https://youtube.com/embed/x');
-  });
-
-  it('collapses script-bearing schemes to about:blank', () => {
-    for (const bad of [
-      'javascript:alert(document.cookie)',
-      'JaVaScRiPt:alert(1)',
-      '  javascript:alert(1)',
-      'data:text/html,<script>alert(1)</script>',
-      'vbscript:msgbox(1)',
-      'file:///etc/passwd',
-    ]) {
-      expect(safeIframeSrc(bad)).toBe('about:blank');
-    }
-  });
-
-  it('collapses empty and non-string input', () => {
-    expect(safeIframeSrc('')).toBe('about:blank');
-    expect(safeIframeSrc(undefined)).toBe('about:blank');
-    expect(safeIframeSrc(null)).toBe('about:blank');
-    expect(safeIframeSrc(123)).toBe('about:blank');
   });
 });

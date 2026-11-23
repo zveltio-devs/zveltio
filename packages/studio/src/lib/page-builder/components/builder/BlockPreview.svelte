@@ -1,7 +1,7 @@
 <script lang="ts">
 import { m } from '#lib/i18n.svelte.js';
 import { type Block, type BlockStyle, fieldsOf, asStat, asText } from '../../lib/builder-types.js';
-import { safeCssColor, safeCssNumber, safeHtml, safeIframeSrc } from '../../lib/sanitize.js';
+import { safeCssColor, safeCssNumber, safeHtml } from '../../lib/sanitize.js';
 
 let { block }: { block: Block } = $props();
 
@@ -121,17 +121,17 @@ const outer = $derived(styleStr(block.style));
 
   {:else if block.type === 'video'}
     <div class="w-full aspect-video bg-base-300 rounded flex items-center justify-center">
-      {#if p.url}
-        {@const embedUrl = safeIframeSrc(p.url.includes('youtu') ? p.url.replace('watch?v=', 'embed/').replace('youtu.be/', 'youtube.com/embed/') : p.url)}
-        <iframe src={embedUrl} sandbox="allow-scripts allow-same-origin allow-presentation" title={p.caption ?? 'video'} class="w-full h-full rounded" allowfullscreen></iframe>
-      {:else}
-        <div class="flex flex-col items-center gap-2 text-base-content/55">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
-            <circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor"/>
-          </svg>
-          <span class="text-xs">{m['pageBuilder.videoLabel']()}</span>
-        </div>
-      {/if}
+      <!--
+        No player in the editor: a third-party frame would run its scripts inside
+        Studio, and Studio draws no framed documents (ADR 0042; its CSP has no
+        frame-src). The published page plays it; here the address is the preview.
+      -->
+      <div class="flex flex-col items-center gap-2 text-base-content/55 max-w-full px-3">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+          <circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor"/>
+        </svg>
+        <span class="text-xs truncate max-w-full font-mono" data-testid="video-url">{p.url || m['pageBuilder.videoLabel']()}</span>
+      </div>
     </div>
 
   {:else if block.type === 'gallery'}
