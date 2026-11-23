@@ -40,6 +40,29 @@ d('health routes (in-process)', () => {
     expect(typeof body.demo_mode).toBe('boolean');
   });
 
+  it('GET /api/health hands out demo credentials outside production only', async () => {
+    const saved = { NODE_ENV: process.env.NODE_ENV, DEMO_MODE: process.env.DEMO_MODE };
+    const creds = async (nodeEnv: string) => {
+      process.env.NODE_ENV = nodeEnv;
+      const body = (await (await app.request('/api/health')).json()) as {
+        demo_mode?: boolean;
+        demo_credentials?: unknown;
+      };
+      expect(body.demo_mode).toBe(true);
+      return body.demo_credentials;
+    };
+    try {
+      process.env.DEMO_MODE = 'true';
+      expect(await creds('test')).toBeDefined();
+      expect(await creds('production')).toBeUndefined();
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  });
+
   it('GET /api/health/ready is public and returns a readiness verdict', async () => {
     const res = await app.request('/api/health/ready');
     // 200 ready or 503 not-ready are both valid, well-formed responses.
