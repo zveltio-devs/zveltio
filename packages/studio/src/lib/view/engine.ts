@@ -401,6 +401,19 @@ export function localDay(d: Date): string {
 export const dayDate = (key: string) => new Date(`${key}T00:00:00`);
 
 /**
+ * A local day's midnight as a filter value, with its UTC offset
+ * (`2026-12-01T00:00:00+02:00`). Postgres reads a bare day against a timestamp
+ * column in the session's zone (UTC), not the viewer's; with the offset a
+ * timestamp column gets the viewer's midnight and a date column the same day.
+ */
+export function midnightOf(day: string): string {
+  const off = -dayDate(day).getTimezoneOffset();
+  const p = (n: number) => String(n).padStart(2, '0');
+  const a = Math.abs(off);
+  return `${day}T00:00:00${off < 0 ? '-' : '+'}${p(Math.floor(a / 60))}:${p(a % 60)}`;
+}
+
+/**
  * A date or timestamp moved by whole days, in its own form: a date stays a
  * date, a timestamp keeps its local time of day.
  */

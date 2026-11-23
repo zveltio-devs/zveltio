@@ -14,6 +14,7 @@ import {
   formPayload,
   isWithin,
   listParams,
+  midnightOf,
   period,
   periodQueries,
   relatedOf,
@@ -240,6 +241,21 @@ describe('the slice 4 kinds: time, trees, choices', () => {
 });
 
 describe('the slice 4 kinds: queries, order, cycles, relations', () => {
+  it("a period bound is the viewer's midnight, with its offset, not UTC's", () => {
+    const tz = process.env.TZ;
+    try {
+      process.env.TZ = 'Europe/Bucharest';
+      expect(midnightOf('2026-11-01')).toBe('2026-11-01T00:00:00+02:00');
+      expect(midnightOf('2026-07-01')).toBe('2026-07-01T00:00:00+03:00');
+      process.env.TZ = 'America/New_York';
+      expect(midnightOf('2026-11-01')).toBe('2026-11-01T00:00:00-04:00');
+      process.env.TZ = 'Asia/Kolkata';
+      expect(midnightOf('2026-11-01')).toBe('2026-11-01T00:00:00+05:30');
+    } finally {
+      process.env.TZ = tz;
+    }
+  });
+
   it('a timeline with an end asks twice: what overlaps, and what has no end', () => {
     const own = [{ field: 'kind', op: 'eq' as const, value: 'trip' }];
     expect(periodQueries(own, 's', undefined, '2026-11-01', '2026-12-01')).toEqual([

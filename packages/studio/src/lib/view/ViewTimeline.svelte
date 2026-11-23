@@ -14,6 +14,7 @@ import {
   daysBetween,
   listParams,
   localDay,
+  midnightOf,
   period,
   periodQueries,
   shiftDays,
@@ -38,9 +39,13 @@ const from = $derived(days[0]);
 const until = $derived(shiftDays(days[days.length - 1], 1) as string);
 
 const data = readRows(() => {
-  const queries = periodQueries(view.filter ?? [], view.start, view.end, from, until).map(
-    (filter) => listParams({ filter, sort: view.start }, scope, { page: 1, limit: WHOLE }),
-  );
+  const queries = periodQueries(
+    view.filter ?? [],
+    view.start,
+    view.end,
+    midnightOf(from),
+    midnightOf(until),
+  ).map((filter) => listParams({ filter, sort: view.start }, scope, { page: 1, limit: WHOLE }));
   return {
     collection: view.collection,
     params: queries.some((q) => q === null) ? null : (queries as Record<string, string | number>[]),
