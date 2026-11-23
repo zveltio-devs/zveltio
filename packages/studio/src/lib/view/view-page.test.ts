@@ -427,4 +427,27 @@ describe('view/2 renderer', () => {
     expect(post.mock.calls.some(([u]) => u === '/ext/notes/actions/purge')).toBe(false);
     void container;
   }, 60_000);
+
+  it('a tab chosen on one view does not index past the next, shorter one', async () => {
+    const { default: ViewPage } = await import('./ViewPage.svelte');
+    const list = { type: 'list' as const, collection: 'notes' };
+    const { container, getByText, findAllByText, rerender } = render(ViewPage, {
+      props: {
+        ext: 'notes',
+        view: {
+          type: 'tabs',
+          items: [
+            { ...list, title: 'One' },
+            { ...list, title: 'Two' },
+          ],
+        },
+      },
+    });
+    await waitFor(() => getByText('Two'));
+    await fireEvent.click(getByText('Two'));
+    await rerender({ ext: 'notes', view: { type: 'tabs', items: [{ ...list, title: 'Only' }] } });
+    expect(await findAllByText('First')).not.toHaveLength(0);
+    expect(container.querySelector('[data-testid="view-not-drawn"]')).toBeNull();
+    expect(container.querySelector('.tab-active')?.textContent?.trim()).toBe('Only');
+  }, 60_000);
 });
