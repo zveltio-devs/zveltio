@@ -136,18 +136,3 @@ export function safeCssNumber(value: unknown, fallback: number, min: number, max
   if (!Number.isFinite(n)) return fallback;
   return Math.min(max, Math.max(min, n));
 }
-
-/**
- * Restrict an `<iframe src>` to http(s).
- *
- * The embed block lets an author type a URL. Without this, `javascript:...`
- * runs in the admin's origin the moment the preview renders — an editor-to-admin
- * session takeover from a field that looks like a text input.
- */
-export function safeIframeSrc(url: unknown): string {
-  if (typeof url !== 'string' || url.length === 0) return 'about:blank';
-  const trimmed = url.trim();
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  if (/^\/\//.test(trimmed)) return `https:${trimmed}`;
-  return 'about:blank';
-}
