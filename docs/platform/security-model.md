@@ -592,8 +592,11 @@ replica. Trashed records are purged by the trash scheduler, not by this sweep.
   write-once there requires the bucket's object lock (retention mode), which the
   operator turns on. Unset, nothing is anchored, boot says so, and verify
   answers `anchor: { "configured": false }`.
-- Verify compares every chain with the latest anchor and answers, per anchored
-  chain, `ok` (the anchored entry is still on the chain, unchanged),
+- Verify compares every chain with every anchor in the target, not only the
+  newest: it judges the chain against every entry any anchor names for it, each
+  at the latest time an anchor named it, and answers its worst status. An anchor
+  file must be well formed, named for its own date, and dated no later than a
+  day ahead; any other fails verify (`error`). Per anchored chain: `ok` (the anchored entry is still on the chain, unchanged),
   `covered` (a cut past it, made after the anchor was written), `behind` (the chain ends
   before the anchored entry: its newest rows were removed), `changed` (the
   entry at the anchored `seq` is gone or hashes differently: the chain was
@@ -603,17 +606,23 @@ replica. Trashed records are purged by the trash scheduler, not by this sweep.
   holds chains (`missing: true`), makes `ok` false. The boot writes the first
   anchor at once, so a fresh install answers `missing` only until then. Before each write the engine compares the same way, and a chain no
   longer matching keeps its anchored head in the new file — the engine does
-  not launder a cut by anchoring the shorter chain. The evidence stays until
-  the operator, having looked, moves the old anchor files away; emptying the
-  target re-baselines on the next write.
+  not launder a cut by anchoring the shorter chain. Anchors are only added, so
+  one added by whoever holds the anchor credentials can raise what a chain is
+  held to (a false alarm), never lower it: a newer anchor naming the shorter
+  chain, or no chain, does not hide a cut while the older anchors stay. The
+  evidence stays until the operator, having looked, re-baselines by pointing
+  `AUDIT_ANCHOR_TARGET` at a new, empty prefix or directory; the next write
+  starts it. Restoring the database from a backup puts every chain behind its
+  anchors in the same way, so a restore needs that re-baseline too.
 - What the anchor does not show: rows written after the latest anchor (at
   most an hour's), and whether a cut was due — a cut row the database owner
   forges, dated after the anchor, is `covered` like the purge's. Write access to
   the target is outside the anchor's threat model: whoever can delete or replace
-  anchor files can re-baseline it. Point the target at
-  storage the database host cannot write (another machine, a bucket with object
-  lock); a directory on the same disk survives a database rewrite, not a host
-  compromise.
+  anchor files can re-baseline it. Adding files is not enough, so the anchor
+  holds against the engine's own credentials only where older anchors cannot be
+  deleted: a bucket with object lock in compliance mode, or another machine the
+  engine host can only append to. A directory on the same disk survives a
+  database rewrite, not a host compromise.
 
 ---
 

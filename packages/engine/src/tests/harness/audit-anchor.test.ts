@@ -8,7 +8,7 @@
  */
 
 import { afterAll, afterEach, beforeAll, describe, expect, it, setSystemTime } from 'bun:test';
-import { mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sql } from 'kysely';
@@ -20,7 +20,12 @@ import { asAuditOwner, asTenant, getTestApp, harnessAvailable } from '../../test
 const d = harnessAvailable() ? describe : describe.skip;
 const TAG = `auditanchor-${crypto.randomUUID().slice(0, 8)}`;
 const EV = `${TAG}.event` as AuditEventType;
-const T = { tail: crypto.randomUUID(), cut: crypto.randomUUID(), off: crypto.randomUUID() };
+const T = {
+  tail: crypto.randomUUID(),
+  cut: crypto.randomUUID(),
+  off: crypto.randomUUID(),
+  forged: crypto.randomUUID(),
+};
 const ENV = 'AUDIT_ANCHOR_TARGET';
 
 d('external anchor of the audit chain heads (ADR 0060 decision 5)', () => {
@@ -106,6 +111,56 @@ d('external anchor of the audit chain heads (ADR 0060 decision 5)', () => {
 
     for (const r of ['x', 'y', 'z']) await write(T.tail, r);
     expect((await anchorOf(T.tail)).chain?.status).toBe('changed');
+  });
+
+  it('a newer anchor added by whoever holds the anchor credentials does not hide a cut', async () => {
+    const own = await mkdtemp(join(tmpdir(), 'zv-anchor-forged-'));
+    try {
+      process.env[ENV] = own;
+      const tenant = T.forged;
+      for (const r of ['a', 'b', 'c']) await write(tenant, r);
+      await anchorAuditChains(db);
+      await cutTail(tenant, 2);
+      // Well formed and named as the writer names it, dated after every anchor
+      // the engine wrote; it names no chain, then the cut one, then a regrown one.
+      let ms = Date.now() + 60_000;
+      const forge = async (chains: unknown[]) => {
+        ms += 1000;
+        const name = `zveltio-audit-anchor-${String(9_999_999_999_999 - ms).padStart(13, '0')}-${new Date(ms).toISOString().replace(/[-:.]/g, '')}.json`;
+        await writeFile(
+          join(own, name),
+          `${JSON.stringify({ v: 1, at: new Date(ms).toISOString(), chains })}\n`,
+        );
+      };
+      const headOf = async () =>
+        (
+          await asAuditOwner(db, (trx) =>
+            sql<{ seq: number; hash: string }>`
+              SELECT seq::int AS seq, encode(hash, 'hex') AS hash FROM zv_audit_chain
+               WHERE tenant_id = ${tenant}::uuid ORDER BY seq DESC LIMIT 1`.execute(trx),
+          )
+        ).rows[0];
+      const held = async (status: string) =>
+        expect((await anchorOf(tenant)).chain).toMatchObject({ status, anchored: { seq: 3 } });
+
+      await forge([]);
+      await held('behind');
+      await forge([{ tenant_id: tenant, head: await headOf(), genesis: null }]);
+      await held('behind');
+      // The writer reads the newest anchor only; what it writes next still cannot hide the cut.
+      await anchorAuditChains(db);
+      await held('behind');
+      // Regrown past the cut and anchored higher: the older anchor still judges seq 3.
+      for (const r of ['x', 'y', 'z']) await write(tenant, r);
+      await forge([{ tenant_id: tenant, head: await headOf(), genesis: null }]);
+      await held('changed');
+
+      // A file not named for its own date is not an anchor the engine wrote.
+      await writeFile(join(own, 'zveltio-audit-anchor-0000000000000-x.json'), '{"v":1}\n');
+      expect((await verifyAuditChains(db)).anchor).toMatchObject({ error: expect.any(String) });
+    } finally {
+      await rm(own, { recursive: true, force: true });
+    }
   });
 
   it('every write is a new file, and none is rewritten', async () => {
