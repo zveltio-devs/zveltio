@@ -34,6 +34,11 @@ export class SyncManager {
   private isSyncing: boolean = false;
   /** Set by `stop()`; `start()` checks it after every await it makes. */
   private stopped = false;
+  /**
+   * Bumped by `clearLocalData()`. A pull or realtime read that started before it
+   * checks it after its fetch and writes nothing: the rows are the last user's.
+   */
+  private generation = 0;
   private readonly onOnline = () => {
     this.isOnline = true;
     this.syncNow(); // Sync immediately on reconnect
@@ -168,8 +173,10 @@ export class SyncManager {
             const id = event.id;
             if (event.type !== 'event' || !id) return;
             if (event.event === 'insert' || event.event === 'update') {
+              const gen = this.generation;
               try {
                 const serverRecord = await this.client.collection(name).get(id);
+                if (gen !== this.generation) return;
                 await this.store.applyServerUpdate(name, id, serverRecord, Date.now());
                 this.notifyListeners(name);
               } catch {
@@ -372,22 +379,24 @@ export class SyncManager {
    * deletes.
    */
   async pull(collections: string[], pageSize = 200): Promise<number> {
+    const gen = this.generation;
     let applied = 0;
     // The server takes at most 20 collections per pull.
     for (let i = 0; i < collections.length; i += 20) {
       const names = collections.slice(i, i + 20);
       try {
-        applied += await this.pullChanges(names);
+        applied += await this.pullChanges(names, gen);
       } catch (err) {
         if (!(err instanceof ZveltioApiError && err.status === 403)) throw err;
-        applied += await this.pullPages(names, pageSize);
+        applied += await this.pullPages(names, pageSize, gen);
       }
+      if (gen !== this.generation) return applied;
       for (const name of names) await this.notifyListeners(name);
     }
     return applied;
   }
 
-  private async pullChanges(names: string[]): Promise<number> {
+  private async pullChanges(names: string[], gen: number): Promise<number> {
     const byTable = new Map(names.map((n) => [n.startsWith('zvd_') ? n : `zvd_${n}`, n]));
     const cursors = (await this.store.getMeta<Record<string, string>>(PULL_CURSORS)) ?? {};
     for (const [table, name] of byTable) {
@@ -411,6 +420,8 @@ export class SyncManager {
         if (flag && name) await this.store.dropSynced(name);
       }
       for (const ch of res.changes) {
+        // Checked before every write: a clear can land between two of them.
+        if (gen !== this.generation) return applied;
         const name = byTable.get(ch.collection) ?? ch.collection;
         if (ch.operation === 'delete') await this.store.applyServerDelete(name, ch.id);
         else await this.store.applyServerUpdate(name, ch.id, ch.data ?? {}, Date.now());
@@ -418,19 +429,21 @@ export class SyncManager {
       }
       // Saved only after the page is applied: a pull cut short resumes here.
       Object.assign(cursors, res.cursors);
+      if (gen !== this.generation) return applied;
       await this.store.setMeta(PULL_CURSORS, cursors);
       if (!res.hasMore) return applied;
     }
   }
 
   /** Pages through `list()`; stops on the first page that comes back short. */
-  private async pullPages(collections: string[], pageSize: number): Promise<number> {
+  private async pullPages(collections: string[], pageSize: number, gen: number): Promise<number> {
     let applied = 0;
     for (const name of collections) {
       for (let page = 1; ; page++) {
         const result = await this.client.collection(name).list({ page, limit: pageSize });
         const rows = result?.records ?? [];
         for (const row of rows) {
+          if (gen !== this.generation) return applied;
           const id = (row as { id?: string }).id;
           if (!id) continue;
           // `Date.now()` as the server version: the collections API does not
@@ -469,6 +482,7 @@ export class SyncManager {
    * `syncNow()` before sign-out to push what is pending, which is lost otherwise.
    */
   async clearLocalData(): Promise<void> {
+    this.generation++;
     // ponytail: polls the in-flight sync; a stored promise if it ever matters.
     while (this.isSyncing) await new Promise((r) => setTimeout(r, 50));
     await this.store.clear();

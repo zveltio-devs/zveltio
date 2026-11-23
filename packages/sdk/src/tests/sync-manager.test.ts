@@ -110,6 +110,47 @@ describe('SyncManager — clearLocalData', () => {
   });
 });
 
+describe('SyncManager — clearLocalData during a fetch', () => {
+  // A pull or realtime read still waiting on the server when the user signed
+  // out wrote that user's rows into the cleared store for the next user.
+  it('drops what a pull or realtime read fetched before the clear', async () => {
+    let release!: () => void;
+    const held = new Promise<void>((r) => {
+      release = r;
+    });
+    const client = {
+      collection: () => ({
+        get: async (id: string) => (await held, { id, title: 'previous user' }),
+      }),
+      post: async () => (
+        await held,
+        {
+          changes: [
+            { collection: 'zvd_posts', id: 'p2', data: { title: 'x' }, operation: 'upsert' },
+          ],
+          hasMore: false,
+          cursors: { zvd_posts: 'c1' },
+        }
+      ),
+    } as unknown as ZveltioClient;
+    sync = new SyncManager(client, { syncInterval: 60_000 });
+    await sync.open();
+    const store = (sync as unknown as { store: LocalStore }).store;
+    await store.clear();
+    const rt = fakeRealtime();
+    (sync as unknown as { realtime: unknown }).realtime = rt;
+    sync.collection('posts').subscribe(() => {});
+
+    const pushing = rt.push({ type: 'event', collection: 'posts', event: 'insert', id: 'p1' });
+    const pulling = sync.pull(['posts']);
+    await sync.clearLocalData();
+    release();
+    await Promise.all([pushing, pulling]);
+    expect(await store.list('posts')).toEqual([]);
+    expect(await store.getMeta('sync_pull_cursors')).toBeUndefined();
+  });
+});
+
 describe('SyncManager — paged pull reads the list the engine sends', () => {
   // A client the sync routes refuse (an API key, 403) pages `list()` instead.
   // That path read `result.data`, which `GET /api/data/:collection` has never
