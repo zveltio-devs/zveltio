@@ -33,4 +33,36 @@ d('OpenAPI spec route (in-process)', () => {
     const paths = Object.keys(body.paths ?? {});
     expect(paths.some((p) => p.includes('/data'))).toBe(true);
   });
+
+  // routes/openapi.ts: in production the spec is admin-only unless the
+  // operator sets OPENAPI_PUBLIC=true (a registered mode, so the boot warns).
+  async function inProduction(env: Record<string, string | undefined>, fn: () => Promise<void>) {
+    const saved = { NODE_ENV: process.env.NODE_ENV, OPENAPI_PUBLIC: process.env.OPENAPI_PUBLIC };
+    Object.assign(process.env, { NODE_ENV: 'production', OPENAPI_PUBLIC: undefined, ...env });
+    if (process.env.OPENAPI_PUBLIC === undefined) delete process.env.OPENAPI_PUBLIC;
+    try {
+      await fn();
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  }
+
+  it('in production refuses an anonymous caller', async () => {
+    await inProduction({}, async () => {
+      const res = await app.request('/api/openapi.json');
+      expect(res.status).toBe(401);
+    });
+  });
+
+  it('in production serves anyone only with OPENAPI_PUBLIC=true', async () => {
+    await inProduction({ OPENAPI_PUBLIC: 'TRUE' }, async () => {
+      expect((await app.request('/api/openapi.json')).status).toBe(401);
+    });
+    await inProduction({ OPENAPI_PUBLIC: 'true' }, async () => {
+      expect((await app.request('/api/openapi.json')).status).toBe(200);
+    });
+  });
 });
