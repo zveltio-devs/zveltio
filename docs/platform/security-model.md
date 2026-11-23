@@ -590,7 +590,11 @@ replica. Trashed records are purged by the trash scheduler, not by this sweep.
   absent one is an unmounted target, and verify reports it as an `error`. Object
   storage gets a new key per write, but Bun's S3 client has no conditional PUT:
   write-once there requires the bucket's object lock (retention mode), which the
-  operator turns on. Unset, nothing is anchored, boot says so, and verify
+  operator turns on. Object lock keeps an anchor's version, not its key: a PUT
+  to the same key makes a new current version, and that is what a read returns.
+  So verify refuses (`error`) an object the store says it last wrote more than
+  an hour after the anchor's own date: a replaced anchor. An anchor replaced
+  within that hour is not caught. Unset, nothing is anchored, boot says so, and verify
   answers `anchor: { "configured": false }`.
 - Verify compares every chain with every anchor in the target, not only the
   newest: it judges the chain against every entry any anchor names for it, each

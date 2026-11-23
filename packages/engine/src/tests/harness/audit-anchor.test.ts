@@ -25,6 +25,7 @@ const T = {
   cut: crypto.randomUUID(),
   off: crypto.randomUUID(),
   forged: crypto.randomUUID(),
+  replaced: crypto.randomUUID(),
 };
 const ENV = 'AUDIT_ANCHOR_TARGET';
 
@@ -241,5 +242,80 @@ d('external anchor of the audit chain heads (ADR 0060 decision 5)', () => {
     };
     expect(Date.parse(newest.at)).toBeGreaterThan(Date.parse(first.at as string));
     expect((await readdir(dir)).some((n) => !n.endsWith('.json'))).toBe(false);
+  });
+
+  it('an S3 anchor replaced under its own key fails verify', async () => {
+    // Object lock keeps the old version; a read returns the new one. A fake
+    // store that, like S3, sets LastModified itself on every PUT.
+    const objs = new Map<string, { body: string; at: Date }>();
+    const store = Bun.serve({
+      port: 0,
+      async fetch(req) {
+        const u = new URL(req.url);
+        const key = u.pathname.split('/').slice(2).join('/');
+        if (req.method === 'PUT') {
+          objs.set(key, { body: await req.text(), at: new Date() });
+          return new Response('');
+        }
+        if (u.searchParams.get('list-type') === '2') {
+          const items = [...objs]
+            .filter(([k]) => k.startsWith(u.searchParams.get('prefix') ?? ''))
+            .map(
+              ([k, o]) =>
+                `<Contents><Key>${k}</Key><LastModified>${o.at.toISOString()}</LastModified><Size>${o.body.length}</Size></Contents>`,
+            )
+            .join('');
+          return new Response(
+            `<?xml version="1.0"?><ListBucketResult><Name>b</Name><IsTruncated>false</IsTruncated>${items}</ListBucketResult>`,
+            { headers: { 'content-type': 'application/xml' } },
+          );
+        }
+        const o = objs.get(key);
+        return o ? new Response(o.body) : new Response('', { status: 404 });
+      },
+    });
+    const env = {
+      [ENV]: 's3://b/anchors',
+      S3_ENDPOINT: `http://localhost:${store.port}`,
+      AUDIT_ANCHOR_S3_ACCESS_KEY: 'k',
+      AUDIT_ANCHOR_S3_SECRET_KEY: 's',
+    };
+    const saved = Object.fromEntries(Object.keys(env).map((k) => [k, process.env[k]]));
+    try {
+      Object.assign(process.env, env);
+      const tenant = T.replaced;
+      for (const r of ['a', 'b', 'c']) await write(tenant, r);
+      setSystemTime(new Date(Date.now() - 3 * 3_600_000));
+      try {
+        await anchorAuditChains(db);
+      } finally {
+        setSystemTime();
+      }
+      await cutTail(tenant, 2);
+      // Written on time three hours ago: no false alarm.
+      expect((await anchorOf(tenant)).chain).toMatchObject({ status: 'behind' });
+
+      // Replaced with the shorter chain under the same key.
+      const [key, old] = [...objs][0]!;
+      const a = JSON.parse(old.body) as { chains: { tenant_id: string; head: unknown }[] };
+      const head = (
+        await asAuditOwner(db, (trx) =>
+          sql<{ seq: number; hash: string }>`
+            SELECT seq::int AS seq, encode(hash, 'hex') AS hash FROM zv_audit_chain
+             WHERE tenant_id = ${tenant}::uuid ORDER BY seq DESC LIMIT 1`.execute(trx),
+        )
+      ).rows[0];
+      for (const c of a.chains) if (c.tenant_id === tenant) c.head = head;
+      objs.set(key, { body: `${JSON.stringify(a)}\n`, at: new Date() });
+      expect((await verifyAuditChains(db)).anchor).toMatchObject({
+        error: expect.stringContaining('replaced'),
+      });
+    } finally {
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+      store.stop(true);
+    }
   });
 });
