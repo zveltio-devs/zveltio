@@ -44,8 +44,10 @@ const BLOCKED_OUTBOUND_HEADERS = new Set([
   'www-authenticate',
 ]);
 
+/** Also every `x-zveltio-*`: those are the engine's own (a delivery's signature), never the author's. */
 export function isBlockedOutboundHeader(name: string): boolean {
-  return BLOCKED_OUTBOUND_HEADERS.has(name.toLowerCase());
+  const n = name.toLowerCase();
+  return BLOCKED_OUTBOUND_HEADERS.has(n) || n.startsWith('x-zveltio-');
 }
 
 /**
