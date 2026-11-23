@@ -44,6 +44,14 @@ const DRAWN = new Set([
 const shown = $derived(DRAWN.has(view.type) ? view : fallbackFor(view, DRAWN));
 const scope = $derived<ViewScope>({ ...host.scope, record });
 let tab = $state(0);
+/**
+ * The tab drawn. Clamped, not read as `items[tab]`: the same node is handed a
+ * new view when the page changes, and a third tab chosen on the last page
+ * would index past a two-tab view and draw nothing.
+ */
+const tabIndex = $derived(
+  shown?.type === 'tabs' ? Math.min(tab, Math.max(shown.items.length - 1, 0)) : 0,
+);
 </script>
 
 {#if shown !== view}
@@ -91,13 +99,15 @@ let tab = $state(0);
   {:else if shown.type === 'tabs'}
     <div role="tablist" class="tabs tabs-bordered mb-4">
       {#each shown.items as item, i (i)}
-        <button role="tab" class="tab" class:tab-active={tab === i} onclick={() => (tab = i)}>
+        <button role="tab" class="tab" class:tab-active={tabIndex === i} onclick={() => (tab = i)}>
           {host.t(item.title ?? item.id ?? item.type)}
         </button>
       {/each}
     </div>
-    {#key tab}
-      <Self view={{ ...shown.items[tab], title: undefined }} {host} {record} />
-    {/key}
+    {#if shown.items[tabIndex]}
+      {#key tabIndex}
+        <Self view={{ ...shown.items[tabIndex], title: undefined }} {host} {record} />
+      {/key}
+    {/if}
   {/if}
 {/if}
