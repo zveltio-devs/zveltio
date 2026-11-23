@@ -17,12 +17,20 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { type KyselyPlugin, sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import type { Hono } from 'hono';
+import { tryAdvisoryLock } from '../../db/advisory-lock.js';
 import { DDLManager } from '../../lib/data/index.js';
-import { dropTestCollection, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import {
+  createGodSession,
+  dropTestCollection,
+  getTestApp,
+  harnessAvailable,
+} from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const C = `afc_${Date.now()}`;
 const TABLE = `zvd_${C}`;
+const TARGET = `${C}_t`;
 
 /** A plugin that holds the result of the first query matching `marker` until `release`. */
 function holdAt(marker: string) {
@@ -57,17 +65,58 @@ function holdAt(marker: string) {
 
 d('two adds of one field name at once', () => {
   let db: Database;
+  let app: Hono;
+  let cookie = '';
 
   beforeAll(async () => {
-    ({ db } = await getTestApp());
-    await DDLManager.createCollection(db, {
-      name: C,
-      fields: [{ name: 'label', type: 'text' }],
-    } as never);
+    ({ app, db } = await getTestApp());
+    cookie = await createGodSession(app, db);
+    for (const name of [C, TARGET]) {
+      await DDLManager.createCollection(db, {
+        name,
+        fields: [{ name: 'label', type: 'text' }],
+      } as never);
+    }
   });
 
   afterAll(async () => {
     await dropTestCollection(db, C);
+    await dropTestCollection(db, TARGET);
+  });
+
+  const post = (field: object) =>
+    app.request(`/api/collections/${C}/fields`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify(field),
+    });
+  const owner = {
+    name: 'owner',
+    type: 'm2o',
+    required: false,
+    unique: false,
+    indexed: false,
+    options: { related_collection: TARGET },
+  };
+  const hasColumn = async (col: string) =>
+    (
+      await sql<{ n: number }>`
+        SELECT count(*)::int AS n FROM pg_attribute
+         WHERE attrelid = ${TABLE}::regclass AND attname = ${col} AND NOT attisdropped`.execute(db)
+    ).rows[0]?.n === 1;
+
+  it('a relation field takes the same lock: refused while another add of the name runs', async () => {
+    // What a concurrent DDLManager.addField of `owner` holds from its ADD to its append.
+    const res = await tryAdvisoryLock(db, `zveltio:add-field:${TABLE}.owner`, async () =>
+      post(owner),
+    );
+    expect(res?.status).toBe(409);
+    expect(await hasColumn('owner')).toBe(false);
+
+    expect((await post(owner)).status).toBe(200);
+    expect(await hasColumn('owner')).toBe(true);
+    // Recorded: a later add of the name is refused before any DDL.
+    expect((await post({ ...owner, name: 'owner' })).status).toBe(409);
   });
 
   it('refuses one, and the metadata names the type the column has', async () => {

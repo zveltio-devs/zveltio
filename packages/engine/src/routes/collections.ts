@@ -42,6 +42,7 @@ import { ddlRateLimit } from '../middleware/rate-limit.js';
 import { auditLog } from '../lib/audit.js';
 import { z } from 'zod';
 import { toJsonb } from '../lib/jsonb.js';
+import { tryAdvisoryLock } from '../db/advisory-lock.js';
 import {
   virtualList,
   type VirtualConfig,
@@ -488,89 +489,103 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
 
     try {
       const tableName = DDLManager.getTableName(name);
-      // A relation's DDL runs here and its metadata in the transaction below; any
-      // other field is added by `DDLManager.addField`, as on every other road.
-      let added = false;
+      const duplicate = () => {
+        const err = new Error(
+          `Field "${field.name}" already exists in collection "${name}"`,
+          // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
+        ) as any;
+        err.code = 'DUPLICATE';
+        return err;
+      };
+      // A relation's DDL runs here and its metadata in the transaction below,
+      // under the lock `DDLManager.addField` holds for any other field. Without
+      // it a concurrent add of the same name recorded its own type over the FK
+      // column, or this one left its relation row behind a 409 (A15).
+      const addRelation = async (): Promise<true> => {
+        // Read again under the lock: the check above ran before it.
+        const now = await db
+          .selectFrom('zvd_collections')
+          .select('fields')
+          .where('name', '=', name)
+          .executeTakeFirst();
+        const nowFields: unknown =
+          typeof now?.fields === 'string' ? JSON.parse(now.fields) : now?.fields;
+        if (Array.isArray(nowFields) && nowFields.some((f) => f?.name === field.name)) {
+          throw duplicate();
+        }
+        if (RELATION_FK_TYPES.has(field.type) && relatedCollection) {
+          // m2o / reference: FK column lives in the SOURCE table. Both
+          // helpers delegate to DDLManager so add-field stays in sync
+          // with the create-table path's FK semantics.
+          const targetTable = DDLManager.getTableName(relatedCollection);
+          const onDelete = String(opts.on_delete ?? 'SET NULL').toUpperCase();
+          const onUpdate = String(opts.on_update ?? 'CASCADE').toUpperCase();
+          await DDLManager.applyRelationFK(
+            db,
+            tableName,
+            field.name,
+            targetTable,
+            onDelete,
+            onUpdate,
+            true,
+            field.required === true,
+          );
+          await DDLManager.registerRelation(db, {
+            name: `${name}_${field.name}`,
+            type: 'm2o',
+            source_collection: name,
+            source_field: field.name,
+            target_collection: relatedCollection,
+            target_field: 'id',
+            on_delete: onDelete,
+            on_update: onUpdate,
+          });
+        } else if (RELATION_REVERSE_TYPES.has(field.type) && relatedCollection) {
+          // o2m — FK column lives in TARGET table (target has many of source)
+          const targetTable = DDLManager.getTableName(relatedCollection);
+          const fkColumnInTarget = `${name}_id`;
+          const onDelete = String(opts.on_delete ?? 'SET NULL').toUpperCase();
+          const onUpdate = String(opts.on_update ?? 'CASCADE').toUpperCase();
+          await DDLManager.applyRelationFK(
+            db,
+            targetTable,
+            fkColumnInTarget,
+            tableName,
+            onDelete,
+            onUpdate,
+          );
+          await DDLManager.registerRelation(db, {
+            name: `${name}_${field.name}`,
+            type: 'o2m',
+            source_collection: name,
+            source_field: field.name,
+            target_collection: relatedCollection,
+            target_field: fkColumnInTarget,
+            on_delete: onDelete,
+            on_update: onUpdate,
+          });
+        } else if (field.type === 'm2m' && relatedCollection) {
+          // m2m — junction table with FK columns for both sides
+          const junctionTable = await DDLManager.createJunctionTable(
+            db,
+            name,
+            relatedCollection,
+            field.name,
+          );
+          await DDLManager.registerRelation(db, {
+            name: `${name}_${field.name}`,
+            type: 'm2m',
+            source_collection: name,
+            source_field: field.name,
+            target_collection: relatedCollection,
+            target_field: 'id',
+            junction_table: junctionTable,
+          });
+        }
 
-      if (RELATION_FK_TYPES.has(field.type) && relatedCollection) {
-        // m2o / reference: FK column lives in the SOURCE table. Both
-        // helpers delegate to DDLManager so add-field stays in sync
-        // with the create-table path's FK semantics.
-        const targetTable = DDLManager.getTableName(relatedCollection);
-        const onDelete = String(opts.on_delete ?? 'SET NULL').toUpperCase();
-        const onUpdate = String(opts.on_update ?? 'CASCADE').toUpperCase();
-        await DDLManager.applyRelationFK(
-          db,
-          tableName,
-          field.name,
-          targetTable,
-          onDelete,
-          onUpdate,
-          true,
-          field.required === true,
-        );
-        await DDLManager.registerRelation(db, {
-          name: `${name}_${field.name}`,
-          type: 'm2o',
-          source_collection: name,
-          source_field: field.name,
-          target_collection: relatedCollection,
-          target_field: 'id',
-          on_delete: onDelete,
-          on_update: onUpdate,
-        });
-      } else if (RELATION_REVERSE_TYPES.has(field.type) && relatedCollection) {
-        // o2m — FK column lives in TARGET table (target has many of source)
-        const targetTable = DDLManager.getTableName(relatedCollection);
-        const fkColumnInTarget = `${name}_id`;
-        const onDelete = String(opts.on_delete ?? 'SET NULL').toUpperCase();
-        const onUpdate = String(opts.on_update ?? 'CASCADE').toUpperCase();
-        await DDLManager.applyRelationFK(
-          db,
-          targetTable,
-          fkColumnInTarget,
-          tableName,
-          onDelete,
-          onUpdate,
-        );
-        await DDLManager.registerRelation(db, {
-          name: `${name}_${field.name}`,
-          type: 'o2m',
-          source_collection: name,
-          source_field: field.name,
-          target_collection: relatedCollection,
-          target_field: fkColumnInTarget,
-          on_delete: onDelete,
-          on_update: onUpdate,
-        });
-      } else if (field.type === 'm2m' && relatedCollection) {
-        // m2m — junction table with FK columns for both sides
-        const junctionTable = await DDLManager.createJunctionTable(
-          db,
-          name,
-          relatedCollection,
-          field.name,
-        );
-        await DDLManager.registerRelation(db, {
-          name: `${name}_${field.name}`,
-          type: 'm2m',
-          source_collection: name,
-          source_field: field.name,
-          target_collection: relatedCollection,
-          target_field: 'id',
-          junction_table: junctionTable,
-        });
-      } else {
-        // Its unique key is built CONCURRENTLY, outside the table's lock (DR-37);
-        // here it was built inside it, and the table stalled for the whole scan.
-        await DDLManager.addField(db, name, field);
-        added = true;
-      }
-
-      // Row-lock the collection (FOR UPDATE) inside a transaction so
-      // two concurrent add-field calls can't both observe the same
-      // pre-mutation fields[] and overwrite each other's writes.
-      if (!added) {
+        // Row-lock the collection (FOR UPDATE) inside a transaction so
+        // two concurrent add-field calls can't both observe the same
+        // pre-mutation fields[] and overwrite each other's writes.
         // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
         await db.transaction().execute(async (trx: any) => {
           // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
@@ -590,14 +605,7 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
             currentFields = [];
           }
           // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-          if (currentFields.some((f: any) => f.name === field.name)) {
-            const err = new Error(
-              `Field "${field.name}" already exists in collection "${name}"`,
-              // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
-            ) as any;
-            err.code = 'DUPLICATE';
-            throw err;
-          }
+          if (currentFields.some((f: any) => f.name === field.name)) throw duplicate();
           const updatedFields = [...currentFields, field];
           // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
           await (trx as any)
@@ -606,6 +614,19 @@ export function collectionsRoutes(db: Database, auth: any): Hono {
             .where('name', '=', name)
             .execute();
         });
+        return true;
+      };
+      if (!ALL_RELATION_TYPES.has(field.type)) {
+        // Its unique key is built CONCURRENTLY, outside the table's lock (DR-37);
+        // here it was built inside it, and the table stalled for the whole scan.
+        await DDLManager.addField(db, name, field);
+      } else if (
+        !(await tryAdvisoryLock(db, `zveltio:add-field:${tableName}.${field.name}`, addRelation))
+      ) {
+        return c.json(
+          { error: `Field "${field.name}" is being added to collection "${name}"` },
+          409,
+        );
       }
       DDLManager.invalidateCache(name);
       announceSchemaChange(name, 'alter');
