@@ -132,7 +132,7 @@ const anchorName = (ms: number) =>
  * or with `newest` only the newest: names sort newest first.
  */
 async function readAnchors(t: Target, newest = false): Promise<AnchorFile[]> {
-  let texts: { name: string; read: () => Promise<string> }[];
+  let texts: { name: string; read: () => Promise<string>; modified?: string }[];
   if (t.kind === 'dir') {
     // Never created: an absent directory is an unmounted target, and anchoring
     // to the root filesystem in its place would look like it worked.
@@ -148,7 +148,11 @@ async function readAnchors(t: Target, newest = false): Promise<AnchorFile[]> {
     do {
       const page = await t.client.list({ prefix: `${t.prefix}${PREFIX}`, continuationToken });
       for (const o of page.contents ?? []) {
-        texts.push({ name: o.key, read: () => t.client.file(o.key).text() });
+        texts.push({
+          name: o.key,
+          read: () => t.client.file(o.key).text(),
+          modified: o.lastModified,
+        });
       }
       if (page.isTruncated && !page.nextContinuationToken) {
         throw new Error('the anchor listing was cut short with no way to continue it');
@@ -172,6 +176,16 @@ async function readAnchors(t: Target, newest = false): Promise<AnchorFile[]> {
       if (!wellFormed(a, name.slice(name.lastIndexOf('/') + 1))) {
         throw new Error(`the audit anchor ${name} is malformed`);
       }
+      // Object lock keeps an anchor's version, not its key: a PUT to the same
+      // key makes a new current version, which is what a read returns. The
+      // store, not the writer, sets LastModified, so a replaced anchor shows a
+      // write time long after its own `at`.
+      const modified = Date.parse(batch[k]!.modified ?? '');
+      if (t.kind === 's3' && !(modified <= Date.parse(a.at) + REPLACED_MS)) {
+        throw new Error(
+          `the audit anchor ${name} was stored after its own date (replaced), or the store gave no write time`,
+        );
+      }
       out.push(a);
     }
   }
@@ -181,6 +195,8 @@ async function readAnchors(t: Target, newest = false): Promise<AnchorFile[]> {
 const HEX = /^[0-9a-f]{64}$/;
 /** A day of clock skew between replicas; an anchor dated later is not one the engine wrote. */
 const SKEW_MS = 24 * 60 * 60_000;
+/** The engine and the object store clocks may differ by this much; a replacement older than it is caught. */
+const REPLACED_MS = 60 * 60_000;
 
 const isLink = (l: unknown): l is ChainLink =>
   typeof l === 'object' &&
