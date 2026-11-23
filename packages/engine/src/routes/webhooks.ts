@@ -21,9 +21,14 @@ import { z } from 'zod';
 import type { Database } from '../db/index.js';
 import { holdsRole, isTenantAdmin, DEFAULT_RUN_AS_ROLE } from '../lib/tenancy/index.js';
 import { reqDb, tenantId } from '../lib/route-db.js';
-import { safeFetch, validatePublicUrl } from '../lib/edge-functions/safe-fetch.js';
+import { validatePublicUrl } from '../lib/edge-functions/safe-fetch.js';
 import { isEncryptedValue, maybeEncrypt, maybeDecrypt } from '../lib/data/index.js';
-import { enqueueReplay, type WebhookJob, webhookSecretAad } from '../lib/webhooks.js';
+import {
+  enqueueReplay,
+  type WebhookJob,
+  WebhookManager,
+  webhookSecretAad,
+} from '../lib/webhooks.js';
 import { guardAdmin } from '../lib/admin-guard.js';
 import { paging } from '../lib/utils.js';
 
@@ -98,21 +103,6 @@ function generateWebhookSecret(): string {
  * bullet run are a typo away from a guard that never matches.
  */
 const MASK = '••••••••';
-
-async function signBody(body: string, secret: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    'raw',
-    encoder.encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  );
-  const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(body));
-  return `sha256=${Array.from(new Uint8Array(sig))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')}`;
-}
 
 // biome-ignore lint/suspicious/noExplicitAny: legacy any; tracked in hardening plan item H-01
 export function webhooksRoutes(db: Database, auth: any): Hono {
@@ -424,69 +414,40 @@ export function webhooksRoutes(db: Database, auth: any): Hono {
 
     if (!webhook) return c.json({ error: 'Webhook not found' }, 404);
 
+    // The delivery a real event gets: its header filter, signature, SSRF guard,
+    // timeout and body cap. This route kept its own copy of each, with another
+    // header list, so a test dropped x-api-key that real deliveries send.
+    let secret: string | null = null;
     try {
-      // Security: sanitize stored headers — block credential injection.
-      const BLOCKED_HEADERS = new Set([
-        'authorization',
-        'cookie',
-        'set-cookie',
-        'x-api-key',
-        'x-auth-token',
-        'x-forwarded-for',
-        'x-real-ip',
-        'x-zveltio-internal',
-        'host',
-        'origin',
-        'referer',
-      ]);
-      const sanitizedHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
-      for (const [key, value] of Object.entries(
-        (webhook.headers as Record<string, string>) || {},
-      )) {
-        if (!BLOCKED_HEADERS.has(key.toLowerCase()) && typeof value === 'string') {
-          sanitizedHeaders[key] = value;
-        }
-      }
-
-      const testBody = JSON.stringify({
-        event: 'test',
-        collection: 'test',
-        data: { message: 'Test webhook from Zveltio' },
-        timestamp: new Date().toISOString(),
-      });
-
       if (webhook.secret) {
-        // The stored secret is encrypted (enc:v2:..., or enc:v1: from before) — decrypt in
-        // memory to sign the test body. maybeDecrypt returns the value
-        // unchanged on legacy unencrypted rows so test still works
-        // during the encryption rollout.
-        const plaintext = (await maybeDecrypt(
+        const plain = await maybeDecrypt(
           webhook.secret,
           true,
           webhookSecretAad(tenantId(c), webhook.id),
-        )) as string;
-        sanitizedHeaders['X-Zveltio-Signature'] = await signBody(testBody, plaintext);
+        );
+        secret = typeof plain === 'string' ? plain : null;
       }
-
-      validatePublicUrl(webhook.url as string);
-      const response = await safeFetch(webhook.url as string, {
-        method: (webhook.method as string) || 'POST',
-        headers: sanitizedHeaders,
-        body: testBody,
-        signal: AbortSignal.timeout(webhook.timeout || 5000),
-      });
-
-      return c.json({
-        success: response.ok,
-        status: response.status,
-        statusText: response.statusText,
-      });
     } catch (err) {
-      return c.json({
-        success: false,
-        error: err instanceof Error ? err.message : 'Request failed',
-      });
+      return c.json({ success: false, error: (err as Error).message });
     }
+    const out = await WebhookManager.deliver({
+      id: crypto.randomUUID(),
+      sequence: 0,
+      event: 'test',
+      collection: 'test',
+      data: { message: 'Test webhook from Zveltio' },
+      timestamp: new Date().toISOString(),
+      url: webhook.url,
+      method: webhook.method || 'POST',
+      headers: (webhook.headers as Record<string, string> | null) ?? {},
+      secret,
+      timeout: webhook.timeout || 5000,
+    });
+    return c.json({
+      success: out.ok,
+      status: out.status,
+      ...(out.error ? { error: out.error } : {}),
+    });
   });
 
   return app;

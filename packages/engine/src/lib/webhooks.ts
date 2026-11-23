@@ -710,12 +710,24 @@ export const WebhookManager = {
       httpStatus = response.status;
       ok = response.ok;
 
-      // Read a short snippet of the response body for the delivery log
+      // Read a short snippet of the response body for the delivery log: only
+      // its first bytes (2,000 characters are at most 8,000 in UTF-8), then the
+      // stream is cancelled. Reading it whole let a receiver that streamed
+      // gigabytes until the timeout hold them all in the engine's memory.
+      const reader = response.body?.getReader();
       try {
-        const text = await response.text();
-        responseBody = text.slice(0, 2_000);
+        const chunks: Uint8Array[] = [];
+        for (let size = 0; reader && size < 8_000; ) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          size += value.byteLength;
+        }
+        responseBody = new TextDecoder().decode(Buffer.concat(chunks)).slice(0, 2_000);
       } catch {
         /* non-fatal */
+      } finally {
+        await reader?.cancel().catch(() => undefined);
       }
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : 'Request failed';
