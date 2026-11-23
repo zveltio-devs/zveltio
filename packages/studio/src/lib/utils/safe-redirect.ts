@@ -42,7 +42,10 @@ export function safeRedirect(target: string | null | undefined, base: string): s
 
   // Must live under the app's base path, so a deployment mounted at /admin
   // cannot be used to bounce someone to an unrelated app on the same host.
-  if (base && !(t === base || t.startsWith(`${base}/`))) return fallback;
+  // Judged on the resolved path: the browser applies `..` and `%2e%2e` before
+  // navigating, so `/admin/../other` lands on `/other`.
+  const path = new URL(t, 'http://x').pathname;
+  if (base && !(path === base || path.startsWith(`${base}/`))) return fallback;
 
   return t;
 }
