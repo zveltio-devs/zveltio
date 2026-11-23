@@ -99,6 +99,18 @@ async function withStepUp(
   return send({ [STEP_UP_HEADER]: token });
 }
 
+/**
+ * A path with a `.` or `..` segment (raw or `%2e`), which fetch would resolve:
+ * `encodeURIComponent` leaves dots as they are, so a collection named `..`
+ * turns `/api/data/../me` into `/api/me`. No engine route has one.
+ */
+function dotSegment(path: string): TypeError | null {
+  const pathOnly = path.split(/[?#]/, 1)[0] ?? '';
+  return pathOnly.split('/').some((seg) => /^(\.|%2e){1,2}$/i.test(seg))
+    ? new TypeError(`Refusing a dot segment in ${JSON.stringify(pathOnly)}`)
+    : null;
+}
+
 class ApiClient {
   private base: string;
 
@@ -110,6 +122,8 @@ class ApiClient {
   private async request<T>(method: string, path: string, body?: any): Promise<T> {
     // A FormData body goes as multipart: fetch sets the Content-Type with its
     // boundary. Stringified, it reached the engine as `{}`.
+    const bad = dotSegment(path);
+    if (bad) throw bad;
     const form = body instanceof FormData;
     const res = await withStepUp((stepUp) =>
       fetch(`${this.base}${path}`, {
@@ -168,6 +182,8 @@ class ApiClient {
    * helpers for the common JSON-in/JSON-out flow.
    */
   fetch(path: string, init: RequestInit = {}): Promise<Response> {
+    const bad = dotSegment(path);
+    if (bad) return Promise.reject(bad);
     return withStepUp(
       (stepUp) =>
         fetch(`${this.base}${path}`, {

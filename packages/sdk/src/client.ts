@@ -247,6 +247,13 @@ export class ZveltioClient<Schema extends Record<string, any> = Record<string, a
   }
 
   private async sendOnce(path: string, init: SendInit) {
+    // `encodeURIComponent` leaves `.` and `..` as they are and fetch resolves
+    // them (`%2e` too), so `collection('..').delete('me')` would reach
+    // `DELETE /api/me`. No engine route has one, so a dot segment is caller data.
+    const pathOnly = path.split(/[?#]/, 1)[0] ?? '';
+    if (pathOnly.split('/').some((seg) => /^(\.|%2e){1,2}$/i.test(seg))) {
+      throw new TypeError(`Refusing a dot segment in ${JSON.stringify(pathOnly)}`);
+    }
     const res = await fetch(`${this.baseUrl}${path}`, {
       ...init,
       headers:
