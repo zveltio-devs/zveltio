@@ -22,7 +22,7 @@ export const RESERVED_PATH_SEGMENTS: readonly string[] = Object.freeze([
 
 /**
  * Whether `path` (`/admin/x`, `admin`, `favicon.ico`) starts with a reserved segment.
- * It does not normalise `\\`, `%xx` or `./`: pass a slug already checked against a
+ * It does not normalise `\`, `%xx` or `./`: pass a slug already checked against a
  * strict pattern such as `^[a-z0-9/-]+$`.
  */
 export function isReservedPath(path: string): boolean {
