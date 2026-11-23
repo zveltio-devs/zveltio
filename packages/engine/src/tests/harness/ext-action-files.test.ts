@@ -160,10 +160,13 @@ d('an action reads and writes the files its request hands it (ADR 0052)', () => 
         name: DEP,
         category: 'custom',
         mountStrategy: 'subapp',
-        actions: { read: (input, host) => outcome(() => read(input, host)) },
+        actions: {
+          read: (input, host) => outcome(() => read(input, host)),
+          go: async (input) => ({ redirect: (input as { to: string }).to }),
+        },
         async register() {},
       },
-      { permissions: ['files'], resources: [RES], actions: [action('read')] },
+      { permissions: ['files'], resources: [RES], actions: [action('read'), action('go')] },
     );
     await load(
       {
@@ -351,5 +354,12 @@ d('an action reads and writes the files its request hands it (ADR 0052)', () => 
     expect(passed.status).toBe(200);
     expect(passed.result).toMatchObject({ status: 409, code: 'file_not_granted' });
     expect(String((passed.result as Outcome).message)).toContain('already went to a job');
+  });
+
+  // ADR 0061 d1: mountActions refuses a redirect to a host the operator did not
+  // name for the extension (redirectAllowed is unit-tested; this pins the call).
+  it('refuses a redirect to a host the operator did not name', async () => {
+    const res = await act(DEP, 'go', { to: 'https://elsewhere.example/' });
+    expect(res.status).toBe(502);
   });
 });
