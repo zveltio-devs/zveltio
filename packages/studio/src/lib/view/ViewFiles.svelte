@@ -67,7 +67,12 @@ const remove = (fid: string) => set(files.filter((f) => f.id !== fid));
         <button
           type="button"
           class="link link-hover"
-          onclick={() => openFile(f.id).catch((err: Error) => toast.error(err.message))}
+          onclick={(e) => {
+            // A shown file sits inside a list's card button or clickable row;
+            // unstopped, opening the file also opened the row.
+            e.stopPropagation();
+            openFile(f.id).catch((err: Error) => toast.error(err.message));
+          }}
           >{f.name || f.id}</button
         >
         {#if onchange}
