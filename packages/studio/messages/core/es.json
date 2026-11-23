@@ -1409,6 +1409,7 @@
   "view.loadAllFirst": "Cargue primero todos los registros: uno de una página aún no leída conservaría su lugar.",
   "view.loadMore": "Cargar más",
   "view.moveDown": "Bajar",
+  "view.moveUnderOwn": "Un registro no puede moverse bajo uno de sus propios descendientes.",
   "view.moveTo": "Mover a",
   "view.moveUp": "Subir",
   "view.none": "(ninguno)",

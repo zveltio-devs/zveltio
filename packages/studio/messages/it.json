@@ -3660,6 +3660,7 @@
   "view.loadAllFirst": "Carica prima tutti i record: uno di una pagina non ancora letta manterrebbe il suo posto.",
   "view.loadMore": "Carica altri",
   "view.moveDown": "Sposta giù",
+  "view.moveUnderOwn": "Un record non può essere spostato sotto uno dei suoi discendenti.",
   "view.moveTo": "Sposta in",
   "view.moveUp": "Sposta su",
   "view.none": "(nessuno)",

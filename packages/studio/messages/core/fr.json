@@ -1409,6 +1409,7 @@
   "view.loadAllFirst": "Chargez d'abord tous les enregistrements : un élément d'une page non lue garderait sa place.",
   "view.loadMore": "Charger plus",
   "view.moveDown": "Descendre",
+  "view.moveUnderOwn": "Un enregistrement ne peut pas être déplacé sous l'un de ses propres descendants.",
   "view.moveTo": "Déplacer vers",
   "view.moveUp": "Monter",
   "view.none": "(aucun)",

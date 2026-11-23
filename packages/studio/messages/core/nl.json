@@ -1409,6 +1409,7 @@
   "view.loadAllFirst": "Laad eerst alle records: een record op een nog niet gelezen pagina zou zijn plaats houden.",
   "view.loadMore": "Meer laden",
   "view.moveDown": "Omlaag",
+  "view.moveUnderOwn": "Een record kan niet onder een van zijn eigen afstammelingen worden verplaatst.",
   "view.moveTo": "Verplaatsen naar",
   "view.moveUp": "Omhoog",
   "view.none": "(geen)",

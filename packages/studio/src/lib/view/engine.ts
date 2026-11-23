@@ -545,6 +545,30 @@ export function periodQueries(
 }
 
 /**
+ * Whether `id` is `under` or one of its ancestors, reading each parent with
+ * `parentOf` (a record's raw parent id; `undefined` when it cannot be read).
+ *
+ * `isWithin` walks the loaded rows only, which is the whole tree until a tree
+ * has more records than one read returns: then a target's ancestor may be a
+ * record not loaded, the walk stops there, and a node could be moved under its
+ * own descendant. This one asks for what is not loaded. A record the caller
+ * cannot read ends the walk, as it ends the tree the caller sees.
+ */
+export async function reachesUp(
+  id: string,
+  under: string,
+  parentOf: (at: string) => Promise<string | null | undefined>,
+): Promise<boolean> {
+  const seen = new Set<string>();
+  for (let at: string | null | undefined = under; at != null; at = await parentOf(at)) {
+    if (at === id) return true;
+    if (seen.has(at)) return false; // a cycle already in the data: stop
+    seen.add(at);
+  }
+  return false;
+}
+
+/**
  * Each record's parent in a tree: the `parent` value when that record is
  * among the rows, else none (a root). A cycle in the data (A under B under A)
  * has no root and would not be drawn: its first record becomes one, so every

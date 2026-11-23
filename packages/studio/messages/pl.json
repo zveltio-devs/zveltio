@@ -3660,6 +3660,7 @@
   "view.loadAllFirst": "Najpierw wczytaj wszystkie rekordy: rekord z niewczytanej strony zachowałby swoje miejsce.",
   "view.loadMore": "Wczytaj więcej",
   "view.moveDown": "Przesuń w dół",
+  "view.moveUnderOwn": "Rekordu nie można przenieść pod jednego z jego własnych potomków.",
   "view.moveTo": "Przenieś do",
   "view.moveUp": "Przesuń w górę",
   "view.none": "(brak)",
