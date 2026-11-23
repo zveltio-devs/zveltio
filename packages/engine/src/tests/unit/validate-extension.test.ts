@@ -235,6 +235,21 @@ describe('validateMigrations', () => {
     ]);
   });
 
+  it('a drop inside a block comment or a string literal leaves the table tenanted', () => {
+    for (const drop of [
+      '/* ALTER TABLE g DROP COLUMN tenant_id; */',
+      "COMMENT ON TABLE g IS 'ALTER TABLE g DROP COLUMN tenant_id';",
+    ]) {
+      const files = [
+        { filename: '001.sql', sql: 'CREATE TABLE g (tenant_id UUID, name TEXT);' },
+        { filename: '002.sql', sql: `${drop}\nCREATE UNIQUE INDEX g_n ON g (name);` },
+      ];
+      expect(validateMigrations({ files }).map((e) => e.code)).toEqual([
+        'SCHEMA_UNIQUE_WITHOUT_TENANT',
+      ]);
+    }
+  });
+
   it('accepts a widened key whose columns are in a different order', () => {
     const errors = validateMigrations({
       files: [

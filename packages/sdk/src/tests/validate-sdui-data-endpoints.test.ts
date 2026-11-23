@@ -30,17 +30,35 @@ describe('SDUI data API endpoints', () => {
     expect(foreign('/api/data/projects')).toEqual(['/api/data/projects']);
   });
 
-  it('refuses every other path, a deeper one and a dot segment included', () => {
+  it('refuses every other path, a deeper one included', () => {
     for (const e of [
       '/api/users',
       '/api/data',
       '/api/data/projects/{id}/history',
-      '/api/data/projects/../users',
-      '/api/data/projects/..',
       '/api/collections/projects',
       '/api/data/Projects',
     ]) {
       expect(foreign(e, ['projects'])).toEqual([e]);
     }
+  });
+
+  it('refuses a dot segment, raw or percent-encoded, even under a dependency mount', () => {
+    const dot = (endpoint: string) =>
+      validateSduiSchema({
+        schema: { title: 't', resources: [{ name: 'r', dataSource: endpoint }] },
+        extName: 'projects/management',
+        dependencies: ['dep'],
+        collections: ['projects'],
+      }).map((e) => e.code);
+    for (const e of [
+      '/ext/dep/../../api/admin/users',
+      '/ext/dep/%2E%2e/%2e./api/admin/users',
+      '/ext/dep/./x',
+      '/api/data/projects/../users',
+      '/api/data/projects/..',
+    ]) {
+      expect(dot(e)).toEqual(['SDUI_ENDPOINT_DOT_SEGMENT']);
+    }
+    expect(dot('/ext/dep/a..b?x=../y')).toEqual([]);
   });
 });

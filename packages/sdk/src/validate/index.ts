@@ -813,7 +813,13 @@ const bareTable = (t: string) => t.replace(/"/g, '').split('.').pop()!.toLowerCa
  * 004): a key on it is instance-wide and needs no tenant column.
  */
 function tenantColumnChanges(upSql: string): Array<[table: string, dropped: boolean]> {
-  const s = upSql.replace(/--[^\n]*/g, '');
+  // Comments and string literals out, as in keyColumnSets: a drop that is
+  // commented out or quoted (`COMMENT ON TABLE … IS '… DROP COLUMN tenant_id'`)
+  // takes nothing out of tenancy.
+  const s = upSql
+    .replace(/--[^\n]*/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/'(?:[^']|'')*'/g, "''");
   const out: Array<[string, boolean]> = [];
   for (const m of s.matchAll(
     /ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?([\w."]+)\s[^;]*?\b(ADD|DROP)\s+COLUMN\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?"?tenant_id"?\b/gi,
@@ -1218,6 +1224,18 @@ export function validateSduiSchema(input: SduiValidationInput): ValidationError[
   collectEndpoints(schema, endpoints);
   for (const raw of endpoints) {
     const bare = raw.split('?')[0];
+    // A browser resolves `.` and `..` before it sends the request, so
+    // `/ext/dep/../../api/admin/users` is a call to `/api/admin/users`.
+    if (/(?:^|\/)(?:\.|%2e){1,2}(?:\/|$)/i.test(raw.split(/[?#]/)[0])) {
+      out.push(
+        err(
+          'SDUI_ENDPOINT_DOT_SEGMENT',
+          `endpoint "${raw}" has a "." or ".." path segment, which a browser resolves to another path. Name the route itself.`,
+          file,
+        ),
+      );
+      continue;
+    }
     if (SDUI_SHARED_READ_ALLOWLIST.has(bare)) continue;
     // A dependency's namespace is allowed (relation pickers etc.).
     if (depMounts.some((m) => inMount(bare, m))) continue;
