@@ -73,10 +73,16 @@ const TOOLS = [
       >
     {/each}
   </div>
+  <!--
+    `contain: paint`: the quoted HTML keeps its `style` and `class`, and a
+    `position: fixed` box (or Studio's own `fixed inset-0`) inside it would
+    otherwise be drawn over the whole of Studio. Contained, it is clipped to
+    this box. A frame cannot hold it: the area is edited in place.
+  -->
   <div
     bind:this={area}
     {id}
-    class="min-h-40 p-3 text-sm focus:outline-none [&_ul]:list-disc [&_ol]:list-decimal [&_ul]:pl-6 [&_ol]:pl-6"
+    class="[contain:paint] min-h-40 p-3 text-sm focus:outline-none [&_ul]:list-disc [&_ol]:list-decimal [&_ul]:pl-6 [&_ol]:pl-6"
     contenteditable="true"
     role="textbox"
     aria-multiline="true"

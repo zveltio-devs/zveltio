@@ -52,8 +52,13 @@ const widthClass = $derived(
   region as a listener target.
 -->
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<!--
+  `contain: paint`: a block's HTML keeps its author's `style`, so a
+  `position: fixed` box in a draft would be drawn over the whole of Studio for
+  whoever opens it. Contained, it stays inside the canvas.
+-->
 <div
-  class="flex-1 overflow-y-auto bg-base-200 py-8 px-10"
+  class="[contain:paint] flex-1 overflow-y-auto bg-base-200 py-8 px-10"
   ondragover={(e) => { e.preventDefault(); dragState.active = true; }}
   ondragleave={() => (dragState.zone = null)}
   ondragend={() => { dragState.active = false; dragState.zone = null; }}
