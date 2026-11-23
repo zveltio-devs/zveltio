@@ -778,15 +778,14 @@ function columnLevelUniqueColumns(sql: string): string[] {
  * "comment", a quote inside a block comment a "string") and miss `E'\''`, so a quoted `DROP COLUMN tenant_id` read as a real one.
  * Quoted identifiers stay; a `$$…$$` body is scanned on its own (`DO $$ … $$` runs).
  */
-const DOLLAR_TAG = /^\$(?:[a-z_][a-z0-9_]*)?\$/i;
+const DOLLAR_TAG = /^\$(?:[\p{L}_][\p{L}\p{N}_]*)?\$/u;
 
 function sqlCode(sql: string): string {
   let out = '';
   let i = 0;
   while (i < sql.length) {
     const c = sql[i];
-    const dollar =
-      c === '$' && !/[\w$]/.test(sql[i - 1] ?? '') && DOLLAR_TAG.exec(sql.slice(i, i + 64));
+    const dollar = c === '$' && !/[\w$]/.test(sql[i - 1] ?? '') && DOLLAR_TAG.exec(sql.slice(i));
     if (dollar) {
       // A `$$…$$` body may run (`DO $$ … $$`), so it is scanned on its own: a
       // quote or `--` inside it must not swallow the SQL around it.

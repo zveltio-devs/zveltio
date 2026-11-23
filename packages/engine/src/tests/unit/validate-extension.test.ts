@@ -256,6 +256,8 @@ describe('validateMigrations', () => {
     for (const sql of [
       'SELECT $$--$$; ALTER TABLE g DROP COLUMN tenant_id;',
       "SELECT $$'$$; ALTER TABLE g DROP COLUMN tenant_id; SELECT $$'$$;",
+      "SELECT $tăg$'$tăg$; ALTER TABLE g DROP COLUMN tenant_id; SELECT $tăg$'$tăg$;",
+      "SELECT $tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt$'$tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt$; ALTER TABLE g DROP COLUMN tenant_id; SELECT $tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt$'$tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt$;",
     ]) {
       const files = [
         { filename: '001.sql', sql: 'CREATE TABLE g (tenant_id UUID, name TEXT);' },
