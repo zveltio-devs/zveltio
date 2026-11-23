@@ -4,10 +4,11 @@ import { join } from 'node:path';
 // The watchdog writes to stderr from its own thread while the main thread is
 // blocked, so the proof runs in a child process and reads that stderr.
 describe('inline-lag watchdog (ADR 0056 d2)', () => {
-  it('names the inline action that blocks the event loop', async () => {
+  it('names the inline action that blocks the event loop, not one that finished', async () => {
     const mod = join(import.meta.dir, '../../lib/extensions/inline-lag.ts');
     const script = `
       const { attributed, STALL_MS } = await import(${JSON.stringify(mod)});
+      await attributed('acme/done', async () => {});
       await attributed('acme/spin', async () => {
         const end = Date.now() + STALL_MS + 1000;
         while (Date.now() < end) {}
