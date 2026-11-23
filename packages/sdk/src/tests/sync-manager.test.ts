@@ -120,18 +120,21 @@ describe('SyncManager — clearLocalData during a fetch', () => {
     });
     const client = {
       collection: () => ({
-        get: async (id: string) => (await held, { id, title: 'previous user' }),
+        get: async (id: string) => {
+          await held;
+          return { id, title: 'previous user' };
+        },
       }),
-      post: async () => (
-        await held,
-        {
+      post: async () => {
+        await held;
+        return {
           changes: [
             { collection: 'zvd_posts', id: 'p2', data: { title: 'x' }, operation: 'upsert' },
           ],
           hasMore: false,
           cursors: { zvd_posts: 'c1' },
-        }
-      ),
+        };
+      },
     } as unknown as ZveltioClient;
     sync = new SyncManager(client, { syncInterval: 60_000 });
     await sync.open();
