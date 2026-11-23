@@ -59,7 +59,7 @@ describe('DDLManager.addField — m2o relation', () => {
     expect(db.executed(/update "zvd_collections" set/)).toHaveLength(1);
   });
 
-  it('skips metadata append when the field name already exists', async () => {
+  it('skips metadata append when the same field is already recorded (a retried job)', async () => {
     const db = new CannedDb();
     db.when(/SELECT EXISTS[\s\S]*pg_tables/i, () => [{ exists: true }]);
     db.when(/select \* from "zvd_collections" where "name" = /, [
@@ -67,7 +67,14 @@ describe('DDLManager.addField — m2o relation', () => {
         name: 'orders',
         fields: JSON.stringify([
           { name: 'title', type: 'text', required: true, unique: false, indexed: false },
-          { name: 'customer', type: 'm2o', required: false, unique: false, indexed: false },
+          {
+            name: 'customer',
+            type: 'm2o',
+            required: false,
+            unique: false,
+            indexed: false,
+            options: { related_collection: 'customers' },
+          },
         ]),
       },
     ]);

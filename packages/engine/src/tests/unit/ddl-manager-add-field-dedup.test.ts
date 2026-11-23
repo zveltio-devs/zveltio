@@ -40,4 +40,20 @@ describe('DDLManager.addField — metadata', () => {
     } as never);
     expect(db.executed(/update "zvd_collections" set/).length).toBe(0);
   });
+
+  it('refuses the name recorded with another config, before any DDL (A15)', async () => {
+    const db = new CannedDb();
+    db.when(/SELECT EXISTS[\s\S]*pg_tables/i, [{ exists: true }]);
+    db.when(/select \* from "zvd_collections" where "name" = /, [
+      { name: 'articles', fields: JSON.stringify([{ name: 'sku', type: 'text' }]) },
+    ]);
+    const err = await DDLManager.addField(asDb(db), 'articles', {
+      name: 'sku',
+      type: 'integer',
+    } as never).catch((e: Error & { code?: string }) => e);
+    expect((err as { code?: string }).code).toBe('DUPLICATE');
+    expect((err as Error).message).toContain('already exists');
+    expect(db.executed(/ALTER TABLE/i).length).toBe(0);
+    expect(db.executed(/update "zvd_collections" set/).length).toBe(0);
+  });
 });
