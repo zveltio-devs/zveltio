@@ -1734,7 +1734,7 @@ export class DDLManager {
     );
     if (recorded) {
       // The same field again is a retried job whose append committed: done.
-      if (Bun.deepEquals(recorded, JSON.parse(JSON.stringify(validated)))) return;
+      if (Bun.deepEquals(FieldSchema.safeParse(recorded).data, validated)) return;
       throw duplicateField(
         `Field "${validated.name}" already exists in collection "${collectionName}"`,
       );
