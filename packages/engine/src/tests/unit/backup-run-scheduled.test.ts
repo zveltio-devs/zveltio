@@ -17,7 +17,7 @@
  */
 
 import { afterAll, afterEach, beforeAll, describe, expect, it, spyOn } from 'bun:test';
-import { readlinkSync, writeSync } from 'node:fs';
+import { existsSync, readlinkSync, writeSync } from 'node:fs';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import type { Database } from '../../db/index.js';
 import { CannedDb } from './fixtures/canned-db.js';
@@ -250,6 +250,9 @@ describe('runScheduledBackup — the run that did not', () => {
 
     expect(out.status).toBe('failed');
     expect(out.error).toContain('153');
+    // The truncated archive pg_dump left is deleted: on disk it would pass for
+    // a backup to anyone restoring from the directory.
+    expect(existsSync(`${DIR}/${out.filename}`)).toBe(false);
     expect(db.executed(UPDATE_BACKUP)[0]!.sql).toContain("status = 'failed'");
     expect(db.executed(UPDATE_SCHEDULE).length).toBe(1);
   });
