@@ -163,7 +163,13 @@ function onDrop(e: DragEvent, index: number) {
     onclick={(e) => { e.stopPropagation(); onSelect(block.id); }}
     role="button"
     tabindex="0"
-    onkeydown={(e) => e.key === 'Enter' && onSelect(block.id)}
+    onkeydown={(e) => {
+      // Stopped like the click: unstopped, the container around a nested block
+      // hears the same Enter and selects itself instead.
+      if (e.key !== 'Enter' || e.target !== e.currentTarget) return;
+      e.stopPropagation();
+      onSelect(block.id);
+    }}
   >
     <!-- Controls, on hover or when selected -->
     <div class="absolute -top-3.5 right-2 z-20 flex items-center gap-0.5

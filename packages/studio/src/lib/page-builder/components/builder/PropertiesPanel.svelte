@@ -7,7 +7,10 @@ import {
   fieldsOf,
   asStat,
   asText,
+  type MediaFile,
+  publicImages,
 } from '../../lib/builder-types.js';
+import { api } from '#lib/api.js';
 import { BREAKPOINT_LABEL, spanKey, styleKey, type Breakpoint } from '../../lib/breakpoints.js';
 import { Image as ImageIcon, X as XIcon } from '@lucide/svelte';
 
@@ -44,13 +47,6 @@ let tab = $state<'content' | 'style'>('content');
 // blocks took a pasted URL — the most obvious rough edge in the editor. The
 // picker opens on demand and degrades to the plain URL field when the
 // extension is absent, so this panel never depends on it being there.
-type MediaFile = {
-  id: string;
-  url: string | null;
-  storage_path: string;
-  original_name: string;
-  mimetype: string;
-};
 let picker = $state<{ open: boolean; target: string | null }>({ open: false, target: null });
 let mediaFiles = $state<MediaFile[]>([]);
 let mediaState = $state<'idle' | 'loading' | 'unavailable'>('idle');
@@ -61,12 +57,10 @@ async function openPicker(target: string) {
   mediaState = 'loading';
   try {
     // The engine's storage (content/media 2.0.0 no longer serves files).
-    const res = await fetch('/api/storage?limit=200', { credentials: 'include' });
-    if (!res.ok) throw new Error(String(res.status));
-    const json = await res.json();
-    mediaFiles = ((json.files ?? []) as MediaFile[])
-      .filter((f) => f.mimetype?.startsWith('image/'))
-      .slice(0, 60);
+    // Through `api`: a bare `fetch('/api/…')` asks Studio's own origin, which
+    // is not the engine's when Studio is served apart from it.
+    const json = await api.get<{ files?: MediaFile[] }>('/api/storage?limit=200');
+    mediaFiles = publicImages(json.files ?? []).slice(0, 60);
     mediaState = 'idle';
   } catch {
     // Not installed, or not permitted. Either way the URL field still works.

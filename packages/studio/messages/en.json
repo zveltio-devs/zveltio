@@ -2922,7 +2922,7 @@
   "pageBuilder.motionType": "Entrance",
   "pageBuilder.moveDown": "Move down",
   "pageBuilder.moveUp": "Move up",
-  "pageBuilder.noImages": "No images uploaded yet.",
+  "pageBuilder.noImages": "No public images yet. A page can show only an image uploaded as public.",
   "pageBuilder.none": "None",
   "pageBuilder.overridesSmaller": "Only what you change here overrides the smaller size.",
   "pageBuilder.padding": "Padding",

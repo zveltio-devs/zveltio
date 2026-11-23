@@ -316,3 +316,25 @@ export function asStat(item: unknown): StatItem {
 export function asText(item: unknown): string {
   return typeof item === 'string' ? item : String(item ?? '');
 }
+
+/** A stored file as `GET /api/storage` lists it — the fields the media picker reads. */
+export interface MediaFile {
+  id: string;
+  url: string | null;
+  storage_path: string;
+  original_name: string;
+  mimetype: string;
+}
+
+/**
+ * The files a page may show: images under a public key.
+ *
+ * A private upload's `url` is a signed link that expires in a day, so a page
+ * given one shows a broken image to every visitor from the next day on. The
+ * prefixes are the engine's `isPublicKey` (lib/storage/driver.ts).
+ */
+export function publicImages(files: MediaFile[]): MediaFile[] {
+  return files.filter(
+    (f) => f.mimetype?.startsWith('image/') && /^\/*(public|media)\//.test(f.storage_path ?? ''),
+  );
+}
