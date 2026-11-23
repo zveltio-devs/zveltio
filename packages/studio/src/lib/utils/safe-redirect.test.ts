@@ -57,6 +57,15 @@ describe('safeRedirect', () => {
     expect(safeRedirect('/adminevil/page', BASE)).toBe('/admin/');
   });
 
+  it('refuses dot segments that climb out of the app base', () => {
+    // The browser resolves `..` before it navigates, so the raw string can
+    // start with the base and still land outside it.
+    expect(safeRedirect('/admin/../other', BASE)).toBe('/admin/');
+    expect(safeRedirect('/admin/%2e%2e/other', BASE)).toBe('/admin/');
+    expect(safeRedirect('/admin/./../x', BASE)).toBe('/admin/');
+    expect(safeRedirect('/admin/a/../b', BASE)).toBe('/admin/a/../b');
+  });
+
   it('works when the app is mounted at the root', () => {
     expect(safeRedirect('/collections', '')).toBe('/collections');
     expect(safeRedirect('//evil.example', '')).toBe('/');
