@@ -778,7 +778,9 @@ function columnLevelUniqueColumns(sql: string): string[] {
  * "comment", a quote inside a block comment a "string") and miss `E'\''`, so a quoted `DROP COLUMN tenant_id` read as a real one.
  * Quoted identifiers stay; a `$$…$$` body is scanned on its own (`DO $$ … $$` runs).
  */
-const DOLLAR_TAG = /^\$(?:[\p{L}_][\p{L}\p{N}_]*)?\$/u;
+// PostgreSQL's dolq_start / dolq_cont: ASCII letters, `_`, digits after the
+// first, and any non-ASCII character.
+const DOLLAR_TAG = /^\$(?:[A-Za-z_\u0080-\u{10FFFF}][A-Za-z0-9_\u0080-\u{10FFFF}]*)?\$/u;
 
 function sqlCode(sql: string): string {
   let out = '';

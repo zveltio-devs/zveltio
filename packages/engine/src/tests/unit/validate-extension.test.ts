@@ -257,6 +257,8 @@ describe('validateMigrations', () => {
       'SELECT $$--$$; ALTER TABLE g DROP COLUMN tenant_id;',
       "SELECT $$'$$; ALTER TABLE g DROP COLUMN tenant_id; SELECT $$'$$;",
       "SELECT $tăg$'$tăg$; ALTER TABLE g DROP COLUMN tenant_id; SELECT $tăg$'$tăg$;",
+      "SELECT $🙂$'$🙂$; ALTER TABLE g DROP COLUMN tenant_id; SELECT $🙂$'$🙂$;",
+      "SELECT $á$'$á$; ALTER TABLE g DROP COLUMN tenant_id; SELECT $á$'$á$;",
       "SELECT $tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt$'$tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt$; ALTER TABLE g DROP COLUMN tenant_id; SELECT $tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt$'$tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt$;",
     ]) {
       const files = [
