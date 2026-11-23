@@ -12,6 +12,8 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
+import { DEFAULT_TENANT_ID } from '../../lib/route-db.js';
+import { withTenantIsolation } from '../../lib/tenancy/index.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 
@@ -45,7 +47,14 @@ d('POST /api/webhooks/:id/test', () => {
 
   afterAll(async () => {
     globalThis.fetch = original;
-    if (id) await sql`DELETE FROM zvd_webhooks WHERE id = ${id}::uuid`.execute(db);
+    // In the tenant: with no tenant context RLS shows a non-superuser owner no
+    // row (DR-03), so a bare DELETE removed nothing and the hook — every insert,
+    // every collection — doubled the jobs the pg-boss suites count.
+    if (id) {
+      await withTenantIsolation(DEFAULT_TENANT_ID, (trx) =>
+        sql`DELETE FROM zvd_webhooks WHERE id = ${id}::uuid`.execute(trx),
+      );
+    }
   });
 
   const send = async (status: number) => {
