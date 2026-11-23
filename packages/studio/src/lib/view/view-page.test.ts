@@ -11,6 +11,8 @@ const rows = [
   { id: 'n2', title: 'Second', status: 'done', body: 'plain' },
 ];
 const calls: string[] = [];
+/** Holds `dataApi.get` until released: a record still on its way. */
+let getGate: Promise<void> = Promise.resolve();
 const post = vi.fn(
   async (_url: string, _body: unknown): Promise<unknown> => ({ result: { total: 3 } }),
 );
@@ -46,6 +48,7 @@ vi.mock('#lib/api.js', () => ({
     },
     get: async (collection: string, id: string) => {
       calls.push(`GET ${collection}/${id}`);
+      await getGate;
       return rows.find((r) => r.id === id);
     },
     delete: async (collection: string, id: string) => {
@@ -113,6 +116,43 @@ describe('view/2 renderer', () => {
     await waitFor(() => expect(calls).toContain('GET notes/n1'));
     await waitFor(() =>
       expect(container.querySelector('[data-testid="view-detail"]')?.textContent).toContain('open'),
+    );
+  }, 60_000);
+
+  it('a detail never offers the record it showed before for a new selection', async () => {
+    const { default: ViewPage } = await import('./ViewPage.svelte');
+    const { container, getByText, queryByText } = render(ViewPage, {
+      props: {
+        ext: 'notes',
+        view: {
+          type: 'split',
+          panes: [
+            { type: 'list', id: 'notes', collection: 'notes', fields: ['title'] },
+            {
+              type: 'detail',
+              collection: 'notes',
+              record: { $selected: 'notes' },
+              fields: ['status'],
+              actions: [{ action: 'archive', label: 'Archive', input: { id: { $record: 'id' } } }],
+            },
+          ],
+        },
+      },
+    });
+    await waitFor(() => expect(container.textContent).toContain('First'));
+    await fireEvent.click(getByText('First'));
+    await waitFor(() => expect(getByText('Archive')).toBeTruthy());
+    let release = () => {};
+    getGate = new Promise((r) => (release = r));
+    await fireEvent.click(getByText('Second'));
+    await waitFor(() => expect(calls).toContain('GET notes/n2'));
+    // `n2` is still on its way: `n1` and its button are not shown for it.
+    expect(queryByText('Archive')).toBeNull();
+    release();
+    getGate = Promise.resolve();
+    await fireEvent.click(await waitFor(() => getByText('Archive')));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith('/ext/notes/actions/archive', { id: 'n2' }),
     );
   }, 60_000);
 

@@ -41,10 +41,17 @@ $effect(() => {
 });
 
 let seq = 0;
+let shownId: unknown = null;
 $effect(() => {
   const rid = id;
   void host.version;
   const mine = ++seq;
+  // Another record: the one shown before goes, its buttons with it, until this one is read.
+  if (rid !== shownId) {
+    shownId = rid;
+    record = null;
+    error = null;
+  }
   if (rid === undefined || rid === null) return;
   dataApi
     .get(view.collection, String(rid))
