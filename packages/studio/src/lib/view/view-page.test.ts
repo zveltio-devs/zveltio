@@ -323,6 +323,40 @@ describe('view/2 renderer', () => {
     await waitFor(() => expect(calls).toContain('GET notes/n2'));
   }, 60_000);
 
+  it('a busy button re-reads the page; an open edit form keeps what the user typed', async () => {
+    const { default: ViewPage } = await import('./ViewPage.svelte');
+    const { getAllByText, container } = render(ViewPage, {
+      props: {
+        ext: 'notes',
+        view: {
+          type: 'list',
+          collection: 'notes',
+          edit: true,
+          // `n1` is open: the button is busy and the page reads again every 3 s.
+          rowActions: [
+            { action: 'archive', busyWhen: [{ field: 'status', op: 'in', value: ['open'] }] },
+          ],
+        },
+      },
+    });
+    await waitFor(() => expect(container.textContent).toContain('Second'));
+    await fireEvent.click(getAllByText('Edit')[1] as HTMLElement);
+    const input = await waitFor(() => {
+      const el = [...container.ownerDocument.querySelectorAll('input')].find(
+        (i) => i.value === 'Second',
+      );
+      if (!el) throw new Error('no title input');
+      return el;
+    });
+    await fireEvent.input(input, { target: { value: 'Typed' } });
+    const reads = () => calls.filter((c) => c === 'GET notes/n2').length;
+    const before = reads();
+    await waitFor(() => expect(reads()).toBeGreaterThan(before), { timeout: 5000 });
+    await new Promise((r) => setTimeout(r, 50));
+    const now = [...container.ownerDocument.querySelectorAll('input')].map((i) => i.value);
+    expect(now).toContain('Typed');
+  }, 60_000);
+
   it('an action-sourced stat runs once, only if the caller may run it', async () => {
     const { default: ViewPage } = await import('./ViewPage.svelte');
     const { container, getByText } = render(ViewPage, {

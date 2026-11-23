@@ -70,14 +70,23 @@ const target = $derived.by<string | null | undefined | 'singleton'>(() => {
 });
 
 let seq = 0;
+/** The record (or form) last loaded, and its values as loaded: a re-read keeps the user's edits. */
+let loadedKey = '';
+let pristine = '';
 $effect(() => {
   const t = target;
   const c = collection;
   void host.version;
   const mine = ++seq;
-  loading = true;
-  error = null;
-  gone = false;
+  // The same record read again (an action ran, a busy button polls): the form
+  // stays drawn, and what the user typed since it loaded is kept.
+  const key = JSON.stringify([c, t]);
+  const reread = key === loadedKey;
+  if (!reread) {
+    loading = true;
+    error = null;
+    gone = false;
+  }
   const fields = c
     ? schemaOf(c).then((f) => ({ f, lines: [] as InputLines[], undrawn: [] as string[] }))
     : runnableActions().then((list) => {
@@ -102,16 +111,20 @@ $effect(() => {
       inputLines = f.lines;
       undrawn = f.undrawn;
       recordId = r?.id ?? null;
+      loadedKey = key;
+      if (reread && JSON.stringify(values) !== pristine) return;
       values = r
         ? { ...r }
         : Object.fromEntries(
             f.lines.map((l) => [l.name, Array.from({ length: Math.max(l.min, 1) }, () => ({}))]),
           );
+      pristine = JSON.stringify(values);
     })
     .catch((e: Error & { status?: number }) => {
       if (mine !== seq) return;
       if (e.status === 404 && t !== undefined && t === recordId) gone = true;
-      else error = e.message || m['ext.loadFailed']();
+      // A failed re-read leaves the form and its edits drawn; the next read or the save says more.
+      else if (!reread) error = e.message || m['ext.loadFailed']();
     })
     .finally(() => {
       if (mine === seq) loading = false;
@@ -204,6 +217,8 @@ async function save(): Promise<Record<string, unknown> | null> {
         ? await dataApi.update(collection, recordId, body)
         : await dataApi.create(collection, body);
       if (saved?.id) recordId = String(saved.id);
+      // Saved: the read that follows shows the record as the engine stored it.
+      pristine = JSON.stringify(values);
       toast.success(m['common.saved']());
       host.version++;
     }
