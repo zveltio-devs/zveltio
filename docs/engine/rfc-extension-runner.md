@@ -88,6 +88,11 @@ is a serialisable message:
 - `ping` / `pong`;
 - `shutdown`.
 
+(Since RFC extension-model-v3 phase D slice 4 the protocol is `init`,
+`route:invoke`, `action:invoke` and the `host:call` a declared route or action
+makes, besides `log`, `ping`/`pong` and `shutdown`: `db:query` and the
+`service:*` messages are gone.)
+
 The proposal:
 - **Framing:** length-prefixed JSON over a socketpair or stdio pipe created at
   spawn. No listening port, and no filesystem socket the extension could share.
@@ -281,7 +286,9 @@ runner.
        other's runner directory;
      - the engine user can manage its runners and no other unit.
    - Inter-extension services stay brokered by the engine (`service:call` →
-     `service:invoke`); runners never talk to each other.
+     `service:invoke`); runners never talk to each other. (Since phase D slice 4
+     of RFC extension-model-v3 a worker publishes no service; one extension
+     reaches another through `host.actions.run`, ADR 0014.)
    - Egress approval from the manifest (decision 2) became the consent of a
      job's `egress` authorities (ADR 0022); routes get none.
 
