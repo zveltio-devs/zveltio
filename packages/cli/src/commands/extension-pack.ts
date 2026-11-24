@@ -33,6 +33,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
+import { hashEngineSources } from '../lib/bundle-sources.js';
 import { bundleExtensionEngine, EXTENSION_BUNDLE_CORE_DEPS } from '../lib/extension-bundle.js';
 import { resolvePackIsolation } from '../lib/pack-isolation.js';
 import { resolvePublisherTier } from '../lib/publisher-tier.js';
@@ -256,56 +257,8 @@ interface Manifest {
   [k: string]: unknown;
 }
 
-/**
- * A hash of the engine sources the bundle was built from.
- *
- * `integrity.engineSha256` says the committed bundle matches what the manifest
- * declares. It cannot say the bundle matches the SOURCE, and those are
- * different claims: on 2026-08-02 three security fixes were written into
- * `content/drafts/engine/routes.ts`, committed, reviewed and merged — and never
- * ran anywhere, because nobody repacked. The bundle and the manifest agreed
- * with each other perfectly. They were simply both older than the code.
- *
- * Repacking in CI to compare bytes would be the obvious check and the wrong
- * one: bundler output is not stable across Bun versions, so it would fail for
- * reasons that have nothing to do with the author. Hashing the INPUT is
- * deterministic, needs no bundler, and answers the question actually being
- * asked — has the source moved since this artifact was built?
- *
- * Sorted by relative path so the digest does not depend on directory order,
- * and the path is hashed alongside the bytes so renaming a file counts as a
- * change. Tests are excluded: they never reach the bundle.
- */
-export function hashEngineSources(dir: string): string {
-  const engineDir = join(dir, 'engine');
-  const files: string[] = [];
-  const walk = (d: string): void => {
-    for (const entry of readdirSync(d, { withFileTypes: true })) {
-      const full = join(d, entry.name);
-      if (entry.isDirectory()) {
-        // `migrations/` is SQL applied by the engine, not compiled into the
-        // bundle — a migration change does not invalidate the artifact.
-        if (entry.name === 'migrations' || entry.name === 'node_modules') continue;
-        walk(full);
-        continue;
-      }
-      if (!/\.(ts|tsx|js|mjs|json)$/.test(entry.name)) continue;
-      if (/\.(test|spec)\.[a-z]+$/.test(entry.name)) continue;
-      if (entry.name === 'index.js') continue; // the artifact itself
-      files.push(full);
-    }
-  };
-  walk(engineDir);
-
-  const h = createHash('sha256');
-  for (const f of files.sort()) {
-    h.update(f.slice(engineDir.length).replace(/\\/g, '/'));
-    h.update('\0');
-    h.update(readFileSync(f));
-    h.update('\0');
-  }
-  return h.digest('hex');
-}
+/** `integrity.sourceSha256` — the rule lives in `lib/bundle-sources.ts`. */
+export { hashEngineSources };
 
 /**
  * `integrity.schemaSha256`: every `.json` under `schema/` (declared collections,

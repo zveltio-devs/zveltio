@@ -56,6 +56,48 @@ describe('checkBundleIntegrity', () => {
     expect(errors[0]?.severity).not.toBe('warning');
   });
 
+  // `content/pages/engine/index.ts` bundles `../client/icons.ts`; the hash
+  // covered `engine/` only, so an edit there left validate and the gate green
+  // over a bundle that did not have it.
+  test('flags an edit to a file outside engine/ that the bundle imports', () => {
+    const f = fixture({
+      bundle: 'export default 1;',
+      source: "import { ICONS } from '../client/icons.js';\nexport default ICONS;\n",
+    });
+    mkdirSync(join(f.dir, 'client'));
+    writeFileSync(join(f.dir, 'client', 'icons.ts'), 'export const ICONS = 1;');
+    writeFileSync(join(f.dir, 'client', 'unused.ts'), 'export const U = 1;');
+    const packed = { ...f.integrity, sourceSha256: hashEngineSources(f.dir) };
+    expect(checkBundleIntegrity(f.dir, { integrity: packed })).toEqual([]);
+
+    writeFileSync(join(f.dir, 'client', 'unused.ts'), 'export const U = 2;'); // not bundled
+    expect(checkBundleIntegrity(f.dir, { integrity: packed })).toEqual([]);
+
+    writeFileSync(join(f.dir, 'client', 'icons.ts'), "export const ICONS = 1; // 'zz-new'");
+    const codes = checkBundleIntegrity(f.dir, { integrity: packed }).map((e) => e.code);
+    expect(codes).toEqual(['BUNDLE_OLDER_THAN_SOURCE']);
+  });
+
+  // Following imports must not move the hash of an extension whose imports stay
+  // in engine/: 54 of the 55 packed first-party bundles. The digest is the one
+  // the engine/-only rule gave for this tree.
+  test('keeps the recorded hash of a bundle that imports nothing outside engine/', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'zv-integrity-'));
+    mkdirSync(join(dir, 'engine', 'lib'), { recursive: true });
+    mkdirSync(join(dir, 'engine', 'migrations'));
+    writeFileSync(
+      join(dir, 'engine', 'index.ts'),
+      "import { a } from './lib/a.js';\nexport default a;\n",
+    );
+    writeFileSync(join(dir, 'engine', 'lib', 'a.ts'), 'export const a = 1;\n');
+    writeFileSync(join(dir, 'engine', 'lib', 'a.test.ts'), 'test\n');
+    writeFileSync(join(dir, 'engine', 'index.js'), 'x\n');
+    writeFileSync(join(dir, 'engine', 'migrations', '001.sql'), 'select 1;\n');
+    expect(hashEngineSources(dir)).toBe(
+      'd2d4ae370188315000b4c83107fee5adb98ab5862c810efb85e8deb5e11536bf',
+    );
+  });
+
   test('warns, does not fail, when an older CLI recorded no source hash', () => {
     const f = fixture({ bundle: 'export default 1;', source: 'export default 1;' });
     const errors = checkBundleIntegrity(f.dir, {

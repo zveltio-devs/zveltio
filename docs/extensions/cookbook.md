@@ -27,11 +27,14 @@ zveltio extension pack --dir extensions/business/my-thing      # engine/index.js
 zveltio extension validate --dir extensions/business/my-thing  # manifest, collections, view, messages
 ```
 
-**Pack after every change under `engine/` or `schema/`.** The engine loads the
+**Pack after every change under `engine/` or `schema/`, or to a file the engine
+imports from elsewhere in the extension (`../client/icons.ts`).** The engine loads the
 packed `engine/index.js` and checks `integrity.engineSha256` and
 `integrity.schemaSha256`; a schema file edited after pack refuses the
 extension at load. `pack` prints `✓ pack complete` whether or not anything
 changed: check the hashes moved.
+`integrity.sourceSha256` records those sources; `extension validate` reports
+`BUNDLE_OLDER_THAN_SOURCE` when one changed after pack.
 
 ---
 
