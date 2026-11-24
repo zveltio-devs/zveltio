@@ -57,7 +57,9 @@ const CI_BASELINE_MS = {
   get: 39,
   patch: 86,
   delete: 10,
-  listFirst: 41,
+  // Re-measured 2026-11-24 after #1892 timed the query alone: median of 8 master runs
+  // (p95 4-10ms). The old 41 included work outside the query.
+  listFirst: 7,
 } as const;
 
 /**
