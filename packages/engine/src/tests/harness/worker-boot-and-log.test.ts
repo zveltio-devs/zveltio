@@ -13,7 +13,6 @@ import { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
 import { revokeExtensionDbRoles } from '../../lib/extensions/ext-db-role.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
-import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extension-host.js';
 import {
   forgetInstalled,
@@ -21,6 +20,7 @@ import {
   harnessAvailable,
   markInstalled,
 } from '../../testing/app-harness.js';
+import { signAsOperator } from '../../testing/operator-signed.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const SFX = String(Date.now()).slice(-7);
@@ -50,7 +50,6 @@ d('a worker survives boot and logs as the console prints', () => {
   const savedCtx = extensionLoader.ctx;
 
   beforeAll(async () => {
-    _setInlineForTests(true); // unsigned fixtures: the test override stands in for a signature
     ({ db } = await getTestApp());
     base = mkdtempSync(join(tmpdir(), 'wkr-sql-'));
     for (const transport of TRANSPORTS) {
@@ -72,6 +71,7 @@ d('a worker survives boot and logs as the console prints', () => {
         }),
       );
       writeFileSync(join(dir, 'engine', 'index.js'), entry(name));
+      await signAsOperator(dir, name);
 
       process.env.ZVELTIO_EXT_TRANSPORT = transport;
       _resetWorkerHostForTests();
@@ -106,7 +106,6 @@ d('a worker survives boot and logs as the console prints', () => {
   }, 90_000);
 
   afterAll(async () => {
-    _setInlineForTests(false);
     if (saved === undefined) delete process.env.ZVELTIO_EXT_TRANSPORT;
     else process.env.ZVELTIO_EXT_TRANSPORT = saved;
     extensionLoader.ctx = savedCtx;

@@ -67,13 +67,29 @@ d('an unsigned worker-isolated directory never runs (no unsigned mode)', () => {
     rmSync(base, { recursive: true, force: true });
   });
 
-  it('refuses it at load with how to sign it; its code never runs', async () => {
-    await markInstalled(db, EXT);
-    const ctx = extensionLoader.ctx ?? ({ db, fieldTypeRegistry: { register() {} } } as never);
-    await extensionLoader.loadExtension(EXT, app, ctx, base);
-    expect(extensionLoader.loaded.has(EXT)).toBe(false);
-    expect(extensionLoader.getLastLoadError(EXT)).toMatch(/not signed.*OPERATOR_PUBLIC_KEYS_JSON/s);
-    expect((await app.request(`/ext/${EXT}/hi`)).status).not.toBe(200);
-    expect(existsSync(marker)).toBe(false);
-  }, 60_000);
+  // RFC v3 phase D slice 4, S4: the test override no longer stands in for a
+  // signature — it used to load this very directory. No mode in which a worker
+  // differs from production.
+  for (const override of [false, true]) {
+    it(`refuses it at load with how to sign it; its code never runs (test override ${override ? 'on' : 'off'})`, async () => {
+      _setInlineForTests(override);
+      try {
+        await markInstalled(db, EXT);
+        const ctx = extensionLoader.ctx ?? ({ db, fieldTypeRegistry: { register() {} } } as never);
+        await extensionLoader.loadExtension(EXT, app, ctx, base);
+        expect(extensionLoader.loaded.has(EXT)).toBe(false);
+        expect(getWorkerHost(app).isRunning(EXT)).toBe(false);
+        expect(extensionLoader.getLastLoadError(EXT)).toMatch(
+          /not signed.*OPERATOR_PUBLIC_KEYS_JSON/s,
+        );
+        expect((await app.request(`/ext/${EXT}/hi`)).status).not.toBe(200);
+        // Its bundle was never imported: by the engine, or by a worker.
+        await Bun.sleep(200);
+        expect(existsSync(marker)).toBe(false);
+      } finally {
+        _setInlineForTests(false);
+        await extensionLoader.unload(EXT).catch(() => {});
+      }
+    }, 60_000);
+  }
 });

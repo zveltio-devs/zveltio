@@ -7,7 +7,8 @@
 // contract): routes of its own, `ctx.services`, `ctx.events`,
 // `checkPermission`, `getSession`, each answered with the inline extension's
 // own code. Driven here through the real loader and the real runtime over the
-// `process` transport, unsigned:
+// `process` transport. Signed with the test operator key since S4 (no worker
+// runs unsigned, the override's included):
 //
 //   - `register()` touching its app or any `ctx` member fails the load by name;
 //   - a forged `host:call` for a ctx member is refused, and a frame outside the
@@ -21,7 +22,6 @@ import { join } from 'node:path';
 import { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
-import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extension-host.js';
 import {
   forgetInstalled,
@@ -29,6 +29,7 @@ import {
   harnessAvailable,
   markInstalled,
 } from '../../testing/app-harness.js';
+import { signAsOperator } from '../../testing/operator-signed.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const SFX = String(Date.now()).slice(-7);
@@ -73,7 +74,7 @@ export default {
 };
 `;
 
-function writeExt(base: string, ext: string, source: string, routes: unknown[] = []) {
+async function writeExt(base: string, ext: string, source: string, routes: unknown[] = []) {
   const dir = join(base, ext);
   mkdirSync(join(dir, 'engine'), { recursive: true });
   writeFileSync(
@@ -86,9 +87,10 @@ function writeExt(base: string, ext: string, source: string, routes: unknown[] =
     }),
   );
   writeFileSync(join(dir, 'engine', 'index.js'), source);
+  await signAsOperator(dir, ext);
 }
 
-d('an unsigned worker is declared model only, as a signed one is', () => {
+d('a worker is declared model only (the test override held to production)', () => {
   let db: Database;
   let base = '';
   const app = new Hono();
@@ -99,18 +101,17 @@ d('an unsigned worker is declared model only, as a signed one is', () => {
   const warn = spyOn(console, 'warn');
 
   beforeAll(async () => {
-    _setInlineForTests(true); // unsigned fixtures: the test override stands in for a signature
     process.env.ZVELTIO_EXT_TRANSPORT = 'process';
     ({ db } = await getTestApp());
     base = mkdtempSync(join(tmpdir(), 'wkr-declared-'));
     for (const [k, body] of Object.entries(REGISTERS)) {
-      writeExt(
+      await writeExt(
         base,
         name(k),
         `export default { name: '${name(k)}', async register(app, ctx) { ${body}; } };`,
       );
     }
-    writeExt(base, SERVED, served(SERVED), [
+    await writeExt(base, SERVED, served(SERVED), [
       { method: 'GET', path: '/hi', access: 'caller', handler: 'hi' },
       { method: 'GET', path: '/later', access: 'caller', handler: 'later' },
     ]);
@@ -126,7 +127,6 @@ d('an unsigned worker is declared model only, as a signed one is', () => {
 
   afterAll(async () => {
     warn.mockRestore();
-    _setInlineForTests(false);
     if (saved === undefined) delete process.env.ZVELTIO_EXT_TRANSPORT;
     else process.env.ZVELTIO_EXT_TRANSPORT = saved;
     await getWorkerHost(app).stopAll();

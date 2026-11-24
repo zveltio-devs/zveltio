@@ -30,7 +30,6 @@ import { _resetCatalogForTests } from '../../lib/extensions/extension-catalog.js
 import { _resetCatalogCacheForTests } from '../../lib/extensions/extension-download.js';
 import { revokeExtensionDbRoles } from '../../lib/extensions/ext-db-role.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
-import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import { engineEvents } from '../../lib/runtime/index.js';
 import {
@@ -48,6 +47,7 @@ import {
   harnessAvailable,
   markInstalled,
 } from '../../testing/app-harness.js';
+import { signAsOperator } from '../../testing/operator-signed.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const NAME = `fwdappr${String(Date.now()).slice(-7)}`;
@@ -78,7 +78,8 @@ d('credential forwarding needs an operator approval of the exact set', () => {
   };
   let ctx: never;
 
-  const writeManifest = (forwardCredentials: Record<string, string[]>) =>
+  /** Its manifest, signed again: the directory changed (RFC v3 phase D slice 4, S4). */
+  const writeManifest = async (forwardCredentials: Record<string, string[]>) => {
     writeFileSync(
       join(base, NAME, 'manifest.json'),
       JSON.stringify({
@@ -92,6 +93,8 @@ d('credential forwarding needs an operator approval of the exact set', () => {
         engine: { entry: 'engine/index.js', bundled: true, isolation: 'worker' },
       }),
     );
+    await signAsOperator(join(base, NAME), NAME);
+  };
 
   /** Restart the worker from the manifest on disk, as an enable or a boot does. */
   const reload = async (enabled = true) => {
@@ -125,7 +128,6 @@ d('credential forwarding needs an operator approval of the exact set', () => {
     ).rows[0]?.a ?? null;
 
   beforeAll(async () => {
-    _setInlineForTests(true); // unsigned fixtures: the test override stands in for a signature
     const t = await getTestApp();
     engine = t.app;
     db = t.db;
@@ -156,7 +158,7 @@ d('credential forwarding needs an operator approval of the exact set', () => {
     );
     mkdirSync(join(base, NAME, 'engine'), { recursive: true });
     writeFileSync(join(base, NAME, 'engine', 'index.js'), entry);
-    writeManifest({ '/fwd': ['authorization'] });
+    await writeManifest({ '/fwd': ['authorization'] });
 
     app.use('/ext/*', sessionPrefetch(getAuth(), db));
     app.use('/ext/*', tenantMiddleware);
@@ -176,7 +178,6 @@ d('credential forwarding needs an operator approval of the exact set', () => {
   }, 60_000);
 
   afterAll(async () => {
-    _setInlineForTests(false);
     await getWorkerHost(app).stopAll();
     for (const [k, v] of [
       ['ZVELTIO_EXT_TRANSPORT', saved.transport],
@@ -236,7 +237,7 @@ d('credential forwarding needs an operator approval of the exact set', () => {
   });
 
   it('an upgrade asking for one header more forwards nothing until approved again', async () => {
-    writeManifest({ '/fwd': ['authorization', 'x-api-key'] });
+    await writeManifest({ '/fwd': ['authorization', 'x-api-key'] });
     await reload();
     expect(await seen('/fwd')).toEqual({ status: 200, body: NONE });
 
@@ -255,7 +256,7 @@ d('credential forwarding needs an operator approval of the exact set', () => {
   });
 
   it('a version asking for less keeps its approval', async () => {
-    writeManifest({ '/fwd': ['authorization'] });
+    await writeManifest({ '/fwd': ['authorization'] });
     await reload();
     expect(await seen('/fwd')).toEqual({
       status: 200,
