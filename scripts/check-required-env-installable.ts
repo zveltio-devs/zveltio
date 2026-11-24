@@ -50,7 +50,6 @@ const COMPOSE = join(ROOT, 'docker-compose.yml');
 const REQUIRED_LINE = /^([A-Z][A-Z0-9_]*)=.*\bREQUIRED\b/gm;
 
 const example = readFileSync(ENV_EXAMPLE, 'utf8');
-const installer = INSTALLERS.map((f) => readFileSync(f, 'utf8')).join('\n');
 const compose = readFileSync(COMPOSE, 'utf8');
 
 const required = [...example.matchAll(REQUIRED_LINE)].map((m) => m[1] as string);
@@ -76,9 +75,9 @@ if (required.length === 0) {
  * receives. That minted-but-never-written shape is precisely the operator-facing
  * bug this gate exists to catch, so the evidence has to be the heredoc.
  */
-const envHeredocs = (() => {
+const heredocsOf = (text: string): string => {
   const bodies: string[] = [];
-  const lines = installer.split('\n');
+  const lines = text.split('\n');
   let open = false;
   let terminator = '';
   for (const line of lines) {
@@ -98,11 +97,17 @@ const envHeredocs = (() => {
     bodies.push(line);
   }
   return bodies.join('\n');
-})();
+};
 
-if (envHeredocs === '') {
+// Each installer on its own: with one block found, an installer whose block the
+// pattern no longer matched went unread and its half of the install unchecked.
+const perInstaller = INSTALLERS.map((f) => heredocsOf(readFileSync(f, 'utf8')));
+const blind = INSTALLERS.filter((_, i) => perInstaller[i] === '');
+const envHeredocs = perInstaller.join('\n');
+
+if (blind.length > 0) {
   console.error(
-    `✗ ${INSTALLERS.join(', ')} contain no \`cat > …/.env << EOF\` block.\n` +
+    `✗ No \`cat > …/.env << EOF\` block in ${blind.join(', ')}.\n` +
       `  This gate reads those heredocs to decide what an install produces. With none\n` +
       `  found the scan is broken, not the installer clean — it will not pass silently.`,
   );
