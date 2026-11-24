@@ -370,5 +370,4 @@ d('extension work with no caller is an actor with no identity (ADR 0040)', () =>
       expect(await run(FREE, false)).toEqual(NONE);
     });
   }
-
 });

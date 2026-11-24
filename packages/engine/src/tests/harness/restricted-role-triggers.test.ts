@@ -146,11 +146,7 @@ d('collection triggers under every restricted writer role', () => {
       )
     ).rows[0];
 
-  for (const name of [
-    'ctx.db in a tenant transaction',
-    'ctx.db on the pool',
-    'REST',
-  ]) {
+  for (const name of ['ctx.db in a tenant transaction', 'ctx.db on the pool', 'REST']) {
     it.skipIf(poolUnwritable(name))(
       `${name}: search vector, updated_at and the sync tombstone`,
       async () => {

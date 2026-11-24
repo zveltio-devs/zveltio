@@ -2,7 +2,8 @@
 // The same extension source is loaded twice through the real loader, behind
 // the real `/ext/*` chain (prefetch, tenant transaction, auth gate): inline and
 // as a runner process (the in-thread worker is gone since step 9). Each
-// capability must answer the same — Kysely on `ctx.db`, the request's `auth`
+// capability must answer the same — Kysely on `ctx.db` (inline only now: no SQL
+// crosses from a worker, RFC extension-model-v3 decision 2), the request's `auth`
 // (session and API key), `checkPermission`, `events`, `config`, `services.get`
 // and an uncaught SQLSTATE.
 // Before step 7 a worker got `{ query() }`, no auth, no checkPermission, no
@@ -345,8 +346,8 @@ d('a worker extension gets the inline ctx contract', () => {
         'whoKey',
         'permSession',
         'permKey',
-        'kysely',
-        'badId',
+        // `kysely` and `badId` (ctx.db) stay inline: no SQL crosses from a worker
+        // (RFC extension-model-v3 decision 2).
         'config',
         'svc',
         'svcMirror',

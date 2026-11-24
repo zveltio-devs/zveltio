@@ -5,7 +5,7 @@
 // length-prefixed JSON frames on stdin/stdout — the frames the runner pipes
 // unchanged, so the runner carries the same. Everything the protocol carries is
 // exercised — init and the route table, a route with query, headers and a body,
-// a `db:query`, a service the extension registers and calls, a large body, a log
+// a `db:query` (refused by the host), a service the extension registers and calls, a large body, a log
 // line, and an error — and the transcript must be what the extension answers.
 // The extension runs in a process of its own, without the engine's environment.
 // (Step 2 compared this transcript with the in-thread worker's; step 9 removed
@@ -43,7 +43,11 @@ export default {
         { 'x-ext': 'yes' },
       );
     });
-    app.get('/sql', async (c) => c.json(await ctx.db.query('SELECT 1 + 1 AS two')));
+    // The frame crosses; the host refuses it (no SQL crosses from a worker).
+    app.get('/sql', async (c) => {
+      try { await ctx.db.query('SELECT 1 + 1 AS two'); return c.json({ ran: true }); }
+      catch (e) { return c.json({ refused: String(e.message).includes('no SQL crosses') }); }
+    });
     ctx.services.register('${name}.double', (n) => n * 2);
     app.get('/svc', async (c) => c.json({ out: await ctx.services.get('${name}.double')(21) }));
     app.get('/big', (c) => c.text('z'.repeat(3 * 1024 * 1024)));
@@ -152,7 +156,7 @@ d('worker transport contract: the process transport carries the protocol', () =>
         ext: 'yes',
         body: { id: '7', q: 'hello', h: 'p', body: { a: [1, 'ü', null] } },
       },
-      sql: [{ two: 2 }],
+      sql: { refused: true },
       svc: { out: 42 },
       big: { status: 200, length: 3 * 1024 * 1024 },
       boom: 500,
