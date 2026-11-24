@@ -708,25 +708,11 @@ how the engine confines the legacy `ctx.db` path that v1 extensions still use.
 No SQL crosses from extension code running in a worker (RFC
 extension-model-v3 decision 2, phase D slice 4): the host refuses every
 `db:query`, and the worker reaches its collections through `host.collections`.
-What follows describes the `zveltio_worker` role the removed SQL bridge ran as;
-the engine still creates and grants it until it is retired in a later step.
-
-Extension code running in a worker used the `zveltio_worker` role: `NOLOGIN`,
-`NOSUPERUSER`, `NOBYPASSRLS`, with DML on the collection tables and, granted
-when a worker extension loads, on that extension's own tables — its
-`zv_<ext>_*` namespace and the `zvd_*` tables its migrations create — and an
-explicit `REVOKE` on the authentication tables. Where the engine may create
-roles (a superuser, or `CREATEROLE` with `ADMIN` on `zveltio_worker`), each
-worker extension's tables go to a role of its own, a member of `zveltio_worker`,
-and the bridge runs that extension's queries as it — so one worker extension
-cannot reach another's tables even where the SQL analyzer is wrong. Otherwise
-it is one role for every worker extension and the analyzer keeps them apart. The tenant is **injected by the host**,
-not declared by the worker. So is the caller: a query or service call made while
-serving a request runs with that request's user, email and roles published, so
-row rules keyed on the user apply as they do to an inline extension. The
-caller's exemption (`rls_bypass`) and any reach wider than the tenant are not
-carried into the worker's own SQL. Contaminated connections are closed rather than
-returned to the pool.
+The roles the removed SQL bridge and flow `query_db` ran as, `zveltio_worker`
+(with one `zveltio_wrk_…` role per worker extension) and `zveltio_flow_reader`,
+are retired by migration 136: it revokes everything they hold in the database
+and drops each role once no other database on the cluster still depends on it.
+The engine no longer creates, grants or switches into them.
 
 An inline extension's `ctx.db` statement inside a tenant transaction runs as
 that extension's own role, set before the statement and restored after it
@@ -737,7 +723,7 @@ extension shares: the non-engine `zvd_*` tables and `USAGE` on the schema —
 never `user` or a credential table. So SQL the extension SQL analyzer misreads
 still cannot reach `zv_api_keys`, `zvd_permissions`, the tenants, or another
 extension's tables. Where no extension role is usable the statement runs as
-`zveltio_rls` (the worker bridge's last fallback too), which reads but cannot
+`zveltio_rls`, which reads but cannot
 write the rule tables — `zvd_permissions`, `zvd_column_permissions`,
 `zvd_rls_policies`, `zv_extension_registry`, `zv_extension_forward_approvals`,
 `zv_roles`, `zv_settings` — nor `"user"`, whose `role` column is god status; the
@@ -747,11 +733,11 @@ engine writes those as their owner, on the pool or through the Casbin triggers
 the statement (`asEngineRole`, `lib/role-window.ts`). A table belongs to the extension
 with the longest matching `zv_<ext>_` prefix: `a` does not own `zv_a_b_*` once `a/b` is installed. Role
 names are `zveltio_ext_<name>_<hash>` (`zveltio_extb_…` for the `BYPASSRLS`
-twin, `zveltio_wrk_…` for a worker extension), the hash covering the database
+twin), the hash covering the database
 name, so two databases on one cluster never share one. Disabling an extension
 revokes everything its roles hold; uninstalling drops them.
 `scripts/bootstrap-db-role.sh` gives the engine role `CREATEROLE` and `ADMIN` on
-`zveltio_ext` and `zveltio_worker` for exactly this — on PostgreSQL 18
+`zveltio_ext` for exactly this — on PostgreSQL 18
 `CREATEROLE` reaches only roles held with `ADMIN`, so it cannot grant
 `zveltio_rls`, any `pg_*` role, `SUPERUSER`, `BYPASSRLS` or `CREATEDB`. Where the
 engine may not create roles every inline extension shares `zveltio_ext` itself,
@@ -765,8 +751,8 @@ plain extension role. So background code sees the tenants it saw before, and not
 the engine. Inside a joined `ctx.db.transaction()`,
 `setAccessMode('read only')` makes that savepoint read-only.
 
-None of the restricted roles (`zveltio_rls`, `zveltio_ext`, `zveltio_worker`,
-`zveltio_flow_reader`) may create temporary objects. Postgres gives
+None of the restricted roles (`zveltio_rls`, `zveltio_ext`) may create
+temporary objects. Postgres gives
 `TEMPORARY` to `PUBLIC`, and a temp table is searched before `public` and
 outlives the role window on a pooled connection, so one statement an analyzer
 missed could plant a table the engine's next query on that connection reads or
@@ -781,8 +767,8 @@ GRANT TEMPORARY ON DATABASE <db> TO <engine role>;
 REVOKE TEMPORARY ON DATABASE <db> FROM PUBLIC;
 ```
 
-Until then the worker bridge discards temp objects before it returns a
-connection to the pool. Other login roles on the same database (reporting,
+Until then the engine discards temp objects after an extension's statement
+before it returns a connection to the pool. Other login roles on the same database (reporting,
 backup) lose `TEMPORARY` too; grant it back to them by name if they need it.
 
 A boot reconciler rewrites every extension-owned tenant table onto the host

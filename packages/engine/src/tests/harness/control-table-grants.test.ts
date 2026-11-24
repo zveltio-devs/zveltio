@@ -62,7 +62,7 @@ const CONTROL_TABLES = [
   // A provider's reach over an account (ADR 0039 decision 9): only the engine links.
   'zv_identity_links',
 ];
-const REQUEST_ROLES = ['zveltio_rls', 'zveltio_worker', 'zveltio_flow_reader', 'zveltio_ext'];
+const REQUEST_ROLES = ['zveltio_rls', 'zveltio_ext'];
 
 // Where boot cannot take TEMPORARY from PUBLIC (temp-privilege.ts) the request
 // role owns temp tables; that is the state the trigger tests reproduce.

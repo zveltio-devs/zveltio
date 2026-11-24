@@ -381,7 +381,7 @@ d('validation rule groups are instance-wide', () => {
     const r = await sql<{ w: string }>`
       SELECT r.rolname || ' ' || p AS w
         FROM pg_roles r, unnest(ARRAY['INSERT', 'UPDATE', 'DELETE']) p
-       WHERE r.rolname IN ('zveltio_rls', 'zveltio_worker', 'zveltio_flow_reader', 'zveltio_ext')
+       WHERE r.rolname IN ('zveltio_rls', 'zveltio_ext')
          AND has_table_privilege(r.oid, ${T}::regclass, p)`.execute(db);
     expect(r.rows).toEqual([]);
   });

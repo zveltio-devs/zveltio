@@ -149,26 +149,14 @@ d('m2m junction tables under tenant RLS', () => {
     ).rejects.toThrow(/row-level security/);
   });
 
-  it('the narrow roles hold the collection grant on it, kept by the boot reconcile', async () => {
+  it('the extension role holds the collection grant on it, kept by the boot reconcile', async () => {
     await reconcileTenantRLS(db);
-    expect(await privileges(db, J, 'zveltio_worker')).toEqual([
+    expect(await privileges(db, J, 'zveltio_ext')).toEqual([
       'DELETE',
       'INSERT',
       'SELECT',
       'UPDATE',
     ]);
-    expect(await privileges(db, J, 'zveltio_flow_reader')).toEqual(['SELECT']);
-    // What the worker bridge does around a query: its role, the request's tenant.
-    const seen = await db.transaction().execute(async (trx) => {
-      await sql.raw('SET LOCAL ROLE zveltio_worker').execute(trx);
-      await sql`SELECT set_config('zveltio.current_tenant', ${OTHER}, true)`.execute(trx);
-      return (
-        await sql<{
-          s: string;
-        }>`SELECT ${sql.id(`${SRC}_id`)}::text AS s FROM ${sql.id(J)}`.execute(trx)
-      ).rows;
-    });
-    expect(seen).toEqual([{ s: ids.sOther! }]);
   }, 60_000);
 
   describe('migration 042 on a junction an older engine created', () => {

@@ -410,10 +410,10 @@ d('collection permissions in the database (R1)', () => {
     const allowed = await db
       .transaction()
       .execute(async (trx) => {
-        await sql`DO $$ BEGIN EXECUTE format('GRANT TEMPORARY ON DATABASE %I TO zveltio_worker', current_database()); END $$`.execute(
+        await sql`DO $$ BEGIN EXECUTE format('GRANT TEMPORARY ON DATABASE %I TO zveltio_ext', current_database()); END $$`.execute(
           trx,
         );
-        await sql`SELECT set_config('zveltio.actor', 'on', true), set_config('role', 'zveltio_worker', true)`.execute(
+        await sql`SELECT set_config('zveltio.actor', 'on', true), set_config('role', 'zveltio_ext', true)`.execute(
           trx,
         );
         await sql`

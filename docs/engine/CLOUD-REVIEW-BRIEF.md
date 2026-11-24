@@ -50,8 +50,7 @@ stylistic ones.
    (tokens stored as digests), rate limits, case handling of emails.
 4. **Database roles.** The narrow roles and what each may reach:
    `zveltio_rls` (tenant requests), `zveltio_ext` / `zveltio_ext_bypass` and
-   the per-extension roles (inline extension `ctx.db`), `zveltio_worker`
-   (worker-isolated extensions), `zveltio_flow_reader`, `zveltio_audit_purge`
+   the per-extension roles (inline extension `ctx.db`), `zveltio_audit_purge`
    (the audit retention purge, the one role that deletes audit rows). Code:
    `lib/extensions/ext-db-role.ts`, `lib/tenancy/temp-privilege.ts`,
    migration 001. Questions worth asking: can a role window leak its role to

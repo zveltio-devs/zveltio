@@ -33,7 +33,7 @@ import {
   pendingMigrationsRefusal,
   runExtensionMigrations,
 } from './migration-runner.js';
-import { grantExtensionDbRole, grantWorkerDbRole, installedExtensionNames } from './ext-db-role.js';
+import { grantExtensionDbRole, installedExtensionNames } from './ext-db-role.js';
 import { noteExtensionNames, ownedPrefixFor } from './worker-sql-policy.js';
 import { embedPageSchemas, type ManifestMeta, ManifestSchema } from './manifest-schema.js';
 import {
@@ -568,10 +568,6 @@ export async function loadExtensionFromDir(
     // tenant transaction — so a statement the analyzer misreads still cannot
     // reach the engine's tables. Best-effort; see ext-db-role.ts.
     await grantExtensionDbRole(ctx.db, extName, allowedTables);
-    // The worker SQL bridge runs as `zveltio_worker`, which holds collections only.
-    if (manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true) {
-      await grantWorkerDbRole(ctx.db, extName, allowedTables);
-    }
 
     // Register-core (build restrictedCtx, mount routes with the
     // matcher-already-built swallow, register schedules, capture loaded state

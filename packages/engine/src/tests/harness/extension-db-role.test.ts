@@ -34,7 +34,6 @@ import {
   ensureExtensionDbRole,
   extensionDbRoleNames,
   grantExtensionDbRole,
-  grantWorkerDbRole,
 } from '../../lib/extensions/ext-db-role.js';
 import { createRestrictedDb } from '../../lib/extensions/extension-context.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
@@ -352,8 +351,7 @@ d('ctx.db runs as the extension role in a tenant transaction', () => {
 
 // ── Separation between extensions ───────────────────────────────────────────
 //
-// One shared `zveltio_ext` held every inline extension's tables (and one
-// `zveltio_worker` every worker extension's), so with the analyzer switched off
+// One shared `zveltio_ext` held every inline extension's tables, so with the analyzer switched off
 // extension A read extension B's tables; `a` reached `zv_a_b_*`, the tables of
 // `a/b`; and disable/uninstall revoked nothing. Measured on master: each case
 // below that expects `permission denied` or an empty grant list got rows.
@@ -412,7 +410,7 @@ d('one extension cannot reach another extension’s tables at the database layer
         SELECT DISTINCT r.rolname::text AS r
           FROM pg_class c, aclexplode(c.relacl) a JOIN pg_roles r ON r.oid = a.grantee
          WHERE c.relname IN (${LIFE_OWN}, ${`${LIFE_OWN}_id_seq`})
-           AND r.rolname ~ '^zveltio_(ext|extb|wrk|worker)' ORDER BY 1`.execute(db)
+           AND r.rolname ~ '^zveltio_(ext|extb)' ORDER BY 1`.execute(db)
     ).rows.map((x) => x.r);
   /** LIFE's own roles, and whatever each still holds: relations in public and memberships. */
   const lifeRoles = async () =>
@@ -422,9 +420,7 @@ d('one extension cannot reach another extension’s tables at the database layer
                (SELECT count(*)::int FROM pg_class c, aclexplode(c.relacl) a
                  WHERE a.grantee = r.oid) AS rels,
                (SELECT count(*)::int FROM pg_auth_members m WHERE m.member = r.oid) AS parents
-          FROM pg_roles r WHERE r.rolname ~ '^zveltio_(ext|extb|wrk)_lifeprobe_' ORDER BY 1`.execute(
-        db,
-      )
+          FROM pg_roles r WHERE r.rolname ~ '^zveltio_(ext|extb)_lifeprobe_' ORDER BY 1`.execute(db)
     ).rows;
 
   beforeAll(async () => {
@@ -492,7 +488,6 @@ d('one extension cannot reach another extension’s tables at the database layer
   it('leaves a disabled extension’s roles holding nothing, gives them back on enable, drops them on uninstall', async () => {
     const allowed = new Set([LIFE_OWN]);
     await grantExtensionDbRole(db, LIFE, allowed);
-    await grantWorkerDbRole(db, LIFE, allowed);
     const life = extDb(LIFE, [LIFE_OWN]);
     expect((await count(life, LIFE_OWN)).rows[0]!.n).toBe(1);
 
@@ -515,15 +510,14 @@ d('one extension cannot reach another extension’s tables at the database layer
 
   it('takes off the shared roles what they held before per-extension roles, disabled extensions\u2019 tables included', async () => {
     // An install upgraded from the shared layout: B's table sits on both shared roles.
-    await sql`GRANT SELECT ON ${sql.table(B_OWN)} TO zveltio_ext, zveltio_worker`.execute(db);
+    await sql`GRANT SELECT ON ${sql.table(B_OWN)} TO zveltio_ext`.execute(db);
     _resetExtensionDbRoleForTests();
     // Any extension's load, not B's: B may be disabled and never load again.
     await grantExtensionDbRole(db, A, new Set([A_OWN]));
-    await grantWorkerDbRole(db, A, new Set([A_OWN]));
     const shared = await sql<{ r: string }>`
       SELECT r.rolname::text AS r FROM pg_class c, aclexplode(c.relacl) a
         JOIN pg_roles r ON r.oid = a.grantee
-       WHERE c.relname = ${B_OWN} AND r.rolname IN ('zveltio_ext', 'zveltio_worker')`.execute(db);
+       WHERE c.relname = ${B_OWN} AND r.rolname = 'zveltio_ext'`.execute(db);
     expect(shared.rows).toEqual([]);
     await offAnalyzer(() => refusedBoth(extDb(A, [A_OWN]), B_OWN, /permission denied/));
   }, 60_000);

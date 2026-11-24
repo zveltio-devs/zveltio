@@ -37,9 +37,8 @@ const d = harnessAvailable() ? describe : describe.skip;
 const TENANT = '00000000-0000-0000-0000-000000000001';
 const EXT = 'createfill';
 const TAG = Date.now();
-// The flow reader holds SELECT on a collection; the others DML.
-const NARROW = ['zveltio_ext', 'zveltio_rls', 'zveltio_worker', 'zveltio_flow_reader'];
-const NEEDS = ['INSERT', 'INSERT', 'INSERT', 'SELECT'];
+const NARROW = ['zveltio_ext', 'zveltio_rls'];
+const NEEDS = ['INSERT', 'INSERT'];
 
 d('an extension creates a collection and fills it in one request', () => {
   let db: Database;

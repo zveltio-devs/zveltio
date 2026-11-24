@@ -30,7 +30,6 @@ import { clearExtensionBroadcasts, extensionBroadcast } from '../../lib/extensio
 import {
   _resetExtensionDbRoleForTests,
   grantExtensionDbRole,
-  grantWorkerDbRole,
   revokeExtensionDbRoles,
 } from '../../lib/extensions/ext-db-role.js';
 import { createRestrictedDb } from '../../lib/extensions/extension-context.js';
@@ -69,7 +68,6 @@ const FREE = `ncfree_${SFX}`;
 const STATIC = `ncstat_${SFX}`;
 /** An inline `data:system` extension, and a worker one the operator exempted. */
 const EXT = `ncext${SFX}`;
-const WORKER = `ncwrk${SFX}`;
 const U1 = `nc-user-${SFX}`;
 /** A real worker whose listener calls `SVC`, an inline service of `EXT`'s. */
 const LISTENER = `ncwl${SFX}`;
@@ -277,9 +275,6 @@ d('extension work with no caller is an actor with no identity (ADR 0040)', () =>
 
     _resetExtensionDbRoleForTests();
     await grantExtensionDbRole(db, EXT, new Set());
-    // Its own role: a worker with no caller reached collections only through
-    // the operator's exemption, which ADR 0058 removed.
-    await grantWorkerDbRole(db, WORKER, new Set());
     // The cron runs where the extension is on: this tenant alone.
     await sql`INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled)
               VALUES (${EXT}, ${EXT}, ${TENANT}::uuid, true, true)`.execute(db);
@@ -345,7 +340,6 @@ d('extension work with no caller is an actor with no identity (ADR 0040)', () =>
     }
     await sql`DELETE FROM "user" WHERE id = ${U1}`.execute(db).catch(() => {});
     await revokeExtensionDbRoles(db, EXT, true).catch(() => {});
-    await revokeExtensionDbRoles(db, WORKER, true).catch(() => {});
     _resetExtensionDbRoleForTests();
   });
 

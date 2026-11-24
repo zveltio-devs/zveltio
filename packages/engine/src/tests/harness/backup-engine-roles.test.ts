@@ -46,13 +46,12 @@ d('the engine roles in a built-in backup', () => {
       await sql`GRANT SELECT ON zv_settings TO zveltio_probe_login`.execute(trx);
 
       const text = await engineRolesSql(trx);
-      for (const role of [
-        'zveltio_rls',
-        'zveltio_worker',
-        'zveltio_flow_reader',
-        'zveltio_audit_purge',
-      ]) {
+      for (const role of ['zveltio_rls', 'zveltio_audit_purge']) {
         expect(text).toContain(`CREATE ROLE ${role} NOLOGIN`);
+      }
+      // Retired by migration 136: nothing here depends on them any more.
+      for (const role of ['zveltio_worker', 'zveltio_flow_reader']) {
+        expect(text).not.toContain(`CREATE ROLE ${role} `);
       }
       expect(text).toContain('CREATE ROLE zveltio_wrk_probe_here NOLOGIN');
       expect(text).not.toContain('zveltio_wrk_probe_elsewhere');

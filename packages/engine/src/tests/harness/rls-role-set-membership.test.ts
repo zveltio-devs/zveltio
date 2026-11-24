@@ -9,10 +9,8 @@
  * `SET LOCAL ROLE` with "permission denied to set role". Both states are built
  * here with a superuser grant, since the cluster's `zveltio_rls` already exists.
  *
- * Same gap for the two narrow roles: boot granted no SET on `zveltio_worker` or
- * `zveltio_flow_reader`, and the worker SQL bridge picked its role by EXISTENCE,
- * so a SET FALSE membership failed every worker query on `SET LOCAL ROLE`. The
- * bridge never falls back to `zveltio_rls` (narrow-roles-collection-grants).
+ * Same gap for the audit purge role (and, until migration 136 retired them, for
+ * `zveltio_worker` and `zveltio_flow_reader`): boot now grants SET on it too.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
@@ -31,7 +29,7 @@ const d = SUPER_URL ? describe : describe.skip;
 const TITLE = superuserTitle('zveltio_rls membership is tested with SET, not MEMBER', SUPER_URL);
 const ADMIN_ONLY = 'pool_rlsrole_admin'; // what CREATE ROLE leaves its CREATEROLE creator
 const NO_SET = 'pool_rlsrole_noset'; // a member that may neither SET nor re-grant
-const NARROW = ['zveltio_worker', 'zveltio_flow_reader', 'zveltio_audit_purge'];
+const NARROW = ['zveltio_audit_purge'];
 
 d(TITLE, () => {
   let db: Database;
@@ -100,7 +98,7 @@ d(TITLE, () => {
     expect(await initRlsEnforcementRole(h)).not.toBe('enforced');
   }, 60_000);
 
-  it('grants itself SET on the worker, flow-reader and audit purge roles at boot', async () => {
+  it('grants itself SET on the audit purge role at boot', async () => {
     await initRlsEnforcementRole(connectAs(ADMIN_ONLY));
     for (const role of NARROW) {
       const r = await sql<{ ok: boolean }>`
