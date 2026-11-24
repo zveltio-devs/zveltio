@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 
 // ── ANSI helpers ──────────────────────────────────────────────────────────────
@@ -251,8 +251,9 @@ async function runUpdateScript(
   const envPath = join(installDir, '.env');
   if (existsSync(envPath)) {
     const backupPath = `${envPath}.backup.${Date.now()}`;
-    const envContent = await Bun.file(envPath).text();
-    await Bun.write(backupPath, envContent);
+    // The copy holds every secret the .env does: created owner-only (a umask
+    // only removes bits), never readable in between.
+    writeFileSync(backupPath, readFileSync(envPath), { mode: 0o600, flag: 'wx' });
     console.log(`  Backed up .env → ${backupPath}`);
   }
 
