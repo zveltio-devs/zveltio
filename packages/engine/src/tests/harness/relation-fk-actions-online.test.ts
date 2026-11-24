@@ -92,11 +92,16 @@ d('a relation action change re-creates its key without the table lock', () => {
     const gate = new Promise<void>((r) => {
       release = r;
     });
+    let taken!: () => void;
+    const locked = new Promise<void>((r) => {
+      taken = r;
+    });
     const done = asDefaultTenant(db, async (trx) => {
       await sql.raw(`LOCK TABLE "${CT}" IN ${lock} MODE`).execute(trx);
+      taken();
       await gate;
     });
-    return { release, done };
+    return { release, done, locked };
   };
 
   /**
@@ -109,7 +114,8 @@ d('a relation action change re-creates its key without the table lock', () => {
     whileHeld: (validatePid: number) => Promise<void>,
   ) => {
     const writer = hold('ROW EXCLUSIVE');
-    await Bun.sleep(50);
+    // Held before the change starts, not after a guessed sleep.
+    await writer.locked;
     const changing = change();
     let ddl: ReturnType<typeof hold> | undefined;
     try {
