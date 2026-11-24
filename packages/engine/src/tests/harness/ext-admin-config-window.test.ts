@@ -3,6 +3,10 @@
 // exactly as an `/api/*` configuration mutation is (step_up_required), in both
 // hosting modes, whatever the extension does with the refusal. A read checking
 // `admin`, and a mutation checking a collection, are not configuration.
+//
+// Inline, the extension's own `checkPermission` decides; a worker is declared
+// model only (RFC v3 phase D slice 4), so there the engine decides its declared
+// actions: one gated on `admin` is configuration, one on a collection is not.
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -50,16 +54,35 @@ const publicRoute = `ctx.registerPublicRoute({
       },
     });`;
 
-const entry = (name: string, worker: boolean) => `
+/** A worker's actions: the engine checks `permission` before either runs. */
+const workerEntry = (name: string) => `
+const save = (title) => async (_input, host) => {
+  await host.collections.insert('${COLL}', { title });
+  return { saved: true };
+};
+export default {
+  name: '${name}',
+  actions: { settings: save('worker-settings'), item: save('worker-item') },
+  async register() {},
+};
+`;
+
+const workerManifest = {
+  permissions: ['data:write'],
+  resources: ['admin'],
+  actions: [
+    { name: 'settings', permission: { resource: 'admin', action: 'update' }, input: {}, writes: [COLL] },
+    { name: 'item', permission: { resource: COLL, action: 'create' }, input: {}, writes: [COLL] },
+  ],
+};
+
+const entry = (name: string) => `
 export default {
   name: '${name}',
   mountStrategy: 'subapp',
   async register(app, ctx) {
     const may = (c, obj, act) => ctx.checkPermission(c.get('user').id, obj, act);
-    // A worker writes nothing here: no SQL crosses from it (RFC extension-model-v3
-    // decision 2), so the refusal and the window are what its routes show.
-    const write = (title) =>
-      ${worker ? 'Promise.resolve()' : `ctx.db.insertInto('${TABLE}').values({ title }).execute()`};
+    const write = (title) => ctx.db.insertInto('${TABLE}').values({ title }).execute();
     const save = async (c, label) => {
       await write(label);
       return c.json({ saved: true });
@@ -78,7 +101,7 @@ export default {
     });
     app.post('/items', async (c) =>
       (await may(c, '${COLL}', 'create')) ? save(c, 'item') : c.json({ error: 'no' }, 403));
-    ${worker ? '' : publicRoute}
+    ${publicRoute}
     app.post('/tenant-admin', async (c) =>
       ctx.internals && (await ctx.internals.isTenantAdmin(c.get('user').id))
         ? save(c, 'tenant-admin')
@@ -95,6 +118,7 @@ function writeExt(base: string, name: string, worker: boolean) {
     JSON.stringify({
       name,
       version: '1.0.0',
+      ...(worker ? workerManifest : {}),
       engine: {
         entry: 'engine/index.js',
         bundled: true,
@@ -102,7 +126,7 @@ function writeExt(base: string, name: string, worker: boolean) {
       },
     }),
   );
-  writeFileSync(join(dir, 'engine', 'index.js'), entry(name, worker));
+  writeFileSync(join(dir, 'engine', 'index.js'), worker ? workerEntry(name) : entry(name));
 }
 
 d('an extension mutation authorized against admin needs the configuration window', () => {
@@ -200,42 +224,53 @@ d('an extension mutation authorized against admin needs the configuration window
     for (const m of MODES) expect(loadErrors[extName(m)]).toBeUndefined();
   });
 
-  for (const mode of MODES) {
-    it(`${mode}: without the window, an admin mutation is refused as step_up_required`, async () => {
-      const paths = ['/settings', '/swallow', ...(mode === 'inline' ? ['/tenant-admin'] : [])];
-      for (const path of paths) {
-        const res = await call(mode, 'POST', path);
-        expect({ path, ...res }).toMatchObject({
-          path,
-          status: 403,
-          body: { code: 'step_up_required', errors: { action: 'config' } },
-        });
-      }
-      if (mode === 'inline') {
-        const res = await app.request(`/cfgwin-pub-${SFX}`, {
-          method: 'POST',
-          headers: { cookie },
-        });
-        expect(res.status).toBe(403);
-        expect(((await res.json()) as { code: string }).code).toBe('step_up_required');
-      }
-      // Nothing it wrote is kept, the write before the check included.
-      expect(await titles()).toEqual([]);
-    });
+  it('inline: without the window, an admin mutation is refused as step_up_required', async () => {
+    for (const path of ['/settings', '/swallow', '/tenant-admin']) {
+      const res = await call('inline', 'POST', path);
+      expect({ path, ...res }).toMatchObject({
+        path,
+        status: 403,
+        body: { code: 'step_up_required', errors: { action: 'config' } },
+      });
+    }
+    const res = await app.request(`/cfgwin-pub-${SFX}`, { method: 'POST', headers: { cookie } });
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { code: string }).code).toBe('step_up_required');
+    // Nothing it wrote is kept, the write before the check included.
+    expect(await titles()).toEqual([]);
+  });
 
-    it(`${mode}: a read checking admin, and a collection mutation, are not configuration`, async () => {
-      expect(await call(mode, 'GET', '/settings')).toEqual({ status: 200, body: { admin: true } });
-      expect(await call(mode, 'POST', '/items')).toEqual({ status: 200, body: { saved: true } });
-      await asDefaultTenant(db, sql`DELETE FROM ${sql.table(TABLE)}`);
+  it('process: without the window, an action gated on admin is refused as step_up_required', async () => {
+    expect(await call('process', 'POST', '/actions/settings')).toMatchObject({
+      status: 403,
+      body: { code: 'step_up_required', errors: { action: 'config' } },
     });
-  }
+    expect(await titles()).toEqual([]);
+  });
+
+  it('inline: a read checking admin, and a collection mutation, are not configuration', async () => {
+    expect(await call('inline', 'GET', '/settings')).toEqual({ status: 200, body: { admin: true } });
+    expect(await call('inline', 'POST', '/items')).toEqual({ status: 200, body: { saved: true } });
+    await asDefaultTenant(db, sql`DELETE FROM ${sql.table(TABLE)}`);
+  });
+
+  it('process: an action gated on a collection is not configuration', async () => {
+    expect(await call('process', 'POST', '/actions/item')).toEqual({
+      status: 200,
+      body: { result: { saved: true } },
+    });
+    expect(await titles()).toEqual(['worker-item']);
+    await asDefaultTenant(db, sql`DELETE FROM ${sql.table(TABLE)}`);
+  });
 
   it('with the window open, the admin mutations pass', async () => {
     await stepUp();
-    for (const mode of MODES) {
-      expect(await call(mode, 'POST', '/settings')).toEqual({ status: 200, body: { saved: true } });
-      expect(await call(mode, 'POST', '/swallow')).toEqual({ status: 200, body: { saved: true } });
-    }
+    expect(await call('inline', 'POST', '/settings')).toEqual({ status: 200, body: { saved: true } });
+    expect(await call('inline', 'POST', '/swallow')).toEqual({ status: 200, body: { saved: true } });
+    expect(await call('process', 'POST', '/actions/settings')).toEqual({
+      status: 200,
+      body: { result: { saved: true } },
+    });
     expect(await call('inline', 'POST', '/tenant-admin')).toEqual({
       status: 200,
       body: { saved: true },
@@ -249,6 +284,7 @@ d('an extension mutation authorized against admin needs the configuration window
       'settings',
       'swallow',
       'tenant-admin',
+      'worker-settings',
     ]);
   });
 });
