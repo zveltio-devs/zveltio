@@ -3,7 +3,16 @@
 // EXTENSIONS_DIR at that path — and only once its signature verifies, as the
 // engine will verify it at load. Run as an operator runs it: the CLI process.
 import { afterAll, beforeAll, expect, it } from 'bun:test';
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -66,4 +75,27 @@ it('refuses a directory changed after signing, and leaves the installed copy alo
   expect(r.code).not.toBe(0);
   expect(r.out).toContain('no longer matches what key "acme-ops" signed');
   expect(existsSync(join(exts, NAME, 'signature.json'))).toBe(true);
+});
+
+it('refuses to install a directory over itself, and leaves it whole', () => {
+  const installed = join(exts, NAME);
+  const r = cli(['install', NAME, '--path', installed, '--force']);
+  expect(r.code).toBe(1);
+  expect(r.out).toContain('overlaps the install target');
+  expect(existsSync(join(installed, 'signature.json'))).toBe(true);
+  expect(existsSync(join(installed, 'engine', 'index.js'))).toBe(true);
+});
+
+it('keeps the old install when the copy fails', () => {
+  expect(cli(['extension', 'sign', '--dir', src]).code).toBe(0);
+  const parent = join(exts, 'acme');
+  chmodSync(parent, 0o555); // no staging directory can be made beside the install
+  try {
+    const r = cli(['install', NAME, '--path', src, '--force']);
+    expect(r.code).toBe(1);
+  } finally {
+    chmodSync(parent, 0o755);
+  }
+  expect(existsSync(join(exts, NAME, 'signature.json'))).toBe(true);
+  expect(readdirSync(parent)).toEqual(['private']);
 });

@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync } from 'fs';
+import { chmod, writeFile } from 'fs/promises';
 import { join } from 'path';
-import { createInterface } from 'readline';
+import { promptLine } from '../lib/prompt.js';
 
 // ── ANSI helpers ─────────────────────────────────────────────────────────────
 const c = {
@@ -12,30 +13,19 @@ const c = {
   yellow: (s: string) => `\x1b[33m${s}\x1b[0m`,
 };
 
-function rl(): ReturnType<typeof createInterface> {
-  return createInterface({ input: process.stdin, output: process.stdout });
+// The shared prompt reads piped answers line by line; input that ends takes the defaults.
+async function ask(question: string): Promise<string> {
+  return promptLine(question).catch(() => '');
 }
 
-async function ask(iface: ReturnType<typeof createInterface>, question: string): Promise<string> {
-  return new Promise((resolve) => iface.question(question, resolve));
-}
-
-async function askWithDefault(
-  iface: ReturnType<typeof createInterface>,
-  question: string,
-  defaultValue: string,
-): Promise<string> {
-  const answer = await ask(iface, question);
+async function askWithDefault(question: string, defaultValue: string): Promise<string> {
+  const answer = await ask(question);
   return answer.trim() || defaultValue;
 }
 
-async function askYesNo(
-  iface: ReturnType<typeof createInterface>,
-  question: string,
-  defaultYes = true,
-): Promise<boolean> {
+async function askYesNo(question: string, defaultYes = true): Promise<boolean> {
   const hint = defaultYes ? 'Y/n' : 'y/N';
-  const answer = await ask(iface, `${question} ${c.dim(`[${hint}]`)}: `);
+  const answer = await ask(`${question} ${c.dim(`[${hint}]`)}: `);
   const trimmed = answer.trim().toLowerCase();
   if (!trimmed) return defaultYes;
   return trimmed === 'y' || trimmed === 'yes';
@@ -51,7 +41,8 @@ interface OfficialExtension {
 
 async function fetchOfficialExtensions(): Promise<OfficialExtension[]> {
   try {
-    const res = await fetch('https://registry.zveltio.com/api/extensions/list?official=true', {
+    const registry = process.env.ZVELTIO_REGISTRY_URL ?? 'https://registry.zveltio.com';
+    const res = await fetch(`${registry}/api/extensions/list?official=true`, {
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return [];
@@ -62,10 +53,7 @@ async function fetchOfficialExtensions(): Promise<OfficialExtension[]> {
   }
 }
 
-async function pickExtensions(
-  iface: ReturnType<typeof createInterface>,
-  extensions: OfficialExtension[],
-): Promise<string[]> {
+async function pickExtensions(extensions: OfficialExtension[]): Promise<string[]> {
   if (extensions.length === 0) return [];
 
   // Group by category
@@ -98,7 +86,6 @@ async function pickExtensions(
   }
 
   const answer = await ask(
-    iface,
     `Extensions to enable ${c.dim('[space-separated numbers, or enter for none]')}: `,
   );
 
@@ -120,8 +107,6 @@ export async function initCommand(name: string = '.', _opts: { template?: string
   // Fetch official extensions early (non-blocking)
   const extensionsPromise = fetchOfficialExtensions();
 
-  const iface = rl();
-
   // ── Interactive prompts ────────────────────────────────────────────────────
   const defaultProjectName =
     name !== '.'
@@ -129,7 +114,6 @@ export async function initCommand(name: string = '.', _opts: { template?: string
       : process.cwd().split(/[/\\]/).pop() || 'zveltio-app';
 
   const projectName = await askWithDefault(
-    iface,
     `Project name ${c.dim(`[${defaultProjectName}]`)}: `,
     defaultProjectName,
   );
@@ -137,26 +121,23 @@ export async function initCommand(name: string = '.', _opts: { template?: string
   const dbPassword = crypto.randomUUID().replace(/-/g, '').slice(0, 24);
   const defaultDbUrl = `postgresql://zveltio:${dbPassword}@localhost:5432/${projectName}`;
   const databaseUrl = await askWithDefault(
-    iface,
     `Database URL ${c.dim(`[${defaultDbUrl}]`)}: `,
     defaultDbUrl,
   );
 
-  const portStr = await askWithDefault(iface, `Port ${c.dim('[3000]')}: `, '3000');
+  const portStr = await askWithDefault(`Port ${c.dim('[3000]')}: `, '3000');
   const port = parseInt(portStr, 10) || 3000;
 
-  const enableStudio = await askYesNo(iface, 'Enable Studio (admin UI)?', true);
+  const enableStudio = await askYesNo('Enable Studio (admin UI)?', true);
 
   // ── Employee Intranet zone ─────────────────────────────────────────────────
   const enableIntranet = await askYesNo(
-    iface,
     'Enable Employee Intranet zone? (portal for non-admin employees)',
     false,
   );
 
   // ── Client Portal zone ────────────────────────────────────────────────────
   const enableClientPortal = await askYesNo(
-    iface,
     'Enable Client Portal? (customer-facing portal with multiple templates)',
     false,
   );
@@ -170,7 +151,7 @@ export async function initCommand(name: string = '.', _opts: { template?: string
     console.log(c.dim('    3. services     — Professional services portal'));
     console.log(c.dim('    4. regulatory   — Authorizations, inspections, business locations'));
     console.log('');
-    const tmplAnswer = await ask(iface, `  Template ${c.dim('[1-4, default: 1]')}: `);
+    const tmplAnswer = await ask(`  Template ${c.dim('[1-4, default: 1]')}: `);
     const tmplMap: Record<string, string> = {
       '1': 'generic',
       '2': 'saas',
@@ -190,14 +171,12 @@ export async function initCommand(name: string = '.', _opts: { template?: string
   let selectedExtensions: string[] = [];
 
   if (officialExtensions.length > 0) {
-    selectedExtensions = await pickExtensions(iface, officialExtensions);
+    selectedExtensions = await pickExtensions(officialExtensions);
   } else {
     console.log(
       c.dim('\n  (Could not reach registry — extensions can be configured later in .env)\n'),
     );
   }
-
-  iface.close();
 
   // ── Determine target directory ─────────────────────────────────────────────
   const dir = name === '.' ? process.cwd() : join(process.cwd(), name);
@@ -245,7 +224,21 @@ export async function initCommand(name: string = '.', _opts: { template?: string
 
   envLines.push('');
 
-  await Bun.write(join(dir, '.env'), envLines.join('\n'));
+  // An existing .env holds secrets (BETTER_AUTH_SECRET) a running install depends on:
+  // replaced only when a person says so; otherwise the new values go beside it.
+  let envFile = '.env';
+  if (existsSync(join(dir, '.env'))) {
+    const replace =
+      process.stdin.isTTY === true && (await askYesNo('.env exists. Replace it?', false));
+    if (!replace) envFile = '.env.generated';
+  }
+  const envPath = join(dir, envFile);
+  // Owner-only: it holds secrets. `mode` applies only when the file is created.
+  await writeFile(envPath, envLines.join('\n'), { mode: 0o600 });
+  await chmod(envPath, 0o600);
+  if (envFile !== '.env') {
+    console.log(c.yellow(`\n  Kept the existing .env; generated values are in ${envFile}`));
+  }
 
   // ── .env.example ──────────────────────────────────────────────────────────
   await Bun.write(
@@ -335,7 +328,9 @@ volumes:
   // ── .gitignore ────────────────────────────────────────────────────────────
   await Bun.write(
     join(dir, '.gitignore'),
-    ['.env', 'node_modules/', 'dist/', '.DS_Store', '*.local', 'types/', ''].join('\n'),
+    ['.env', '.env.generated', 'node_modules/', 'dist/', '.DS_Store', '*.local', 'types/', ''].join(
+      '\n',
+    ),
   );
 
   // ── Print next steps ──────────────────────────────────────────────────────
