@@ -99,7 +99,12 @@ METRICS_TOKEN=$(gen_secret)
 # bindPassword, SAML privateKey, webhook secrets) undecryptable; regenerating the
 # DB/Valkey passwords or auth secret breaks the running services and every
 # session. So if ${ZVELTIO_DIR}/.env already exists, keep whatever it already set.
+# The fixed list below is what the new .env rewrites; every other key of the old
+# one (BETTER_AUTH_SECRETS, FIELD_ENCRYPTION_KEYS, MAIL_ENCRYPTION_KEYS, *_FILE,
+# anything the operator added) is carried over as it was when .env is written.
+_OLD_ENV=""
 if [[ -f "${ZVELTIO_DIR}/.env" ]]; then
+  _OLD_ENV="$(cat "${ZVELTIO_DIR}/.env")"
   _keep_env() { grep -E "^$1=" "${ZVELTIO_DIR}/.env" | head -1 | cut -d= -f2-; }
   for _k in POSTGRES_PASSWORD VALKEY_PASSWORD BETTER_AUTH_SECRET \
             FIELD_ENCRYPTION_KEY MAIL_ENCRYPTION_KEY \
@@ -630,6 +635,10 @@ UNIT
   # ── .env ─────────────────────────────────────────────────────────────────────
   header "Writing configuration"
 
+  # umask in a subshell: the file holds every secret and is never readable by
+  # others, not even between its creation and a chmod.
+  (
+  umask 077
   cat > "${ZVELTIO_DIR}/.env" << EOF
 PORT=${ZVELTIO_PORT}
 HOST=0.0.0.0
@@ -679,8 +688,17 @@ STUDIO_SRC_DIR=${ZVELTIO_DIR}/studio-src
 # Set to true only if you ship genuinely custom (non-bundled) Studio pages.
 STUDIO_REBUILD_ON_ENABLE=false
 EOF
+  )
 
-  chmod 600 "${ZVELTIO_DIR}/.env"
+  # Re-run as an update: keep every key of the old .env that the lines above do
+  # not write. A rotation list dropped here leaves what its newer key wrote
+  # unreadable (docs/platform/security.md).
+  if [[ -n "${_OLD_ENV}" ]]; then
+    while IFS= read -r _line; do
+      [[ "$_line" =~ ^([A-Za-z_][A-Za-z0-9_]*)= ]] || continue
+      grep -q "^${BASH_REMATCH[1]}=" "${ZVELTIO_DIR}/.env" || printf '%s\n' "$_line" >> "${ZVELTIO_DIR}/.env"
+    done <<< "${_OLD_ENV}"
+  fi
 
   # ── Copy helper scripts ───────────────────────────────────────────────────────
   local SCRIPTS_BASE="https://raw.githubusercontent.com/zveltio-devs/zveltio/master/install"
@@ -708,6 +726,9 @@ if [[ -f "$ZVELTIO_DIR/.env" ]]; then
   set -a
   while IFS='=' read -r key val; do
     [[ -z "$key" || "$key" == \#* ]] && continue
+    # Root runs this: never export a loader- or shell-affecting name (see install/zveltio-wrapper.sh).
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    case "$key" in LD_*|GLIBC_TUNABLES|GCONV_PATH|PATH|IFS|ENV|BASH_ENV|BASH_FUNC_*|SHELLOPTS|BASHOPTS|PS4|PROMPT_COMMAND|NODE_OPTIONS|BUN_OPTIONS|HOME|XDG_CONFIG_HOME) continue ;; esac
     val="${val%\"}"; val="${val#\"}"; val="${val%\'}"; val="${val#\'}"
     export "$key=$val"
   done < <(grep -vE '^\s*(#|$)' "$ZVELTIO_DIR/.env")
@@ -721,13 +742,30 @@ WRAPPER_EOF
   # ── systemd service ───────────────────────────────────────────────────────────
   id -u "${ZVELTIO_USER}" &>/dev/null || \
     useradd -r -s /bin/false -d "${ZVELTIO_DIR}" "${ZVELTIO_USER}"
-  # Local storage driver root (default STORAGE_LOCAL_DIR). Owned by the service
-  # user so uploads succeed without root; harmless when STORAGE_DRIVER=s3.
-  mkdir -p "${ZVELTIO_DIR}/storage"
-  chown -R "${ZVELTIO_USER}:${ZVELTIO_USER}" "${ZVELTIO_DIR}"
+  # Ownership. The engine's uid writes its storage and its extensions, nothing
+  # else here: root later runs the binary (`sudo zveltio …`, update.sh, the edge
+  # runner unit), update.sh and kms-fetch.sh, and root's wrapper exports .env, so
+  # a file of these the engine could rewrite was a way from its uid to root.
+  # .env is root:zveltio 0640: the engine reads it and cannot change it.
+  # update.sh applies the same ownership.
+  mkdir -p "${ZVELTIO_DIR}/storage" "${ZVELTIO_DIR}/extensions"
+  chown root:root "${ZVELTIO_DIR}"
+  chmod 0755 "${ZVELTIO_DIR}"
+  find "${ZVELTIO_DIR}" -mindepth 1 -maxdepth 1 ! -name storage ! -name extensions \
+    -exec chown -hR root:root {} + -exec chmod -R go-w {} +
+  chown "root:${ZVELTIO_USER}" "${ZVELTIO_DIR}/.env"
+  chmod 0640 "${ZVELTIO_DIR}/.env"
+  # Keys an older kms-fetch.sh left beside .env; it now writes /run/zveltio.
+  rm -f "${ZVELTIO_DIR}/.env.kms"
+  chown -R "${ZVELTIO_USER}:${ZVELTIO_USER}" "${ZVELTIO_DIR}/storage" "${ZVELTIO_DIR}/extensions"
   # Uploads are tenant data: no other local user — the extension runner's
   # included — reads them.
   chmod 700 "${ZVELTIO_DIR}/storage"
+  # Bun's and npm's caches (extension dependencies): the account's home is the
+  # install dir, which it no longer writes. The unit's CacheDirectory= is this.
+  mkdir -p /var/cache/zveltio
+  chown "${ZVELTIO_USER}:${ZVELTIO_USER}" /var/cache/zveltio
+  chmod 0700 /var/cache/zveltio
 
   local EXEC_START
   if [[ -f "${ZVELTIO_DIR}/zveltio" ]]; then
@@ -739,17 +777,20 @@ WRAPPER_EOF
   # ── External KMS hook (opt-in) ──────────────────────────────────────────────
   # If the operator sets ZVELTIO_KEY_COMMAND in .env (e.g. a vault/aws-kms/sops
   # CLI that prints KEY=VALUE lines), this ExecStartPre fetches the secrets into
-  # .env.kms right before every start — so FIELD_ENCRYPTION_KEY & friends can
+  # /run/zveltio/env.kms right before every start — so FIELD_ENCRYPTION_KEY & friends can
   # live in a KMS instead of on disk. Unset ⇒ complete no-op. Configured-but-
   # failing ⇒ the service refuses to start (never boot with missing keys).
   cat > "${ZVELTIO_DIR}/kms-fetch.sh" << 'KMSEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
+# The unit's RuntimeDirectory (0700, the engine's): not the install dir, which
+# the engine cannot write.
+KMS="${RUNTIME_DIRECTORY:-/run/zveltio}/env.kms"
 # Read only the ZVELTIO_KEY_COMMAND line — we must not re-export the whole .env.
 CMD="$( (grep -E '^ZVELTIO_KEY_COMMAND=' "${DIR}/.env" 2>/dev/null || true) | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//')"
 if [[ -z "${CMD}" ]]; then
-  rm -f "${DIR}/.env.kms"
+  rm -f "${KMS}"
   exit 0
 fi
 OUT="$(bash -c "${CMD}")" || { echo "[kms-fetch] ZVELTIO_KEY_COMMAND failed — refusing to start without keys" >&2; exit 1; }
@@ -760,10 +801,10 @@ if ! grep -qE '^[A-Z_][A-Z0-9_]*=' <<< "${OUT}"; then
   exit 1
 fi
 umask 077
-grep -E '^[A-Z_][A-Z0-9_]*=' <<< "${OUT}" > "${DIR}/.env.kms"
+grep -E '^[A-Z_][A-Z0-9_]*=' <<< "${OUT}" > "${KMS}"
 KMSEOF
-  chmod 750 "${ZVELTIO_DIR}/kms-fetch.sh"
-  chown "${ZVELTIO_USER}:${ZVELTIO_USER}" "${ZVELTIO_DIR}/kms-fetch.sh"
+  chown root:root "${ZVELTIO_DIR}/kms-fetch.sh"
+  chmod 0755 "${ZVELTIO_DIR}/kms-fetch.sh"
 
   # ── Extension runners (RFC extension-runner, steps 3 and 3b) ─────────────────
   # One zveltio-ext-runner@ instance per extension, each under its own dynamic
@@ -793,7 +834,13 @@ User=${ZVELTIO_USER}
 WorkingDirectory=${ZVELTIO_DIR}
 ExecStartPre=${ZVELTIO_DIR}/kms-fetch.sh
 EnvironmentFile=${ZVELTIO_DIR}/.env
-EnvironmentFile=-${ZVELTIO_DIR}/.env.kms
+RuntimeDirectory=zveltio
+RuntimeDirectoryMode=0700
+EnvironmentFile=-/run/zveltio/env.kms
+CacheDirectory=zveltio
+CacheDirectoryMode=0700
+Environment=XDG_CACHE_HOME=/var/cache/zveltio
+Environment=npm_config_cache=/var/cache/zveltio/npm
 ExecStart=${EXEC_START}
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 Restart=always
@@ -805,7 +852,8 @@ SyslogIdentifier=zveltio
 # Security hardening
 NoNewPrivileges=yes
 ProtectSystem=strict
-ReadWritePaths=${ZVELTIO_DIR}
+# Only what the engine writes: everything else here is root's (see above).
+ReadWritePaths=${ZVELTIO_DIR}/storage ${ZVELTIO_DIR}/extensions
 PrivateTmp=yes
 
 [Install]
@@ -854,7 +902,7 @@ EOF
 
   if command -v bun &>/dev/null; then
     info "Installing extension npm dependencies..."
-    if ! sudo -u "${ZVELTIO_USER}" bash -c "cd '${ZVELTIO_DIR}/extensions' && bun install"; then
+    if ! sudo -u "${ZVELTIO_USER}" env XDG_CACHE_HOME=/var/cache/zveltio bash -c "cd '${ZVELTIO_DIR}/extensions' && bun install"; then
       error "bun install failed for ${ZVELTIO_DIR}/extensions/. The zveltio service user cannot reach Bun — check that /usr/local/bin/bun resolves to a path readable by unprivileged users."
       exit 1
     fi

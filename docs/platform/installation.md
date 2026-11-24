@@ -47,7 +47,8 @@ The smart installer auto-detects your environment: uses **Bun native** mode if B
 
 The installer:
 
-- Generates secure credentials automatically (`.env`)
+- Generates secure credentials automatically (`.env`). Run again to update, it keeps every key the existing `.env` sets, rotation lists (`BETTER_AUTH_SECRETS`, `FIELD_ENCRYPTION_KEYS`, `MAIL_ENCRYPTION_KEYS`) included
+- Leaves the engine's account (`zveltio`) able to write only `storage/` and `extensions/` in the install directory. The binary, `update.sh`, `kms-fetch.sh` and the directory itself belong to root, because root runs them later (`sudo zveltio …`, `update.sh`). `.env` is `root:zveltio` 0640, so the engine can read it and cannot change it. `update.sh` sets the same ownership on an older install, and the `ZVELTIO_KEY_COMMAND` hook writes its keys to `/run/zveltio/env.kms`
 - Starts PostgreSQL and Valkey (files use the built-in **local storage driver** by default; SeaweedFS is opt-in — see below)
 - Runs database migrations
 - Creates the first admin account interactively
