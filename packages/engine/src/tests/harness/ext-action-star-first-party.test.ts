@@ -26,6 +26,7 @@ import {
   harnessAvailable,
   markInstalled,
 } from '../../testing/app-harness.js';
+import { signAsOperator } from '../../testing/operator-signed.js';
 
 const SIGN = join(import.meta.dir, '../../../../../scripts/sign-as-registry.ts');
 
@@ -97,10 +98,11 @@ d('"*" in an action is first-party only (ADR 0053 d5)', () => {
     rmSync(base, { recursive: true, force: true });
   });
 
-  it('refuses a worker-isolated extension listing "*", even under the test inline override', async () => {
+  it('refuses a worker-isolated extension listing "*", signed as it must be to load', async () => {
     write(WORKER, 'worker', ['*']);
+    // An operator key: level 3, never first-party (ADR 0056 d1).
+    await signAsOperator(join(base, WORKER), WORKER);
     await markInstalled(db, WORKER);
-    wasInline = _setInlineForTests(true);
     await extensionLoader.loadExtension(WORKER, app, ctx(), base);
     expect(extensionLoader.loaded.has(WORKER)).toBe(false);
     // At the tier gate, before its migrations: nothing of it was created.
