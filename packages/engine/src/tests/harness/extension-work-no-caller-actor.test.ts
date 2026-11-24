@@ -4,7 +4,8 @@
  * A row rule on a caller value stands down where `zveltio.actor` is not `on`,
  * for the engine's own work. Extension code ran there too, in four places: its
  * own `ctx.internals.withTenantIsolation`, a per-tenant cron, a listener, and a
- * worker statement with no caller. So a `data:system` extension (or, before
+ * worker statement with no caller (gone: no SQL crosses from a worker, RFC
+ * extension-model-v3 decision 2). So a `data:system` extension (or, before
  * ADR 0058 removed the exemption, one the operator exempted) read every row under
  * `* created_by eq user_id` and wrote, updated and deleted another user's row,
  * and decided a row under ADR 0016's `order_author neq user_id`.
@@ -47,13 +48,7 @@ import {
   getCurrentTenantTrx,
   runWithDomain,
 } from '../../lib/tenancy/index.js';
-import type { HostToWorkerMessage } from '../../lib/worker-extension-protocol.js';
-import {
-  _internalForTests,
-  _resetWorkerHostForTests,
-  getWorkerHost,
-  WorkerExtensionHost,
-} from '../../lib/worker-extension-host.js';
+import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extension-host.js';
 import {
   asTenant,
   dropTestCollection,
@@ -234,62 +229,6 @@ d('extension work with no caller is an actor with no identity (ADR 0040)', () =>
   let base = '';
   let offPong = () => {};
 
-  /**
-   * 4. A worker statement, as its `ctx.db` sends it: for an invocation with a
-   * tenant and no caller (a listener, a cron), or with no invocation at all.
-   * Each its own transaction, committed — so this runs last.
-   */
-  const host = new WorkerExtensionHost(new Hono());
-  const viaWorker = (text: string, inTenant: boolean, reach: boolean) =>
-    new Promise<HostToWorkerMessage>((resolve) => {
-      const managed = {
-        // `reach`: its own role; otherwise the shared `zveltio_worker`.
-        name: reach ? WORKER : `${WORKER}x`,
-        worker: { postMessage: resolve, terminate: () => {} },
-        invokeTenants: new Map([['inv-1', { tenantId: TENANT, actor: undefined }]]),
-        pendingInvokes: new Map(),
-        pendingInits: new Map(),
-        pendingPings: new Map(),
-        registeredServices: new Set<string>(),
-        routes: [],
-      };
-      _internalForTests.dispatchMessage(
-        host,
-        managed as never,
-        {
-          type: 'db:query',
-          id: 'q-1',
-          ...(inTenant ? { requestId: 'inv-1' } : {}),
-          sql: text,
-          params: [],
-        } as never,
-      );
-    });
-  const workerProbe = async (coll: string, inTenant = true, reach = true): Promise<Reach> => {
-    const t = `zvd_${coll}`;
-    const rows = async (text: string) => {
-      const r = await viaWorker(text, inTenant, reach);
-      if (r.type !== 'db:ok') throw new Error(String((r as { error?: string }).error));
-      return r.rows as { n?: number }[];
-    };
-    const row = ROW[coll]!;
-    const read = (await rows(`SELECT count(*)::int AS n FROM ${t}`))[0]!.n!;
-    const update = (await rows(`UPDATE ${t} SET title = title RETURNING 1`)).length;
-    const del = (await rows(`DELETE FROM ${t} RETURNING 1`)).length;
-    const cols = Object.keys(row).join(', ');
-    const vals = Object.values(row)
-      .map((v) => `'${v}'`)
-      .join(', ');
-    const insert = await rows(`INSERT INTO ${t} (${cols}) VALUES (${vals}) RETURNING 1`).then(
-      () => true,
-      (e: Error) => {
-        if (refused(e)) return false;
-        throw e;
-      },
-    );
-    return { read, update, del, insert };
-  };
-
   beforeAll(async () => {
     _setInlineForTests(true); // unsigned fixtures: the test override stands in for a signature
     ({ db } = await getTestApp());
@@ -432,22 +371,4 @@ d('extension work with no caller is an actor with no identity (ADR 0040)', () =>
     });
   }
 
-  it('a worker statement with no caller: a per-actor rule admits no row, and decides none', async () => {
-    // With a tenant and no caller, and with no invocation at all (which reads
-    // no tenant, DR-03): before, both read, updated, deleted and inserted.
-    expect(await workerProbe(OWN)).toEqual(NONE);
-    expect(await workerProbe(DECIDE)).toEqual(NONE);
-    expect(await workerProbe(OWN, false)).toEqual(NONE);
-  });
-
-  it('a worker statement with no caller reaches no collection: there is no exemption (ADR 0058 d4)', async () => {
-    // Before: its own role, exempted, read and wrote FREE and STATIC.
-    for (const coll of [FREE, STATIC]) {
-      for (const inTenant of [true, false]) {
-        for (const reach of [true, false]) {
-          expect(await workerProbe(coll, inTenant, reach)).toEqual(NONE);
-        }
-      }
-    }
-  });
 });

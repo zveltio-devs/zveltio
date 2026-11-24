@@ -1,10 +1,9 @@
 /**
  * ADR 0056 slice 2: a worker-isolated extension's box fails alone.
  *
- *  - an action that outlives its timeout has the statement it is running on the
- *    request's connection cancelled, and its request transaction rolled back, so
- *    a row lock it took is released at the timeout, not when Postgres's own
- *    statement timeout (or the lock it waits on) lets go;
+ *  - an action that outlives its timeout has its request transaction rolled
+ *    back, and the engine statement it waits on cancelled, so a row lock it took
+ *    is released at the timeout, not when the lock it waits on lets go;
  *  - calls into one extension beyond its concurrency limit are refused at once,
  *    holding no connection, rather than queue on the pool;
  *  - after repeated crashes the extension is disabled, with a message, and
@@ -76,15 +75,14 @@ export default {
 `;
 
 const entry = `
-let db;
 export default {
   name: '${EXT}',
   actions: {
-    // Locks the row, then runs a statement far longer than the action may.
-    lockThenSleep: async (input, host) => {
+    // Locks the row, then never answers (no SQL crosses from a worker: RFC
+    // extension-model-v3 decision 2), so only the timeout ends its transaction.
+    lockThenHang: async (input, host) => {
       await host.collections.update('${C}', input.id, { label: 'held' });
-      await db.query('SELECT pg_sleep(30)');
-      return 'slept';
+      await new Promise(() => {});
     },
     // Updates a row another transaction holds: an engine statement, which has
     // no statement timeout of its own, waits for as long as that one holds it.
@@ -98,9 +96,7 @@ export default {
     },
     quick: async () => 'ok',
   },
-  async register(app, ctx) {
-    db = ctx.db;
-  },
+  async register() {},
 };
 `;
 
@@ -199,7 +195,7 @@ d('a worker-isolated extension fails alone (ADR 0056 s2)', () => {
       permissions: ['data:write'],
       resources: [RES],
       actions: [
-        declare('lockThenSleep', { reads: [C], writes: [C] }),
+        declare('lockThenHang', { reads: [C], writes: [C] }),
         declare('waitOnLock', { reads: [C], writes: [C] }),
         declare('slow'),
         declare('quick'),
@@ -235,7 +231,7 @@ d('a worker-isolated extension fails alone (ADR 0056 s2)', () => {
     await dropTestCollection(db, C);
   });
 
-  it('cancels the statement a timed-out action runs and releases its row lock at the timeout', async () => {
+  it('rolls back a timed-out action and releases its row lock at the timeout', async () => {
     const [row] = (
       await asDefaultTenant(
         db,
@@ -248,17 +244,18 @@ d('a worker-isolated extension fails alone (ADR 0056 s2)', () => {
     _internalForTests.setRequestTxnTimeoutMs(TIMEOUT_MS);
     try {
       const started = Date.now();
-      const answered = Promise.resolve(act('lockThenSleep', { id })).then(async (r: Response) => ({
+      const answered = Promise.resolve(act('lockThenHang', { id })).then(async (r: Response) => ({
         status: r.status,
         body: (await r.json()) as { code?: string },
         at: Date.now() - started,
       }));
       // Once the action holds the row: another transaction waits on its lock.
       for (let i = 0; i < 50; i++) {
-        const sleeping = await sql<{ n: number }>`
-          SELECT count(*)::int AS n FROM pg_stat_activity WHERE query = 'SELECT pg_sleep(30)'
+        const held = await sql<{ n: number }>`
+          SELECT count(*)::int AS n FROM pg_locks l JOIN pg_class c ON c.oid = l.relation
+           WHERE c.relname = ${`zvd_${C}`} AND l.mode = 'RowExclusiveLock' AND l.granted
         `.execute(db);
-        if (sleeping.rows[0]!.n > 0) break;
+        if (held.rows[0]!.n > 0) break;
         await Bun.sleep(100);
       }
       const waited = asDefaultTenant(
@@ -269,13 +266,9 @@ d('a worker-isolated extension fails alone (ADR 0056 s2)', () => {
       const second = await waited;
       expect(res.status).toBe(504);
       expect(res.body.code).toBe('extension.timeout');
-      // At the timeout, not at the worker's 10 s statement timeout.
+      // At the timeout, not when the action would have let go (never).
       expect(res.at).toBeLessThan(TIMEOUT_MS + 3_000);
       expect(second).toBeLessThan(TIMEOUT_MS + 3_000);
-      const left = await sql<{ n: number }>`
-        SELECT count(*)::int AS n FROM pg_stat_activity WHERE query = 'SELECT pg_sleep(30)'
-      `.execute(db);
-      expect(left.rows[0]!.n).toBe(0);
       // Nothing the action wrote was kept: the other transaction's write stands.
       const now = await asDefaultTenant(
         db,
