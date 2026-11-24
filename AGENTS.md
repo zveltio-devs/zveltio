@@ -306,9 +306,8 @@ generated).
   `install.sh` and, for one-container platforms, the image's root entrypoint
   `docker/zveltio-entrypoint.sh` ship it), elsewhere a child of the engine under its uid. There is
   no in-thread worker. Production refuses `process` and refuses the extension
-  when no runner answers. Their SQL crosses to the engine: an allowlist of user
-  tables + own `zv_<ext>_*` namespace, one transaction per request,
-  `zveltio_worker` DB role with no grants on Better-Auth tables.
+  when no runner answers. No SQL crosses from them: data goes through
+  `host.collections` (the worker roles were retired in migration 136).
 - Extension dev loop, manifest v2 schema, and publishing:
   `docs/extensions/developer-guide.md` (§12 covers the local loop).
   Scaffold with `zveltio extension create <name>`.

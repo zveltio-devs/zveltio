@@ -108,7 +108,7 @@ Zveltio extensions are **plugins**, not forks. Two types ship together:
 ### Engine extensions
 - Packages that declare collections (the engine creates and owns them), actions and jobs for business logic, the few routes a non-Zveltio caller needs, and pages as views every front end draws. They carry no authorization logic: the engine's rules decide. See [docs/extensions/authoring.md](docs/extensions/authoring.md).
 - Signed with Ed25519 at publish time and **verified at install**: a missing or invalid signature fails the install, and an unsigned extension never runs. To trust an additional signer, add its key to `REGISTRY_PUBLIC_KEYS_JSON`; your own extensions are signed with a key on `OPERATOR_PUBLIC_KEYS_JSON`.
-- Community-tier extensions are **review-gated, signed, and worker-isolated**: their code is never imported into the engine process — the worker loads it — and from there the host restricts their SQL to user-data tables and their own `zv_<ext>_*` namespace, on a reserved connection with a statement timeout, running as a database role (`zveltio_worker`) that holds no grant at all on the tables Better-Auth owns. Until 3.0.0-beta.61 that restriction was a denylist of table-name prefixes with no rule for unprefixed names, so an extension could read `session` and `account` directly; it is an allowlist now, with the role beneath it as the layer that survives the next mistake in the string matching. In production the worker is the extension runner: a process under a uid of its own, with none of the engine's files, environment or database credentials and no network until the operator allows one; without a reachable runner, production refuses the extension rather than run it in the engine's process.
+- Community-tier extensions are **review-gated, signed, and worker-isolated**: their code is never imported into the engine process — the worker loads it — and no SQL crosses from it: it reaches its collections through `host.collections`, which the engine answers under the caller's rules. In production the worker is the extension runner: a process under a uid of its own, with none of the engine's files, environment or database credentials and no network until the operator allows one; without a reachable runner, production refuses the extension rather than run it in the engine's process.
 
 ### Studio extensions
 - Svelte 5 components packaged at publish time, copied into the Studio route tree on enable.
@@ -340,7 +340,7 @@ Honest about where we are: still beta. The current version is in [`packages/engi
 - `ZveltioExtension` SDK interface + `@zveltio/sdk/extension` types
 - `@zveltio/sdk/build` plugin config (custom build pipelines)
 - Marketplace publish flow + review queue endpoints
-- Worker isolation contract (credential-free worker environment, table-restricted SQL bridge, ping/pong heartbeat, crash respawn) — a guard-rail inside the engine process, not a sandbox
+- Worker isolation contract (credential-free worker environment, no SQL across the boundary, ping/pong heartbeat, crash respawn) — a guard-rail inside the engine process, not a sandbox
 
 **What may still move in beta.x:**
 - Engine internal helpers not exported via SDK

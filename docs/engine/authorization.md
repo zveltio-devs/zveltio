@@ -289,9 +289,8 @@ A field whose type serializes to nothing — `password`, stored as an argon2
 hash — is served to no one, god included. The data API strips it from every
 payload; the database refuses it too (`zveltio_seal_columns()`, migration 073).
 Such a collection's table holds SELECT column by column, on every column but
-the sealed ones, for every role that reads it (`zveltio_rls`,
-`zveltio_worker`, `zveltio_flow_reader`, `zveltio_ext` and the per-extension
-roles); INSERT, UPDATE and DELETE stay table-level, so writing a new hash needs
+the sealed ones, for every role that reads it (`zveltio_rls`, `zveltio_ext`
+and the per-extension roles); INSERT, UPDATE and DELETE stay table-level, so writing a new hash needs
 no read of the old one. Only the table's owner can read the column.
 A `secret` field is sealed the same way; it is stored encrypted, and the
 engine decrypts it only into the `host.collections` reads of the extension that
