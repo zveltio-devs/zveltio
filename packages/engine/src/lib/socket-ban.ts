@@ -123,6 +123,7 @@ const list = (xs, enc) => { const v = new BigUint64Array([...xs.map((x) => cstr(
 const prog = Buffer.from('${filter}', 'base64');
 // struct sock_fprog { u16 len; struct sock_filter *filter; }
 const fprog = new BigUint64Array([BigInt(prog.length / 8), BigInt(ptr(prog))]);
+keep.push(prog, fprog);
 // PR_SET_NO_NEW_PRIVS, then PR_SET_SECCOMP with SECCOMP_MODE_FILTER.
 if (c.prctl(38, 1, 0, 0, 0) !== 0) fail('PR_SET_NO_NEW_PRIVS failed');
 if (c.prctl(22, 2, BigInt(ptr(fprog)), 0, 0) !== 0) fail('the kernel refused the seccomp filter');

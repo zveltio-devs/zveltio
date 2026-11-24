@@ -228,7 +228,7 @@ console.log(JSON.stringify({
 
     it('starts it under the ban, AF_UNIX included, with exactly its argv and env', () => {
       const { argv, env, release } = runnerWrap(null)(
-        [process.execPath, '-e', probe, 'a', '--', 'b'],
+        [process.execPath, '-e', probe, 'a', '--', '--reuid=1', '-h', '', 'b'],
         {
           env: { BUN_BE_BUN: '1', ONLY: 'this' },
         },
@@ -241,7 +241,7 @@ console.log(JSON.stringify({
         unixDgram: 'errno 13',
         inet: 'errno 13',
         seccomp: '2',
-        cmdline: ['a', '--', 'b'],
+        cmdline: ['a', '--', '--reuid=1', '-h', '', 'b'],
         env: { BUN_BE_BUN: '1', ONLY: 'this' },
       });
     });
