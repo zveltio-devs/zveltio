@@ -59,16 +59,10 @@ const CREDS = {
 };
 const NONE = { cookie: null, authorization: null, 'x-api-key': null };
 
+// Declared routes: a worker is declared model only (RFC v3 phase D slice 4).
 const entry = `
-const seen = (c) => Object.fromEntries(${JSON.stringify(HEADERS)}.map((h) => [h, c.req.header(h) ?? null]));
-export default {
-  name: '${NAME}',
-  mountStrategy: 'subapp',
-  async register(app) {
-    app.post('/hook', (c) => c.json(seen(c)));
-    app.post('/fwd', (c) => c.json(seen(c)));
-  },
-};
+const seen = (request) => Response.json(Object.fromEntries(${JSON.stringify(HEADERS)}.map((h) => [h, request.headers.get(h)])));
+export default { name: '${NAME}', routes: { hook: seen, fwd: seen }, async register() {} };
 `;
 
 d('credential forwarding needs an operator approval of the exact set', () => {
@@ -90,7 +84,10 @@ d('credential forwarding needs an operator approval of the exact set', () => {
       JSON.stringify({
         name: NAME,
         version: '1.0.0',
-        publicRoutes: ['/hook', '/fwd'],
+        routes: [
+          { method: 'POST', path: '/hook', access: 'public', handler: 'hook' },
+          { method: 'POST', path: '/fwd', access: 'public', handler: 'fwd' },
+        ],
         forwardCredentials,
         engine: { entry: 'engine/index.js', bundled: true, isolation: 'worker' },
       }),
