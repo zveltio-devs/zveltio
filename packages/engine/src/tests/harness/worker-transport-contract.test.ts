@@ -127,8 +127,10 @@ d('worker transport contract: the process transport carries the protocol', () =>
       const ctx = extensionLoader.ctx ?? ({ db, fieldTypeRegistry: { register() {} } } as never);
       await markInstalled(db, name);
       await extensionLoader.loadExtension(name, app, ctx, base);
-      expect(extensionLoader.getLastLoadError(name)).toBeUndefined();
+      // Inside the try: a failed load must still forget its registry row, which
+      // otherwise blocks every later default grant (no manifest on record).
       try {
+        expect(extensionLoader.getLastLoadError(name)).toBeUndefined();
         results[transport] = await transcript(app, name);
         const np = await app.request(`/ext/${name}/nodeproc`);
         nodeProc = { status: np.status, body: await np.json().catch(() => null) };

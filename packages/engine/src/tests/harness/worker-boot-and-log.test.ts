@@ -85,9 +85,11 @@ d('a worker survives boot and logs as the console prints', () => {
       extensionLoader.ctx = ctx;
       await markInstalled(db, name);
       await extensionLoader.loadExtension(name, tempApp, ctx, base);
-      expect(extensionLoader.getLastLoadError(name)).toBeUndefined();
       const errors = spyOn(console, 'error');
+      // Inside the try: a failed load must still forget its registry row, which
+      // otherwise blocks every later default grant (no manifest on record).
       try {
+        expect(extensionLoader.getLastLoadError(name)).toBeUndefined();
         const bootBefore = await (await tempApp.request(`/ext/${name}/boot`)).text();
         await extensionLoader.reRegisterExtension(name, app);
         const boot = await app.request(`/ext/${name}/boot`);
