@@ -235,6 +235,51 @@ describe('validateMigrations', () => {
     ]);
   });
 
+  it('a drop inside a block comment or a string literal leaves the table tenanted', () => {
+    for (const drop of [
+      '/* ALTER TABLE g DROP COLUMN tenant_id; */',
+      "COMMENT ON TABLE g IS 'ALTER TABLE g DROP COLUMN tenant_id';",
+      "COMMENT ON TABLE g IS E'it\\'s ALTER TABLE g DROP COLUMN tenant_id';",
+      "SELECT '--'; /* nested /* */ ALTER TABLE g DROP COLUMN tenant_id; */",
+    ]) {
+      const files = [
+        { filename: '001.sql', sql: 'CREATE TABLE g (tenant_id UUID, name TEXT);' },
+        { filename: '002.sql', sql: `${drop}\nCREATE UNIQUE INDEX g_n ON g (name);` },
+      ];
+      expect(validateMigrations({ files }).map((e) => e.code)).toEqual([
+        'SCHEMA_UNIQUE_WITHOUT_TENANT',
+      ]);
+    }
+  });
+
+  it('a quote or -- inside a dollar-quoted body does not hide the SQL around it', () => {
+    for (const sql of [
+      'SELECT $$--$$; ALTER TABLE g DROP COLUMN tenant_id;',
+      "SELECT $$'$$; ALTER TABLE g DROP COLUMN tenant_id; SELECT $$'$$;",
+      "SELECT $tăg$'$tăg$; ALTER TABLE g DROP COLUMN tenant_id; SELECT $tăg$'$tăg$;",
+      "SELECT $🙂$'$🙂$; ALTER TABLE g DROP COLUMN tenant_id; SELECT $🙂$'$🙂$;",
+      "SELECT $á$'$á$; ALTER TABLE g DROP COLUMN tenant_id; SELECT $á$'$á$;",
+      "SELECT $tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt$'$tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt$; ALTER TABLE g DROP COLUMN tenant_id; SELECT $tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt$'$tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt$;",
+    ]) {
+      const files = [
+        { filename: '001.sql', sql: 'CREATE TABLE g (tenant_id UUID, name TEXT);' },
+        { filename: '002.sql', sql: `${sql}\nCREATE UNIQUE INDEX g_n ON g (name);` },
+      ];
+      expect(validateMigrations({ files })).toEqual([]);
+    }
+    // And the reverse: a stray quote in a body does not expose a quoted drop.
+    const quoted = [
+      { filename: '001.sql', sql: 'CREATE TABLE g (tenant_id UUID, name TEXT);' },
+      {
+        filename: '002.sql',
+        sql: "SELECT $$'$$; COMMENT ON TABLE g IS ' ALTER TABLE g DROP COLUMN tenant_id ';\nCREATE UNIQUE INDEX g_n ON g (name);",
+      },
+    ];
+    expect(validateMigrations({ files: quoted }).map((e) => e.code)).toEqual([
+      'SCHEMA_UNIQUE_WITHOUT_TENANT',
+    ]);
+  });
+
   it('accepts a widened key whose columns are in a different order', () => {
     const errors = validateMigrations({
       files: [

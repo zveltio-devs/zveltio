@@ -15,6 +15,7 @@ import {
   readActionResult,
   resolveFiles,
   resolveInput,
+  resolveValue,
   toFilter,
   toSort,
   type View,
@@ -59,6 +60,29 @@ describe('references', () => {
   it('is unresolved while a pane has no selection', () => {
     expect(resolveInput({ x: $.selected('other') }, scope)).toBeNull();
     expect(toFilter([$.where('folder_id', 'eq', $.selected('other'))], scope)).toBeNull();
+  });
+});
+
+describe('a name an object inherits', () => {
+  // A Name may be `constructor`; `{}.constructor` is `Object`, so a record
+  // without that field read as bound and a `notnull` on it held.
+  const empty = { record: {}, params: {}, selected: {}, selection: [{}] };
+  for (const name of ['constructor', 'toString', 'hasOwnProperty']) {
+    it(`reads \`${name}\` as missing on a record that lacks it`, () => {
+      expect(resolveValue({ $record: name }, empty)).toBeUndefined();
+      expect(resolveValue({ $param: name }, empty)).toBeUndefined();
+      expect(resolveValue({ $selected: name }, empty)).toBeUndefined();
+      expect(resolveValue({ $selection: name }, empty)).toEqual([undefined]);
+      expect(isBound({ action: 'a', input: { x: { $record: name } } }, empty)).toBe(false);
+      expect(resolveInput({ x: { $record: name } }, empty)).toBeNull();
+      expect(matches([{ field: name, op: 'not_null' }], {}, empty)).toBe(false);
+      expect(matches([{ field: name, op: 'null' }], {}, empty)).toBe(true);
+    });
+  }
+  it('still reads an own field named `constructor`', () => {
+    const s = { record: { constructor: 'c1' } };
+    expect(resolveValue({ $record: 'constructor' }, s)).toBe('c1');
+    expect(matches([{ field: 'constructor', op: 'eq', value: 'c1' }], s.record, s)).toBe(true);
   });
 });
 

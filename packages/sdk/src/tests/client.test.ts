@@ -31,6 +31,18 @@ describe('ZveltioClient URL building', () => {
     ]);
   });
 
+  it('refuses a caller value that is a dot segment instead of letting fetch resolve it', async () => {
+    const urls = captureUrls();
+    const client = createZveltioClient({ baseUrl: 'https://engine.test' });
+    await expect(client.collection('..').delete('me')).rejects.toThrow(TypeError);
+    await expect(client.collection('products').get('.')).rejects.toThrow(TypeError);
+    await expect(client.auth.apiKeys.revoke('..')).rejects.toThrow(TypeError);
+    await expect(client.storage.delete('..')).rejects.toThrow(TypeError);
+    await expect(client.get('/api/data/%2E%2e/x')).rejects.toThrow(TypeError);
+    await client.collection('products').get('..x');
+    expect(urls).toEqual(['https://engine.test/api/data/products/..x']);
+  });
+
   it('aggregate() names the route and the query the engine parses (ADR 0050)', async () => {
     const urls = captureUrls();
     const client = createZveltioClient({ baseUrl: 'https://engine.test' });

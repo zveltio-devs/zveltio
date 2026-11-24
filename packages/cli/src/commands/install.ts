@@ -1,6 +1,6 @@
-import { existsSync } from 'fs';
-import { readFile, mkdir, cp, rm } from 'fs/promises';
-import { join, resolve } from 'path';
+import { existsSync, realpathSync } from 'fs';
+import { readFile, mkdir, cp, rename, rm } from 'fs/promises';
+import { dirname, join, resolve, sep } from 'path';
 import { type EngineTarget, engineFetch, errorOf } from '../lib/engine-session.js';
 import { OPERATOR_UNLISTED, verifyExtensionDirSignature } from './extension-sign.js';
 
@@ -127,17 +127,43 @@ async function installFromPath(name: string, sourcePath: string, force: boolean)
     process.exit(1);
   }
 
-  if (force) await rm(targetDir, { recursive: true, force: true });
-  await mkdir(targetDir, { recursive: true });
+  // Copying a directory into itself (or into its own parent) would wipe the source.
+  // Real paths, so a symlink to the installed directory is caught too.
+  const real = (p: string) => (existsSync(p) ? realpathSync(p) : resolve(p));
+  const from = real(sourcePath);
+  const to = real(targetDir);
+  if (from === to || from.startsWith(`${to}${sep}`) || to.startsWith(`${from}${sep}`)) {
+    console.error(`❌ --path ${from} overlaps the install target ${to}`);
+    process.exit(1);
+  }
+
+  // Copy beside the target and verify there; the old install is only swapped out
+  // once the new copy verifies, so a failed copy or check leaves it as it was.
+  const staging = `${to}.installing-${process.pid}`;
+  const old = `${to}.old-${process.pid}`;
   // Its root node_modules/ is not signed and never runs on the runner: not copied.
   const unlisted = resolve(sourcePath, OPERATOR_UNLISTED);
-  await cp(sourcePath, targetDir, { recursive: true, filter: (src) => resolve(src) !== unlisted });
-  // What landed is what the engine reads: verify the copy, not only the source.
   try {
-    await verifyExtensionDirSignature(targetDir, extName);
+    await mkdir(dirname(to), { recursive: true });
+    await cp(sourcePath, staging, { recursive: true, filter: (src) => resolve(src) !== unlisted });
+    // What lands is what the engine reads: verify the copy, not only the source.
+    try {
+      await verifyExtensionDirSignature(staging, extName);
+    } catch (e) {
+      throw new Error(`the copy at ${staging} does not verify: ${(e as Error).message}`);
+    }
+    const replacing = existsSync(to);
+    if (replacing) await rename(to, old);
+    try {
+      await rename(staging, to);
+    } catch (e) {
+      if (replacing) await rename(old, to);
+      throw e;
+    }
+    if (replacing) await rm(old, { recursive: true, force: true });
   } catch (e) {
-    await rm(targetDir, { recursive: true, force: true });
-    console.error(`❌ the copy at ${targetDir} does not verify: ${(e as Error).message}`);
+    await rm(staging, { recursive: true, force: true });
+    console.error(`❌ ${(e as Error).message}`);
     process.exit(1);
   }
   console.log(`  ✓ Copied to ${targetDir}`);

@@ -780,11 +780,79 @@ function columnLevelUniqueColumns(sql: string): string[] {
   return out;
 }
 
+/**
+ * The SQL that runs: comments become a space and every string literal `''`, in
+ * one left-to-right pass. Chained regexes get the order wrong (`'--'` opens a
+ * "comment", a quote inside a block comment a "string") and miss `E'\''`, so a quoted `DROP COLUMN tenant_id` read as a real one.
+ * Quoted identifiers stay; a `$$…$$` body is scanned on its own (`DO $$ … $$` runs).
+ */
+// PostgreSQL's dolq_start / dolq_cont: ASCII letters, `_`, digits after the
+// first, and any non-ASCII character.
+const DOLLAR_TAG = /^\$(?:[A-Za-z_\u0080-\u{10FFFF}][A-Za-z0-9_\u0080-\u{10FFFF}]*)?\$/u;
+
+function sqlCode(sql: string): string {
+  let out = '';
+  let i = 0;
+  while (i < sql.length) {
+    const c = sql[i];
+    const dollar = c === '$' && !/[\w$]/.test(sql[i - 1] ?? '') && DOLLAR_TAG.exec(sql.slice(i));
+    if (dollar) {
+      // A `$$…$$` body may run (`DO $$ … $$`), so it is scanned on its own: a
+      // quote or `--` inside it must not swallow the SQL around it.
+      const tag = dollar[0];
+      const end = sql.indexOf(tag, i + tag.length);
+      const stop = end < 0 ? sql.length : end;
+      out += ` ${sqlCode(sql.slice(i + tag.length, stop))} `;
+      i = end < 0 ? sql.length : end + tag.length;
+    } else if (sql.startsWith('--', i)) {
+      const end = sql.indexOf('\n', i);
+      i = end < 0 ? sql.length : end;
+      out += ' ';
+    } else if (sql.startsWith('/*', i)) {
+      let depth = 1;
+      i += 2;
+      while (i < sql.length && depth > 0) {
+        if (sql.startsWith('/*', i)) {
+          depth++;
+          i += 2;
+        } else if (sql.startsWith('*/', i)) {
+          depth--;
+          i += 2;
+        } else i++;
+      }
+      out += ' ';
+    } else if (
+      c === "'" ||
+      ((c === 'E' || c === 'e') && sql[i + 1] === "'" && !/\w/.test(sql[i - 1] ?? ''))
+    ) {
+      const escapes = c !== "'";
+      i += escapes ? 2 : 1;
+      while (i < sql.length) {
+        if (escapes && sql[i] === '\\') i += 2;
+        else if (sql[i] === "'" && sql[i + 1] === "'") i += 2;
+        else if (sql[i] === "'") break;
+        else i++;
+      }
+      i++;
+      out += "''";
+    } else if (c === '"') {
+      const end = sql.indexOf('"', i + 1);
+      const stop = end < 0 ? sql.length : end + 1;
+      out += sql.slice(i, stop);
+      i = stop;
+    } else {
+      out += c;
+      i++;
+    }
+  }
+  return out;
+}
+
 /** A key's columns, and its table where the statement names it (`CREATE UNIQUE INDEX … ON t`). */
 type KeyColumns = string[] & { table?: string };
 
 function keyColumnSets(upSql: string): KeyColumns[] {
-  const s = upSql.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  const s = sqlCode(upSql);
   const sets: KeyColumns[] = [];
   const add = (cols: string, table?: string) => {
     const key: KeyColumns = cols
@@ -821,7 +889,9 @@ const bareTable = (t: string) => t.replace(/"/g, '').split('.').pop()!.toLowerCa
  * 004): a key on it is instance-wide and needs no tenant column.
  */
 function tenantColumnChanges(upSql: string): Array<[table: string, dropped: boolean]> {
-  const s = upSql.replace(/--[^\n]*/g, '');
+  // A drop that is commented out or quoted (`COMMENT ON TABLE … IS '… DROP
+  // COLUMN tenant_id'`) takes nothing out of tenancy.
+  const s = sqlCode(upSql);
   const out: Array<[string, boolean]> = [];
   for (const m of s.matchAll(
     /ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?([\w."]+)\s[^;]*?\b(ADD|DROP)\s+COLUMN\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?"?tenant_id"?\b/gi,
@@ -1226,6 +1296,18 @@ export function validateSduiSchema(input: SduiValidationInput): ValidationError[
   collectEndpoints(schema, endpoints);
   for (const raw of endpoints) {
     const bare = raw.split('?')[0];
+    // A browser resolves `.` and `..` before it sends the request, so
+    // `/ext/dep/../../api/admin/users` is a call to `/api/admin/users`.
+    if (/(?:^|\/)(?:\.|%2e){1,2}(?:\/|$)/i.test(raw.split(/[?#]/)[0])) {
+      out.push(
+        err(
+          'SDUI_ENDPOINT_DOT_SEGMENT',
+          `endpoint "${raw}" has a "." or ".." path segment, which a browser resolves to another path. Name the route itself.`,
+          file,
+        ),
+      );
+      continue;
+    }
     if (SDUI_SHARED_READ_ALLOWLIST.has(bare)) continue;
     // A dependency's namespace is allowed (relation pickers etc.).
     if (depMounts.some((m) => inMount(bare, m))) continue;
