@@ -95,10 +95,12 @@ describe('BETTER_AUTH_SECRETS: engine signatures use the current secret only', (
     listRotate();
     const raw = encodeSigned('rls', 'rls:policies:x', []);
     const key = await hashApiKey(`zvk_${'a'.repeat(32)}`);
+    const token = await hmacAuthSecret('scim-token');
     delete process.env.BETTER_AUTH_SECRETS;
     rotate(NEW);
     expect(decodeSigned('rls', 'rls:policies:x', raw)).toEqual([]);
     expect(await hashApiKey(`zvk_${'a'.repeat(32)}`)).toBe(key);
+    expect(await hmacAuthSecret('scim-token')).toBe(token);
   });
 
   it('verifies an API key under every held secret, current first, and under no other', async () => {

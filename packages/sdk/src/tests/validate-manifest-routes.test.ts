@@ -83,6 +83,11 @@ describe('manifest signInProviders (ADR 0039 decision 8)', () => {
     expect(codes({ routes: [{ ...login, access: 'caller' }], signInProviders: [dir] })).toEqual([
       'MANIFEST_BAD_SIGN_IN_PROVIDER',
     ]);
+    // A route with a parameter cannot start a sign-in: there is nothing to fill it.
+    const param = { ...login, path: '/login/:realm' };
+    expect(codes({ routes: [param], signInProviders: [{ ...dir, route: param.path }] })).toEqual([
+      'MANIFEST_BAD_SIGN_IN_PROVIDER',
+    ]);
     expect(codes({ routes: [login], signInProviders: [dir, dir] })).toEqual([
       'MANIFEST_BAD_SIGN_IN_PROVIDER',
     ]);

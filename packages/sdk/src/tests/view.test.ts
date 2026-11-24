@@ -8,7 +8,6 @@ import { join } from 'node:path';
 import { $, isViewDocument, VIEW_SPEC, validateView, view, viewNameIssues } from '../view/index.js';
 // Parsed, not imported: an import would turn the `__proto__` key into a prototype.
 // Resolved through src/ so the copy tsc compiles into dist/tests finds it too.
-// Parsed, not imported: an import would turn the `__proto__` key into a prototype.
 const fixtures = JSON.parse(
   readFileSync(join(import.meta.dir, '../../src/tests/fixtures/view-2.json'), 'utf8'),
 ) as {
@@ -107,7 +106,8 @@ describe('viewNameIssues', () => {
   it('a $selected names an earlier pane of an enclosing split; pane ids are unique', () => {
     const v = view.document(
       view.split({
-        actions: [{ action: 'sync', input: { a: $.selected('second') } }],
+        // An input is values, but a reference in it is still checked.
+        actions: [{ action: 'sync', input: { a: $.selected('second'), b: $.selected('nowhere') } }],
         panes: [
           view.list({
             id: 'first',
@@ -127,6 +127,7 @@ describe('viewNameIssues', () => {
       '/panes/0/filter/0/value/$selected',
       '/panes/2/id',
       '/panes/2/record/$selected',
+      '/actions/0/input/b/$selected',
     ]);
   });
 
