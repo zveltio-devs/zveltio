@@ -14,6 +14,7 @@ const base = {
   tenantId: 't1',
   collection: 'orders',
   asOf: '2026-01-01T00:00:00.000Z',
+  incarnation: '2025-12-01 00:00:00+00',
   userId: 'u1',
   filters: '[]',
 };
@@ -33,6 +34,12 @@ describe('what the key must separate', () => {
   it('separates instants', () => {
     expect(timeTravelCountKey(base)).not.toBe(
       timeTravelCountKey({ ...base, asOf: '2026-02-01T00:00:00.000Z' }),
+    );
+  });
+
+  it('separates incarnations, because a re-created collection counts only its own revisions', () => {
+    expect(timeTravelCountKey(base)).not.toBe(
+      timeTravelCountKey({ ...base, incarnation: '2025-12-02 00:00:00+00' }),
     );
   });
 

@@ -67,12 +67,18 @@ export function timeTravelCountKey(parts: {
   tenantId: string | null;
   collection: string;
   asOf: string;
+  /**
+   * The collection's `zvd_collections.created_at`. A drop and re-create under
+   * the same name reads only revisions written since the new create
+   * (`sinceCreated`), so the predecessor's count must not answer for it.
+   */
+  incarnation: string;
   userId: string;
   /** Serialised row-rule conditions — what this caller is allowed to count. */
   filters: string;
 }): string {
   const hash = createHash('sha256')
-    .update([parts.asOf, parts.userId, parts.filters].join('|'))
+    .update([parts.asOf, parts.incarnation, parts.userId, parts.filters].join('|'))
     .digest('hex')
     .slice(0, 16);
   return `ttc:${parts.tenantId ?? '_'}:${parts.collection}:${hash}`;
