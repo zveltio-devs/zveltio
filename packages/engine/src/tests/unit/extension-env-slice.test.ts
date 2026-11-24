@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import { buildExtensionConfig } from '../../lib/extensions/config.js';
-import { noteExtensionNames } from '../../lib/extensions/worker-sql-policy.js';
+import { noteExtensionNames } from '../../lib/extensions/ext-sql-policy.js';
 
 /**
  * `ctx.config.vars` exists because six files across four extensions read

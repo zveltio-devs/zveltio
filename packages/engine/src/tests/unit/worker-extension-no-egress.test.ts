@@ -16,7 +16,7 @@
  */
 
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -77,6 +77,8 @@ async function fetchFromWorker(target: string): Promise<string> {
         type: 'init',
         id: 'probe-1',
         bundleUrl: pathToFileURL(bundlePath).href,
+        // The runtime imports only bytes that hash to what the signature lists.
+        bundleSha256: new Bun.CryptoHasher('sha256').update(readFileSync(bundlePath)).digest('hex'),
         extName: 'probe',
         env: { NODE_ENV: 'test', extensionPath: dir },
       });

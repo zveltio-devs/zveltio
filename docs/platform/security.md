@@ -50,7 +50,7 @@ internet-facing unauthenticated data surface is modelling the wrong system.
 | Per-request middleware | `middleware/` — tenant guard, membership, rate limit, URL validation |
 | Extension loading and sandbox | `lib/extensions/` — `load.ts`, `register.ts`, `capabilities.ts` |
 | SSRF validation | `lib/security/url-validator.ts` (`assertPublicUrl`), used by `edge-functions/safe-fetch.ts` |
-| Worker SQL policy | `lib/extensions/worker-sql-policy.ts` |
+| Extension SQL policy | `lib/extensions/ext-sql-policy.ts` |
 
 ---
 

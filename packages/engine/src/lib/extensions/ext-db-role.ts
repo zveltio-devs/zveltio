@@ -1,7 +1,7 @@
 /**
  * The Postgres role an inline extension's `ctx.db` statements run as.
  *
- * `assertWorkerSqlAllowed` reads every statement an extension sends, but for an
+ * `assertExtSqlAllowed` reads every statement an extension sends, but for an
  * inline extension it was the ONLY thing between that SQL and the role
  * underneath, and the role underneath held far more than the analyzer permits.
  * Measured with the analyzer switched off (tests/harness/
@@ -409,7 +409,7 @@ async function grantOwnTables(
   try {
     const { engineOwnedTables, READ_ONLY_TABLE_GRANTS } = await import('./register.js');
     const { coveringExtensionNames, longerOwnedPrefixes, noteExtensionNames, ownedPrefixFor } =
-      await import('./worker-sql-policy.js');
+      await import('./ext-sql-policy.js');
     // Installed, not only loaded: `a/b`'s tables stay `a/b`'s while it is
     // disabled, and another replica may have installed it.
     noteExtensionNames([extName, ...(await installedExtensionNames(db))]);

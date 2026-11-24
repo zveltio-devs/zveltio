@@ -21,10 +21,11 @@ export interface InitRequest {
   id: WorkerMessageId;
   bundleUrl: string;
   /**
-   * An operator-signed bundle's sha256 as its signature lists it (ADR 0056 d1):
-   * the worker imports the bytes it read only if they hash to this.
+   * The bundle's sha256 as its signature lists it — an operator's or the
+   * registry's (ADR 0056 d1): the worker imports the bytes it read only if they
+   * hash to this. Always sent: no worker runs unsigned.
    */
-  bundleSha256?: string;
+  bundleSha256: string;
   extName: string;
   // Constants the worker needs to render full responses. NEVER include
   // DATABASE_URL or other credentials here — that's the whole point.
@@ -77,8 +78,6 @@ export interface RouteInvokeResponse {
   /** The response's bytes, unchanged: a handler's binary answer crosses as sent. */
   body?: Uint8Array<ArrayBuffer>;
   error?: string;
-  /** The SQLSTATE of an error the handler did not catch, for the host's `problemOnError`. */
-  errno?: string;
   /**
    * The handler threw and Hono rendered the error (`c.error`): the host rolls
    * the request's transaction back, as `tenantMiddleware` does inline.
@@ -112,8 +111,6 @@ export interface ActionInvokeResponse {
   refusal?: { status?: unknown; code?: unknown; message?: string };
   /** The `host:call` whose refusal the action let through: the host rethrows its own error. */
   hostError?: WorkerMessageId;
-  /** The SQLSTATE of an error the action did not catch, as on `RouteInvokeResponse`. */
-  errno?: string;
 }
 
 // ── Host calls (worker → host): a declared route's or action's `host` ──

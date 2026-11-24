@@ -53,11 +53,6 @@ export function serviceRegisterRefusal(extName: string, name: string): string | 
  */
 export type ServiceDeps = ReadonlyMap<string, boolean>;
 
-/** `names`, every one callable — the shape `scope` takes. */
-export function callableDeps(names: Iterable<string>): ServiceDeps {
-  return new Map(Array.from(names, (n) => [n, true]));
-}
-
 /**
  * The owner of a service as `mayCall` sees it: null when nobody registered it —
  * an optional dependency that is not installed — and null too when its owner is
@@ -175,8 +170,7 @@ export class ServiceRegistryImpl {
   /**
    * The `ServiceRegistry` an extension gets as `ctx.services`. Its registrations
    * are attributed to `extName` and held to its namespace; its reads are held to
-   * the owners in `mayCall` (manifest `dependencies` + `optionalDependencies`)
-   * — the rule the worker broker applies, so an inline extension is under it too.
+   * the owners in `mayCall` (manifest `dependencies` + `optionalDependencies`).
    * A name nobody registered reads as absent (`null`): an optional dependency
    * that is not installed, or one too old to use (`reachableOwner`). The
    * engine's own scope is unrestricted.

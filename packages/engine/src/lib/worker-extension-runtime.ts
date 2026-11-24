@@ -20,7 +20,6 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { fileURLToPath } from 'node:url';
 import { type Context, Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
-import { sqlState } from '../db/bun-sql-quirks.js';
 import { mountDeclaredRoutes, pairRouteHandlers } from './declared-routes.js';
 import type { DeclaredRouteHost } from '@zveltio/sdk/extension';
 import type {
@@ -197,9 +196,7 @@ async function handleInit(msg: Extract<HostToWorkerMessage, { type: 'init' }>): 
     // after it crashed the worker (ProcessNextTick undefined, core dump).
     if (msg.env.NODE_ENV) process.env.NODE_ENV = msg.env.NODE_ENV;
     refuseFetch();
-    const module = await import(
-      msg.bundleSha256 ? await verifiedBundle(msg.bundleUrl, msg.bundleSha256) : msg.bundleUrl
-    );
+    const module = await import(await verifiedBundle(msg.bundleUrl, msg.bundleSha256));
     const extension = module.default;
     if (!extension || typeof extension.register !== 'function') {
       send({
@@ -258,12 +255,11 @@ async function handleInit(msg: Extract<HostToWorkerMessage, { type: 'init' }>): 
 }
 
 /**
- * An uncaught error carrying a SQLSTATE goes to the host's `problemOnError`, as
- * an inline route's does (22P02 → 400, 55P03 → 503); anything else as Hono's
- * default answers it.
+ * An uncaught error answers as Hono's default does. No SQLSTATE crosses: no SQL
+ * runs in a worker, so a code on its error is one it made up (RFC v3 phase D
+ * slice 4).
  */
 function onRouteError(err: Error, c: Context): Response {
-  if (sqlState(err)) throw err;
   if ('getResponse' in err) return (err as HTTPException).getResponse();
   console.error(err);
   return c.text('Internal Server Error', 500);
@@ -303,13 +299,7 @@ async function handleRouteInvoke(msg: RouteInvokeRequest): Promise<void> {
       ...(store.threw ? { threw: true } : {}),
     });
   } catch (err) {
-    const errno = sqlState(err);
-    send({
-      type: 'route:err',
-      id: msg.id,
-      error: (err as Error).message,
-      ...(errno ? { errno } : {}),
-    });
+    send({ type: 'route:err', id: msg.id, error: (err as Error).message });
   }
 }
 
@@ -377,8 +367,7 @@ function actionFailure(err: unknown): Partial<ActionInvokeResponse> {
     const message = typeof e.message === 'string' ? e.message : undefined;
     return { refusal: { status: e.status, code: e.code, message } };
   }
-  const errno = sqlState(err);
-  return errno ? { errno } : {};
+  return {};
 }
 
 function dispatch(msg: HostToWorkerMessage): void {

@@ -75,7 +75,7 @@ import {
 } from './lifecycle.js';
 import { loadExtensionFromDir } from './load.js';
 import { discoverExternal, getActiveExtensionNames, topoSortExtensions } from './discovery.js';
-import { noteExtensionNames } from './worker-sql-policy.js';
+import { noteExtensionNames } from './ext-sql-policy.js';
 import type { CompiledAction } from './actions.js';
 import type { DeclaredRoute, RouteSpec } from '../declared-routes.js';
 

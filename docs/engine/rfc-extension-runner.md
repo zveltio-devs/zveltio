@@ -108,7 +108,7 @@ The proposal:
 
 Unchanged in principle: `db:query` crosses to the engine. The engine executes it:
 - with the extension's own database role (#885);
-- under the statement policy (`worker-sql-policy.ts`);
+- under the statement policy (`ext-sql-policy.ts`);
 - with a statement timeout;
 - in the caller's tenant, which is not RLS-scoped today; tenant scoping becomes
   part of this change.

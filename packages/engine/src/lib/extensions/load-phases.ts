@@ -319,10 +319,12 @@ let inlineForTests = false;
 const ok: PhaseResult<void> = { ok: true, value: undefined };
 
 /**
- * Tests only: let any extension load inline, as the removed
- * ZVELTIO_ALLOW_INLINE_THIRD_PARTY did, and a worker-isolated one load unsigned.
- * Returns the previous value to restore. Not an operator switch — nothing
- * outside the test suite calls it.
+ * Tests only: let an inline extension load without the registry's signature,
+ * as the removed ZVELTIO_ALLOW_INLINE_THIRD_PARTY did. A worker-isolated one is
+ * held to production under it: signed, or refused (RFC v3 phase D slice 4, S4;
+ * worker fixtures sign with `testing/operator-signed.ts`). Returns the previous
+ * value to restore. Not an operator switch — nothing outside the test suite
+ * calls it.
  */
 export function _setInlineForTests(on: boolean): boolean {
   const was = inlineForTests;
@@ -387,7 +389,9 @@ export async function enforcePublisherTier(
   if (worker) {
     // ADR 0056 amendment 2026-11-18: an unsigned directory never runs, on the
     // runner either. A raw registry row or an unsigned archive reached here.
-    if (!registrySigned && operatorKeyId === null && !inlineForTests) {
+    // Under the test override too: no mode in which a worker differs from
+    // production (RFC v3 phase D slice 4, S4).
+    if (!registrySigned && operatorKeyId === null) {
       const msg =
         `Extension "${extName}" is not signed: neither a registry signature kept with its files ` +
         `nor an operator's ${DIR_SIGNATURE_FILE} holds at load, and an unsigned extension never ` +

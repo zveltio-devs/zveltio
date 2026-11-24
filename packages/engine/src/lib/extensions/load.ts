@@ -34,7 +34,7 @@ import {
   runExtensionMigrations,
 } from './migration-runner.js';
 import { grantExtensionDbRole, installedExtensionNames } from './ext-db-role.js';
-import { noteExtensionNames, ownedPrefixFor } from './worker-sql-policy.js';
+import { noteExtensionNames, ownedPrefixFor } from './ext-sql-policy.js';
 import { embedPageSchemas, type ManifestMeta, ManifestSchema } from './manifest-schema.js';
 import {
   enforcePublisherTier,
@@ -330,30 +330,23 @@ export async function loadExtensionFromDir(
       // everything the worker enforces afterwards is irrelevant to it.
       //
       // The worker imports the bundle itself. The engine only needs enough
-      // metadata to run migrations and mount the proxy, and that comes from the
-      // manifest and the filesystem instead.
+      // metadata to mount the proxy, and that comes from the manifest.
       //
       // The cost is that a worker-isolated extension cannot contribute
       // engine-side field types, cron schedules or a cleanup hook: all three
       // require running its code in this process, which is the thing being
       // avoided. First-party extensions run inline and keep them.
+      //
+      // ADR 0056 d1 and amendment 2026-11-21: every worker is signed — level 3
+      // (operator key) or 2 (registry), `enforcePublisherTier` refused anything
+      // else above, under the test override too — and both are declared model
+      // only, while a migration is raw SQL run as the engine.
       const migrationDir = join(extDir, 'engine', 'migrations');
-      const migrationFiles = existsSync(migrationDir)
-        ? readdirSync(migrationDir)
-            .filter((f) => f.endsWith('.sql'))
-            // Same lexicographic order the hand-written getMigrations() lists
-            // use (001_, 002_, …) — the runner applies them in array order.
-            .sort()
-            .map((f) => join(migrationDir, f))
-        : [];
-      // ADR 0056 d1 and amendment 2026-11-21: levels 3 (operator key) and 2
-      // (registry-signed, on the runner) are declared model only, and a migration
-      // is raw SQL run as the engine. Only the test override runs one unsigned.
-      const signedBy = operatorKeyId ?? registryKeyId;
-      if (signedBy !== null && migrationFiles.length > 0) {
+      if (existsSync(migrationDir) && readdirSync(migrationDir).some((f) => f.endsWith('.sql'))) {
+        const level = operatorKeyId !== null ? 3 : 2;
         const msg =
-          `Extension "${extName}" is signed by ${operatorKeyId !== null ? 'operator' : 'registry'} ` +
-          `key "${signedBy}" (level ${operatorKeyId !== null ? 3 : 2}), which is declared model ` +
+          `Extension "${extName}" is signed by ${level === 3 ? 'operator' : 'registry'} key ` +
+          `"${operatorKeyId ?? registryKeyId}" (level ${level}), which is declared model ` +
           `only: declare its collections in the manifest instead of engine/migrations/*.sql ` +
           `(ADR 0056).`;
         console.error(`❌ ${msg}`);
@@ -365,7 +358,7 @@ export async function loadExtensionFromDir(
         name: extName,
         category: extCategory,
         mountStrategy: 'global',
-        getMigrations: () => migrationFiles,
+        getMigrations: () => [],
         // Never called: registerExtensionRoutes takes the worker branch for
         // this extension and hands routing to the host. Present because the
         // loader's shape check requires it.

@@ -25,7 +25,7 @@
 
 import type { ExtensionConfig, ObjectStorageConfig } from '@zveltio/sdk/extension';
 import { storageConfig } from '../storage/index.js';
-import { knownExtensionNames } from './worker-sql-policy.js';
+import { knownExtensionNames } from './ext-sql-policy.js';
 import { isProduction, modeOn, nodeEnv } from '../operational-modes.js';
 import { keyList } from '../security/index.js';
 

@@ -9,10 +9,12 @@
 
 import { describe, expect, it } from 'bun:test';
 import {
-  callableDeps,
   ServiceRegistryImpl,
   serviceRegisterRefusal,
 } from '../../lib/service-registry.js';
+
+/** `names`, every one callable — the shape `scope` takes. */
+const callableDeps = (names: string[]) => new Map(names.map((n) => [n, true]));
 
 describe('register / get / has / list', () => {
   it('stores and retrieves a value by name', () => {

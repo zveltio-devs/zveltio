@@ -35,10 +35,10 @@ import { getCurrentTenantTrx } from '../tenancy/index.js';
 import { asExtensionDbRole, asExtensionDbRoleOnPool } from './ext-db-role.js';
 import {
   assertNoWrittenByActionsWrite,
-  assertWorkerSqlAllowed,
-  WorkerSqlPolicyError,
-  workerSqlEngineTables,
-} from './worker-sql-policy.js';
+  assertExtSqlAllowed,
+  ExtSqlPolicyError,
+  extSqlEngineTables,
+} from './ext-sql-policy.js';
 
 /**
  * Every way to start a query on a Kysely handle — `selectFrom`, `with`,
@@ -130,10 +130,9 @@ interface ExecutorLike {
 /**
  * SQL from an extension, checked against its allowlist.
  *
- * The worker bridge's analyzer, given the inline extension's grants as well, so
- * both kinds of extension meet one rule. It used to cover raw SQL only, while
- * the builder had a table-name check of its own that admitted more; see
- * `checkedQueryCreator`.
+ * `ext-sql-policy.ts`, given the extension's grants. It used to cover raw SQL
+ * only, while the builder had a table-name check of its own that admitted more;
+ * see `checkedQueryCreator`.
  */
 async function assertRawSqlAllowed(
   extName: string,
@@ -141,15 +140,15 @@ async function assertRawSqlAllowed(
   allowedTables: Set<string> | undefined,
 ): Promise<void> {
   try {
-    assertWorkerSqlAllowed(
+    assertExtSqlAllowed(
       extName,
       text,
-      await workerSqlEngineTables(),
+      await extSqlEngineTables(),
       allowedTables ?? new Set(),
       'ctx.db',
     );
   } catch (err) {
-    if (err instanceof WorkerSqlPolicyError) throw new ExtensionSecurityError(err.message);
+    if (err instanceof ExtSqlPolicyError) throw new ExtensionSecurityError(err.message);
     throw err;
   }
 }
@@ -183,7 +182,7 @@ function checkedExecutor<T extends object>(
       : asExtensionDbRole(extName, scope.trx, real as never, () => run(real), scope.mirror);
   const refuseActionsOnly = (text: string) =>
     assertNoWrittenByActionsWrite(extName, text, 'ctx.db').catch((err) => {
-      throw err instanceof WorkerSqlPolicyError ? new ExtensionSecurityError(err.message) : err;
+      throw err instanceof ExtSqlPolicyError ? new ExtensionSecurityError(err.message) : err;
     });
   return new Proxy(executor, {
     get(target, prop) {
