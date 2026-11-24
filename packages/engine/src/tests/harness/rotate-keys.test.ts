@@ -53,6 +53,8 @@ const REV_NOROW = id();
 const REV_STR = id();
 const REV_ODD = id();
 const DELIVERY = id();
+// A finished pg-boss job whose payload carries a K0 value: counted, never rewritten.
+const JOB = id();
 
 d('rotate-keys (in-process)', () => {
   let app: Hono;
@@ -199,6 +201,9 @@ d('rotate-keys (in-process)', () => {
       sql`INSERT INTO ${sql.table(TABLE)} (id, tenant_id, note)
           VALUES (${ORPHAN_ROW}::uuid, ${ORPHAN}::uuid, ${v1})`.execute(trx),
     );
+    await sql`INSERT INTO pgboss.job (id, name, data, state)
+              VALUES (${JOB}::uuid, 'ddl.drop_collection', ${JSON.stringify({ note: v1 })}::jsonb,
+                      'completed')`.execute(db);
     savedSettings = (
       await sql<{
         raw: string;
@@ -218,6 +223,7 @@ d('rotate-keys (in-process)', () => {
     else process.env.FIELD_ENCRYPTION_KEYS = savedKeys;
     process.env.FIELD_ENCRYPTION_KEY = K0;
     if (!db) return;
+    await sql`DELETE FROM pgboss.job WHERE id = ${JOB}::uuid`.execute(db).catch(() => {});
     await sql
       .raw(`DROP TABLE IF EXISTS "${TABLE}" CASCADE`)
       .execute(db)
@@ -290,6 +296,7 @@ d('rotate-keys (in-process)', () => {
     expect(r.unvisited[`zv_revisions.${COLLECTION} (field not sealed)`]?.[k0]).toBe(1);
     expect(r.unvisited[`zv_revisions.${COLLECTION} (names no row)`]?.[k0]).toBe(1);
     expect(r.unvisited['zvd_webhook_deliveries.payload']?.[k0]).toBeGreaterThanOrEqual(1);
+    expect(r.unvisited['pgboss.job.data']?.[k0]).toBeGreaterThanOrEqual(1);
     expect(r.oldKeysDroppable).toBe(false);
     const raw = await asDefaultTenant(
       db,
