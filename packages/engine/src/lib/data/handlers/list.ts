@@ -219,15 +219,23 @@ export async function listRecords(c: Context, db: Database, query: ParsedQuery):
     //
     // The key deliberately omits page and limit: paging through one point in
     // time asks the same question repeatedly, so page 2 onward is free.
-    const countKey = timeTravelCountKey({
-      tenantId: tenantId(c),
-      collection,
-      asOf: asOf.toISOString(),
-      userId: user.id,
-      filters: JSON.stringify(rlsTT),
-    });
     const cacheable = isCacheableAsOf(asOf);
-    let total = cacheable ? await getTimeTravelCount(countKey) : null;
+    let countKey = '';
+    let total: number | null = null;
+    if (cacheable) {
+      const born = await sql<{ at: string }>`
+          SELECT created_at::text AS at FROM zvd_collections WHERE name = ${collection}
+        `.execute(effectiveDbTT);
+      countKey = timeTravelCountKey({
+        tenantId: tenantId(c),
+        collection,
+        asOf: asOf.toISOString(),
+        incarnation: born.rows[0]?.at ?? '',
+        userId: user.id,
+        filters: JSON.stringify(rlsTT),
+      });
+      total = await getTimeTravelCount(countKey);
+    }
     if (total === null) {
       const counted = await sql<{ n: string }>`
           WITH latest AS (${latestKeys})
