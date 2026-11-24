@@ -156,29 +156,37 @@ const routes = (coll: string, untouched: string) => (r: Hono, ctx: SdkContext) =
   );
 };
 
-/** A worker-isolated extension reading `W` through the bridge. */
+/**
+ * A worker-isolated extension reading `W` through the bridge: declared routes,
+ * since every worker is declared model only (RFC v3 phase D slice 4).
+ */
 const workerEntry = `
+const answer = async (read) => {
+  try { return Response.json({ status: 200, body: await read() }); }
+  catch (e) { return Response.json({ status: e.status ?? 418, body: null, error: String(e.message) }); }
+};
+const readW = (request, { params, host }) => answer(() => host.collections.read('${W}', params.id));
 export default {
   name: '${WEXT}',
-  mountStrategy: 'subapp',
-  async register(app, ctx) {
-    const answer = async (c, read) => {
-      try { return c.json({ status: 200, body: await read() }); }
-      catch (e) { return c.json({ status: e.status ?? 418, body: null, error: String(e.message) }); }
-    };
-    app.get('/pub/read/:id', (c) => answer(c, () => ctx.host(c).collections.read('${W}', c.req.param('id'))));
-    app.get('/priv/read/:id', (c) => answer(c, () => ctx.host(c).collections.read('${W}', c.req.param('id'))));
-    // No asSystem out of process: ctx.internals is refused, so the read stays the caller's.
-    app.get('/pub/sys/:id', (c) => answer(c, async () => {
-      let refused = null;
-      try { await ctx.internals.asSystem(['${W}'], async () => null); } catch (e) { refused = String(e.message); }
-      const read = await ctx.host(c).collections.read('${W}', c.req.param('id')).then(() => 200, (e) => e.status ?? 418);
-      return { refused, read };
-    }));
-    app.get('/priv/undeclared/:id', (c) => answer(c, () => ctx.host(c).collections.read('${S}', c.req.param('id'))));
+  routes: {
+    readW,
+    // No asSystem out of process: a worker route's host has no internals, so the read stays the caller's.
+    sys: (request, { params, host }) => answer(async () => ({
+      members: Object.keys(host).sort(),
+      read: await host.collections.read('${W}', params.id).then(() => 200, (e) => e.status ?? 418),
+    })),
+    undeclared: (request, { params, host }) => answer(() => host.collections.read('${S}', params.id)),
   },
+  async register() {},
 };
 `;
+
+const workerRoutes = [
+  { method: 'GET', path: '/pub/read/:id', access: 'public', handler: 'readW' },
+  { method: 'GET', path: '/priv/read/:id', access: 'caller', handler: 'readW' },
+  { method: 'GET', path: '/pub/sys/:id', access: 'public', handler: 'sys' },
+  { method: 'GET', path: '/priv/undeclared/:id', access: 'caller', handler: 'undeclared' },
+];
 
 d('a route reaches its collections through host.collections (ADR 0025)', () => {
   let engine: Hono;
@@ -347,8 +355,8 @@ d('a route reaches its collections through host.collections (ADR 0025)', () => {
     await load(
       wmod,
       {
-        ...pub,
         collections: [W],
+        routes: workerRoutes,
         engine: { entry: 'engine/index.js', bundled: true, isolation: 'worker' },
       },
       join(base, WEXT),
@@ -491,7 +499,7 @@ d('a route reaches its collections through host.collections (ADR 0025)', () => {
 
   it('a worker-isolated route has no asSystem: the read stays the caller’s', async () => {
     const a = await get(WEXT, `/pub/sys/${wrow}`);
-    expect(String(a.body?.refused)).toContain('not available to a worker-isolated extension');
+    expect(a.body?.members).toEqual(['collections']);
     expect(a.body?.read).toBe(403);
   }, 30_000);
 
