@@ -148,6 +148,7 @@ describe('release compose assets', () => {
       expect(runner!.read_only).toBe(true);
       expect(runner!.cap_drop).toEqual(['ALL']);
       expect(runner!.cap_add).toEqual(['SETUID', 'SETGID', 'KILL']);
+      expect(runner!.security_opt).toEqual(['no-new-privileges:true']);
       expect(runner!.env_file).toBeUndefined();
       expect(Object.keys(runner!.environment).sort()).toEqual([
         'NODE_ENV',

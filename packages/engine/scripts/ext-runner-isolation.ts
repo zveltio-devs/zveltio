@@ -17,7 +17,8 @@
  *
  * `managed` starts the extension's `zveltio-ext-runner@` unit through systemd,
  * as the engine does. Optional env: PROBE_URL (fetched, and connected to), PROBE_WRITE (a file
- * the extension tries to create). Run by ext-runner-isolation.sh (container),
+ * the extension tries to create), PROBE_UNIX (unix socket paths, `@name` for
+ * an abstract one, it tries to connect to). Run by ext-runner-isolation.sh (container),
  * ext-runner-systemd.sh (real systemd), ext-runner-compose.sh (the release
  * compose) and ext-runner-standalone.sh (one container); on its own it proves
  * nothing.
@@ -80,6 +81,18 @@ export default {
     if (write) {
       try { await Bun.write(write, 'x'); wrote = 'WROTE'; } catch (e) { wrote = denied(e); }
     }
+    // Host AF_UNIX sockets ('@name' is abstract): on bare metal AF_UNIX stays
+    // open (ADR 0023), so PrivateNetwork and InaccessiblePaths must hide them.
+    const unix = {};
+    for (const p of ${JSON.stringify((process.env.PROBE_UNIX ?? '').split(/\s+/).filter(Boolean))}) {
+      unix[p] = await new Promise((resolve) => {
+        const s = connect(p.startsWith('@') ? '\\0' + p.slice(1) : p);
+        const done = (r) => { s.destroy(); resolve(r); };
+        s.setTimeout(3000, () => done('DENIED timeout'));
+        s.once('connect', () => done('CONNECTED'));
+        s.once('error', (e) => done(denied(e)));
+      });
+    }
     let forks = 'skipped';
     if (${JSON.stringify(process.env.PROBE_FORKS ?? '')}) {
       // A shell's fork loop: Bun.spawn past the limit hangs instead of throwing.
@@ -100,6 +113,7 @@ export default {
       fetch: fetched,
       net,
       write: wrote,
+      unix,
       forks,
       addressSpace: (await read('/proc/self/limits')).match(/Max address space\\s+(\\S+)/)?.[1],
       threads: Number.parseInt((await read('/proc/self/status')).split('Threads:')[1] ?? ''),

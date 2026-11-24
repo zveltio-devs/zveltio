@@ -65,6 +65,46 @@ describe('runnerSetupFiles', () => {
     expect(unit).toContain('\nSystemCallErrorNumber=EPERM\n');
   });
 
+  // ADR 0023 decision 1: AF_UNIX stays open on bare metal, so PrivateNetwork
+  // (abstract sockets) and InaccessiblePaths (the host's path sockets) are its
+  // only barrier; the rest hides the engine's files and caps the instance. Each
+  // line pinned: dropping one leaves ext-runner-systemd.sh's inet probe green.
+  it('keeps every hardening directive, and the edge drop-in resets none', () => {
+    for (const line of [
+      'TemporaryFileSystem=/opt/zveltio:ro',
+      'NoNewPrivileges=yes',
+      'ProtectSystem=strict',
+      'ProtectHome=yes',
+      'PrivateTmp=yes',
+      'PrivateDevices=yes',
+      'ProtectProc=invisible',
+      'ProtectKernelTunables=yes',
+      'ProtectKernelModules=yes',
+      'ProtectControlGroups=yes',
+      'RestrictSUIDSGID=yes',
+      'PrivateNetwork=yes',
+      'InaccessiblePaths=-/run/dbus -/run/postgresql -/var/run/postgresql -/run/systemd/private',
+      'MemoryMax=1G',
+      'MemorySwapMax=0',
+      'TasksMax=64',
+    ]) {
+      expect(unit).toContain(`\n${line}\n`);
+    }
+    const edge = files['/etc/systemd/system/zveltio-ext-runner@edge.service.d/edge.conf']!;
+    const keys = edge
+      .split('\n')
+      .filter((l) => /^\w+=/.test(l))
+      .map((l) => l.split('=')[0]);
+    expect([...new Set(keys)].sort()).toEqual([
+      'AmbientCapabilities',
+      'CapabilityBoundingSet',
+      'DynamicUser',
+      'Environment',
+      'TasksMax',
+      'User',
+    ]);
+  });
+
   it('runs each edge invocation under its own uid: root with three capabilities, range 400000 up', () => {
     const edge = files['/etc/systemd/system/zveltio-ext-runner@edge.service.d/edge.conf']!;
     expect(edge).toMatch(/^DynamicUser=no$/m);

@@ -16,9 +16,9 @@
 # it cannot start more than 64 tasks, and one that allocates without
 # end dies alone while the runner serves the next. A Deno job (ADR 0023
 # decision 2) runs there too: under a uid of its own that reads no engine
-# secret, with the socket ban loaded (Seccomp: 2, read from outside while it
-# is held), its host.fetch answered through the engine, and a job past its
-# memoryMb killed by the runner's watchdog. Started as uid 100, the
+# secret, with the socket ban loaded (a seccomp filter more than the
+# container's, read from outside while it is held), its host.fetch answered
+# through the engine, and a job past its memoryMb killed by the runner's watchdog. Started as uid 100, the
 # entrypoint is the binary and nothing else.
 #
 #   bash packages/engine/scripts/ext-runner-standalone.sh
@@ -74,6 +74,9 @@ runner=$(docker exec "$C" sh -c 'for p in /proc/[0-9]*; do [ "${p#/proc/}" != $$
 [ -n "$runner" ] || { echo "FAIL: no runner process"; docker logs "$C" | tail -20; exit 1; }
 [ "$(status "$runner" Uid)" = 0 ] && [ "$(status "$runner" CapEff)" = 00000000000000e0 ] \
   || { echo "FAIL: runner is uid $(status "$runner" Uid) with $(status "$runner" CapEff), not root with SETUID/SETGID/KILL"; fail=1; }
+# Positive control: the same read finds the secret in PID 1's environment.
+docker exec --privileged "$C" cat /proc/1/environ | grep -q hunter2 \
+  || { echo "FAIL: the container's environment holds no secret to test against (probe broken?)"; fail=1; }
 docker exec --privileged "$C" cat "/proc/$runner/environ" | grep -q hunter2 \
   && { echo "FAIL: the runner holds the container's environment"; fail=1; }
 
@@ -135,8 +138,12 @@ for _ in $(seq 1 30); do
 done
 juid=$(awk '/^Uid:/{print $2; exit}' <<<"$jstat")
 [ -n "$juid" ] && [ "$juid" -ge 200000 ] || { echo "FAIL: the Deno job ran as uid ${juid:-?}, not one of its own"; fail=1; }
-grep -qE '^Seccomp:[[:space:]]+2' <<<"$jstat" && grep -qE '^NoNewPrivs:[[:space:]]+1' <<<"$jstat" \
-  || { echo "FAIL: the Deno job runs without the socket ban"; fail=1; }
+# Docker's own profile shows `Seccomp: 2` for every process: the ban is one
+# filter more than a process of this container without it.
+base=$(docker exec "$C" awk '/^Seccomp_filters:/{print $2}' /proc/self/status)
+jf=$(awk '/^Seccomp_filters:/{print $2; exit}' <<<"$jstat")
+[ -n "$jf" ] && [ -n "$base" ] && [ "$jf" -gt "$base" ] && grep -qE '^NoNewPrivs:[[:space:]]+1' <<<"$jstat" \
+  || { echo "FAIL: the Deno job runs without the socket ban (filters ${jf:-?}, container ${base:-?})"; fail=1; }
 [ -n "$juid" ] && docker exec -u "$juid" "$C" cat /data/storage/upload 2>/dev/null | grep -q hunter2 \
   && { echo "FAIL: the Deno job's uid reads an engine file"; fail=1; }
 wait "$job_pid" || true

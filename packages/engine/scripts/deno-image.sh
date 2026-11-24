@@ -5,7 +5,8 @@
 # `deno --version` runs, and a job runs where production runs it — the image's
 # own `zveltio ext-runner`, started as the entrypoint starts it, under an
 # extension's uid (no passwd entry, so the runner's DENO_DIR is what lets Deno
-# start) and the socket ban, read from outside while the job is held. The job
+# start) and the socket ban (a seccomp filter more than the container's),
+# read from outside while the job is held. The job
 # answers its host call and is refused the network.
 #
 #   bash packages/engine/scripts/deno-image.sh <image>
@@ -56,6 +57,11 @@ done
 wait "$job"
 uid=$(echo "$st" | awk '/^Uid:/{print $2; exit}')
 [ -n "$uid" ] && [ "$uid" -ge 200000 ] || { echo "the job ran as uid ${uid:-?}, not an extension's"; exit 1; }
-echo "$st" | grep -qE '^Seccomp:[[:space:]]+2' || { echo "the job ran without the socket ban"; exit 1; }
-echo "job ran as uid $uid under the socket ban"
+# Docker's own profile shows `Seccomp: 2` for every process: the ban is one
+# filter more than this shell has.
+base=$(awk '/^Seccomp_filters:/{print $2}' /proc/self/status)
+jf=$(echo "$st" | awk '/^Seccomp_filters:/{print $2; exit}')
+[ -n "$jf" ] && [ -n "$base" ] && [ "$jf" -gt "$base" ] \
+  || { echo "the job ran without the socket ban (filters ${jf:-?}, container ${base:-?})"; exit 1; }
+echo "job ran as uid $uid under the socket ban ($jf seccomp filters, container $base)"
 EOF

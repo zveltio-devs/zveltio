@@ -10,7 +10,9 @@
 #     and environment and opens a socket to the network — the probe works — and
 #     its `fetch` is refused by the runtime (ADR 0022: no egress for routes);
 #   - an extension in its runner reads neither secret and reaches no address,
-#     not even over a raw socket (IPAddressDeny=any, no operator override);
+#     not even over a raw socket (IPAddressDeny=any, no operator override),
+#     nor the host's D-Bus socket nor an abstract socket on the host
+#     (InaccessiblePaths, PrivateNetwork: AF_UNIX stays open, ADR 0023);
 #     the unit bans every socket family but AF_UNIX (seccomp, ADR 0023) — it
 #     answered, so its start check saw AF_INET and AF_SMC refused;
 #   - two extensions run under two different uids, neither the engine's, and
@@ -64,8 +66,20 @@ probe() { # <transport> <ext dir> [target] — env PROBE_URL / PROBE_WRITE pass 
   local t="$1" d="$2" target="${3:-}"
   sudo -u zveltio env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/tmp \
     SECRET=hunter2-process-env BUN_BE_BUN=1 PROBE_URL="${PROBE_URL:-}" PROBE_WRITE="${PROBE_WRITE:-}" \
+    PROBE_UNIX="${PROBE_UNIX:-}" \
     "${DIR}/zveltio" "${DIR}/probe.mjs" "$t" "${DIR}/.env" "${DIR}/extensions/$d" $target
 }
+
+# Host AF_UNIX sockets: AF_UNIX stays open in the unit (ADR 0023), so only
+# InaccessiblePaths hides D-Bus's path socket and only PrivateNetwork hides an
+# abstract one (this listener, in the host's network namespace).
+DBUS=/run/dbus/system_bus_socket
+[ -S "$DBUS" ] || { echo "FAIL: no $DBUS on this host to probe"; fail=1; }
+bun -e 'require("node:net").createServer((c) => c.end()).listen("\0zveltio-ci-abstract")' &
+abstract_pid=$!
+trap 'kill "$abstract_pid" 2>/dev/null || true' EXIT
+for _ in $(seq 1 50); do grep -q '@zveltio-ci-abstract' /proc/net/unix && break; sleep 0.1; done
+export PROBE_UNIX="$DBUS @zveltio-ci-abstract"
 
 # ── today: the engine's uid ───────────────────────────────────────────────────
 out=$(PROBE_URL="$URL" probe process p)
@@ -73,6 +87,8 @@ echo "process: ${out:0:200}"
 check "process transport reads both secrets (probe works)" '[ "$(grep -o hunter2 <<<"$out" | wc -l)" -ge 2 ]'
 check "process transport opens a socket to ${URL} (network is there)" 'grep -q "\"net\":\"CONNECTED\"" <<<"$out"'
 check "process transport: the runtime refuses fetch" 'grep -q "\"fetch\":\"DENIED" <<<"$out"'
+check "process transport reaches the host's D-Bus and abstract sockets (probe works)" \
+  'grep -q "\"$DBUS\":\"CONNECTED\"" <<<"$out" && grep -q "\"@zveltio-ci-abstract\":\"CONNECTED\"" <<<"$out"'
 
 # ── extension A in its runner ─────────────────────────────────────────────────
 out=$(PROBE_URL="$URL" probe managed a acme/probe-a)
@@ -80,6 +96,9 @@ echo "runner A: $out"
 check "runner answered" 'grep -q "\"transport\":\"managed\"" <<<"$out"'
 check "runner reads no engine secret" '! grep -q hunter2 <<<"$out"'
 check "runner reaches no address, raw socket included" 'grep -q "\"net\":\"DENIED" <<<"$out"'
+check "runner cannot reach the host's D-Bus socket (InaccessiblePaths)" 'grep -q "\"$DBUS\":\"DENIED" <<<"$out"'
+check "runner cannot reach a host abstract socket (PrivateNetwork)" \
+  'grep -q "\"@zveltio-ci-abstract\":\"DENIED" <<<"$out"'
 
 INST_A=$(ls /run/zveltio-ext)
 UNIT_A="zveltio-ext-runner@${INST_A}.service"
