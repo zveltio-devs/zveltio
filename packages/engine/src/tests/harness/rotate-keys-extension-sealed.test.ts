@@ -37,6 +37,9 @@ const d = harnessAvailable() && process.env.FIELD_ENCRYPTION_KEY ? describe : de
 const COLLECTION = `hrkext_${Date.now()}`;
 const TABLE = `zvd_${COLLECTION}`;
 const K0 = process.env.FIELD_ENCRYPTION_KEY ?? '';
+// Restored, not deleted: a run that sets them must find them as it left them.
+const savedKeys = process.env.FIELD_ENCRYPTION_KEYS;
+const savedMailKeys = process.env.MAIL_ENCRYPTION_KEYS;
 const K1 = '1'.repeat(64);
 const M0 = 'a'.repeat(64);
 const M1 = 'b'.repeat(64);
@@ -142,8 +145,10 @@ d('rotate-keys: extension-sealed values (ADR 0059 step 3)', () => {
   }, 60_000);
 
   afterAll(async () => {
-    delete process.env.FIELD_ENCRYPTION_KEYS;
-    delete process.env.MAIL_ENCRYPTION_KEYS;
+    if (savedKeys === undefined) delete process.env.FIELD_ENCRYPTION_KEYS;
+    else process.env.FIELD_ENCRYPTION_KEYS = savedKeys;
+    if (savedMailKeys === undefined) delete process.env.MAIL_ENCRYPTION_KEYS;
+    else process.env.MAIL_ENCRYPTION_KEYS = savedMailKeys;
     process.env.FIELD_ENCRYPTION_KEY = K0;
     if (savedMail === undefined) delete process.env.MAIL_ENCRYPTION_KEY;
     else process.env.MAIL_ENCRYPTION_KEY = savedMail;

@@ -37,6 +37,8 @@ const d = harnessAvailable() && process.env.FIELD_ENCRYPTION_KEY ? describe : de
 const COLLECTION = `hrotate_${Date.now()}`;
 const TABLE = `zvd_${COLLECTION}`;
 const K0 = process.env.FIELD_ENCRYPTION_KEY ?? '';
+// Restored, not deleted: a run that sets them must find them as it left them.
+const savedKeys = process.env.FIELD_ENCRYPTION_KEYS;
 const K1 = '1'.repeat(64);
 const K9 = '9'.repeat(64);
 const id = () => crypto.randomUUID();
@@ -212,7 +214,8 @@ d('rotate-keys (in-process)', () => {
   }, 60_000);
 
   afterAll(async () => {
-    delete process.env.FIELD_ENCRYPTION_KEYS;
+    if (savedKeys === undefined) delete process.env.FIELD_ENCRYPTION_KEYS;
+    else process.env.FIELD_ENCRYPTION_KEYS = savedKeys;
     process.env.FIELD_ENCRYPTION_KEY = K0;
     if (!db) return;
     await sql
