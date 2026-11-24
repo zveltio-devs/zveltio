@@ -316,7 +316,11 @@ async function handleRouteInvoke(msg: RouteInvokeRequest): Promise<void> {
 async function handleActionInvoke(msg: ActionInvokeRequest): Promise<void> {
   const run = localActions.get(msg.name);
   if (!run) {
-    send({ type: 'action:err', id: msg.id, error: `action "${msg.name}" not registered in this worker` });
+    send({
+      type: 'action:err',
+      id: msg.id,
+      error: `action "${msg.name}" not registered in this worker`,
+    });
     return;
   }
   try {

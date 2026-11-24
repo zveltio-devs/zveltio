@@ -901,7 +901,8 @@ export class WorkerExtensionHost {
       const run = (scope?.txn?.joined && scope.within) || scope?.run || (<R>(fn: () => R) => fn());
       const [a] = msg.args;
       let result: unknown;
-      switch (msg.op) {
+      const { op } = msg;
+      switch (op) {
         case 'collections': {
           const route = scope?.route;
           const answer = managed.source?.collections;
@@ -922,7 +923,7 @@ export class WorkerExtensionHost {
         }
         default:
           throw new Error(
-            `host call "${String(msg.op)}" is refused: a worker-isolated extension is declared ` +
+            `host call "${String(op)}" is refused: a worker-isolated extension is declared ` +
               'model only — its routes reach host.collections, its actions their host (ADR 0056)',
           );
       }
@@ -1452,7 +1453,9 @@ async function joinRequestTxn(scope: InvokeScope): Promise<Pick<InvokeScope, 'tx
   const state = requestTransactionState();
   if (state === 'none') return {};
   if (state === 'over') {
-    throw new Error("the request's transaction is over; a worker-isolated extension cannot join it");
+    throw new Error(
+      "the request's transaction is over; a worker-isolated extension cannot join it",
+    );
   }
   let pending = joinedTxns.get(trx);
   // Cached as a promise before any await: two first calls under `Promise.all`
@@ -1471,7 +1474,8 @@ async function openJoinedTxn(trx: Database): Promise<RequestTxn> {
   const on = await transactionTurns(trx);
   // Every transaction `getDb()` opens is sequenced; one that is not cannot be
   // shared safely, and the call is refused rather than run beside it.
-  if (!on) throw new Error("the request's transaction cannot be joined by a worker-isolated extension");
+  if (!on)
+    throw new Error("the request's transaction cannot be joined by a worker-isolated extension");
   // Read once, when the first call joins: a timeout then cancels what runs on
   // the connection (`cancelJoinedStatement`) without needing it.
   const { rows } = await on.send(

@@ -106,7 +106,11 @@ describe('worker host call: declared model only (RFC v3 phase D slice 4, S2)', (
     const { call, managed } = setup();
     managed.invokeTenants.set('inv-o', { tenantId: null, route: { extName: 'other', c: {} } });
     for (const requestId of [undefined, 'inv-1', 'inv-o']) {
-      const res = await call({ op: 'collections', args: ['collections.read', 'x', '1'], requestId });
+      const res = await call({
+        op: 'collections',
+        args: ['collections.read', 'x', '1'],
+        requestId,
+      });
       expect(res.type).toBe('host:err');
       expect(res.error).toContain('answers only in a route request of this extension');
     }

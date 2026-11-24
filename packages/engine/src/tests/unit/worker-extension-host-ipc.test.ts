@@ -279,7 +279,7 @@ describe('WorkerExtensionHost — IPC message routing', () => {
     for (const id of ids) expect(id).toMatch(/^inv-act-[0-9a-f-]{36}$/);
   });
 
-  it('action:err rejects the caller with the worker\'s error', async () => {
+  it("action:err rejects the caller with the worker's error", async () => {
     const host = new WorkerExtensionHost(new Hono());
     const { managed } = makeManaged(host, {
       name: 'owner-err',
@@ -313,8 +313,7 @@ describe('WorkerExtensionHost — IPC message routing', () => {
     await host.stop('owner-a');
     await expect(run).rejects.toMatchObject({
       status: 503,
-      message:
-        'extension "owner-a" stopped while running action "hang"; nothing it wrote was kept',
+      message: 'extension "owner-a" stopped while running action "hang"; nothing it wrote was kept',
     });
   });
 });

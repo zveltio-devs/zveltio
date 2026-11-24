@@ -351,7 +351,9 @@ for (const m of [
       // others are not frames of the protocol at all (RFC v3 phase D slice 4):
       // nothing runs, nothing answers, one line is logged.
       expect(replies()).toHaveLength(1);
-      expect(replies()[0]).toMatch(/ forged-host host:err host call ".*" is refused: .*declared model only/);
+      expect(replies()[0]).toMatch(
+        / forged-host host:err host call ".*" is refused: .*declared model only/,
+      );
       expect(
         error.mock.calls.filter((c) =>
           String(c[0]).startsWith(`[ext:${name} key=${KEY}] refused a "db:query" frame`),

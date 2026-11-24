@@ -232,7 +232,6 @@ d('extension work with no caller is an actor with no identity (ADR 0040)', () =>
     await sql`INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled)
               VALUES (${EXT}, ${EXT}, ${TENANT}::uuid, true, true)`.execute(db);
     invalidateActivationCache();
-
   }, 60_000);
 
   afterAll(async () => {

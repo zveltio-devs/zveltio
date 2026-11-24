@@ -71,7 +71,12 @@ const workerManifest = {
   permissions: ['data:write'],
   resources: ['admin'],
   actions: [
-    { name: 'settings', permission: { resource: 'admin', action: 'update' }, input: {}, writes: [COLL] },
+    {
+      name: 'settings',
+      permission: { resource: 'admin', action: 'update' },
+      input: {},
+      writes: [COLL],
+    },
     { name: 'item', permission: { resource: COLL, action: 'create' }, input: {}, writes: [COLL] },
   ],
 };
@@ -249,7 +254,10 @@ d('an extension mutation authorized against admin needs the configuration window
   });
 
   it('inline: a read checking admin, and a collection mutation, are not configuration', async () => {
-    expect(await call('inline', 'GET', '/settings')).toEqual({ status: 200, body: { admin: true } });
+    expect(await call('inline', 'GET', '/settings')).toEqual({
+      status: 200,
+      body: { admin: true },
+    });
     expect(await call('inline', 'POST', '/items')).toEqual({ status: 200, body: { saved: true } });
     await asDefaultTenant(db, sql`DELETE FROM ${sql.table(TABLE)}`);
   });
@@ -265,8 +273,14 @@ d('an extension mutation authorized against admin needs the configuration window
 
   it('with the window open, the admin mutations pass', async () => {
     await stepUp();
-    expect(await call('inline', 'POST', '/settings')).toEqual({ status: 200, body: { saved: true } });
-    expect(await call('inline', 'POST', '/swallow')).toEqual({ status: 200, body: { saved: true } });
+    expect(await call('inline', 'POST', '/settings')).toEqual({
+      status: 200,
+      body: { saved: true },
+    });
+    expect(await call('inline', 'POST', '/swallow')).toEqual({
+      status: 200,
+      body: { saved: true },
+    });
     expect(await call('process', 'POST', '/actions/settings')).toEqual({
       status: 200,
       body: { result: { saved: true } },
