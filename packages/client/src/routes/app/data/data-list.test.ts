@@ -47,6 +47,15 @@ describe('/app/data list on the kit', () => {
     );
   });
 
+  it('marks a descending order and offers the ascending one', () => {
+    render(Page, { props: { data: data({ key: 'title', dir: 'desc' }) } as never });
+    const title = screen.getByRole('columnheader', { name: /Title/ });
+    expect(title.getAttribute('aria-sort')).toBe('descending');
+    expect(title.querySelector('a')?.getAttribute('href')).toBe(
+      '/app/data/tasks?sort=title&order=asc&page=1',
+    );
+  });
+
   it('forwards only a sort on a column the user sees', async () => {
     const seen: string[] = [];
     const run = (qs: string) =>
@@ -69,6 +78,7 @@ describe('/app/data list on the kit', () => {
     expect((await run('sort=title&order=asc')).sort).toEqual({ key: 'title', dir: 'asc' });
     expect(seen.at(-1)).toContain('sort=title&order=asc');
     expect((await run('sort=password_hash')).sort).toBeNull();
+    expect(seen.at(-1)).not.toContain('sort=');
     expect((await run('sort=tags')).sort).toBeNull();
     expect(seen.at(-1)).not.toContain('sort=');
   });
@@ -106,14 +116,17 @@ describe('/app/data record form on the kit', () => {
 describe('kit toasts', () => {
   it('lets an error stay until dismissed and others expire', () => {
     vi.useFakeTimers();
-    const info = toast.show('saved', 'success', 1000);
-    const err = toast.show('failed', 'error');
-    vi.advanceTimersByTime(1500);
-    expect(toast.items.map((t) => t.id)).toEqual([err]);
-    expect(toast.items.some((t) => t.id === info)).toBe(false);
-    toast.dismiss(err);
-    expect(toast.items).toEqual([]);
-    vi.useRealTimers();
+    try {
+      const info = toast.show('saved', 'success', 1000);
+      const err = toast.show('failed', 'error');
+      vi.advanceTimersByTime(1500);
+      expect(toast.items.map((t) => t.id)).toEqual([err]);
+      expect(toast.items.some((t) => t.id === info)).toBe(false);
+      toast.dismiss(err);
+      expect(toast.items).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
