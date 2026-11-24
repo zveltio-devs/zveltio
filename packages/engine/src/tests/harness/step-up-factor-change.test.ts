@@ -10,6 +10,7 @@
  */
 import { beforeAll, describe, expect, it } from 'bun:test';
 import type { Hono } from 'hono';
+import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { passkeyRelyingParty } from '../../lib/auth.js';
 import { createGodSession, getTestApp, harnessAvailable } from '../../testing/app-harness.js';
@@ -46,9 +47,25 @@ d('removing a factor or changing the password closes step-up', () => {
       .join('; ');
   const signIn = async (email: string, password = PASSWORD) =>
     cookieOf(await post('/api/auth/sign-in/email', '', { email, password }));
-  const emailOf = async (cookie: string) =>
-    ((await (await req('/api/me', { headers: { cookie } })).json()) as { user: { email: string } })
-      .user.email;
+  const meOf = async (cookie: string) =>
+    (
+      (await (await req('/api/me', { headers: { cookie } })).json()) as {
+        user: { id: string; email: string };
+      }
+    ).user;
+  const emailOf = async (cookie: string) => (await meOf(cookie)).email;
+  /**
+   * The user's step-up rows. The session-level checks below hold on session
+   * rotation alone (the old session is gone, the new one never had a window);
+   * this is what `closeStepUps` itself removes.
+   */
+  const stepUpRows = async (userId: string) =>
+    (
+      await sql<{ n: number }>`SELECT count(*)::int AS n FROM verification
+        WHERE identifier IN (${`step-up:window:${userId}`}, ${`step-up:token:${userId}`})`.execute(
+        db,
+      )
+    ).rows[0]?.n;
 
   beforeAll(async () => {
     ({ app, db } = await getTestApp());
@@ -103,6 +120,7 @@ d('removing a factor or changing the password closes step-up', () => {
 
   it('disabling TOTP closes the window its own step-up opened', async () => {
     const first = await createGodSession(app, db, { factor: false });
+    const { id: userId } = await meOf(first);
     const other = await signIn(await emailOf(first));
     const { cookie, totpURI } = await enrollTotp(req, first, PASSWORD);
     // Turning TOTP on ends every other session and keeps this one.
@@ -115,6 +133,7 @@ d('removing a factor or changing the password closes step-up', () => {
     expect(v.status).toBe(200);
     const { token } = (await v.json()) as { token: string };
     expect((await configure(cookie)).status).toBe(200);
+    expect(await stepUpRows(userId)).toBeGreaterThan(0);
 
     const off = await post(
       '/api/auth/two-factor/disable',
@@ -123,6 +142,7 @@ d('removing a factor or changing the password closes step-up', () => {
       { 'X-Zveltio-Step-Up': token },
     );
     expect(off.status).toBe(200);
+    expect(await stepUpRows(userId)).toBe(0);
     // Better Auth replaces the session on disable; the revocation of the others
     // in routes/index.ts spares the replacement, which has no window (and no factor).
     expect((await configure(cookie)).status).toBe(401);
@@ -133,12 +153,15 @@ d('removing a factor or changing the password closes step-up', () => {
 
   it('changing the password leaves no window: not on the old session, not on the new one', async () => {
     const old = await createGodSession(app, db);
+    const { id: userId } = await meOf(old);
     expect((await configure(old)).status).toBe(200);
+    expect(await stepUpRows(userId)).toBeGreaterThan(0);
     const res = await post('/api/auth/change-password', old, {
       currentPassword: PASSWORD,
       newPassword: 'HarnessGod456!',
     });
     expect(res.status).toBe(200);
+    expect(await stepUpRows(userId)).toBe(0);
     const fresh = cookieOf(res);
     expect((await configure(old)).status).toBe(401);
     const after = await configure(fresh);
