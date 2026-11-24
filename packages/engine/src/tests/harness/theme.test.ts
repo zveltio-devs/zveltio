@@ -23,6 +23,8 @@ const instance = { scheme: 'light', colors: { primary: '#069494' }, radius: { bo
 const own = { scheme: 'dark', colors: { primary: 'oklch(62% 0.2 255)' }, font: 'serif' };
 const hostile = [
   { colors: { primary: 'red;background:url(https://x)' } },
+  // A valid colour first: only the pattern's end anchor refuses it.
+  { colors: { primary: '#fff;background:url(https://x)' } },
   { colors: { primary: '#fff', unknown: '#000' } },
   { radius: { box: '1rem}body{display:none' } },
   { font: 'Comic Sans' },

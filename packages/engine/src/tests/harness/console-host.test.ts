@@ -141,6 +141,10 @@ d('ZVELTIO_CONSOLE_HOST fences the Console and configuration by host', () => {
     expect((await createCollection(ADMIN)).status).toBe(400);
     // The host is matched without its port and case-insensitively.
     expect((await createCollection('http://ADMIN.conhost.test:8443')).status).toBe(400);
+    // The URL's host arrives lowercased, so the setting is what must be folded.
+    process.env.ZVELTIO_CONSOLE_HOST = CONSOLE.toUpperCase();
+    expect((await createCollection(ADMIN)).status).toBe(400);
+    process.env.ZVELTIO_CONSOLE_HOST = CONSOLE;
     expect((await createCollection(ADMIN, { origin: ADMIN })).status).toBe(400);
     expect((await req(`${ADMIN}/api/admin/rls`)).status).not.toBe(404);
     expect((await req(`${ADMIN}/admin/`)).status).not.toBe(404);
