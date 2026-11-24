@@ -87,7 +87,7 @@ FROM oven/bun:1.4-alpine AS production
 LABEL org.opencontainers.image.title="Zveltio Engine"
 LABEL org.opencontainers.image.description="Zveltio Business OS — Engine + Studio"
 LABEL org.opencontainers.image.source="https://github.com/zveltio/zveltio"
-LABEL org.opencontainers.image.licenses="MIT"
+LABEL org.opencontainers.image.licenses="AGPL-3.0-only"
 LABEL org.opencontainers.image.vendor="Liviu Marian Iordache"
 
 COPY --from=glibc /lib/ /lib/

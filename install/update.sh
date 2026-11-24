@@ -225,7 +225,43 @@ if [[ "$ZVELTIO_VERSION" != "master" ]]; then
 fi
 
 # ── Fix permissions ───────────────────────────────────────────────────────────
-chown -R zveltio:zveltio "${ZVELTIO_DIR}" 2>/dev/null || true
+# As install.sh sets them (downloaded on its own, so it cannot share the code):
+# the engine's uid writes storage and extensions only. Everything else is root's,
+# because root runs it (this script, the binary, kms-fetch.sh) or exports it
+# (.env, root:zveltio 0640, through the wrapper).
+mkdir -p "${ZVELTIO_DIR}/storage" "${ZVELTIO_DIR}/extensions"
+chown root:root "${ZVELTIO_DIR}"
+chmod 0755 "${ZVELTIO_DIR}"
+find "${ZVELTIO_DIR}" -mindepth 1 -maxdepth 1 ! -name storage ! -name extensions \
+  -exec chown -hR root:root {} + -exec chmod -R go-w {} +
+if [[ -f "${ZVELTIO_DIR}/.env" ]]; then
+  chown root:zveltio "${ZVELTIO_DIR}/.env"
+  chmod 0640 "${ZVELTIO_DIR}/.env"
+fi
+rm -f "${ZVELTIO_DIR}/.env.kms"
+chown -R zveltio:zveltio "${ZVELTIO_DIR}/storage" "${ZVELTIO_DIR}/extensions"
+chmod 700 "${ZVELTIO_DIR}/storage"
+# An install made before that ownership: its unit let the engine write the whole
+# dir and its kms-fetch.sh wrote .env.kms there. Point both at what it may write.
+if [[ -f /etc/systemd/system/zveltio.service ]]; then
+  mkdir -p /etc/systemd/system/zveltio.service.d
+  cat > /etc/systemd/system/zveltio.service.d/ownership.conf << EOF
+# Written by update.sh: the engine writes only its storage and extensions.
+[Service]
+ReadWritePaths=
+ReadWritePaths=${ZVELTIO_DIR}/storage ${ZVELTIO_DIR}/extensions
+RuntimeDirectory=zveltio
+RuntimeDirectoryMode=0700
+EnvironmentFile=-/run/zveltio/env.kms
+CacheDirectory=zveltio
+CacheDirectoryMode=0700
+Environment=XDG_CACHE_HOME=/var/cache/zveltio
+Environment=npm_config_cache=/var/cache/zveltio/npm
+EOF
+  systemctl daemon-reload
+fi
+[[ -f "${ZVELTIO_DIR}/kms-fetch.sh" ]] && sed -i \
+  's|"${DIR}/.env.kms"|"${RUNTIME_DIRECTORY:-/run/zveltio}/env.kms"|g' "${ZVELTIO_DIR}/kms-fetch.sh"
 
 # ── Run migrations ────────────────────────────────────────────────────────────
 info "Running migrations..."

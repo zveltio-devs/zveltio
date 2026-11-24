@@ -18,15 +18,24 @@ if [[ ! -x "$ZVELTIO_DIR/zveltio" ]]; then
   exit 127
 fi
 
-# Source the .env file if it exists AND we can read it. The file is mode 600
-# owned by the zveltio system user, so a non-root, non-zveltio caller can't
-# read it — that's fine, "zveltio status" / "zveltio version" don't need DB
+# Source the .env file if it exists AND we can read it. The file is root:zveltio
+# 0640 (the engine reads it and cannot change it), so a non-root, non-zveltio
+# caller can't read it — that's fine, "zveltio status" / "zveltio version" don't need DB
 # env vars. Real DB-touching commands (migrate, create-god) need sudo.
 if [[ -f "$ZVELTIO_DIR/.env" && -r "$ZVELTIO_DIR/.env" ]]; then
   set -a
   while IFS='=' read -r key val; do
     # Skip blanks and comments
     [[ -z "$key" || "$key" == \#* ]] && continue
+    # Root runs this wrapper (sudo zveltio migrate): a name that changes how a
+    # process loads or a shell runs is never exported from .env. A denylist: no
+    # list of what the engine reads ships beside this script, and none of these
+    # is engine configuration (the unit sets PATH; HOME is the account's).
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    case "$key" in
+      LD_*|GLIBC_TUNABLES|GCONV_PATH|PATH|IFS|ENV|BASH_ENV|BASH_FUNC_*|SHELLOPTS|BASHOPTS|PS4|PROMPT_COMMAND|NODE_OPTIONS|BUN_OPTIONS|HOME|XDG_CONFIG_HOME)
+        echo "zveltio: ignoring $key from .env" >&2; continue ;;
+    esac
     # Strip surrounding matching quotes from value
     val="${val%\"}"; val="${val#\"}"
     val="${val%\'}"; val="${val#\'}"

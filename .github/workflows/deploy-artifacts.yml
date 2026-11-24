@@ -72,6 +72,11 @@ jobs:
           grep -q 'component: valkey$' <<<"$b" || fail "bundled valkey not reached through its pods"
           e=$(np --set 'networkPolicy.databaseTo[0].ipBlock.cidr=10.9.0.0/16')
           grep -q 'cidr: 10.9.0.0/16$' <<<"$e" || fail "databaseTo not rendered"
+          # Ingress names the pod's port: a policy sees traffic after the Service
+          # translated it, so service.port 80 must still admit 3000 (E09).
+          i=$(np --set engine.service.port=80 | sed -n '/^  ingress:/,/^  egress:/p')
+          grep -q 'port: 3000$' <<<"$i" || fail "ingress does not admit the container port"
+          ! grep -q 'port: 80$' <<<"$i" || fail "ingress admits the Service port, not the container port"
       - name: Refuse multi-replica on a ReadWriteOnce claim
         run: |
           A="--set engine.config.betterAuthSecret=x --set engine.config.betterAuthUrl=https://zv.example --set engine.config.valkeyUrl=redis://cache:6379"

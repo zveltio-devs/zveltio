@@ -35,9 +35,12 @@ spec:
         {{- else }}
         - namespaceSelector: {}
         {{- end }}
+      # The pod's port, not the Service's: a policy sees traffic after the
+      # Service has translated it to targetPort, so `service.port: 80` admitted
+      # port 80 on a pod that listens on 3000 and dropped every request.
       ports:
         - protocol: TCP
-          port: {{ .Values.engine.service.port | default 3000 }}
+          port: {{ .Values.engine.config.port | int }}
   egress:
     # DNS — without this every other rule fails to resolve.
     - to:

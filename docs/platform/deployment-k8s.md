@@ -171,7 +171,7 @@ Expected keys in the existing Secret:
 | `VALKEY_URL` | **yes** | `redis://...` — the engine refuses to start in production without it; see below |
 | `BETTER_AUTH_SECRET` | yes | 32+ random chars |
 | `BETTER_AUTH_URL` | yes | Public base URL |
-| `ENCRYPTION_KEY` | yes | AES-256-GCM master key |
+| `FIELD_ENCRYPTION_KEY` | yes | AES-256-GCM field key, 64 hex characters (`ENCRYPTION_KEY` is not read). Rotation: `FIELD_ENCRYPTION_KEYS`, see [security](security.md) |
 | `MAIL_ENCRYPTION_KEY` | optional | Only reads mail 1.x `aes256gcm:` values, or for an extension sealing with `keyring: 'mail'` |
 | `METRICS_TOKEN` | recommended | Bearer for `/metrics` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | optional | OpenTelemetry collector |
