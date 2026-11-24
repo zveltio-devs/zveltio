@@ -35,8 +35,6 @@ import type { DumpTarget } from './run-scheduled-backup.js';
  */
 const FIXED_ENGINE_ROLES = [
   'zveltio_rls',
-  'zveltio_worker',
-  'zveltio_flow_reader',
   'zveltio_audit_purge',
   'zveltio_coll_exempt',
   'zveltio_ext',

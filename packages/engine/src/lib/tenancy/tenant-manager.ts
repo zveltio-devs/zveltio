@@ -575,16 +575,12 @@ export async function applyTenantRLS(
   // per command, asking what the request published. See collection-permissions.ts.
   await applyCollectionPermissions(db, table);
 
-  // The two narrow roles hold an allowlist of collection tables, and this is
-  // where a collection joins it: `zveltio_worker` (the worker SQL bridge, DML)
-  // and `zveltio_flow_reader` (SELECT; flow `query_db` used it, unused since
-  // ADR 0058 removed that step, until the role is retired) — the grants
-  // migration 001 gave the tables that existed when it ran. `zveltio_worker`'s
-  // create-time grant was never written, so every collection created after
-  // install answered `permission denied` to every worker-isolated extension;
-  // the flow reader's was made at CREATE TABLE, before any policy existed.
+  // `zveltio_ext` holds the collection tables, and this is where a collection
+  // joins it. (`zveltio_worker` and `zveltio_flow_reader` held them too until
+  // migration 136 retired both: no SQL crosses from a worker, RFC
+  // extension-model-v3 decision 2, and flow `query_db` is gone, ADR 0058.)
   //
-  // Granted here, after FORCE and the policy, so neither role reaches a
+  // Granted here, after FORCE and the policy, so the role reaches no
   // collection before tenant isolation is on it. Every creator comes through
   // here — the create_collection job, an extension's `ctx.DDLManager` (on the
   // pool, committed before it returns) and the boot reconcile.
@@ -609,8 +605,6 @@ export async function applyTenantRLS(
 
 /** The roles that may hold collection tables only, and what each holds on one. */
 const NARROW_ROLE_GRANTS: Record<string, string> = {
-  zveltio_worker: 'SELECT, INSERT, UPDATE, DELETE',
-  zveltio_flow_reader: 'SELECT',
   // Inline extensions' `ctx.db` (lib/extensions/ext-db-role.ts): each
   // extension's own role inherits it. Not collection-only — it holds the
   // extensions' `zvd_*` tables, and on the shared layout their other tables too
@@ -623,49 +617,6 @@ async function narrowRolesPresent(db: Database): Promise<string[]> {
     SELECT rolname FROM pg_roles WHERE rolname = ANY(${Object.keys(NARROW_ROLE_GRANTS)}::text[])
   `.execute(db);
   return r.rows.map((x) => x.rolname);
-}
-
-/**
- * The tables loaded worker extensions own, granted to `zveltio_worker` after their
- * migrations (lib/extensions/ext-db-role.ts). Extensions load before the boot
- * reconcile, whose revoke below took their `zvd_*` tables straight back.
- */
-const workerExtensionTables = new Set<string>();
-
-export function keepWorkerExtensionTables(tables: Iterable<string>): void {
-  for (const t of tables) workerExtensionTables.add(t);
-}
-
-/**
- * Take the narrow roles off every `zvd_*` table that is not a collection.
- *
- * Migration 001 granted every table matching `zvd_%`, and that prefix is not
- * only collections: `zvd_permissions` (the Casbin policy table),
- * `zvd_rls_policies`, `zvd_column_permissions`, `zvd_collections`,
- * `zvd_webhooks` (signing secrets), `zvd_push_tokens` and more share it, most
- * without RLS. So a worker extension — the class the platform does not trust —
- * could write itself a `god` grant, and a flow step could read every tenant's
- * webhook secrets. Revoked at every boot, as `ensureRlsEnforcementRole` does
- * for the credential tables, so an install that ran the old grant heals; on a
- * settled install the query finds nothing.
- */
-async function revokeNarrowRolesFromNonCollections(db: Database, tables: string[]): Promise<void> {
-  for (const role of await narrowRolesPresent(db)) {
-    if (role === 'zveltio_ext') continue;
-    const spare = role === 'zveltio_worker' ? [...tables, ...workerExtensionTables] : tables;
-    const stray = await sql<{ t: string }>`
-      SELECT c.relname AS t
-        FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-       WHERE n.nspname = 'public'
-         AND left(c.relname, 4) = 'zvd_'
-         AND NOT (c.relname = ANY(${spare}::text[]))
-         AND EXISTS (
-           SELECT 1 FROM aclexplode(c.relacl) a WHERE a.grantee = ${role}::regrole)
-    `.execute(db);
-    for (const { t } of stray.rows) {
-      await sql`REVOKE ALL ON ${sql.id(t)} FROM ${sql.id(role)}`.execute(db);
-    }
-  }
 }
 
 /**
@@ -921,11 +872,6 @@ export async function reconcileTenantRLS(db: Database): Promise<number> {
     } catch (err) {
       failed(table, err, `reconcile failed for ${table}`);
     }
-  }
-  try {
-    await revokeNarrowRolesFromNonCollections(db, [...tables]);
-  } catch (err) {
-    failed('(narrow-role revoke)', err, 'narrow-role revoke failed');
   }
   return applied;
 }
@@ -1814,12 +1760,7 @@ export function isSingleUnitReach(scope: TenantScope | null, tenantId: string): 
 let _rlsRoleAvailable = false;
 
 /** The engine's own roles that migrations grant on objects in this database. */
-const NARROW_ENGINE_ROLES = [
-  'zveltio_rls',
-  'zveltio_worker',
-  'zveltio_flow_reader',
-  'zveltio_audit_purge',
-];
+const NARROW_ENGINE_ROLES = ['zveltio_rls', 'zveltio_audit_purge'];
 
 /**
  * Refuse to start on a database restored without the engine's roles.
@@ -1828,7 +1769,7 @@ const NARROW_ENGINE_ROLES = [
  * GRANT in the dump that names one fails on a server where it does not exist
  * yet. Boot recreates the roles but cannot recreate those grants — only the dump
  * holds them all — so the engine used to start with revision reads, the media
- * quota, worker SQL and flow `query_db` broken or falling back, and logged
+ * quota and the audit purge broken or falling back, and logged
  * "Tenant RLS enforced".
  *
  * The evidence is migration 121's marker: each role here is granted EXECUTE on
@@ -1943,9 +1884,7 @@ export async function ensureRlsEnforcementRole(db: Database): Promise<void> {
 
   // 1. The roles themselves. Needs CREATEROLE, which a plain engine role should
   //    not have — scripts/bootstrap-db-role.sh pre-creates them for that case.
-  //    The narrow ones too (`zveltio_flow_reader` has had no user since
-  //    ADR 0058 removed flow `query_db`, which fell back to the connection
-  //    role when it was absent). Their grants are not made here, but for the
+  //    The audit purge role too. Its grants are not made here, but for the
   //    audit purge role's two in step 3 (ADR 0060) — after a restore without
   //    roles only the dump has them, and
   //    `enforceRoleGrantsMarker` refuses to start instead.
@@ -1979,9 +1918,8 @@ export async function ensureRlsEnforcementRole(db: Database): Promise<void> {
   //    SET, not MEMBER: on Postgres a role can be a MEMBER with SET FALSE —
   //    what a CREATEROLE engine holds on a role it created — and SET LOCAL ROLE
   //    then fails. MEMBER said yes, boot said "enforced", and every tenant
-  //    request failed. The two narrow roles the engine also switches into (the
-  //    worker SQL bridge, flow `query_db`) get the same repair, one statement
-  //    each so one refusal does not skip the rest.
+  //    request failed. The audit purge role gets the same repair, one
+  //    statement each so one refusal does not skip the rest.
   for (const role of NARROW_ENGINE_ROLES) {
     try {
       await sql`
@@ -2074,7 +2012,7 @@ export async function ensureRlsEnforcementRole(db: Database): Promise<void> {
         -- The rule tables are read here and written only on the pool, as their
         -- owner. Write grants made them one SQL-analyzer miss away from a god
         -- grant, a lifted column guard or row rule, or a self-approved credential
-        -- forward: inline ctx.db and the worker bridge fall back to this role.
+        -- forward: inline ctx.db falls back to this role.
         -- zv_roles and zv_settings (registration, SMTP, storage, spent recovery
         -- tokens) joined with migration 082; zv_default_grant_revocations (086)
         -- with it, because deleting a row there hands a revoked default grant

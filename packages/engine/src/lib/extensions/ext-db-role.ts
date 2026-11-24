@@ -32,7 +32,7 @@
  * them apart. Now each extension's statements run as its own role
  * (`extensionDbRoleNames`), which holds that extension's tables and is a member
  * of `zveltio_ext` for what every extension shares: collections and USAGE on the
- * schema. Worker extensions get the same under `zveltio_worker`. Disable revokes
+ * schema. Disable revokes
  * an extension role's grants and membership, uninstall drops it
  * (`revokeExtensionDbRoles`).
  *
@@ -63,13 +63,12 @@ import { sqlState } from '../../db/bun-sql-quirks.js';
 import { withLockWaitBound } from '../../db/dynamic.js';
 import { CompiledQuery, type ConnectionProvider, sql } from 'kysely';
 import type { Database } from '../../db/index.js';
-import { keepWorkerExtensionTables, temporaryObjectsRestricted } from '../tenancy/index.js';
+import { temporaryObjectsRestricted } from '../tenancy/index.js';
 import { queueRoleWindow } from '../role-window.js';
 
 export const EXT_DB_ROLE = 'zveltio_ext';
 /** `zveltio_ext` plus BYPASSRLS, for statements whose role already bypasses RLS. */
 export const EXT_BYPASS_DB_ROLE = 'zveltio_ext_bypass';
-const WORKER_DB_ROLE = 'zveltio_worker';
 
 /** Never granted to the extension role, whatever an allowlist says. */
 const NEVER_GRANTED = ['user', 'session', 'account', 'verification', 'twoFactor', 'passkey'];
@@ -82,12 +81,9 @@ let _bypassReady = false;
 let _perExtension = false;
 let _dbName: string | null = null;
 let _ensuring: Promise<boolean> | null = null;
-let _workerNarrowed = false;
 
 /** Each loaded inline extension's own role and its BYPASSRLS twin (null: none). */
 const extRoles = new Map<string, { role: string; bypass: string | null }>();
-/** Each loaded worker extension's own role, for the SQL bridge. */
-const workerRoles = new Map<string, string>();
 
 /**
  * One extension's roles in one database. Role names are cluster-wide and at most
@@ -100,7 +96,7 @@ const workerRoles = new Map<string, string>();
 export function extensionDbRoleNames(
   dbName: string,
   extName: string,
-): { role: string; bypass: string; worker: string } {
+): { role: string; bypass: string } {
   const stem = extName
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '_')
@@ -109,18 +105,12 @@ export function extensionDbRoleNames(
   return {
     role: `zveltio_ext_${stem}_${h}`,
     bypass: `zveltio_extb_${stem}_${h}`,
-    worker: `zveltio_wrk_${stem}_${h}`,
   };
 }
 
 async function currentDbName(db: Database): Promise<string> {
   _dbName ??= (await sql<{ d: string }>`SELECT current_database() AS d`.execute(db)).rows[0]!.d;
   return _dbName;
-}
-
-/** The role the worker SQL bridge runs this extension's queries as, when it has its own. */
-export function workerDbRoleFor(extName: string): string | undefined {
-  return workerRoles.get(extName);
 }
 
 /**
@@ -299,8 +289,8 @@ function warnNoExtRole(reason: string): void {
 /** Once per process: every extension runs on the shared role. */
 function warnSharedRole(): void {
   console.warn(
-    `[extensions] all extensions share one database role (${EXT_DB_ROLE}, ${WORKER_DB_ROLE}): ` +
-      `the engine role cannot create roles under them (CREATEROLE with ADMIN on both), so only ` +
+    `[extensions] all extensions share one database role (${EXT_DB_ROLE}): ` +
+      `the engine role cannot create roles under it (CREATEROLE with ADMIN on it), so only ` +
       `the SQL analyzer keeps one extension out of another's tables. ` +
       'Re-run scripts/bootstrap-db-role.sh, which grants both.',
   );
@@ -381,64 +371,6 @@ export async function grantExtensionDbRole(
 }
 
 /**
- * Grant the worker SQL bridge's role this worker-isolated extension's own
- * tables: its `zv_<ext>_*` namespace and the `zvd_*` tables its migrations
- * create, never an engine table — exactly what the bridge's analyzer admits
- * beyond collections. Not `EXTENSION_TABLE_GRANTS`: the bridge passes the
- * analyzer no grants. The role is the extension's own under `zveltio_worker`
- * where the engine can make one, else `zveltio_worker` itself.
- *
- * No SQL crosses from a worker any more (RFC extension-model-v3 decision 2), so
- * nothing runs as these roles; they are retired with `zveltio_worker` in a later
- * phase D slice 4 step, which takes this grant with them.
- */
-export async function grantWorkerDbRole(
-  db: Database,
-  extName: string,
-  allowedTables: ReadonlySet<string>,
-): Promise<void> {
-  let perExtension = false;
-  try {
-    // The bridge picks the role when it exists; absent (001 could not create
-    // it), the bridge refuses worker SQL and there is nothing to grant.
-    // SET, as the bridge's own pick did: a role it cannot switch to is one it
-    // does not use.
-    const r = await sql<{ member: boolean }>`
-      SELECT pg_has_role(current_user, oid, 'SET') AS member
-        FROM pg_roles WHERE rolname = ${WORKER_DB_ROLE}
-    `.execute(db);
-    if (!r.rows[0]?.member) return;
-    // 001's grant of this sits in a block a pre-created role fails (scripts/
-    // bootstrap-db-role.sh: re-granting membership needs ADMIN); PUBLIC holds it
-    // on a stock schema, not on one hardened by revoking that.
-    await sql`GRANT USAGE ON SCHEMA public TO ${sql.id(WORKER_DB_ROLE)}`.execute(db);
-    perExtension = await canMakeRolesUnder(db, WORKER_DB_ROLE);
-  } catch (err) {
-    console.warn(
-      `[extensions] "${extName}": ${WORKER_DB_ROLE} not usable (continuing):`,
-      (err as Error).message,
-    );
-    return;
-  }
-  if (!perExtension) {
-    // Loaded worker extensions' tables survive the boot revoke of non-collections.
-    keepWorkerExtensionTables(
-      await grantOwnTables(db, extName, allowedTables, false, WORKER_DB_ROLE, WORKER_DB_ROLE),
-    );
-    return;
-  }
-  if (!_workerNarrowed) {
-    _workerNarrowed = true;
-    await narrowSharedRole(db, WORKER_DB_ROLE);
-  }
-  const name = extensionDbRoleNames(await currentDbName(db), extName).worker;
-  const own = (await ensureRole(db, name, WORKER_DB_ROLE, false)) ? name : null;
-  if (own) workerRoles.set(extName, own);
-  else workerRoles.delete(extName);
-  await grantOwnTables(db, extName, allowedTables, false, WORKER_DB_ROLE, own);
-}
-
-/**
  * Every extension name `zv_extension_registry` knows, installed or not. A read
  * error propagates: an empty list would hand `ctx.config.vars` keys another
  * extension's prefix also spells (config.ts), so the load fails instead.
@@ -455,8 +387,8 @@ export async function installedExtensionNames(db: Database): Promise<string[]> {
  * every `zvd_*` table the engine does not own to `shared` (inline only); returns
  * every relation that way, granted now or before.
  *
- * The extension's own: the tables a grant or its migrations name (`allowedTables`
- * — for a worker extension only its `zvd_*` ones) and its `zv_<ext>_*` namespace
+ * The extension's own: the tables a grant or its migrations name (`allowedTables`)
+ * and its `zv_<ext>_*` namespace
  * minus engine tables and minus the namespace of any known extension with a
  * LONGER prefix (`a` stops at `zv_a_b_*` once `a/b` exists; the analyzer applies
  * the same rule, `ownsByPrefix`).
@@ -469,6 +401,7 @@ async function grantOwnTables(
   db: Database,
   extName: string,
   allowedTables: ReadonlySet<string>,
+  /** Always true since the worker roles went (migration 136); kept for the SQL below. */
   inline: boolean,
   shared: string,
   own: string | null,
@@ -491,7 +424,7 @@ async function grantOwnTables(
       const dbName = await currentDbName(db);
       for (const c of coveringExtensionNames(extName)) {
         const n = extensionDbRoleNames(dbName, c);
-        covering.push(inline ? n.role : n.worker);
+        covering.push(n.role);
       }
     }
     const rows = await sql<{
@@ -791,13 +724,11 @@ export async function revokeExtensionDbRoles(
   drop = false,
 ): Promise<void> {
   extRoles.delete(extName);
-  workerRoles.delete(extName);
   try {
     const n = extensionDbRoleNames(await currentDbName(db), extName);
     for (const [role, parent] of [
       [n.bypass, n.role],
       [n.role, EXT_DB_ROLE],
-      [n.worker, WORKER_DB_ROLE],
     ] as const) {
       const held = await sql<{ rel: string; seq: boolean }>`
         SELECT c.relname AS rel, c.relkind = 'S' AS seq
@@ -835,7 +766,5 @@ export function _resetExtensionDbRoleForTests(): void {
   _perExtension = false;
   _dbName = null;
   _ensuring = null;
-  _workerNarrowed = false;
   extRoles.clear();
-  workerRoles.clear();
 }
