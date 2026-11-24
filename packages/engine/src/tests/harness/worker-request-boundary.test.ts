@@ -7,18 +7,9 @@
 //     the ones its manifest names in `forwardCredentials` and an operator
 //     approved; signature headers
 //     (`stripe-signature`, `x-hub-signature-256`) always pass.
-//   - The caller's reach does, when it is narrower than the tenant: a member
-//     whose default-tenant assignment lapsed reads nothing inline (NO_UNITS), and
-//     read and wrote the whole tenant through a worker, which published only
-//     `zveltio.current_tenant`.
-//   - And only then: a user with no row in the default tenant (a plain
-//     single-tenant install enrols nobody) reads the tenant inline, and read
-//     nothing through a worker, which published NO_UNITS for any standing but a
-//     membership in force.
-//   - Nor wider grants: a collection the member has no `read` on reads empty,
-//     and a column a rule forbids is not written, as `/api/data` refuses both.
-//     The worker publishes `collection_all`, `collection_grants` and
-//     `columns_all`; widening any of them left every worker suite green.
+//   - No SQL crosses from the worker (RFC extension-model-v3 decision 2): the
+//     reach cases below run inline only. They held a worker's `ctx.db` to the
+//     caller's membership, grants and column rules while the SQL bridge existed.
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -350,6 +341,14 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
     expect(out.inline.added).toBe(0);
   });
 
+  it('inline: a user with no default-tenant row reads the tenant; a denied collection and column stay shut', () => {
+    expect(out.inline.rowsNoRow).toEqual({ status: 200, body: 2 });
+    expect(viaData.denied).toBe(403);
+    expect(out.inline.denied).toEqual({ status: 200, body: 0 });
+    expect(viaData.scribble).toBe(403);
+    expect(out.inline.scribble).toEqual({ status: 200, body: { wrote: false } });
+  });
+
   for (const m of ['process'] as const) {
     describe(m, () => {
       it('the caller credentials do not reach the worker; signatures do', () => {
@@ -378,39 +377,6 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
             'x-hub-signature-256': 'sha256=0123',
           },
         });
-      });
-
-      it('an in-force member reads the tenant (the control)', () => {
-        expect(out[m]?.rowsInForce).toEqual({ status: 200, body: 2 });
-      });
-
-      it('a user with no row in the default tenant reads what inline code reads', () => {
-        expect(out.inline.rowsNoRow).toEqual({ status: 200, body: 2 });
-        expect(out[m]?.rowsNoRow).toEqual(out.inline.rowsNoRow);
-      });
-
-      it('a lapsed member reads nothing and its update and delete touch nothing', () => {
-        expect(out[m]?.rowsLapsed).toEqual(out.inline.rowsLapsed);
-        expect(out[m]?.touchLapsed).toEqual(out.inline.touchLapsed);
-        expect(out[m]?.left).toBe(2);
-      });
-
-      it('a collection the caller may not read reads empty, as /api/data refuses it', () => {
-        expect(viaData.denied).toBe(403);
-        expect(out.inline.denied).toEqual({ status: 200, body: 0 });
-        expect(out[m]?.denied).toEqual(out.inline.denied);
-      });
-
-      it('a column a rule forbids is not written, as /api/data refuses it', () => {
-        expect(viaData.scribble).toBe(403);
-        expect(out.inline.scribble).toEqual({ status: 200, body: { wrote: false } });
-        expect(out[m]?.scribble).toEqual(out.inline.scribble);
-      });
-
-      it('a lapsed member inserts nothing (migration 060)', () => {
-        expect(out[m]?.addInForce).toEqual({ status: 200, body: { added: true } });
-        expect(out[m]?.addLapsed).toEqual({ status: 200, body: { added: false } });
-        expect(out[m]?.added).toBe(0);
       });
     });
   }

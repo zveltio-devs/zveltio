@@ -9,6 +9,10 @@
 // worker extension serving tenant B read and wrote the default tenant's rows.
 //
 // Driven through a real worker and the real runtime, as a request for tenant B.
+//
+// No SQL crosses from a worker any more (RFC extension-model-v3 decision 2,
+// phase D slice 4): its own query cases went with the bridge. What is left is
+// the service call a worker makes, answered in the engine as the request's tenant.
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -210,25 +214,6 @@ d('a worker query runs as the tenant of its request', () => {
     await forgetInstalled(db, WORKER, CALLER);
   });
 
-  it("reads its request's tenant rows, not the default tenant's", async () => {
-    const res = await workerApp.request(`/ext/${WORKER}/rows`);
-    const out = (await res.json()) as { ok: boolean; rows?: { title: string }[]; tenant?: string };
-    expect(out).toEqual({ ok: true, rows: [{ title: 'b-row' }], tenant: B });
-  });
-
-  it('refuses a query issued after its request is over, rather than run it as the default tenant', async () => {
-    await workerApp.request(`/ext/${WORKER}/later`);
-    type Late = { ok: boolean; rows?: unknown[]; error?: string } | null;
-    let late: Late = null;
-    for (let i = 0; i < 50 && !late; i++) {
-      await Bun.sleep(50);
-      late = (await (await workerApp.request(`/ext/${WORKER}/late`)).json()) as Late;
-    }
-    // Before: { ok: true, rows: [{ title: 'default-row' }] } — tenant B's
-    // leftover work read (and could write) the default tenant's rows.
-    expect(late).toEqual({ ok: false, error: expect.stringContaining('is over') });
-  });
-
   // A service call crosses the same boundary a query does, in both directions,
   // and carried no request: the host ran an inline service from the worker's
   // message event with no tenant context, and a worker's service ran its
@@ -248,18 +233,5 @@ d('a worker query runs as the tenant of its request', () => {
       late = (await (await workerApp.request(`/ext/${WORKER}/late-svc`)).json()) as Late;
     }
     expect(late).toEqual({ ok: false, error: expect.stringContaining('is over') });
-  });
-
-  it("a worker's service called by an inline caller queries as the caller's tenant", async () => {
-    const svc = serviceRegistry.get<() => Promise<unknown>>(`${WORKER}.rows`);
-    const rows = await runWithDomain(B, () =>
-      withTenantIsolation(B, () => svc!() as Promise<unknown>, { identity: ALL_COLLECTIONS_ACTOR }),
-    );
-    expect(rows).toEqual([{ title: 'b-row' }]);
-  });
-
-  it("a worker's service called by another worker queries as the caller's tenant", async () => {
-    const res = await workerApp.request(`/ext/${CALLER}/fwd`);
-    expect(await res.json()).toEqual({ ok: true, rows: [{ title: 'b-row' }] });
   });
 });

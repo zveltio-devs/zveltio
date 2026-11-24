@@ -10,6 +10,10 @@
 //
 // Driven through a real worker and the real runtime, inside the tenant
 // transaction `tenantMiddleware` opens for a signed-in user.
+//
+// No SQL crosses from a worker any more (RFC extension-model-v3 decision 2,
+// phase D slice 4): its own query cases went with the bridge. What is left is
+// the service call a worker makes, answered in the engine as the request's user.
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -192,39 +196,8 @@ d("a worker query runs as its request's user", () => {
     await forgetInstalled(db, WORKER, CALLER);
   });
 
-  it('is held to a row rule keyed on the user, and sees who that user is', async () => {
-    const res = await workerApp.request(`/ext/${WORKER}/rows`);
-    // Before: { rows: [mine, theirs], user: null } — the owner rule stood down.
-    expect(await res.json()).toEqual({ ok: true, rows: [{ title: 'mine' }], user: U1 });
-  });
-
   it('an inline service the worker calls runs as the user', async () => {
     const res = await workerApp.request(`/ext/${WORKER}/inline-svc`);
     expect(await res.json()).toEqual({ ok: true, out: [{ title: 'mine' }] });
-  });
-
-  it("a worker's service called by another worker queries as the user", async () => {
-    const res = await workerApp.request(`/ext/${CALLER}/fwd`);
-    expect(await res.json()).toEqual({ ok: true, rows: [{ title: 'mine' }] });
-  });
-
-  it("a worker's service called by an inline caller queries as that caller", async () => {
-    const svc = serviceRegistry.get<() => Promise<unknown>>(`${WORKER}.rows`);
-    const rows = await runWithDomain(B, () =>
-      withTenantIsolation(B, () => svc!() as Promise<unknown>, {
-        userId: null,
-        identity: IDENTITY,
-      }),
-    );
-    expect(rows).toEqual([{ title: 'mine' }]);
-  });
-
-  it('work with no identity gets no collection: an extension needs an actor (R1)', async () => {
-    const svc = serviceRegistry.get<() => Promise<unknown>>(`${WORKER}.rows`);
-    const rows = await runWithDomain(B, () =>
-      withTenantIsolation(B, () => svc!() as Promise<unknown>),
-    );
-    // Before R1 the owner rule stood down and both rows came back.
-    expect(rows).toEqual([]);
   });
 });
