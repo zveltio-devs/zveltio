@@ -57,6 +57,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { connect, type Socket } from 'node:net';
 import type { EdgeRequest, EdgeResponse, RunResult } from '../edge-function-runner.js';
+import type { RouteWrap } from '../ext-runner.js';
 
 // Max user-supplied code size handed to a subprocess. 1 MiB is generous
 // for an edge function but caps memory spikes on the parent if a route
@@ -1365,14 +1366,10 @@ export const edgeBootstrapPath = bootstrapPath;
 
 /**
  * Runner side of one edge connection (`first` holds the bytes read so far):
- * spawn the bootstrap under the requested ceilings, through `wrap` (setpriv in
- * containers), feed it the envelope, and answer with what it left behind.
+ * spawn the bootstrap under the requested ceilings, through `wrap` (the socket
+ * ban; setpriv in containers), feed it the envelope, and answer with what it left behind.
  */
-export function serveEdgeConnection(
-  conn: Socket,
-  first: Buffer,
-  wrap: (argv: string[]) => { argv: string[]; release?: () => void },
-): void {
+export function serveEdgeConnection(conn: Socket, first: Buffer, wrap: RouteWrap): void {
   let buf = first;
   let proc: Runner | null = null;
   let done = false;
@@ -1399,20 +1396,22 @@ export function serveEdgeConnection(
       conn.destroy();
       return;
     }
-    const { argv, release } = wrap(
+    const childEnv = { PATH: '/usr/local/bin:/usr/bin:/bin', TMPDIR: tmpdir() };
+    const { argv, env, release } = wrap(
       limitedCommand(
         [BUN_BIN, ...interpreterArgs(), bootstrapPath],
         header.memoryMb,
         header.cpuS,
         false,
       ),
+      { env: childEnv },
     );
     const started: Runner = spawn({
       cmd: argv,
       stdin: 'pipe',
       stdout: 'pipe',
       stderr: 'pipe',
-      env: { PATH: '/usr/local/bin:/usr/bin:/bin', TMPDIR: tmpdir() },
+      env: env ?? childEnv,
       cwd: '/',
     });
     proc = started;

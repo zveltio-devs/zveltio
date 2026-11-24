@@ -1,7 +1,7 @@
 /**
  * The kernel socket ban (ADR 0023): the seccomp filter every process the
- * container runner starts is loaded with (`setpriv --seccomp-filter`), and the
- * check the runner makes before it serves anything.
+ * runner starts is loaded with (`socketBanned`), and the check the runner
+ * makes before it serves anything.
  *
  * An allowlist on the socket calls, not a deny-list of families: `socket(AF_SMC)`
  * falls back to TCP and reached 1.1.1.1 past a filter that refused only the
@@ -24,10 +24,6 @@
  * the table. A `struct sock_filter` is { u16 code, u8 jt, u8 jf, u32 k },
  * little-endian on both architectures.
  */
-
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 
 // linux/audit.h
 const AUDIT_ARCH = { x64: 0xc000003e, arm64: 0xc00000b7 } as const;
@@ -90,21 +86,67 @@ export function socketBanFilter(arch: string = process.arch): Uint8Array {
   return new Uint8Array(out.buffer);
 }
 
+/** The environment the banned process gets, carried past the loader as JSON. */
+const EXEC_ENV = 'ZVELTIO_SOCKET_BAN_ENV';
+
 /**
- * Container mode: the filter on disk for setpriv, which reads it as root
- * before the uid drop (measured: a 0600 file works), so in a directory only
- * root (the runner) can reach.
+ * What the runner spawns instead of `argv`, `env`: this binary as plain Bun
+ * (BUN_BE_BUN, about 5 ms; the engine bundle's own entry costs 200), running
+ * a loader that sets no_new_privs, loads the filter on its thread — the one
+ * that execs, so nothing of it outlives the exec unbanned — and execs `argv`
+ * with exactly `env`. The runner keeps AF_UNIX for its own socket; everything
+ * it starts runs under the filter, containers and systemd alike. Not
+ * `setpriv --seccomp-filter`: the bare-metal hosts (Ubuntu 22.04 and 24.04,
+ * Debian 11 and 12) ship util-linux older than 2.41. Nothing on disk for a
+ * process to rewrite before the next one starts. The loader reads its argv
+ * from /proc/self/cmdline: `bun -e` drops a `--` from process.argv.
  */
-export function writeSocketBan(): string {
-  const path = join(mkdtempSync(join(tmpdir(), 'zveltio-seccomp-')), 'socket-ban.bpf');
-  writeFileSync(path, socketBanFilter(), { mode: 0o600 });
-  return path;
+export function socketBanned(
+  argv: string[],
+  env: Record<string, string>,
+): { argv: string[]; env: Record<string, string> } {
+  const filter = Buffer.from(socketBanFilter()).toString('base64');
+  const loader = `const { dlopen, FFIType: T, ptr } = require('bun:ffi');
+const fail = (why) => { console.error('[socket-ban] ' + why); process.exit(126); };
+const argv = require('node:fs').readFileSync('/proc/self/cmdline', 'latin1').split('\\0').slice(3, -1);
+const env = JSON.parse(process.env.${EXEC_ENV});
+const file = argv[0].includes('/') ? argv[0] : Bun.which(argv[0]);
+if (!file) fail(argv[0] + ': not found');
+const { symbols: c } = dlopen('libc.so.6', {
+  prctl: { args: [T.i32, T.u64, T.u64, T.u64, T.u64], returns: T.i32 },
+  execve: { args: [T.ptr, T.ptr, T.ptr], returns: T.i32 },
+});
+// Every buffer a pointer names stays referenced until execve.
+const keep = [];
+const cstr = (s, enc) => { const b = Buffer.from(s + '\\0', enc); keep.push(b); return BigInt(ptr(b)); };
+const list = (xs, enc) => { const v = new BigUint64Array([...xs.map((x) => cstr(x, enc)), 0n]); keep.push(v); return v; };
+const prog = Buffer.from('${filter}', 'base64');
+// struct sock_fprog { u16 len; struct sock_filter *filter; }
+const fprog = new BigUint64Array([BigInt(prog.length / 8), BigInt(ptr(prog))]);
+keep.push(prog, fprog);
+// PR_SET_NO_NEW_PRIVS, then PR_SET_SECCOMP with SECCOMP_MODE_FILTER.
+if (c.prctl(38, 1, 0, 0, 0) !== 0) fail('PR_SET_NO_NEW_PRIVS failed');
+if (c.prctl(22, 2, BigInt(ptr(fprog)), 0, 0) !== 0) fail('the kernel refused the seccomp filter');
+const path = Buffer.from(file + '\\0', 'latin1');
+// argv back as the bytes it came in; env as the UTF-8 JSON carried.
+c.execve(path, list(argv, 'latin1'), list(Object.entries(env).map(([k, v]) => k + '=' + v), 'utf8'));
+fail('execve ' + file + ' failed');`;
+  return {
+    argv: [process.execPath, '-e', loader, ...argv],
+    env: {
+      BUN_BE_BUN: '1',
+      [EXEC_ENV]: JSON.stringify(env),
+      // To find argv[0] as spawn did: the child's PATH, else the runner's.
+      PATH: env.PATH ?? process.env.PATH ?? '/usr/sbin:/usr/bin:/sbin:/bin',
+    },
+  };
 }
 
 /**
  * What the check runs under the wrap: one `socket()` per family through libc,
  * printed as the descriptor, or -1 with errno. AF_SMC is the one a deny-list
- * missed.
+ * missed; AF_UNIX is the one systemd's RestrictAddressFamilies leaves the
+ * runner, and so tells the filter from the unit alone.
  */
 export const SOCKET_BAN_PROBE = `const { dlopen, FFIType, ptr, read } = require('bun:ffi');
 const { symbols: c } = dlopen('libc.so.6', {
@@ -113,7 +155,7 @@ const { symbols: c } = dlopen('libc.so.6', {
   __errno_location: { returns: FFIType.ptr },
 });
 const out = {};
-for (const [name, family] of [['AF_INET', 2], ['AF_INET6', 10], ['AF_SMC', 43]]) {
+for (const [name, family] of [['AF_INET', 2], ['AF_INET6', 10], ['AF_SMC', 43], ['AF_UNIX', 1]]) {
   const fd = c.socket(family, 1, 0);
   out[name] = fd >= 0 ? 'fd ' + fd : 'errno ' + read.i32(c.__errno_location(), 0);
 }
@@ -123,39 +165,43 @@ const ring = Number(c.syscall(425, 1, ptr(new Uint8Array(120))));
 out.io_uring = ring >= 0 ? 'fd ' + ring : 'errno ' + read.i32(c.__errno_location(), 0);
 console.log(JSON.stringify(out));`;
 
-type Wrap = (argv: string[]) => { argv: string[]; release?: () => void };
-type SpawnSync = (argv: string[]) => { exitCode: number | null; stdout: Buffer; stderr?: Buffer };
+type Wrap = (
+  argv: string[],
+  opts: { env: Record<string, string> },
+) => { argv: string[]; env?: Record<string, string>; release?: () => void };
+type SpawnSync = (
+  argv: string[],
+  env: Record<string, string>,
+) => { exitCode: number | null; stdout: Buffer; stderr?: Buffer };
 
 /**
  * Run `SOCKET_BAN_PROBE` through the runner's own wrap, the way a runtime
- * starts; the refusal, or null when no family opened. Containers ban sockets
- * through the wrap's filter (EACCES), systemd through the unit's
- * RestrictAddressFamilies, which the probe inherits (EAFNOSUPPORT); a failure
- * is a failure whatever its errno. No warning-only mode: a runner that cannot
- * ban sockets serves nothing (ADR 0023 decision 3).
+ * starts; the refusal, or null when no family opened. Only the wrap's filter
+ * refuses AF_UNIX (EACCES); the others may also meet the unit's
+ * RestrictAddressFamilies first (EAFNOSUPPORT): a failure is a failure
+ * whatever its errno. No warning-only mode: a runner that cannot ban sockets
+ * serves nothing (ADR 0023 decision 3).
  */
 export function checkSocketBan(
   wrap: Wrap,
-  run: SpawnSync = (argv) =>
-    Bun.spawnSync(argv, {
-      stderr: 'pipe',
-      cwd: '/',
-      // bun:ffi needs the JIT, which JSC turns off when its default executable
-      // reservation does not fit the wrap's RLIMIT_AS (measured: "bun:ffi
-      // requires the JIT" under 1024 MB). Ignored by a Bun that drops the
-      // option: the probe then fails, and the runner refuses to start.
-      env: {
-        BUN_BE_BUN: '1',
-        BUN_JSC_jitMemoryReservationSize: String(64 << 20),
-        // The wrap's argv[0] is prlimit/setpriv, resolved from PATH.
-        PATH: process.env.PATH ?? '/usr/sbin:/usr/bin:/sbin:/bin',
-      },
-    }),
+  run: SpawnSync = (argv, env) => Bun.spawnSync(argv, { stderr: 'pipe', cwd: '/', env }),
 ): string | null {
-  const { argv, release } = wrap([process.execPath, '-e', SOCKET_BAN_PROBE]);
+  // bun:ffi needs the JIT, which JSC turns off when its default executable
+  // reservation does not fit the wrap's RLIMIT_AS (measured: "bun:ffi
+  // requires the JIT" under 1024 MB). Ignored by a Bun that drops the
+  // option: the probe then fails, and the runner refuses to start.
+  const probeEnv = {
+    BUN_BE_BUN: '1',
+    BUN_JSC_jitMemoryReservationSize: String(64 << 20),
+    // The wrap's argv[0] is prlimit/setpriv, resolved from PATH.
+    PATH: process.env.PATH ?? '/usr/sbin:/usr/bin:/sbin:/bin',
+  };
+  const { argv, env, release } = wrap([process.execPath, '-e', SOCKET_BAN_PROBE], {
+    env: probeEnv,
+  });
   let r: ReturnType<SpawnSync>;
   try {
-    r = run(argv);
+    r = run(argv, env ?? probeEnv);
   } finally {
     release?.();
   }
@@ -166,13 +212,13 @@ export function checkSocketBan(
     /* reported below */
   }
   const opened = got ? Object.entries(got).filter(([, v]) => !v.startsWith('errno ')) : [];
-  if (r.exitCode === 0 && got && Object.keys(got).length === 4 && opened.length === 0) return null;
+  if (r.exitCode === 0 && got && Object.keys(got).length === 5 && opened.length === 0) return null;
   const why = got
     ? opened.map(([family, v]) => `${family}: ${v}`).join(', ')
     : r.stderr?.toString().trim() || `exit ${r.exitCode}`;
   return (
     `the runner cannot ban sockets for the processes it starts (${why}): ` +
-    'in a container the runner needs setpriv with --seccomp-filter (util-linux 2.41 or newer); ' +
-    'on systemd its unit needs RestrictAddressFamilies=AF_UNIX (zveltio ext-runner setup writes it)'
+    'the runner loads the filter through bun:ffi (glibc libc.so.6) and prctl(PR_SET_SECCOMP), ' +
+    'which the kernel must allow (CONFIG_SECCOMP_FILTER)'
   );
 }

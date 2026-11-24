@@ -9,10 +9,11 @@
 #   runner  — the runner service, under zveltio-ext: MUST read neither.
 # A third check: a connection from the zveltio-ext uid is refused (SO_PEERCRED).
 #
-# The runner checks at start that what it spawns opens no socket (ADR 0023);
-# here it inherits the ban from the container's seccomp profile, as it does
-# from its unit's RestrictAddressFamilies=AF_UNIX on systemd. Without the
-# profile it MUST refuse to start.
+# The runner loads the socket ban into every process it starts and checks at
+# start that what it spawns opens no socket, AF_UNIX included (ADR 0023). Under
+# a profile shaped like its unit's (AF_UNIX left open) its extension still
+# opens no AF_UNIX socket. Where the kernel refuses the filter it MUST refuse
+# to start.
 #
 # Network egress and the per-extension uid are not tested here: they come from
 # the systemd unit, which ext-runner-systemd.sh tests on a real systemd.
@@ -26,19 +27,24 @@ IMAGE="${BUN_IMAGE:-oven/bun:1.4.4}"
 # (SystemCallErrorNumber=EPERM), as a docker seccomp profile: socket() of any
 # other family fails with EAFNOSUPPORT, io_uring with EPERM.
 PROFILE=$(mktemp)
-trap 'rm -f "$PROFILE"' EXIT
 echo '{"defaultAction":"SCMP_ACT_ALLOW","syscalls":[{"names":["socket"],"action":"SCMP_ACT_ERRNO",
   "errnoRet":97,"args":[{"index":0,"value":1,"op":"SCMP_CMP_NE"}]},
   {"names":["io_uring_setup","io_uring_enter","io_uring_register"],"action":"SCMP_ACT_ERRNO","errnoRet":1}]}' >"$PROFILE"
 
-out=$(docker run --rm -v "${ROOT}:/src:ro" "${IMAGE}" bash -c '
+# The kernel refuses prctl(PR_SET_SECCOMP): no ban can be loaded.
+NOBAN=$(mktemp)
+trap 'rm -f "$PROFILE" "$NOBAN"' EXIT
+echo '{"defaultAction":"SCMP_ACT_ALLOW","syscalls":[{"names":["prctl"],"action":"SCMP_ACT_ERRNO",
+  "errnoRet":1,"args":[{"index":0,"value":22,"op":"SCMP_CMP_EQ"}]}]}' >"$NOBAN"
+
+out=$(docker run --rm --security-opt seccomp="$NOBAN" -v "${ROOT}:/src:ro" "${IMAGE}" bash -c '
 useradd -r -M zveltio-ext && cd /tmp &&
 setpriv --reuid=zveltio-ext --regid=zveltio-ext --init-groups env -i PATH="$PATH" HOME=/tmp \
   ZVELTIO_ENGINE_UID=4242 ZVELTIO_EXT_RUNNER_SOCKET=/tmp/runner.sock \
   timeout 20 bun /src/packages/engine/src/binary-entry.ts ext-runner' 2>&1 || true)
 echo "no ban:  ${out:0:300}"
-grep -q "cannot ban sockets for the processes it starts (AF_INET: fd" <<<"$out" \
-  || { echo "FAIL: a runner whose processes can open sockets did not refuse to start"; exit 1; }
+grep -q "cannot ban sockets for the processes it starts (\[socket-ban\] the kernel refused" <<<"$out" \
+  || { echo "FAIL: a runner that cannot load the socket ban did not refuse to start"; exit 1; }
 
 docker run --rm --security-opt seccomp="$PROFILE" -v "${ROOT}:/src:ro" "${IMAGE}" bash -euo pipefail -c '
 cd /tmp
@@ -66,9 +72,12 @@ out=$(as_engine bun "$E/scripts/ext-runner-isolation.ts" process /opt/zveltio/.e
 echo "process: $out"
 [ "$(grep -o hunter2 <<<"$out" | wc -l)" -ge 2 ] || { echo "FAIL: process transport should read both secrets (probe broken?)"; fail=1; }
 
-out=$(as_engine bun "$E/scripts/ext-runner-isolation.ts" runner /opt/zveltio/.env /opt/ext/r "$ZVELTIO_EXT_RUNNER_SOCKET")
+# The profile leaves AF_UNIX open, as the unit does; the ban refuses it.
+out=$(as_engine PROBE_UNIX="$ZVELTIO_EXT_RUNNER_SOCKET" bun "$E/scripts/ext-runner-isolation.ts" runner /opt/zveltio/.env /opt/ext/r "$ZVELTIO_EXT_RUNNER_SOCKET")
 echo "runner:  $out"
 grep -q "\"transport\":\"runner\"" <<<"$out" || { echo "FAIL: runner probe gave no answer"; fail=1; }
+grep -q "\"$ZVELTIO_EXT_RUNNER_SOCKET\":\"DENIED EACCES\"" <<<"$out" \
+  || { echo "FAIL: the extension opened an AF_UNIX socket (no socket ban)"; fail=1; }
 grep -q hunter2 <<<"$out" && { echo "FAIL: runner transport read an engine secret"; fail=1; }
 
 # Any uid but the engine is refused: the connection closes before a runtime starts.

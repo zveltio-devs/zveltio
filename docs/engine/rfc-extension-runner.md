@@ -134,21 +134,25 @@ with no per-extension override. Network work goes to a job that declares
 
 ADR 0023: under both sits a kernel socket ban, which also holds where the
 runner shares a network (one container on a PaaS, the Helm sidecar) or where
-`IPAddressDeny` is a no-op (systemd without cgroup BPF). In containers every
-process the runner starts — extension runtimes and edge functions — is loaded
-by `setpriv --seccomp-filter` (util-linux 2.41 or newer) with the filter
-`socket-ban.ts` builds: `socket` and `io_uring_*` fail with EACCES for every
-family, `socketpair` for everything but an AF_UNIX stream pair (connected, inside the
-process; Deno's tokio and Bun's piped child stdio need one), the x32 range
-too, and a foreign architecture is killed. The runtime opens no socket: its
-channel is fds 0-2, created before exec. On systemd the unit
-does the same with `RestrictAddressFamilies=AF_UNIX` (the runner's own
-socket), `SystemCallArchitectures=native` and
-`SystemCallFilter=~io_uring_setup io_uring_enter io_uring_register`, which the
-runner and everything it starts inherit. At start the runner runs its own wrap
-on a probe that opens `AF_INET`, `AF_INET6` and `AF_SMC` through libc; if any
-opens, or the wrap fails, it refuses to start, and production refuses
-worker-isolated extensions as it does when no runner answers.
+`IPAddressDeny` is a no-op (systemd without cgroup BPF). Every process the
+runner starts — extension runtimes, edge functions, Deno jobs, in containers
+and on systemd alike — is loaded with the filter `socket-ban.ts` builds: the
+runner spawns its own binary as Bun, which sets `no_new_privs`, loads the
+filter (`prctl(PR_SET_SECCOMP)` through `bun:ffi`) and execs the process
+(`socketBanned`; not `setpriv --seccomp-filter`, which the bare-metal hosts'
+util-linux predates). `socket` and `io_uring_*` fail with EACCES for every
+family, AF_UNIX included, `socketpair` for everything but an AF_UNIX stream
+pair (connected, inside the process; Deno's tokio and Bun's piped child stdio
+need one), the x32 range too, and a foreign architecture is killed. The
+runtime opens no socket: its channel is fds 0-2, created before exec. The
+runner itself is not under the filter: it keeps AF_UNIX for its own socket.
+On systemd its unit also has `RestrictAddressFamilies=AF_UNIX`,
+`SystemCallArchitectures=native` and
+`SystemCallFilter=~io_uring_setup io_uring_enter io_uring_register`, which
+the runner and everything it starts inherit. At start the runner runs its own
+wrap on a probe that opens `AF_INET`, `AF_INET6`, `AF_SMC` and `AF_UNIX`
+through libc; if any opens, or the wrap fails, it refuses to start, and
+production refuses worker-isolated extensions as it does when no runner answers.
 
 ### Lifecycle and failure
 

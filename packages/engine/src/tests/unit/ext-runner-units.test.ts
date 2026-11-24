@@ -174,17 +174,6 @@ describe('container runner', () => {
       '/bin/zveltio',
       'rt.mjs',
     ]);
-    // The socket ban (ADR 0023), loaded by setpriv after the drop.
-    expect(setprivArgv(200005, ['rt.mjs'], '/tmp/f/socket-ban.bpf')).toEqual([
-      'setpriv',
-      '--reuid=200005',
-      '--regid=200005',
-      '--clear-groups',
-      '--no-new-privs',
-      '--seccomp-filter=/tmp/f/socket-ban.bpf',
-      '--',
-      'rt.mjs',
-    ]);
   });
 
   // One container has no cgroup per extension: the limits are rlimits, set as
