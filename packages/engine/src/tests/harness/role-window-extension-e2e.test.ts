@@ -12,6 +12,11 @@
  * transaction) against its own tenant-scoped `ctx.db` read, which has no tenant
  * predicate and so relies on RLS alone, and an engine read
  * (`ctx.internals.listRecords`).
+ *
+ * What it catches: windows losing exclusivity altogether. Every read an
+ * extension reaches here opens a role window of its own, so dropping the queue
+ * from `asEngineRole` alone stays green; `trx-concurrency.test.ts` is the test
+ * that catches that.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -43,6 +48,8 @@ import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { liftOwnBan } from '../../lib/users.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
+// Module state every later file of one `bun test` run shares: put back what was there.
+let wasInline = false;
 const STAMP = Date.now();
 const C = `rwe_${STAMP}`;
 const EXT = `rwe-racer-${STAMP}`;
@@ -68,7 +75,7 @@ d('an extension racing an engine window reads only its tenant, as its own role',
 
   beforeAll(async () => {
     ({ app: engine, db } = await getTestApp());
-    _setInlineForTests(true);
+    wasInline = _setInlineForTests(true);
     expect(await ensureExtensionDbRole(db)).toBe(true);
     await createGodSession(engine, db);
     await DDLManager.createCollection(db, {
@@ -180,6 +187,7 @@ d('an extension racing an engine window reads only its tenant, as its own role',
   }, 120_000);
 
   afterAll(async () => {
+    _setInlineForTests(wasInline);
     invalidateActivationCache();
     if (!db) return;
     await sql`DELETE FROM zv_extension_registry WHERE name = ${EXT}`.execute(db);

@@ -46,6 +46,8 @@ import {
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
+// Module state every later file of one `bun test` run shares: put back what was there.
+let wasInline = false;
 const STAMP = String(Date.now()).slice(-7);
 /** No manifest names it: only `"*"` reaches it. */
 const C = `anyc_${STAMP}`;
@@ -183,7 +185,7 @@ d('an action reaches any collection as its caller (ADR 0047)', () => {
 
   beforeAll(async () => {
     ({ app: engine, db } = await getTestApp());
-    _setInlineForTests(true);
+    wasInline = _setInlineForTests(true);
     await ruleObjects(db, RES);
     god = await createGodSession(engine, db, { runAsRole: false });
     await DDLManager.createCollection(db, {
@@ -230,6 +232,7 @@ d('an action reaches any collection as its caller (ADR 0047)', () => {
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(wasInline);
     invalidateActivationCache();
     if (!db) return;
     await sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${UNAPPROVED})`.execute(db);
