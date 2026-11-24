@@ -9,7 +9,8 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { _setInlineForTests, enforceRunnerInProduction } from '../../lib/extensions/load-phases.js';
+import { enforceRunnerInProduction } from '../../lib/extensions/load-phases.js';
+import { signAsOperator } from '../../testing/operator-signed.js';
 import { extensionTransport } from '../../lib/worker-extension-transport.js';
 import { _resetWorkerHostForTests } from '../../lib/worker-extension-host.js';
 
@@ -111,6 +112,9 @@ async function loadWorkerExtension(): Promise<{
     `export default { name: 'acme-thing', register(app) { app.get('/x', (c) => c.text('ok')); } };`,
   );
 
+  // Signed, as every worker that loads is (RFC v3 phase D slice 4, S4).
+  await signAsOperator(join(base, 'acme-thing'));
+
   const db = new CannedDb();
   const loader = {
     loaded: new Map(),
@@ -122,19 +126,7 @@ async function loadWorkerExtension(): Promise<{
     ctx: { db: db.kysely, fieldTypeRegistry: { register: () => {} } },
   };
   const t0 = Date.now();
-  // Unsigned: the test override stands in for a signature, which these cases do not test.
-  const was = _setInlineForTests(true);
-  try {
-    await loadExtensionFromDir(
-      loader as never,
-      'acme-thing',
-      new Hono(),
-      loader.ctx as never,
-      base,
-    );
-  } finally {
-    _setInlineForTests(was);
-  }
+  await loadExtensionFromDir(loader as never, 'acme-thing', new Hono(), loader.ctx as never, base);
   return {
     loaded: loader.loaded.has('acme-thing'),
     error: loader.lastLoadError.get('acme-thing') ?? '',

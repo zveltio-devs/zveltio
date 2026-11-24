@@ -12,8 +12,9 @@
  */
 
 import { createHash } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { basename, dirname, join } from 'node:path';
 import { DIR_SIGNATURE_FILE, extensionDirListing } from '../lib/security/extension-dir-signature.js';
 
 export const TEST_OPERATOR_KEY_ID = 'test-operator';
@@ -69,4 +70,22 @@ export async function signAsOperator(dir: string, name = basename(dir)): Promise
     }),
   );
   return TEST_OPERATOR_KEY_ID;
+}
+
+/**
+ * A fresh directory holding `files` (by "/"-separated path; an `engine/index.js`
+ * by default), signed as `name`: what a test hands `WorkerExtensionHost.start`
+ * when it drives the host over a fake channel. Returns the directory and the
+ * `WorkerCtxSource` fields the loader would pass.
+ */
+export async function signedWorkerDir(
+  name: string,
+  files: Record<string, string> = { 'engine/index.js': 'export default {};\n' },
+): Promise<{ dir: string; source: { keyId: string } }> {
+  const dir = mkdtempSync(join(tmpdir(), 'zv-signed-'));
+  for (const [rel, content] of Object.entries(files)) {
+    mkdirSync(dirname(join(dir, rel)), { recursive: true });
+    writeFileSync(join(dir, rel), content);
+  }
+  return { dir, source: { keyId: await signAsOperator(dir, name) } };
 }

@@ -7,6 +7,7 @@ import { Hono } from 'hono';
 import type { HostToWorkerMessage } from '../../lib/worker-extension-protocol.js';
 import { WorkerExtensionHost, _resetWorkerHostForTests } from '../../lib/worker-extension-host.js';
 import type { ExtensionChannel } from '../../lib/worker-extension-transport.js';
+import { signedWorkerDir } from '../../testing/operator-signed.js';
 
 /** A fake extension process: the host's channel opener returns it. */
 const fakeChannel = (C: new () => unknown) => async () => new C() as unknown as ExtensionChannel;
@@ -53,7 +54,8 @@ describe('WorkerExtensionHost — respawn failure', () => {
     const app = new Hono();
     const host = new WorkerExtensionHost(app, fakeChannel(MockWorker));
     try {
-      await host.start('respawn-fail-ext', '/tmp/respawn', 'engine/index.js');
+      const { dir, source } = await signedWorkerDir('respawn-fail-ext');
+      await host.start('respawn-fail-ext', dir, 'engine/index.js', source);
       // @ts-expect-error — test seam into private map
       const managed = host.workers.get('respawn-fail-ext')!;
       managed.worker.onerror?.({ message: 'crash' } as ErrorEvent);
@@ -63,7 +65,7 @@ describe('WorkerExtensionHost — respawn failure', () => {
 
       expect(
         errSpy.mock.calls.some((c) =>
-          String(c[0]).includes('[ext:respawn-fail-ext key=absent] respawn failed'),
+          String(c[0]).includes('[ext:respawn-fail-ext key=test-operator] respawn failed'),
         ),
       ).toBe(true);
       expect(warnSpy.mock.calls.some((c) => String(c[0]).includes('respawn-failed'))).toBe(true);

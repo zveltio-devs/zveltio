@@ -7,6 +7,7 @@ import { Hono } from 'hono';
 import type { HostToWorkerMessage } from '../../lib/worker-extension-protocol.js';
 import { WorkerExtensionHost, _resetWorkerHostForTests } from '../../lib/worker-extension-host.js';
 import type { ExtensionChannel } from '../../lib/worker-extension-transport.js';
+import { signedWorkerDir } from '../../testing/operator-signed.js';
 
 /** A fake extension process: the host's channel opener returns it. */
 const fakeChannel = (C: new () => unknown) => async () => new C() as unknown as ExtensionChannel;
@@ -43,18 +44,19 @@ describe('WorkerExtensionHost — worker onerror', () => {
     const app = new Hono();
     const host = new WorkerExtensionHost(app, fakeChannel(MockWorker));
     try {
-      await host.start('crash-ext', '/tmp/crash', 'engine/index.js');
+      const { dir, source } = await signedWorkerDir('crash-ext');
+      await host.start('crash-ext', dir, 'engine/index.js', source);
       // @ts-expect-error — test seam into private map
       const managed = host.workers.get('crash-ext')!;
       managed.worker.onerror?.({ message: 'wasm trap' } as ErrorEvent);
 
       expect(
-        errSpy.mock.calls.some((c) => String(c[0]).includes('[ext:crash-ext key=absent] error')),
+        errSpy.mock.calls.some((c) => String(c[0]).includes('[ext:crash-ext key=test-operator] error')),
       ).toBe(true);
       expect(respawnFn).toBeDefined();
       respawnFn?.();
       expect(
-        warn.mock.calls.some((c) => String(c[0]).includes('[ext:crash-ext key=absent] crash 1/5')),
+        warn.mock.calls.some((c) => String(c[0]).includes('[ext:crash-ext key=test-operator] crash 1/5')),
       ).toBe(true);
     } finally {
       warn.mockRestore();
