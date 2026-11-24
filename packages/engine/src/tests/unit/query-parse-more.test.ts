@@ -32,6 +32,14 @@ describe('buildAllowedCols', () => {
     expect(cols.has('')).toBe(false);
     expect(cols.has('ok')).toBe(true);
   });
+
+  it('drops encrypted fields: their column holds ciphertext', () => {
+    const cols = buildAllowedCols({
+      fields: [{ name: 'note', type: 'text', encrypted: true }, { name: 'ok' }],
+    } as Any);
+    expect(cols.has('note')).toBe(false);
+    expect(cols.has('ok')).toBe(true);
+  });
 });
 
 describe('openCursor', () => {

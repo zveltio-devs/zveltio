@@ -123,10 +123,13 @@ const NUMERIC_OPS = new Set<FilterCondition['op']>(['gt', 'gte', 'lt', 'lte']);
  * Postgres with an unknown column surfaces as a 500 ("column X does not
  * exist") — the caller uses this to return a clean 400 at the edge instead.
  * A field type declaring no filter operators (`password`, `computed`) is left
- * out: a predicate or an order on it reads it back through the row count. */
+ * out: a predicate or an order on it reads it back through the row count.
+ * An `encrypted` field is left out too: its column holds ciphertext, so `eq`
+ * never matched and `neq` matched every row. */
 export function buildAllowedCols(collectionDef: CollectionDef | null | undefined): Set<string> {
   const rawFields = normalizeFields(collectionDef).filter(
-    (f) => f.name && fieldTypeRegistry.get(f.type)?.api.filterOperators?.length !== 0,
+    (f) =>
+      f.name && !f.encrypted && fieldTypeRegistry.get(f.type)?.api.filterOperators?.length !== 0,
   );
   return new Set<string>([...SYSTEM_COLS, ...rawFields.map((f) => f.name)]);
 }
