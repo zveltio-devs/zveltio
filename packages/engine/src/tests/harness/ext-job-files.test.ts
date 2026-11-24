@@ -36,7 +36,6 @@ import {
   verifiedJobsCode,
 } from '../../lib/extensions/jobs.js';
 import { ensureDeno } from '../../lib/extensions/deno.js';
-import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { DDLManager, jobQueue } from '../../lib/data/index.js';
 import { getStorage } from '../../lib/storage/index.js';
 import { type FileActor, servedAs, storeFile } from '../../lib/stored-files.js';
@@ -260,7 +259,6 @@ d('a job reaches only the stored files its user hands it (ADR 0032)', () => {
   beforeAll(async () => {
     ({ app: engine, db } = await getTestApp());
     await ruleObjects(db, RES);
-    _setInlineForTests(true);
     await ensureDeno();
     await DDLManager.createCollection(db, {
       name: C,

@@ -39,6 +39,7 @@ import {
   harnessAvailable,
 } from '../../testing/app-harness.js';
 import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
+import { signAsOperator } from '../../testing/operator-signed.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const SFX = String(Date.now()).slice(-7);
@@ -102,7 +103,7 @@ const seen = (request) => Response.json(Object.fromEntries(${JSON.stringify(HEAD
 export default { name: '${name}', routes: { hook: seen, fwd: seen }, async register() {} };
 `;
 
-function writeExt(base: string, name: string, worker: boolean) {
+async function writeExt(base: string, name: string, worker: boolean) {
   const dir = join(base, name);
   mkdirSync(join(dir, 'engine'), { recursive: true });
   writeFileSync(
@@ -127,6 +128,8 @@ function writeExt(base: string, name: string, worker: boolean) {
     }),
   );
   writeFileSync(join(dir, 'engine', 'index.js'), worker ? workerEntry(name) : entry(name));
+  // A worker is signed, as in production; the inline one rides the test override.
+  if (worker) await signAsOperator(dir, name);
 }
 
 d('a worker extension is handed neither the caller credentials nor a wider reach', () => {
@@ -240,7 +243,7 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
       await sql`INSERT INTO zv_extension_forward_approvals (name, approved)
                 VALUES (${name}, '{"/fwd":["authorization"]}'::jsonb)
                 ON CONFLICT (name) DO UPDATE SET approved = EXCLUDED.approved`.execute(db);
-      writeExt(base, name, mode !== 'inline');
+      await writeExt(base, name, mode !== 'inline');
       if (mode !== 'inline') process.env.ZVELTIO_EXT_TRANSPORT = mode;
       await extensionLoader.loadExtension(name, app, ctx, base);
       loadErrors[name] = extensionLoader.getLastLoadError(name);

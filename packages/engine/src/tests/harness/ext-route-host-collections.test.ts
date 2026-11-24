@@ -25,7 +25,6 @@ import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import type { ExtensionContext } from '../../lib/extensions/internals.js';
 import { ManifestSchema } from '../../lib/extensions/manifest-schema.js';
 import { invalidateActivationCache } from '../../lib/extensions/activation.js';
-import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { getAuth } from '../../lib/auth.js';
 import { engineEvents } from '../../lib/runtime/index.js';
@@ -44,6 +43,7 @@ import {
   getTestApp,
   harnessAvailable,
 } from '../../testing/app-harness.js';
+import { signAsOperator } from '../../testing/operator-signed.js';
 
 const d = harnessAvailable() && process.env.FIELD_ENCRYPTION_KEY ? describe : describe.skip;
 const TENANT_A = '00000000-0000-0000-0000-000000000001';
@@ -217,6 +217,8 @@ d('a route reaches its collections through host.collections (ADR 0025)', () => {
     ext: ZveltioExtension,
     manifest: Rec,
     dir = `/tmp/${ext.name}`,
+    /** The operator key a worker's directory is signed with (RFC v3 phase D slice 4, S4). */
+    keyId?: string,
   ): Promise<void> {
     const parsed = ManifestSchema.parse({ name: ext.name, version: '1.0.0', ...manifest });
     await sql`DELETE FROM zv_extension_registry WHERE name = ${ext.name}`.execute(db);
@@ -240,6 +242,8 @@ d('a route reaches its collections through host.collections (ADR 0025)', () => {
       ctx,
       parsed as never,
       new Set(),
+      [],
+      keyId,
     );
   }
   const inline = (name: string, coll: string, untouched: string): ZveltioExtension => ({
@@ -283,7 +287,6 @@ d('a route reaches its collections through host.collections (ADR 0025)', () => {
 
   beforeAll(async () => {
     ({ app: engine, db } = await getTestApp());
-    _setInlineForTests(true);
     god = await createGodSession(engine, db);
     const secretColl = [field('label', 'text'), field('tok', 'secret')];
     await DDLManager.createCollection(db, { name: S, fields: secretColl } as never, {
@@ -360,6 +363,7 @@ d('a route reaches its collections through host.collections (ADR 0025)', () => {
         engine: { entry: 'engine/index.js', bundled: true, isolation: 'worker' },
       },
       join(base, WEXT),
+      await signAsOperator(join(base, WEXT), WEXT),
     );
     invalidateActivationCache();
   }, 60_000);

@@ -38,7 +38,6 @@ import { sessionPrefetch } from '../../middleware/session-prefetch.js';
 import { tenantMiddleware } from '../../middleware/tenant.js';
 import { extensionAuthGate } from '../../middleware/extension-auth-gate.js';
 import { toJsonb } from '../../lib/jsonb.js';
-import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import {
   asAuditOwner,
   asDefaultTenant,
@@ -51,6 +50,7 @@ import {
   harnessAvailable,
   ruleObjects,
 } from '../../testing/app-harness.js';
+import { signAsOperator } from '../../testing/operator-signed.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = String(Date.now()).slice(-7);
@@ -117,6 +117,8 @@ d('a worker-isolated extension fails alone (ADR 0056 s2)', () => {
     });
     mkdirSync(join(base, name, 'engine'), { recursive: true });
     writeFileSync(join(base, name, 'engine', 'index.js'), code);
+    // Signed, as every worker that runs is (RFC v3 phase D slice 4, S4).
+    const keyId = await signAsOperator(join(base, name), name);
     await sql`DELETE FROM zv_extension_registry WHERE name = ${name}`.execute(db);
     await sql`
       INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled, manifest)
@@ -144,6 +146,8 @@ d('a worker-isolated extension fails alone (ADR 0056 s2)', () => {
       ctx,
       parsed as never,
       new Set(),
+      [],
+      keyId,
     );
   }
 
@@ -157,7 +161,6 @@ d('a worker-isolated extension fails alone (ADR 0056 s2)', () => {
   beforeAll(async () => {
     ({ app: engine, db } = await getTestApp());
     await ruleObjects(db, RES);
-    _setInlineForTests(true);
     await DDLManager.createCollection(db, {
       name: C,
       fields: [{ name: 'label', type: 'text', required: false, unique: false, indexed: false }],
@@ -321,7 +324,7 @@ d('a worker-isolated extension fails alone (ADR 0056 s2)', () => {
       // Named: the extension and its signing key (none until ADR 0056 s3).
       expect(
         errors.mock.calls.some((c) =>
-          String(c[0]).startsWith(`[ext:${EXT} key=absent] timeout: action "waitOnLock"`),
+          String(c[0]).startsWith(`[ext:${EXT} key=test-operator] timeout: action "waitOnLock"`),
         ),
       ).toBe(true);
     } finally {
@@ -407,7 +410,7 @@ d('a worker-isolated extension fails alone (ADR 0056 s2)', () => {
       expect(
         errors.mock.calls.some(
           (c) =>
-            String(c[0]).startsWith(`[ext:${CRASHY} key=absent] crash:`) &&
+            String(c[0]).startsWith(`[ext:${CRASHY} key=test-operator] crash:`) &&
             String(c[0]).includes('disabled after 5 crashes'),
         ),
       ).toBe(true);
