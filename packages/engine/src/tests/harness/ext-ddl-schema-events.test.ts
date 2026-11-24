@@ -89,16 +89,9 @@ d("an extension's DDL reaches the schema watchers", () => {
     expect(rls.rows[0]).toEqual({ on: true, forced: true, policy: 'tenant_isolation' });
     const grants = await sql<{ grantee: string }>`
       SELECT DISTINCT grantee FROM information_schema.role_table_grants
-       WHERE table_schema = 'public' AND table_name = ${table}
-         AND grantee IN (SELECT rolname FROM pg_roles WHERE rolname IN ('zveltio_worker', 'zveltio_flow_reader'))`.execute(
+       WHERE table_schema = 'public' AND table_name = ${table} AND grantee = 'zveltio_ext'`.execute(
       db,
     );
-    const narrow = await sql<{ rolname: string }>`
-      SELECT rolname FROM pg_roles WHERE rolname IN ('zveltio_worker', 'zveltio_flow_reader')`.execute(
-      db,
-    );
-    expect(grants.rows.map((r) => r.grantee).sort()).toEqual(
-      narrow.rows.map((r) => r.rolname).sort(),
-    );
+    expect(grants.rows.map((r) => r.grantee)).toEqual(['zveltio_ext']);
   }, 60_000);
 });

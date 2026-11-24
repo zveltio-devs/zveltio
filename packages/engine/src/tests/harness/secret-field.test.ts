@@ -322,10 +322,10 @@ d('a secret field: write-only, read back by its own extension alone (ADR 0024)',
       sql<{ role: string; ok: boolean }>`
       SELECT rolname AS role, has_column_privilege(oid, ${`zvd_${S}`}::regclass, 'tok', 'SELECT') AS ok
         FROM pg_roles
-       WHERE rolname IN ('zveltio_rls', 'zveltio_worker', 'zveltio_flow_reader', 'zveltio_ext')
+       WHERE rolname IN ('zveltio_rls', 'zveltio_ext')
        ORDER BY rolname`,
     );
-    expect(roles.rows.length).toBe(4);
+    expect(roles.rows.length).toBe(2);
     for (const r of roles.rows) expect(`${r.role} ${r.ok}`).toBe(`${r.role} false`);
   });
 

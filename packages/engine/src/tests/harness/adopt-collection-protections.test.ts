@@ -128,9 +128,7 @@ d('an adopted collection is protected like a created one', () => {
 
   it('the narrow roles reach it as they reach a created collection', async () => {
     const r = await sql<{ ok: boolean }>`
-      SELECT has_column_privilege('zveltio_flow_reader', ${TABLE}, 'note', 'SELECT') AS ok`.execute(
-      db,
-    );
+      SELECT has_column_privilege('zveltio_ext', ${TABLE}, 'note', 'SELECT') AS ok`.execute(db);
     expect(r.rows[0]?.ok).toBe(true);
   });
 });

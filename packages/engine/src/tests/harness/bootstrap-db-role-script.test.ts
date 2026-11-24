@@ -2,8 +2,8 @@
  * The install scripts/bootstrap-db-role.sh builds gives each extension a
  * database role of its own, and the CREATEROLE that takes reaches nothing else.
  *
- * The script made the engine role NOCREATEROLE and granted zveltio_ext /
- * zveltio_worker without ADMIN, so `canMakeRolesUnder` answered false and every
+ * The script made the engine role NOCREATEROLE and granted zveltio_ext (and the
+ * since retired zveltio_worker) without ADMIN, so `canMakeRolesUnder` answered false and every
  * extension of a hardened install shared one role: extension A reached extension
  * B's tables at the database layer, the SQL analyzer the only thing between them.
  * Measured on master with this file: `ctx.db` ran as `zveltio_ext`, not as the
@@ -31,9 +31,7 @@ import {
   ensureExtensionDbRole,
   extensionDbRoleNames,
   grantExtensionDbRole,
-  grantWorkerDbRole,
   revokeExtensionDbRoles,
-  workerDbRoleFor,
 } from '../../lib/extensions/ext-db-role.js';
 import { createRestrictedDb } from '../../lib/extensions/extension-context.js';
 import { applyFailClosedTenantSetting } from '../../lib/tenancy/fail-closed-tenant.js';
@@ -196,18 +194,16 @@ d(TITLE, () => {
     }
   }, 240_000);
 
-  it('runs an extension’s ctx.db and worker bridge as its own role', async () => {
+  it('runs an extension’s ctx.db as its own role', async () => {
     const names = extensionDbRoleNames(DB, EXT);
     _resetExtensionDbRoleForTests();
     await grantExtensionDbRole(app, EXT, new Set([OWN]));
-    await grantWorkerDbRole(app, EXT, new Set([OWN]));
     const ext = createRestrictedDb(app, EXT, new Set([OWN]));
     expect(await whoAmI(ext)).toBe(names.role);
     const n = await sql<{ n: number }>`SELECT count(*)::int AS n FROM ${sql.table(OWN)}`.execute(
       ext,
     );
     expect(n.rows[0]!.n).toBe(1);
-    expect(workerDbRoleFor(EXT)).toBe(names.worker);
   }, 60_000);
 
   it('gives the engine role CREATEROLE that reaches no role it was not handed ADMIN on', async () => {
@@ -221,7 +217,6 @@ d(TITLE, () => {
     const superUser = decodeURIComponent(superUrl.username);
     for (const stmt of [
       `GRANT zveltio_rls TO ${MADE}`,
-      `GRANT zveltio_flow_reader TO ${MADE}`,
       `GRANT zveltio_audit_purge TO ${MADE}`,
       `GRANT zveltio_rls TO ${APP} WITH ADMIN OPTION`,
       `GRANT pg_read_all_data TO ${APP}`,

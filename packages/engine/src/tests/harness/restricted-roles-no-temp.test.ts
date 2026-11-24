@@ -12,7 +12,7 @@ import { restrictTemporaryObjects, temporaryObjectsRestricted } from '../../lib/
 import { getTestApp, harnessAvailable } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
-const ROLES = ['zveltio_rls', 'zveltio_ext', 'zveltio_worker', 'zveltio_flow_reader'];
+const ROLES = ['zveltio_rls', 'zveltio_ext'];
 
 d('restricted roles: no temporary objects', () => {
   let db: Database;
@@ -53,19 +53,19 @@ d('restricted roles: no temporary objects', () => {
   }, 60_000);
 
   it('reads back a restricted role that holds TEMPORARY in its own name', async () => {
-    // REVOKE FROM PUBLIC leaves a direct grant in place; the worker bridge then
-    // has to discard temp objects itself, so the check must say so.
+    // REVOKE FROM PUBLIC leaves a direct grant in place; `ctx.db` then has to
+    // discard temp objects itself, so the check must say so.
     const perExt = 'zveltio_ext_notempprobe_0123456789'; // ext-db-role.ts' name shape
     await sql`CREATE ROLE ${sql.id(perExt)} NOLOGIN`.execute(db);
     try {
-      for (const role of [perExt, 'zveltio_worker']) {
+      for (const role of [perExt, 'zveltio_ext']) {
         await onDatabase(`GRANT TEMPORARY ON DATABASE %I TO ${role}`);
         expect(await restrictTemporaryObjects(db), role).toBe(false);
         expect(temporaryObjectsRestricted(), role).toBe(false);
         await onDatabase(`REVOKE TEMPORARY ON DATABASE %I FROM ${role}`);
       }
     } finally {
-      await onDatabase(`REVOKE TEMPORARY ON DATABASE %I FROM zveltio_worker`);
+      await onDatabase(`REVOKE TEMPORARY ON DATABASE %I FROM zveltio_ext`);
       await onDatabase(`REVOKE ALL ON DATABASE %I FROM ${perExt}`).catch(() => {});
       await sql`DROP ROLE IF EXISTS ${sql.id(perExt)}`.execute(db);
     }

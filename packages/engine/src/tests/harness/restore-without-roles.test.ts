@@ -34,40 +34,38 @@ d('a restore without the engine roles', () => {
     const { db } = await getTestApp();
     const r = await sql<{ note: string }>`
       SELECT obj_description(${MARKER}::regprocedure, 'pg_proc') AS note`.execute(db);
-    expect(r.rows[0]?.note).toBe(
-      'zveltio_audit_purge,zveltio_flow_reader,zveltio_rls,zveltio_worker',
-    );
+    expect(r.rows[0]?.note).toBe('zveltio_audit_purge,zveltio_rls');
   });
 
   it('refuses a database whose grants to a recorded role did not survive', async () => {
     const { db } = await getTestApp();
     await expect(
       db.transaction().execute(async (trx) => {
-        await sql`DROP OWNED BY zveltio_flow_reader`.execute(trx);
+        await sql`DROP OWNED BY zveltio_audit_purge`.execute(trx);
         await enforceRoleGrantsMarker(trx);
         // Never committed: a regression that stops refusing must not drop the
         // role's grants from the shared harness database for every later file.
         throw new Rollback();
       }),
-    ).rejects.toThrow(/restored without the engine's database roles: zveltio_flow_reader held/);
+    ).rejects.toThrow(/restored without the engine's database roles: zveltio_audit_purge held/);
   });
 
   it('starts, and records it, when a role appears that the engine never saw', async () => {
     const { db } = await getTestApp();
     await expect(
       db.transaction().execute(async (trx) => {
-        // An install that gains zveltio_worker after 121 ran (CREATEROLE granted later).
-        await sql`REVOKE EXECUTE ON FUNCTION ${sql.raw(MARKER)} FROM zveltio_worker`.execute(trx);
-        await sql`COMMENT ON FUNCTION ${sql.raw(MARKER)} IS 'zveltio_audit_purge,zveltio_flow_reader,zveltio_rls'`.execute(
+        // An install that gains zveltio_audit_purge after 121 ran (CREATEROLE granted later).
+        await sql`REVOKE EXECUTE ON FUNCTION ${sql.raw(MARKER)} FROM zveltio_audit_purge`.execute(
           trx,
         );
+        await sql`COMMENT ON FUNCTION ${sql.raw(MARKER)} IS 'zveltio_rls'`.execute(trx);
         await enforceRoleGrantsMarker(trx);
         const r = await sql<{ ok: boolean; note: string }>`
-          SELECT has_function_privilege('zveltio_worker', ${MARKER}, 'EXECUTE') AS ok,
+          SELECT has_function_privilege('zveltio_audit_purge', ${MARKER}, 'EXECUTE') AS ok,
                  obj_description(${MARKER}::regprocedure, 'pg_proc') AS note`.execute(trx);
         expect(r.rows[0]).toEqual({
           ok: true,
-          note: 'zveltio_audit_purge,zveltio_flow_reader,zveltio_rls,zveltio_worker',
+          note: 'zveltio_audit_purge,zveltio_rls',
         });
         throw new Rollback();
       }),

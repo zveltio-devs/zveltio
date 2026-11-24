@@ -14,18 +14,19 @@
 #   * CREATE EXTENSION vector, postgis — neither is marked "trusted", so a
 #     database owner cannot create them. pgcrypto and pg_trgm ARE trusted and
 #     are created here only to keep the set in one place.
-#   * CREATE ROLE — migrations 024 and 030 create zveltio_flow_reader and
-#     zveltio_rls. Both migrations already skip creation when the role exists,
-#     so pre-creating them here means the engine role does not need CREATEROLE
-#     for them.
+#   * CREATE ROLE — the migrations create zveltio_rls and skip it when it
+#     exists, so pre-creating it here means the engine role does not need
+#     CREATEROLE for it. (zveltio_worker and zveltio_flow_reader are no longer
+#     made here: migration 136 retired them; the GA baseline still creates and
+#     drops them itself until the migration squash.)
 #
 #   * CREATEROLE itself. The engine gives each extension a database role of its
-#     own (lib/extensions/ext-db-role.ts), a member of zveltio_ext or
-#     zveltio_worker, so one extension's SQL cannot reach another's tables even
-#     where the SQL analyzer is wrong. Making those roles takes CREATEROLE plus
-#     ADMIN on the two parents. On PostgreSQL 18 (the only version Zveltio
-#     supports) CREATEROLE reaches only roles the holder has ADMIN on — here
-#     zveltio_ext, zveltio_worker and the roles it creates itself — and it
+#     own (lib/extensions/ext-db-role.ts), a member of zveltio_ext, so one
+#     extension's SQL cannot reach another's tables even where the SQL analyzer
+#     is wrong. Making those roles takes CREATEROLE plus ADMIN on the parent. On
+#     PostgreSQL 18 (the only version Zveltio supports) CREATEROLE reaches only
+#     roles the holder has ADMIN on — here zveltio_ext and the roles it creates
+#     itself — and it
 #     cannot hand out SUPERUSER, BYPASSRLS, REPLICATION or CREATEDB, nor
 #     membership in zveltio_rls or any pg_* role.
 #
@@ -106,14 +107,6 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'zveltio_rls') THEN
     CREATE ROLE zveltio_rls NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'zveltio_flow_reader') THEN
-    CREATE ROLE zveltio_flow_reader NOLOGIN;
-  END IF;
-  -- The worker SQL bridge (lib/worker-extension-host.ts); migration 001 cannot
-  -- create it without CREATEROLE, and the bridge then runs as zveltio_rls.
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'zveltio_worker') THEN
-    CREATE ROLE zveltio_worker NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
-  END IF;
   -- Inert since migration 125 (ZVELTIO_COLLECTION_RLS_EXEMPT removed, ADR 0058);
   -- kept while backup/restore and a rollback to 099 name it.
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'zveltio_coll_exempt') THEN
@@ -137,19 +130,17 @@ SQL
 # engine role to be a member of it. Without this grant the engine starts in
 # "unavailable" mode and — as of SEC-14 — refuses to serve production traffic.
 psql_super -d postgres -q -c "GRANT zveltio_rls TO $APP_ROLE;"
-psql_super -d postgres -q -c "GRANT zveltio_flow_reader TO $APP_ROLE;"
 # SET only: the engine takes the role for the purge; it inherits nothing from it.
 psql_super -d postgres -q -c "GRANT zveltio_audit_purge TO $APP_ROLE WITH INHERIT FALSE, SET TRUE;"
-# ADMIN on the two extension parents lets the engine make each
-# extension's role a member of them; SET TRUE spelled out because a re-run must
-# repair a membership an earlier engine made for itself with SET FALSE.
-psql_super -d postgres -q -c "GRANT zveltio_worker TO $APP_ROLE WITH ADMIN TRUE, SET TRUE;"
+# ADMIN on the extension parent lets the engine make each extension's role a
+# member of it; SET TRUE spelled out because a re-run must repair a membership
+# an earlier engine made for itself with SET FALSE.
 psql_super -d postgres -q -c "GRANT zveltio_ext TO $APP_ROLE WITH ADMIN TRUE, SET TRUE;"
 # ADMIN only, no SET, no INHERIT. Inert since migration 125: nothing grants the
 # role any more; kept until zveltio_coll_exempt is retired.
 psql_super -d postgres -q -c "GRANT zveltio_coll_exempt TO $APP_ROLE WITH ADMIN TRUE, INHERIT FALSE, SET FALSE;"
 echo "  ✓ zveltio_rls granted to $APP_ROLE"
-echo "  ✓ zveltio_ext, zveltio_worker WITH ADMIN: one database role per extension"
+echo "  ✓ zveltio_ext WITH ADMIN: one database role per extension"
 
 # ── Custom settings the engine stores ────────────────────────────────────────
 # PostgreSQL treats a custom (placeholder) setting written into a function's

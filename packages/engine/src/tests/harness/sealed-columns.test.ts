@@ -101,7 +101,7 @@ d('sealed columns in the database (L37 layer 2, migration 073)', () => {
       await sql<{ role: string; ok: boolean }>`
         SELECT rolname AS role, has_column_privilege(oid, ${table}::regclass, ${column}, 'SELECT') AS ok
           FROM pg_roles
-         WHERE rolname IN ('zveltio_rls', 'zveltio_worker', 'zveltio_flow_reader', 'zveltio_ext')
+         WHERE rolname IN ('zveltio_rls', 'zveltio_ext')
          ORDER BY rolname`.execute(db)
     ).rows;
 
@@ -353,7 +353,7 @@ d('sealed columns in the database (L37 layer 2, migration 073)', () => {
     expect((await canRead(LATER_TABLE, 'title')).every((r) => r.ok)).toBe(true);
 
     // An install upgrading into 073: whole-table grants, a password field.
-    await sql.raw(`GRANT SELECT ON "${LATER_TABLE}" TO zveltio_rls, zveltio_worker`).execute(db);
+    await sql.raw(`GRANT SELECT ON "${LATER_TABLE}" TO zveltio_rls, zveltio_ext`).execute(db);
     expect((await canRead(LATER_TABLE, 'pin')).some((r) => r.ok)).toBe(true);
     await reconcileSealedColumns(db);
     expect((await canRead(LATER_TABLE, 'pin')).some((r) => r.ok)).toBe(false);
