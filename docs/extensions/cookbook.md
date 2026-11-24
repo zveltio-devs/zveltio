@@ -317,7 +317,7 @@ Postgres.
 ```bash
 zveltio extension validate --dir <dir>   # manifest, collections, view, messages
 zveltio extension pack --dir <dir>       # bundle + integrity hashes
-zveltio extension publish --dir <dir>    # validate, archive, sign, upload
+zveltio extension publish --dir <dir>    # pack, validate, archive, sign, upload
 ```
 
 The engine installs extensions from **registry.zveltio.com**, never from a repo

@@ -1375,27 +1375,32 @@ zveltio keys export my-publisher-key
 ### Publishing
 
 ```bash
-# Full flow: validate → build → archive → sign → upload to registry.
+# Full flow: pack → build → validate → archive → sign → upload to registry.
 zveltio extension publish --token $ZVELTIO_REGISTRY_TOKEN
 ```
 
 What happens in order:
 
-1. **Validate** (S4-04) — manifest schema, peerDep allow-list, migrations
-   parse, destructive DDL has DOWN, bundle quota. Same checks as
-   `zveltio extension validate`. Skip with `--no-validate` (only when
-   re-publishing an emergency hotfix; not recommended).
-2. **Build** — runs `bun run build` inside `studio/` if present. Engine code
-   is *not* pre-bundled: the engine loader compiles `.ts` on import at
-   install time. Skip with `--no-build`.
-3. **Archive** — `tar -czf` of the extension folder, excluding
-   `node_modules/`, `.zveltio/`, `dist/`, `engine/dist/`, `.git/`,
-   `.DS_Store`, and any leftover `*.zvext` files.
-4. **Sign** — Ed25519 over `sha256(archive)`. Picks the only key in
+1. **Pack** — `zveltio extension pack`: the engine bundle and the manifest's
+   engine + integrity blocks. Skip with `--no-pack` (or `--no-build`).
+2. **Build** — runs `bun run build` inside `studio/` if present. Skip with
+   `--no-build`.
+3. **Validate** (S4-04) — manifest schema, peerDep allow-list, migrations
+   parse, destructive DDL has DOWN, bundle quota, bundle built from its
+   source. Same checks as `zveltio extension validate`, run on what pack and
+   the build left, which is what ships. A failure stops the publish with exit
+   1: nothing is archived, signed or uploaded. Skip with `--no-validate`
+   (only when re-publishing an emergency hotfix; not recommended).
+4. **Archive** — `tar -czf` of the extension folder's regular files, leaving
+   out every name starting with `.` at any depth (`.env`, `.npmrc`, `.git/`,
+   `.zveltio/`, `.DS_Store`: a developer's machine, never the extension),
+   `node_modules/`, `dist/`, leftover `*.zvext` files and the root
+   `signature.json`. A symbolic link stops the publish.
+5. **Sign** — Ed25519 over `sha256(archive)`. Picks the only key in
    `~/.zveltio/keys/` automatically, or `--key-id <id>` to override. The
    resulting `<archive>.sig` envelope mirrors what the engine's
    `verifySignature` expects (S1-01).
-5. **Upload** — multipart `POST` to
+6. **Upload** — multipart `POST` to
    `<registry-url>/api/v1/extensions/publish` with the bearer token. Default
    registry URL: `https://registry.zveltio.com` (override via
    `--registry-url` or `ZVELTIO_REGISTRY_URL`).

@@ -2,11 +2,13 @@
  * `zveltio extension publish` — end-to-end ship flow for an extension (S4-05).
  *
  * Pipeline:
- *   1. validate  (composes S4-04: manifest + peerDeps + migrations + size)
- *   2. build     (optional, controlled by --no-build; Studio + engine bundles)
- *   3. archive   (tar.gz of the extension folder, minus node_modules/.zveltio/dist-internals)
- *   4. sign      (Ed25519 over sha256(archive); signature envelope written next to .zvext)
- *   5. publish   (HTTP POST multipart to the registry — or local-only with --output)
+ *   1. pack      (engine bundle + manifest integrity; --no-pack / --no-build skip it)
+ *   2. build     (Studio, `bun run build` in studio/; --no-build skips it)
+ *   3. validate  (composes S4-04 on what 1 and 2 left — the files that ship;
+ *                 a failure stops the publish with exit 1)
+ *   4. archive   (tar.gz of `archiveFiles`: no dot-entries, node_modules, dist)
+ *   5. sign      (Ed25519 over sha256(archive); signature envelope written next to .zvext)
+ *   6. upload    (HTTP POST multipart to the registry — or local-only with --output)
  *
  * Local-only mode (no registry round-trip):
  *   $ zveltio extension publish --output ./out
@@ -19,7 +21,15 @@
  * still a follow-up; local-mode covers CI + manual upload + air-gapped use.
  */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'fs';
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from 'fs';
 import { join, basename, dirname, resolve } from 'path';
 import { tmpdir } from 'os';
 import { signBundle, sha256Hex } from '@zveltio/sdk/publish';
@@ -93,47 +103,68 @@ function artifactBaseName(m: Manifest): string {
 }
 
 /**
- * Tar+gzip the extension directory. Excludes generated and developer-local
- * folders so the archive stays small and reproducible. Uses the system tar
- * (Windows 10+ / macOS / Linux all ship one) — keeps the CLI dependency-free.
+ * The files a published archive carries, as `./`-rooted paths, sorted.
+ *
+ * Left out at any depth: every name starting with `.` (`.env`, `.npmrc`,
+ * `.aws/`, `.git/`, `.zveltio/`, `.DS_Store` — a developer's machine, never
+ * the extension; no first-party extension ships one), `node_modules`, `dist`
+ * and earlier `*.zvext` artifacts. Left out at the root only: the operator's
+ * own `signature.json` (ADR 0056) — it signs this directory for one engine,
+ * and the registry signs what it serves; a schema file of that name deeper
+ * down ships. A symbolic link is refused, as the signed listing refuses it:
+ * what it points to is outside the extension.
+ */
+export function archiveFiles(dir: string): string[] {
+  const out: string[] = [];
+  const walk = (rel: string): void => {
+    for (const entry of readdirSync(join(dir, rel))) {
+      const path = rel ? `${rel}/${entry}` : entry;
+      if (entry.startsWith('.') || entry === 'node_modules' || entry === 'dist') continue;
+      if (path === 'signature.json' || /\.zvext(\.sig)?$/.test(entry)) continue;
+      if (/[\r\n]/.test(path))
+        throw new Error(`file name ${JSON.stringify(path)} cannot be archived`);
+      const st = lstatSync(join(dir, path));
+      if (st.isDirectory()) walk(path);
+      else if (st.isFile()) out.push(`./${path}`);
+      else
+        throw new Error(`"${path}" is not a regular file or directory (a link is never published)`);
+    }
+  };
+  walk('');
+  return out.sort();
+}
+
+/**
+ * Tar+gzip exactly `archiveFiles(dir)`. Uses the system tar (Windows 10+ /
+ * macOS / Linux all ship one) — keeps the CLI dependency-free.
  */
 async function createArchive(dir: string, outFile: string): Promise<void> {
-  const excludes = [
-    'node_modules',
-    '.zveltio',
-    'dist',
-    'engine/dist',
-    '.git',
-    '.DS_Store',
-    '*.zvext',
-    '*.zvext.sig',
-  ];
+  const files = archiveFiles(dir);
   // `--force-local` keeps GNU tar from interpreting `C:\path\file.zvext` as a
   // remote ssh-style target. Harmless on macOS/Linux where the flag is also
   // recognized by GNU tar; BSD tar (default on macOS pre-Big Sur) ignores it.
-  const args: string[] = ['--force-local', '-czf', outFile];
-  for (const ex of excludes) {
-    args.push('--exclude', ex);
-  }
-  // The root's entries by name rather than `.`, leaving out the operator's own
-  // `signature.json` (ADR 0056): it signs this directory for one engine, and
-  // the registry signs what it serves. A tar `--exclude` pattern could also
-  // drop a file of that name deeper down (a schema file).
-  args.push(
-    ...readdirSync(dir)
-      .filter((e) => e !== 'signature.json')
-      .sort()
-      .map((e) => `./${e}`),
-  );
+  // The list comes on stdin and `--no-recursion` keeps tar to it.
+  const args = ['--force-local', '--no-recursion', '-czf', outFile, '-T', '-'];
   // Spawn with `cwd = dir` instead of `-C` so the archive is rooted at the
   // extension folder regardless of where the CLI was invoked from.
-  const proc = Bun.spawn(['tar', ...args], { cwd: dir, stdout: 'inherit', stderr: 'inherit' });
+  const proc = Bun.spawn(['tar', ...args], {
+    cwd: dir,
+    stdin: new TextEncoder().encode(files.map((f) => `${f}\n`).join('')),
+    stdout: 'inherit',
+    stderr: 'inherit',
+  });
   const code = await proc.exited;
   if (code !== 0) throw new Error(`tar failed (exit ${code})`);
 }
 
 async function runStudioBuild(dir: string): Promise<void> {
-  if (!existsSync(join(dir, 'studio'))) return;
+  // Only a studio/ that declares a build has one to run; view/2 extensions ship
+  // their studio/ as data with no package.json.
+  const pkg = join(dir, 'studio', 'package.json');
+  if (!existsSync(pkg)) return;
+  const scripts = (JSON.parse(readFileSync(pkg, 'utf8')) as { scripts?: Record<string, string> })
+    .scripts;
+  if (!scripts?.build) return;
   const proc = Bun.spawn(['bun', 'run', 'build'], {
     cwd: join(dir, 'studio'),
     stdout: 'inherit',
@@ -209,11 +240,47 @@ export async function extensionPublishCommand(opts: ExtensionPublishOptions = {}
 
   console.log(`  Name:          ${c.bold(manifest.name)} ${c.dim(`v${manifest.version}`)}`);
 
-  // 2. Validate (composes S4-04 — silentExit so we control the flow).
+  // 2. Pack engine (Bun.build of engine/index.ts → engine/index.js, plus
+  //    manifest patch with engine + integrity.engineSha256).
+  const runPackStep = opts.pack !== false && opts.build !== false;
+  if (runPackStep) {
+    console.log(`\n${c.bold('Step 1/6: pack engine')}`);
+    try {
+      await runEnginePack(dir, {
+        firstParty: opts.firstParty,
+        token,
+        registryUrl,
+      });
+    } catch (e) {
+      console.error(c.red((e as Error).message));
+      process.exit(1);
+    }
+  } else {
+    console.log(c.yellow(`\nSkipping pack (${opts.build === false ? '--no-build' : '--no-pack'})`));
+  }
+
+  // 3. Studio build.
+  const runBuildStep = opts.build !== false;
+  if (runBuildStep) {
+    console.log(`\n${c.bold('Step 2/6: studio build')}`);
+    try {
+      await runStudioBuild(dir);
+    } catch (e) {
+      console.error(c.red((e as Error).message));
+      process.exit(1);
+    }
+    console.log(c.green('  build OK'));
+  } else {
+    console.log(c.yellow('\nSkipping build (--no-build)'));
+  }
+
+  // 4. Validate what ships: after pack and the Studio build, which both write
+  //    into the directory the archive is made from. `silentExit` throws on a
+  //    failure instead of exiting, and the throw stops the publish here.
   // Commander sets `--no-validate` → opts.validate === false.
   const runValidate = opts.validate !== false;
   if (runValidate) {
-    console.log(`\n${c.bold('Step 1/5: validate')}`);
+    console.log(`\n${c.bold('Step 3/6: validate')}`);
     try {
       // Pass tier-resolution inputs so validate's §2 isolation gate uses
       // the same publisher tier publish will. With a token, a verified
@@ -233,40 +300,13 @@ export async function extensionPublishCommand(opts: ExtensionPublishOptions = {}
     console.log(c.yellow('\nSkipping validate (--no-validate)'));
   }
 
-  // 3. Pack engine (Bun.build of engine/index.ts → engine/index.js, plus
-  //    manifest patch with engine + integrity.engineSha256).
-  const runPackStep = opts.pack !== false && opts.build !== false;
-  if (runPackStep) {
-    console.log(`\n${c.bold('Step 2/6: pack engine')}`);
-    try {
-      await runEnginePack(dir, {
-        firstParty: opts.firstParty,
-        token,
-        registryUrl,
-      });
-      // Re-read manifest — pack patched engine + integrity blocks.
-      manifest = readManifest(dir);
-    } catch (e) {
-      console.error(c.red((e as Error).message));
-      process.exit(1);
-    }
-  } else {
-    console.log(c.yellow(`\nSkipping pack (${opts.build === false ? '--no-build' : '--no-pack'})`));
-  }
-
-  // 4. Studio build.
-  const runBuildStep = opts.build !== false;
-  if (runBuildStep) {
-    console.log(`\n${c.bold('Step 3/6: studio build')}`);
-    try {
-      await runStudioBuild(dir);
-    } catch (e) {
-      console.error(c.red((e as Error).message));
-      process.exit(1);
-    }
-    console.log(c.green('  build OK'));
-  } else {
-    console.log(c.yellow('\nSkipping build (--no-build)'));
+  // Pack patched the engine + integrity blocks; the archive and the upload
+  // carry the manifest as it is now.
+  try {
+    manifest = readManifest(dir);
+  } catch (e) {
+    console.error(c.red((e as Error).message));
+    process.exit(1);
   }
 
   if (opts.dryRun) {
@@ -317,7 +357,7 @@ export async function extensionPublishCommand(opts: ExtensionPublishOptions = {}
   console.log(`  bundleSha256:  ${c.dim(digest.slice(0, 16) + '…')}`);
   console.log(`  signature:     ${c.dim(sigPath)}`);
 
-  // 6. Publish (or stop here in local mode).
+  // 7. Publish (or stop here in local mode).
   if (opts.output) {
     console.log(`\n${c.green('Local publish complete.')}`);
     console.log(

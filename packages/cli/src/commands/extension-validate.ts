@@ -57,7 +57,7 @@ export const PEER_DEPS_ALLOWLIST: ReadonlySet<string> = new Set([
 export interface ExtensionValidateOptions {
   /** Override the extension root. Defaults to `process.cwd()`. */
   dir?: string;
-  /** Suppress process.exit on validation failure (useful for embedding). */
+  /** Throw on validation failure instead of `process.exit(1)` (for embedding). */
   silentExit?: boolean;
   /** Treat the publisher as first-party (vendor builds, monorepo) —
    *  allows inline isolation offline without a registry lookup. */
@@ -810,7 +810,10 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
     printError(e, 'error');
   }
   console.log('');
-  if (!opts.silentExit) process.exit(1);
+  // Every failure exits, or under `silentExit` throws: a caller embedding this
+  // (publish) must not be able to read a failed validation as a pass.
+  if (opts.silentExit) throw new Error(`Validation failed with ${hardErrors.length} error(s)`);
+  process.exit(1);
 }
 
 function printError(e: ValidationError, severity: 'error' | 'warning' = 'error'): void {

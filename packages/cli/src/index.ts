@@ -309,7 +309,9 @@ ext
 
 ext
   .command('publish')
-  .description('Validate, build, archive, sign, and upload an extension to the registry (S4-05)')
+  .description(
+    'Pack, build, validate, archive, sign, and upload an extension to the registry (S4-05)',
+  )
   .option('--dir <dir>', 'Extension root directory (defaults to cwd)')
   .option('--token <token>', 'Registry auth token (env: ZVELTIO_REGISTRY_TOKEN)')
   .option('--registry-url <url>', 'Registry base URL (env: ZVELTIO_REGISTRY_URL)')
