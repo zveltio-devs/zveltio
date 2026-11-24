@@ -25,7 +25,8 @@ contract; read it before building one. Task recipes are in
 - A page is a `zveltio.view/2` document in `studio/schemas/`, drawn by every
   front end. No extension code runs in a browser (ADR 0042).
 - `extension pack` bundles `engine/index.js` and records integrity hashes;
-  re-pack after every change under `engine/` or `schema/`.
+  re-pack after every change under `engine/` or `schema/`, or to a file the
+  engine imports from elsewhere in the extension.
 
 ## Folder layout
 

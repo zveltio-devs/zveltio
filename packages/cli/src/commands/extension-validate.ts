@@ -389,7 +389,7 @@ export function checkBundleIntegrity(dir: string, manifest: unknown): Validation
     out.push({
       code: 'BUNDLE_OLDER_THAN_SOURCE',
       message:
-        'engine/index.js was NOT built from the current engine/ sources, so the changes in ' +
+        'engine/index.js was NOT built from its current sources (engine/ and the files it imports), so the changes in ' +
         'them do not run anywhere. Run `zveltio extension pack`.',
       file: 'engine/index.js',
     });

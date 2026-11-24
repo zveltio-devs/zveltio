@@ -33,6 +33,7 @@ import { watch as fsWatch } from 'fs';
 import { join, basename, resolve, relative } from 'path';
 import { readdirSync, readFileSync } from 'fs';
 import { DIR_SIGNATURE_FILE } from './extension-sign.js';
+import { bundleSourceFiles } from '../lib/bundle-sources.js';
 
 const c = {
   bold: (s: string) => `\x1b[1m${s}\x1b[0m`,
@@ -243,9 +244,11 @@ export async function extensionDevCommand(opts: ExtensionDevOptions = {}): Promi
   if (!existsSync(engineDir)) {
     console.log(`  Engine src: ${c.yellow('no engine/ folder — engine watch disabled')}`);
   } else {
-    const files = collectEngineFiles(engineDir);
+    // Plus what the bundle imports from outside engine/ (`../client/icons.ts`):
+    // the same files `extension pack` hashes as the bundle's source.
+    const files = [...new Set([...collectEngineFiles(engineDir), ...bundleSourceFiles(dir)])];
     console.log(
-      `  Engine src: ${c.green(`watching ${files.length} file(s)`)} ${c.dim(`(.ts / .js / .sql under engine/)`)}`,
+      `  Engine src: ${c.green(`watching ${files.length} file(s)`)} ${c.dim(`(.ts / .js / .sql under engine/, and what the bundle imports)`)}`,
     );
 
     let timer: ReturnType<typeof setTimeout> | null = null;
