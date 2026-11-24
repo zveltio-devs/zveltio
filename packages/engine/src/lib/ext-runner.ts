@@ -5,8 +5,9 @@
  * One systemd service per extension, `zveltio-ext-runner@<instance>`, with
  * `DynamicUser=yes`: each extension runs under its own uid, in its own cgroup
  * (MemoryMax) and with no network (IPAddressDeny=any: routes and actions have
- * no egress, ADR 0022; a job's egress goes through the engine; and the unit's
- * RestrictAddressFamilies=AF_UNIX, ADR 0023). The engine keeps `NoNewPrivileges=yes` and so
+ * no egress, ADR 0022; a job's egress goes through the engine; the unit's
+ * RestrictAddressFamilies=AF_UNIX, and in every process the runner starts the
+ * socket ban, ADR 0023). The engine keeps `NoNewPrivileges=yes` and so
  * cannot start a process under another uid; it asks systemd to start the
  * instance over D-Bus (`systemctl start`, allowed by the polkit rule `setup`
  * writes) and connects to the instance's unix socket. Each accepted
@@ -590,11 +591,12 @@ ProtectKernelModules=yes
 ProtectControlGroups=yes
 RestrictSUIDSGID=yes
 IPAddressDeny=any
-# The socket ban (ADR 0023): seccomp, so it holds where IPAddressDeny (cgroup
-# BPF) is a no-op. AF_UNIX for the runner's own socket; the runner checks at
-# start that a process it starts opens no other family.
+# Seccomp, so it holds where IPAddressDeny (cgroup BPF) is a no-op. AF_UNIX
+# for the runner's own socket; every process it starts loads the socket ban
+# (ADR 0023), which refuses AF_UNIX too, and the runner checks at start that
+# such a process opens no family at all.
 RestrictAddressFamilies=AF_UNIX
-# AF_UNIX stays for the runner's own socket; hide the host's: abstract sockets
+# AF_UNIX stays for the runner; hide the host's sockets from it: abstract ones
 # live in the network namespace, path sockets of D-Bus and Postgres are hidden.
 PrivateNetwork=yes
 InaccessiblePaths=-/run/dbus -/run/postgresql -/var/run/postgresql -/run/systemd/private

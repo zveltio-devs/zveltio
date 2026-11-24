@@ -12,9 +12,11 @@
 #   - an extension in its runner reads neither secret and reaches no address,
 #     not even over a raw socket (IPAddressDeny=any, no operator override),
 #     nor the host's D-Bus socket nor an abstract socket on the host
-#     (InaccessiblePaths, PrivateNetwork: AF_UNIX stays open, ADR 0023);
-#     the unit bans every socket family but AF_UNIX (seccomp, ADR 0023) — it
-#     answered, so its start check saw AF_INET and AF_SMC refused;
+#     (InaccessiblePaths, PrivateNetwork: AF_UNIX stays open to the runner);
+#     the unit bans every socket family but AF_UNIX (seccomp, ADR 0023), and
+#     the socket ban the runner loads into each process refuses AF_UNIX too
+#     (EACCES at socket(), where the unit alone gives ECONNREFUSED) — it
+#     answered, so its start check saw every family refused;
 #   - two extensions run under two different uids, neither the engine's, and
 #     one cannot write into the other's runner directory;
 #   - the engine user may start its runners through polkit and no other unit;
@@ -99,6 +101,8 @@ check "runner reaches no address, raw socket included" 'grep -q "\"net\":\"DENIE
 check "runner cannot reach the host's D-Bus socket (InaccessiblePaths)" 'grep -q "\"$DBUS\":\"DENIED" <<<"$out"'
 check "runner cannot reach a host abstract socket (PrivateNetwork)" \
   'grep -q "\"@zveltio-ci-abstract\":\"DENIED" <<<"$out"'
+check "runner's process opens no AF_UNIX socket (socket ban, owner 2026-11-24)" \
+  'grep -q "\"@zveltio-ci-abstract\":\"DENIED EACCES\"" <<<"$out"'
 
 INST_A=$(ls /run/zveltio-ext)
 UNIT_A="zveltio-ext-runner@${INST_A}.service"
