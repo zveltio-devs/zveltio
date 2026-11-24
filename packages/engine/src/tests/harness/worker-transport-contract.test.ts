@@ -3,10 +3,12 @@
 //
 // `ZVELTIO_EXT_TRANSPORT=process` runs the runtime as a child process speaking
 // length-prefixed JSON frames on stdin/stdout — the frames the runner pipes
-// unchanged, so the runner carries the same. Everything the protocol carries is
-// exercised — init and the route table, a route with query, headers and a body,
-// a `db:query` (refused by the host), a service the extension registers and calls, a large body, a log
+// unchanged, so the runner carries the same. What the protocol carries for a
+// declared route is exercised — init, a route with params, query, headers and a
+// body, a `host` call the host answers (with a refusal), a large body, a log
 // line, and an error — and the transcript must be what the extension answers.
+// Actions cross the same frames (ext-worker-actions.test.ts); nothing else does
+// (RFC v3 phase D slice 4: every worker is declared model only).
 // The extension runs in a process of its own, without the engine's environment.
 // (Step 2 compared this transcript with the in-thread worker's; step 9 removed
 // the thread.)
@@ -33,37 +35,41 @@ const SFX = String(Date.now()).slice(-7);
 const entry = (name: string) => `
 export default {
   name: '${name}',
-  async register(app, ctx) {
-    app.post('/echo/:id', async (c) => {
-      const body = await c.req.json();
-      console.log('echo', c.req.param('id'));
-      return c.json(
-        { id: c.req.param('id'), q: c.req.query('q'), h: c.req.header('x-probe'), body },
-        201,
-        { 'x-ext': 'yes' },
+  routes: {
+    echo: async (request, { params }) => {
+      const body = await request.json();
+      console.log('echo', params.id);
+      return Response.json(
+        { id: params.id, q: new URL(request.url).searchParams.get('q'), h: request.headers.get('x-probe'), body },
+        { status: 201, headers: { 'x-ext': 'yes' } },
       );
-    });
-    // The frame crosses; the host refuses it (no SQL crosses from a worker).
-    app.get('/sql', async (c) => {
-      try { await ctx.db.query('SELECT 1 + 1 AS two'); return c.json({ ran: true }); }
-      catch (e) { return c.json({ refused: String(e.message).includes('no SQL crosses') }); }
-    });
-    ctx.services.register('${name}.double', (n) => n * 2);
-    app.get('/svc', async (c) => c.json({ out: await ctx.services.get('${name}.double')(21) }));
-    app.get('/big', (c) => c.text('z'.repeat(3 * 1024 * 1024)));
-    app.get('/boom', () => { throw new Error('boom'); });
-    app.get('/env', (c) => c.json(Object.keys(Bun.env)));
+    },
+    // A host call crosses both ways: the host answers it with its refusal.
+    host: async (request, { host }) => {
+      try { await host.collections.read('nope_${SFX}', '1'); return Response.json({ ran: true }); }
+      catch (e) { return Response.json({ refused: String(e.message) }); }
+    },
+    big: () => new Response('z'.repeat(3 * 1024 * 1024)),
+    boom: () => { throw new Error('boom'); },
+    env: () => Response.json(Object.keys(Bun.env)),
     // Crashed the worker (core dump) while \`globalThis.process\` was a shim.
-    app.get('/nodeproc', async (c) =>
-      c.json({ env: (await import('node:process')).default.env.NODE_ENV ?? null }),
-    );
+    nodeproc: async () =>
+      Response.json({ env: (await import('node:process')).default.env.NODE_ENV ?? null }),
     // Ask the kernel (Linux, as CI), not the worker's own \`process\`.
-    app.get('/pid', async (c) =>
-      c.json({ pid: Number((await Bun.file('/proc/self/stat').text()).split(' ')[0]) }),
-    );
+    pid: async () => Response.json({ pid: Number((await Bun.file('/proc/self/stat').text()).split(' ')[0]) }),
   },
+  async register() {},
 };
 `;
+
+const routes = [
+  { method: 'POST', path: '/echo/:id', handler: 'echo' },
+  ...['host', 'big', 'boom', 'env', 'nodeproc', 'pid'].map((h) => ({
+    method: 'GET',
+    path: `/${h}`,
+    handler: h,
+  })),
+].map((r) => ({ ...r, access: 'caller' }));
 
 async function transcript(app: Hono, name: string) {
   const echo = await app.request(`/ext/${name}/echo/7?q=hello`, {
@@ -75,8 +81,7 @@ async function transcript(app: Hono, name: string) {
   const boom = await app.request(`/ext/${name}/boom`);
   return {
     echo: { status: echo.status, ext: echo.headers.get('x-ext'), body: await echo.json() },
-    sql: await (await app.request(`/ext/${name}/sql`)).json(),
-    svc: await (await app.request(`/ext/${name}/svc`)).json(),
+    host: await (await app.request(`/ext/${name}/host`)).json(),
     big: { status: big.status, length: (await big.text()).length },
     boom: boom.status,
   };
@@ -109,6 +114,7 @@ d('worker transport contract: the process transport carries the protocol', () =>
         JSON.stringify({
           name,
           version: '1.0.0',
+          routes,
           engine: { entry: 'engine/index.js', bundled: true, isolation: 'worker' },
         }),
       );
@@ -156,8 +162,7 @@ d('worker transport contract: the process transport carries the protocol', () =>
         ext: 'yes',
         body: { id: '7', q: 'hello', h: 'p', body: { a: [1, 'ü', null] } },
       },
-      sql: { refused: true },
-      svc: { out: 42 },
+      host: { refused: expect.stringContaining('which its manifest does not list in reads') },
       big: { status: 200, length: 3 * 1024 * 1024 },
       boom: 500,
     });
