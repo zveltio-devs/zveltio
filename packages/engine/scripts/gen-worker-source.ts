@@ -36,7 +36,7 @@ const result = await Bun.build({
   entrypoints: [SRC],
   target: 'bun',
   format: 'esm',
-  // Hono is a runtime dep of the worker shadow Hono; inline it so the
+  // Hono serves the worker's declared routes; inline it so the
   // worker (running outside the engine's bundle) doesn't try to resolve
   // a bare specifier from the on-disk node_modules tree.
   external: [],

@@ -715,7 +715,6 @@ async function registerExtensionRoutes(
   isolation: {
     entry: string;
     extDir: string;
-    dependencies?: string[];
     forwardCredentials?: Record<string, string[]>;
     /** Its manifest `routes` (ADR 0039): the worker pairs and mounts them. */
     routes?: RouteSpec[];
@@ -725,7 +724,6 @@ async function registerExtensionRoutes(
     registryKeyId?: string;
   } | null,
   db: Database,
-  serviceDeps: ServiceDeps,
   actions: ReadonlyMap<string, CompiledAction> = new Map(),
   declaredRoutes: readonly DeclaredRoute[] = [],
 ): Promise<void> {
@@ -760,13 +758,8 @@ async function registerExtensionRoutes(
         extName,
         isolation.extDir,
         isolation.entry,
-        isolation.dependencies,
-        serviceDeps,
-        // The worker's ctx members the host answers, from this same inline context.
+        // Its declared model, and the answers to its `host` calls from this same inline context.
         {
-          config: restrictedCtx.config,
-          checkPermission: restrictedCtx.checkPermission,
-          auth: restrictedCtx.auth,
           forwardCredentials,
           declaredForwardCredentials: isolation.forwardCredentials ?? {},
           declaredRoutes: isolation.routes ?? [],
@@ -1047,7 +1040,6 @@ export async function finalizeExtensionLoad(
       ? {
           entry: manifest.engine.entry,
           extDir,
-          dependencies,
           forwardCredentials: manifest.forwardCredentials,
           routes: manifest.routes,
           keyId,
@@ -1092,7 +1084,6 @@ export async function finalizeExtensionLoad(
       extName,
       workerIsolation ?? null,
       ctx.db,
-      serviceDeps,
       actions,
       declaredRoutes,
     );
@@ -1236,7 +1227,6 @@ export async function reRegisterExtension(
         name,
         loaded?.workerIsolation ?? null,
         loader.ctx.db,
-        loaded?.serviceDeps ?? new Map(),
         loaded?.actions,
         loaded?.declaredRoutes,
       );

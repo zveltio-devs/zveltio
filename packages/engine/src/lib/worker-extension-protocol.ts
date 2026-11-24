@@ -1,24 +1,15 @@
 /**
- * Wire protocol for the worker extension host (C-minimal isolation).
+ * Wire protocol between the worker extension host and the runtime of one
+ * worker-isolated extension's process.
  *
  * One pair of message types per logical call. The host sends `<X>Request`,
- * the worker replies with `<X>Response` keyed by the same `id`. Same
- * shape both directions so structured-clone over postMessage works
- * without serialization helpers.
+ * the worker replies with `<X>Response` keyed by the same `id`.
  *
- * Routes register cross-process: the worker's shadow Hono records the
- * route table, posts it to the host via `RoutesRegistered`. The host
- * then mounts a proxy that, on every HTTP hit, packages the request
- * into `RouteInvokeRequest`, awaits `RouteInvokeResponse`, and writes
- * the worker's response back to the client.
- *
- * DB queries also cross-process: the worker has NO DATABASE_URL; its
- * Kysely instance uses a dialect that posts `DbQueryRequest` and waits
- * for `DbQueryResponse`. The host runs the compiled SQL on the real
- * shared pool. This is the load-bearing security property of the
- * worker mode — untrusted (third-party) extension code never sees DB
- * credentials, never opens its own connections, and the host can
- * audit / rate-limit / scope every query before execution.
+ * Every worker is declared model only (ADR 0056, amendment 2026-11-21; RFC v3
+ * phase D slice 4): the protocol carries a declared route (`route:invoke`), a
+ * declared action (`action:invoke`) and the `host` calls those two make
+ * (`host:call`). Nothing else crosses: no SQL, no service registry, no event
+ * bus. The worker never sees DATABASE_URL or any other credential.
  */
 
 export type WorkerMessageId = string;
@@ -34,11 +25,6 @@ export interface InitRequest {
    * the worker imports the bytes it read only if they hash to this.
    */
   bundleSha256?: string;
-  /**
-   * Levels 3 and 2 (ADR 0056 d1, amendment 2026-11-21): declared model only. `register()` is handed an app and
-   * a ctx that refuse every use, so one that registers anything fails the load.
-   */
-  declaredOnly?: true;
   extName: string;
   // Constants the worker needs to render full responses. NEVER include
   // DATABASE_URL or other credentials here — that's the whole point.
@@ -46,35 +32,16 @@ export interface InitRequest {
     NODE_ENV?: string;
     extensionPath: string;
   };
-  /** The extension's own `ctx.config`, as `buildRestrictedContext` resolved it inline. */
-  config?: unknown;
   /** Its manifest `routes` (ADR 0039), paired with the module's `routes` handlers and served. */
   routes?: { method: string; path: string; handler: string }[];
   /** Its manifest `actions`, by name (ADR 0056): paired with the module's `actions`, run on `action:invoke`. */
   actions?: string[];
-  /** Its manifest `dependencies` + `optionalDependencies` (`ServiceDeps`), as entries. */
-  mayCall?: Array<[string, boolean]>;
-  /** The service registry as `[name, owner]`; `services:snapshot` keeps it current. */
-  services?: Array<[string, string]>;
-}
-
-/**
- * Host → worker: the service registry changed. Names and owners only, so
- * `ctx.services.has/get/list` answer synchronously, as inline.
- */
-export interface ServicesSnapshot {
-  type: 'services:snapshot';
-  id: WorkerMessageId;
-  services: Array<[string, string]>;
-  /** This worker's `ServiceDeps`: an optional dependency upgraded since init turns callable. */
-  mayCall?: Array<[string, boolean]>;
 }
 
 export interface InitResponse {
   type: 'init:ok' | 'init:err';
   id: WorkerMessageId;
   error?: string;
-  routes?: RouteDescriptor[];
 }
 
 export interface ShutdownRequest {
@@ -100,13 +67,6 @@ export interface RouteInvokeRequest {
   query: Record<string, string>;
   /** The request's bytes, unchanged: a binary upload crosses as sent (ADR 0039 decision 3). */
   body?: Uint8Array<ArrayBuffer>;
-  /**
-   * What `c.get('user')` reads inline: the session user or API-key principal
-   * the `/ext/*` gate admitted. The worker's handlers see it; the host never
-   * reads it back — host calls are answered from its own record of the request.
-   */
-  user?: unknown;
-  tenantId?: string;
 }
 
 export interface RouteInvokeResponse {
@@ -126,128 +86,46 @@ export interface RouteInvokeResponse {
   threw?: boolean;
 }
 
-// ── DB ──────────────────────────────────────────────────────────────
+// ── Actions (host → worker → host) ──────────────────────────────────
 
-export interface DbQueryRequest {
-  type: 'db:query';
-  id: WorkerMessageId;
-  sql: string;
-  params: unknown[];
-  /**
-   * The `route:invoke` this query was issued while handling, if any.
-   *
-   * The host uses it to look up the tenant IN ITS OWN RECORDS — the id names a
-   * request the host dispatched, and the tenant comes from what the host sent,
-   * not from anything the worker says. A worker that invents an id gets no
-   * tenant context and reads nothing; a worker that names another extension's
-   * request does not match, because the map is per worker.
-   *
-   * Sending the tenant id itself would be simpler and worthless: the worker is
-   * the untrusted party here, so a tenant it asserts is a tenant it chose.
-   */
-  requestId?: WorkerMessageId;
-  /**
-   * `db.transaction()` (RFC step 8): open, release or roll back a savepoint in
-   * the request's transaction, with `sql` empty. The host names the savepoint;
-   * the worker never sends transaction-control text.
-   */
-  savepoint?: 'begin' | 'release' | 'rollback';
-  /**
-   * The `db.transaction()` callback this statement runs in, by an id the worker
-   * mints. Inside a request it names the scope the statement belongs to, which
-   * the host orders the request's other work against; the request is the
-   * transaction, and the scope a savepoint in it. Outside one (owner decision 4) the host opens a transaction of its own under
-   * it on `begin`, and ends it on the outermost `release` or `rollback`.
-   */
-  txn?: WorkerMessageId;
-}
-
-export interface DbQueryResponse {
-  type: 'db:ok' | 'db:err';
-  id: WorkerMessageId;
-  rows?: unknown[];
-  /** Rows the statement affected — what Bun puts on its result array as `count`. */
-  count?: number;
-  error?: string;
-  /** The SQLSTATE, and the driver's code, set on the error the worker rethrows. */
-  errno?: string;
-  code?: string;
-  /** Postgres's own fields on the error, as the inline driver exposes them. */
-  pg?: PgErrorFields;
-}
-
-/** The Postgres error fields an extension reads to name what failed. */
-export const PG_ERROR_FIELDS = [
-  'detail',
-  'hint',
-  'constraint',
-  'table',
-  'column',
-  'schema',
-] as const;
-export type PgErrorFields = Partial<Record<(typeof PG_ERROR_FIELDS)[number], string>>;
-
-/** The string-valued `PG_ERROR_FIELDS` on `err`, or undefined when there are none. */
-export function pgErrorFields(err: unknown): PgErrorFields | undefined {
-  const out: PgErrorFields = {};
-  for (const k of PG_ERROR_FIELDS) {
-    const v = (err as Record<string, unknown> | null)?.[k];
-    if (typeof v === 'string') out[k] = v;
-  }
-  return Object.keys(out).length > 0 ? out : undefined;
-}
-
-// ── Services ────────────────────────────────────────────────────────
-
-export interface ServiceCallRequest {
-  type: 'service:call';
+/**
+ * Run the extension's action `name` (ADR 0056): `args` are its validated input
+ * and the request's time zone. Its `host` calls are `host:call` op `action`,
+ * naming this `id`, which the host records as an invocation of its own.
+ */
+export interface ActionInvokeRequest {
+  type: 'action:invoke';
   id: WorkerMessageId;
   name: string;
   args: unknown[];
-  /**
-   * The invocation this call was made while handling, exactly as on
-   * `DbQueryRequest`: the host answers the call as the tenant of its own record
-   * of that invocation, and refuses an id it no longer holds.
-   */
-  requestId?: WorkerMessageId;
-  /**
-   * The caller's `db.transaction()` the call was made in, as on `DbQueryRequest`:
-   * inside a request, the callee's statements run in that scope, where any
-   * other work of the request waits for it to end.
-   */
-  txn?: WorkerMessageId;
 }
 
-export interface ServiceCallResponse {
-  type: 'service:ok' | 'service:err';
+export interface ActionInvokeResponse {
+  type: 'action:ok' | 'action:err';
   id: WorkerMessageId;
   result?: unknown;
   error?: string;
-  /** HTTP status the caller's route answers with if it does not catch (503: dependency down). */
-  status?: number;
+  /**
+   * An `ActionRefusal`, carried as fields: the `Symbol.for` mark that makes it
+   * one does not cross. The host answers only a status the SDK allows.
+   */
+  refusal?: { status?: unknown; code?: unknown; message?: string };
+  /** The `host:call` whose refusal the action let through: the host rethrows its own error. */
+  hostError?: WorkerMessageId;
+  /** The SQLSTATE of an error the action did not catch, as on `RouteInvokeResponse`. */
+  errno?: string;
 }
 
-// ── Host calls (worker → host): the ctx members only the host can answer ──
+// ── Host calls (worker → host): a declared route's or action's `host` ──
 
 /**
- * `ctx.checkPermission`, `ctx.getUserRoles`, `ctx.auth.api.getSession`,
- * `ctx.events.emit|on|off` (RFC extension-runner step 7). Identity is never an argument: the host answers
- * as the request `requestId` names, from its own record of it, as for a query.
+ * `action`: an action's `host` (ADR 0056), `[member, ...its arguments]`,
+ * answered by the `ActionHost` the engine built for the invocation.
+ * `collections`: a declared route's `host.collections` (ADR 0025), `[call,
+ * ...its arguments]`. Identity is never an argument: the host answers as the
+ * invocation `requestId` names, from its own record of it.
  */
-export type HostCallOp =
-  | 'checkPermission'
-  | 'getUserRoles'
-  | 'getSession'
-  | 'emit'
-  | 'on'
-  | 'off'
-  | 'waitForService'
-  | 'unregisterService'
-  | 'describeDenial'
-  /** An action's `host` (ADR 0056): `[member, ...its arguments]`, answered by the invocation's own. */
-  | 'action'
-  /** A route's `host.collections` (ADR 0025): `[call, ...its arguments]`, as the job runner's. */
-  | 'collections';
+export type HostCallOp = 'action' | 'collections';
 
 export interface HostCallRequest {
   type: 'host:call';
@@ -255,11 +133,6 @@ export interface HostCallRequest {
   op: HostCallOp;
   args: unknown[];
   requestId?: WorkerMessageId;
-  /**
-   * The `db.transaction()` it was made in, as on `ServiceCallRequest`: what the
-   * host queries for it runs in that scope, not after it.
-   */
-  txn?: WorkerMessageId;
 }
 
 export interface HostCallResponse {
@@ -267,7 +140,7 @@ export interface HostCallResponse {
   id: WorkerMessageId;
   result?: unknown;
   error?: string;
-  /** As on `ServiceCallResponse`: the status a route answers with if it does not catch. */
+  /** The refusal's HTTP status: what a route answers with if it does not catch. */
   status?: number;
 }
 
@@ -291,82 +164,20 @@ export interface PongResponse {
   id: WorkerMessageId;
 }
 
-// ── Service registry bridge (worker A → host → worker B / inline) ───
-
-export interface ServiceRegisterRequest {
-  type: 'service:register';
-  id: WorkerMessageId;
-  name: string;
-}
-
-export interface ServiceRegisterResponse {
-  type: 'service:register:ok' | 'service:register:err';
-  id: WorkerMessageId;
-  error?: string;
-}
-
-/**
- * Host → worker: invoke a service that this worker previously registered.
- *
- * `id` doubles as an invocation the host records under the CALLER's tenant for
- * as long as the call is pending; the worker runs the service under it, so the
- * service's queries and calls name it as `requestId`.
- */
-export interface ServiceInvokeRequest {
-  /**
-   * `event:deliver`: an event the worker subscribed to with `ctx.events.on`, `name` its listener.
-   * `action:invoke`: the extension's action `name` (ADR 0056), `args` its validated input
-   * and the request's time zone; its `host` calls are `host:call` op `action`.
-   */
-  type: 'service:invoke' | 'event:deliver' | 'action:invoke';
-  id: WorkerMessageId;
-  name: string;
-  args: unknown[];
-  /**
-   * The caller's request transaction is joined: the worker takes turns on it
-   * per invocation, where outside one each `db.transaction()` is a host
-   * transaction of its own, on its own connection.
-   */
-  requestTxn?: true;
-}
-
-export interface ServiceInvokeResponse {
-  type: 'service:invoke:ok' | 'service:invoke:err';
-  id: WorkerMessageId;
-  result?: unknown;
-  error?: string;
-  /**
-   * An action's `ActionRefusal`, carried as fields: the `Symbol.for` mark that
-   * makes it one does not cross. The host answers only a status the SDK allows.
-   */
-  refusal?: { status?: unknown; code?: unknown; message?: string };
-  /** The `host:call` whose refusal the action let through: the host rethrows its own error. */
-  hostError?: WorkerMessageId;
-  /** The SQLSTATE of an error the action did not catch, as on `RouteInvokeResponse`. */
-  errno?: string;
-}
-
 // ── Union ───────────────────────────────────────────────────────────
 
 export type HostToWorkerMessage =
   | InitRequest
   | ShutdownRequest
   | RouteInvokeRequest
-  | DbQueryResponse
-  | ServiceCallResponse
+  | ActionInvokeRequest
   | PingRequest
-  | ServiceRegisterResponse
-  | ServiceInvokeRequest
-  | ServicesSnapshot
   | HostCallResponse;
 
 export type WorkerToHostMessage =
   | InitResponse
   | RouteInvokeResponse
-  | DbQueryRequest
-  | ServiceCallRequest
+  | ActionInvokeResponse
   | LogMessage
   | PongResponse
-  | ServiceRegisterRequest
-  | ServiceInvokeResponse
   | HostCallRequest;

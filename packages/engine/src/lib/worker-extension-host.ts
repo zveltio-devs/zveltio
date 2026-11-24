@@ -9,8 +9,9 @@
  *      receives the route table, mounts proxy routes under `/ext/<name>/*`.
  *   2. Inbound HTTP hits the proxy → IPC to worker → handler runs → IPC
  *      back → response written to client.
- *   3. A worker reaches data through `host` (`host:call`); a `db:query` is
- *      refused from every worker (RFC extension-model-v3 decision 2).
+ *   3. A worker is declared model only (ADR 0056, amendment 2026-11-21; RFC v3
+ *      phase D slice 4): it serves its declared routes and actions, and reaches
+ *      data through their `host` (`host:call`). Nothing else crosses.
  *   4. `stop(name)` ends the process and removes proxy routes.
  *
  * Reliability (alpha.122):
@@ -24,9 +25,6 @@
  *     hard timeout has its request's statement cancelled (504); requests
  *     past `boxConcurrencyLimit` are refused (503); `CRASH_LIMIT` crashes
  *     in `CRASH_WINDOW_MS` disable it; every line names it and its key.
- *   - Service registry bridge: workers can ctx.services.register() now;
- *     calls from other workers / inline extensions route through the
- *     host registry to the publishing worker.
  *
  * Security envelope:
  *   - Worker never receives DATABASE_URL or any other env credential.
@@ -55,13 +53,6 @@ import {
   connectRunner,
   FrameTooLargeError,
 } from './worker-extension-transport.js';
-import {
-  callableDeps,
-  reachableOwner,
-  type ServiceDeps,
-  serviceCallRefusal,
-  serviceRegistry,
-} from './service-registry.js';
 import { activePoolMax, getDb, type Database } from '../db/index.js';
 import { auditLog } from './audit.js';
 import { verifyExtensionDir } from './security/index.js';
@@ -72,31 +63,22 @@ import {
   actionHostCall,
   activationMiddlewareFor,
   crossedRefusal,
-  extensionLoader,
-  guardEventHandler,
   refusalProblem,
   verifyRegistrySignedDir,
 } from './extensions/index.js';
 import type { ActionHost } from '@zveltio/sdk/extension';
 import { compilePattern, extensionRequestRefused } from '../middleware/extension-auth-gate.js';
 import { ProblemException, problem, problemOnError } from './problem.js';
-import { ENGINE_EVENT_NAMESPACES, engineEvents } from './runtime/index.js';
 import {
   beforeRequestTransactionEnds,
-  describeDenial,
   getCurrentDomainOrNull,
   getCurrentTenantTrx,
   getCurrentTrxTenant,
   requestTransactionState,
   getRequestActor,
   getResolvedMembership,
-  getUserRoles,
-  NO_CALLER,
   type RequestActor,
   runOutsideTenantContext,
-  runWithDomain,
-  runWithoutTenantTrx,
-  withTenantIsolation,
 } from './tenancy/index.js';
 
 let _instance: WorkerExtensionHost | null = null;
@@ -169,31 +151,16 @@ interface InvokeScope {
   actor?: RequestActor;
   /** The caller's reach in the tenant resolved to no unit: every assignment lapsed. */
   noUnits?: boolean;
-  /** `c.get('user')` as the `/ext/*` gate left it: the one user `checkPermission` answers for. */
-  user?: { id?: string };
   /** The request's async context — domain, tenant, the API key the gate admitted. */
   run?: <R>(fn: () => R) => R;
   /**
    * The route request this is, of which extension: what `host.collections`
-   * answers for (ADR 0025). A service it calls copies the record, and another
-   * extension is not this one.
+   * answers for (ADR 0025).
    */
   route?: { extName: string; c: unknown };
-  /**
-   * The request's own session, looked up with its own headers. A service call's
-   * holds only the caller's user id (`invokeWorkerService`).
-   */
-  session?: () => Promise<unknown>;
-  /**
-   * The route request's database transaction (RFC step 8). Shared with a
-   * worker service it calls, which joins it as an inline service would.
-   */
+  /** The request's database transaction: its own tenant transaction, joined. */
   txn?: RequestTxn;
-  /**
-   * Where in `txn` this invocation's statements take their turn: inside the
-   * caller's `db.transaction()` scope the call was made in, else at its
-   * caller's level; a route's are at the top.
-   */
+  /** Where in `txn` this invocation's statements take their turn: its caller's place. */
   within?: RunIn;
   /**
    * An action run (ADR 0056): the `ActionHost` the engine built for it, which
@@ -204,23 +171,13 @@ interface InvokeScope {
 }
 
 type RunIn = <R>(fn: () => R) => R;
-const direct: RunIn = (fn) => fn();
 
 /**
- * The request transaction an inline service runs in when a worker request
- * called it, so a worker service it calls in turn joins that too.
- */
-const inlineServiceTxn = new AsyncLocalStorage<Pick<InvokeScope, 'txn' | 'within'>>();
-
-/**
- * What a worker's `ctx` asks the host for (RFC extension-runner, step 7): the
- * members `buildRestrictedContext` gives the same extension inline, so a host
- * call is answered by the inline code itself.
+ * What the engine hands the host for one worker-isolated extension: its
+ * declared model, the answers to its `host` calls (from the same inline code
+ * an inline extension's are), and who signed it.
  */
 export interface WorkerCtxSource {
-  config?: unknown;
-  checkPermission?: (userId: string, resource: string, action: string) => Promise<boolean>;
-  auth?: { api: { getSession(args: { headers: Headers }): Promise<unknown> } };
   /**
    * Public route pattern → credential headers the worker receives: the manifest's
    * `forwardCredentials` only once an operator approved all of it (register.ts),
@@ -258,8 +215,8 @@ export interface WorkerCtxSource {
  *
  * The worker is the extension the platform chose not to trust. Handed the
  * caller's cookie or API key, it could replay them and act as the caller on
- * every route of the instance. It needs neither: the host resolves the session
- * itself (`ctx.auth`), and signature headers (`stripe-signature`, …) still pass.
+ * every route of the instance. It needs neither: its `host` calls are answered
+ * as the caller, and signature headers (`stripe-signature`, …) still pass.
  */
 export function workerRequestHeaders(
   raw: Headers,
@@ -274,37 +231,6 @@ export function workerRequestHeaders(
   return headers;
 }
 
-/**
- * Session fields a worker may hold: the `session` table's columns minus
- * `token`. An allowlist, so a field a Better Auth plugin adds later (another
- * credential, say) stays in the engine until it is named here.
- */
-const WORKER_SESSION_FIELDS = [
-  'id',
-  'userId',
-  'expiresAt',
-  'createdAt',
-  'updatedAt',
-  'ipAddress',
-  'userAgent',
-] as const;
-
-/**
- * The request's session as a worker may hold it: Better Auth's, without
- * `session.token`. The token is the session's credential, which the worker is
- * never handed (`workerRequestHeaders`); approved forwarding passes the
- * header itself, on its route, and nothing more.
- */
-function withoutSessionToken(found: unknown): unknown {
-  const s = found as { session?: unknown } | null;
-  if (!s?.session || typeof s.session !== 'object') return found;
-  const all = s.session as Record<string, unknown>;
-  const session = Object.fromEntries(
-    WORKER_SESSION_FIELDS.filter((k) => k in all).map((k) => [k, all[k]]),
-  );
-  return { ...s, session };
-}
-
 interface ManagedWorker {
   name: string;
   extDir: string;
@@ -314,24 +240,17 @@ interface ManagedWorker {
   routes: RouteDescriptor[];
   pendingInvokes: Map<string, (res: RouteInvokeResponse) => void>;
   /**
-   * Tenant and caller of each in-flight `route:invoke`, keyed by the id the host
-   * minted.
+   * Tenant and caller of each in-flight `route:invoke` and `action:invoke`,
+   * keyed by the id the host minted.
    *
-   * This is the host's own record of what it dispatched. `db:query` names an
-   * invocation and the tenant and user are read from here — never from the
-   * message, since the worker is the untrusted party and a tenant or user it
-   * asserts is one it picked.
+   * This is the host's own record of what it dispatched. A `host:call` names an
+   * invocation and is answered as the record here — never as the message says,
+   * since the worker is the untrusted party and a tenant or user it asserts is
+   * one it picked.
    */
   invokeTenants: Map<string, InvokeScope>;
   pendingInits: Map<string, (res: InitResponse) => void>;
   pendingPings: Map<string, () => void>;
-  /** Service names this worker has registered. Used to unregister on
-   *  respawn so stale entries don't shadow the new worker's exports. */
-  registeredServices: Set<string>;
-  /** Manifest `dependencies`: a call into one that is down answers 503. */
-  dependencies: ReadonlySet<string>;
-  /** `dependencies` + `optionalDependencies`: the owners whose services it may call. */
-  mayCall: ServiceDeps;
   /** Between a crash and the fresh spawn: in the map, but answering nothing. */
   respawning?: boolean;
   /**
@@ -350,10 +269,8 @@ interface ManagedWorker {
   /** When a refusal past the limit was last logged. */
   busyLoggedAt?: number;
   source?: WorkerCtxSource;
-  /** A level-3 off-model refusal was logged for this process. */
+  /** A frame outside the protocol was refused and logged for this process. */
   refusalLogged?: boolean;
-  /** Its `ctx.events.on` subscriptions on the engine bus, by listener key. */
-  listeners?: Map<string, () => void>;
   proxyUnmount: () => void;
   // Health bookkeeping
   workerGeneration: number;
@@ -488,26 +405,6 @@ async function signedBundleSha256(
   return sha;
 }
 
-/**
- * ADR 0056 d1 and amendment 2026-11-21: levels 3 and 2 are declared model only. Over the bridge that leaves an
- * action's `host` and a declared route's `host.collections`; what `register()`'s
- * ctx would send (`ctx.db`, `ctx.services`, `ctx.events`, `checkPermission`, …)
- * is refused here, whatever the worker's own runtime let through.
- */
-function offModel(msg: WorkerToHostMessage): string | null {
-  switch (msg.type) {
-    case 'db:query':
-      return 'ctx.db';
-    case 'service:call':
-    case 'service:register':
-      return 'ctx.services';
-    case 'host:call':
-      return msg.op === 'action' || msg.op === 'collections' ? null : `ctx (${msg.op})`;
-    default:
-      return null;
-  }
-}
-
 export class WorkerExtensionHost {
   private readonly workers = new Map<string, ManagedWorker>();
   private respawnBackoff = new Map<string, number>();
@@ -518,43 +415,7 @@ export class WorkerExtensionHost {
     private app: Hono,
     /** Opens a new extension process's channel; tests pass a fake one. */
     private readonly open: (extName: string) => Promise<ExtensionChannel> = openExtensionChannel,
-  ) {
-    // Each worker mirrors the registry's names and owners, so its
-    // `ctx.services.has/get/list` answer synchronously, as inline. One snapshot
-    // per tick, however many services a load registers.
-    let queued = false;
-    this.resyncServices = () => {
-      if (queued) return;
-      queued = true;
-      queueMicrotask(() => {
-        queued = false;
-        const services = serviceRegistry.entries();
-        for (const managed of this.workers.values()) {
-          if (managed.stopped) continue;
-          // A channel closing under it must not fail the registration that
-          // triggered this; its next start sends the registry with `init`.
-          try {
-            this.post(managed, {
-              type: 'services:snapshot',
-              id: rpcId('svcs'),
-              services,
-              mayCall: [...managed.mayCall],
-            });
-          } catch {
-            /* ended channel */
-          }
-        }
-      });
-    };
-    serviceRegistry.onChange(this.resyncServices);
-  }
-
-  /**
-   * Send every worker the registry and its own `ServiceDeps` again, once per
-   * tick. The registry's changes call it; so does a dependent's `ServiceDeps`
-   * turning an upgraded optional dependency callable, which changes no service.
-   */
-  readonly resyncServices: () => void;
+  ) {}
 
   /**
    * Point the host at the CURRENT Hono app.
@@ -579,23 +440,12 @@ export class WorkerExtensionHost {
     extName: string,
     extDir: string,
     bundleEntry: string,
-    dependencies: readonly string[] = [],
-    /** Its `ServiceDeps`: `dependencies` + `optionalDependencies`, absent ones marked. */
-    mayCall: ServiceDeps = callableDeps(dependencies),
     source: WorkerCtxSource = {},
   ): Promise<void> {
     if (this.workers.has(extName)) {
       throw new Error(`Worker for "${extName}" is already running`);
     }
-    const managed = await this.spawn(
-      extName,
-      extDir,
-      bundleEntry,
-      1,
-      new Set(dependencies),
-      mayCall,
-      source,
-    );
+    const managed = await this.spawn(extName, extDir, bundleEntry, 1, source);
     this.workers.set(extName, managed);
     managed.proxyUnmount = this.mountProxyRoutes(managed);
     managed.heartbeatTimer = setInterval(() => this.heartbeat(managed), HEARTBEAT_INTERVAL_MS);
@@ -611,10 +461,6 @@ export class WorkerExtensionHost {
     managed.stopped = true;
     if (managed.heartbeatTimer) clearInterval(managed.heartbeatTimer);
     managed.proxyUnmount();
-    for (const svc of managed.registeredServices) {
-      serviceRegistry.unregisterAs(extName, svc);
-    }
-    dropListeners(managed);
     failPendingInvokes(extName);
     failPendingRoutes(managed);
     managed.worker.terminate();
@@ -749,8 +595,6 @@ export class WorkerExtensionHost {
     extDir: string,
     bundleEntry: string,
     generation: number,
-    dependencies: ReadonlySet<string>,
-    mayCall: ServiceDeps,
     source: WorkerCtxSource,
   ): Promise<ManagedWorker> {
     const bundleUrl = pathToFileURL(join(extDir, bundleEntry)).href;
@@ -767,11 +611,7 @@ export class WorkerExtensionHost {
       invokeTenants: new Map(),
       pendingInits: new Map(),
       pendingPings: new Map(),
-      registeredServices: new Set(),
-      dependencies,
-      mayCall,
       source,
-      listeners: new Map(),
       proxyUnmount: () => {},
       workerGeneration: generation,
       enabledAt: Date.now(),
@@ -784,10 +624,8 @@ export class WorkerExtensionHost {
     // reason (an unreachable runner's socket error), not after the 15 s timeout.
     let failInit: ((err: Error) => void) | null = null;
     // Outside every tenant context: a message is answered as the request it
-    // names (`requestScope`) or as no one. The handler otherwise ran in the
-    // context the worker was spawned or respawned in — an enable request's — and
-    // a timer's emit in the worker delivered listeners as that request's tenant
-    // and user.
+    // names (`requestScope`) or as no one, never in the context the worker was
+    // spawned or respawned in (an enable request's).
     worker.onmessage = (e) =>
       runOutsideTenantContext(() => this.handleWorkerMessage(managed, e.data));
     worker.onerror = (e) => {
@@ -815,17 +653,13 @@ export class WorkerExtensionHost {
         id: initId,
         bundleUrl,
         ...(bundleSha256 ? { bundleSha256 } : {}),
-        ...(signedLevel(source) !== null ? { declaredOnly: true as const } : {}),
         extName,
         env: {
           NODE_ENV: nodeEnv() ?? 'production',
           extensionPath: extDir,
         },
-        config: source.config,
         routes: source.declaredRoutes ?? [],
         actions: source.actions ?? [],
-        mayCall: [...managed.mayCall],
-        services: serviceRegistry.entries(),
       });
     });
     failInit = null;
@@ -835,11 +669,8 @@ export class WorkerExtensionHost {
       managed.loadError = init.error;
       throw new Error(`worker "${extName}" init failed: ${init.error}`);
     }
-    // Levels 3 and 2 serve their declared routes, whatever the worker says it registered.
-    managed.routes =
-      signedLevel(source) !== null
-        ? (source.declaredRoutes ?? []).map(({ method, path }) => ({ method, path }))
-        : (init.routes ?? []);
+    // Its declared routes, the only ones a worker serves.
+    managed.routes = (source.declaredRoutes ?? []).map(({ method, path }) => ({ method, path }));
     return managed;
   }
 
@@ -929,12 +760,6 @@ export class WorkerExtensionHost {
     } catch {
       /* worker may already be dead */
     }
-    for (const svc of managed.registeredServices) {
-      serviceRegistry.unregisterAs(managed.name, svc);
-    }
-    managed.registeredServices.clear();
-    // The fresh worker's register() subscribes again.
-    dropListeners(managed);
     // A caller waiting on the dead worker would otherwise sit out the 30s timeout.
     failPendingInvokes(managed.name);
     // And so would its HTTP requests, holding their transactions open.
@@ -952,8 +777,6 @@ export class WorkerExtensionHost {
       managed.extDir,
       managed.bundleEntry,
       managed.workerGeneration + 1,
-      managed.dependencies,
-      managed.mayCall,
       managed.source ?? {},
     );
     // Stopped (disabled, unloaded) while this one spawned: it must not come back.
@@ -996,38 +819,6 @@ export class WorkerExtensionHost {
   }
 
   private handleWorkerMessage(managed: ManagedWorker, msg: WorkerToHostMessage): void {
-    const level = signedLevel(managed.source);
-    // RFC extension-model-v3 decision 2 (phase D slice 4): no SQL crosses from
-    // any worker, whatever signed it; the test override's unsigned one included.
-    const off = msg.type === 'db:query' || level !== null ? offModel(msg) : null;
-    if (off) {
-      const error =
-        level === null
-          ? `${off} is refused: no SQL crosses from an extension process; it reaches its ` +
-            `collections through host.collections (RFC extension-model-v3 decision 2)`
-          : `${off} is refused: "${managed.name}" is signed by ${level === 3 ? 'an operator' : 'the registry'} ` +
-            `key (level ${level}), which is declared model only — collections, actions, jobs, ` +
-            `declared routes (ADR 0056)`;
-      // Logged once per process: a bundle posting in a loop must not flood the log.
-      if (!managed.refusalLogged) {
-        managed.refusalLogged = true;
-        console.error(
-          `${boxTag(managed.name, managed.source)} ${error} (further refusals not logged)`,
-        );
-      }
-      const type = {
-        'db:query': 'db:err',
-        'service:call': 'service:err',
-        'service:register': 'service:register:err',
-        'host:call': 'host:err',
-      } as const;
-      this.post(managed, {
-        type: type[msg.type as keyof typeof type],
-        id: (msg as { id: string }).id,
-        error,
-      } as HostToWorkerMessage);
-      return;
-    }
     switch (msg.type) {
       case 'init:ok':
       case 'init:err': {
@@ -1047,22 +838,15 @@ export class WorkerExtensionHost {
         }
         break;
       }
-      case 'service:call':
-        void this.handleServiceCall(managed, msg);
-        break;
-      case 'service:register':
-        this.handleServiceRegister(managed, msg);
-        break;
       case 'host:call':
         void this.handleHostCall(managed, msg);
         break;
-      case 'service:invoke:ok':
-      case 'service:invoke:err': {
-        // Reply from a worker that owns a service we asked it to invoke.
-        // Route the reply back to whichever inline/host caller is waiting.
+      case 'action:ok':
+      case 'action:err': {
+        // The answer of an action this host asked the worker to run.
         const waiter = invokeWaiters.get(msg.id);
         // Only the worker that was asked may answer. Without this any worker
-        // could resolve any pending cross-extension call with forged data.
+        // could resolve another extension's pending action with forged data.
         if (waiter && waiter.expect === managed.name) {
           invokeWaiters.delete(msg.id);
           waiter.resolve(msg);
@@ -1085,115 +869,26 @@ export class WorkerExtensionHost {
       case 'log':
         console[msg.level](`${boxTag(managed.name, managed.source)} ${msg.message}`);
         break;
+      default:
+        // Outside the protocol (ADR 0056, amendment 2026-11-21; RFC v3 phase D
+        // slice 4): no SQL, service or event frame crosses from any worker,
+        // signed or not. Logged once per process: a bundle posting in a loop
+        // must not flood the log.
+        if (!managed.refusalLogged) {
+          managed.refusalLogged = true;
+          console.error(
+            `${boxTag(managed.name, managed.source)} refused a "${String((msg as { type?: unknown }).type)}" ` +
+              'frame: a worker-isolated extension is declared model only — collections, actions, ' +
+              'jobs, declared routes (ADR 0056); further refusals not logged',
+          );
+        }
     }
   }
 
   /**
-   * Worker B (or an inline extension) asked for service "X.foo". Look
-   * up the host registry: if X.foo was registered by an inline
-   * extension, call it directly. If it was registered by another
-   * worker, post `service:invoke` to that worker and await its reply.
-   *
-   * Either way the call is answered as the tenant of the request the worker is
-   * serving — read from the host's own record, refused once that request is
-   * over, exactly as a query is. It used to be answered as nobody: the inline
-   * service ran from this message event with no tenant context, and the
-   * worker's service ran its queries under no request, so a call made while
-   * serving tenant B read the default tenant's rows.
-   */
-  private async handleServiceCall(
-    managed: ManagedWorker,
-    msg: Extract<WorkerToHostMessage, { type: 'service:call' }>,
-  ): Promise<void> {
-    let scope: InvokeScope = { tenantId: null };
-    try {
-      scope = requestScope(managed, msg.requestId, 'service call') ?? scope;
-      const { tenantId, actor } = scope;
-      const name = msg.name;
-      const ownerWorker = this.findServiceOwner(name);
-      // An optional dependency too old to use is absent, as an uninstalled one is.
-      const owner = reachableOwner(
-        managed.mayCall,
-        ownerWorker?.name ?? serviceRegistry.ownerOf(name),
-      );
-      if (owner === null) {
-        // Unregistered. If a hard dependency is down that is why, and the caller
-        // should hear it as such rather than as a missing name. An absent
-        // optional one is just not found.
-        const down = [...managed.dependencies].filter((d) => !this.isDependencyRunning(d));
-        const named = down.find((d) => name.startsWith(`${d}.`));
-        if (named || down.length > 0) throw dependencyDown(named ?? down.join('", "'));
-        throw new Error(`service "${msg.name}" not found`);
-      }
-      // The broker is the only path between extensions, so it is where a worker
-      // is held to what its manifest declared — not to whatever got registered.
-      const refusal = serviceCallRefusal(managed.name, managed.mayCall, owner, name);
-      if (refusal) throw new Error(refusal);
-      // The callee runs where the caller made the call: in the request's
-      // transaction, inside the caller's `db.transaction()` if it made it there.
-      const within = scope.txn ? scope.within : undefined;
-      if (ownerWorker && ownerWorker.name !== managed.name) {
-        const result = await this.invokeWorkerService(ownerWorker, msg.name, msg.args, {
-          ...scope,
-          within,
-        });
-        this.post(managed, { type: 'service:ok', id: msg.id, result });
-        return;
-      }
-      // Fall back to inline registry (host-side services).
-      const impl = serviceRegistry.get<(...args: unknown[]) => unknown>(name);
-      if (typeof impl !== 'function') throw new Error(`service "${msg.name}" is not callable`);
-      const call = () =>
-        inlineServiceTxn.run({ txn: scope.txn, within }, () => Promise.resolve(impl(...msg.args)));
-      // The context an inline extension's code has while serving a request of
-      // that tenant — the domain `tenantMiddleware` opens and the tenant
-      // transaction inside it — so the service's `ctx.db` and its permission
-      // checks resolve the caller's tenant — and the row rules keyed on that
-      // user. Inside the request's async context, so the API key the gate
-      // admitted is the one the service's `checkPermission` answers for — and
-      // passes on to a worker service it calls (`callerScope`).
-      //
-      // In that request's own tenant transaction, as when an inline route calls
-      // it, so what it writes is kept or undone with the request. It used to open
-      // a transaction of its own, which committed when the service returned: a
-      // worker route that threw after the call kept the service's rows. Only
-      // where the request holds none (an event delivery) does it open one, as
-      // that caller, for itself — with no caller, an actor with no identity
-      // (ADR 0040). No request, no tenant: unchanged.
-      // In a joined request transaction, at the caller's place in its turns: a
-      // call made inside the worker's own `db.transaction()` runs in it, as the
-      // statements beside it do, rather than wait for it to end.
-      const run = (scope.txn?.joined && within) || scope.run || direct;
-      const result = tenantId
-        ? await run(() =>
-            getCurrentTenantTrx() && getCurrentTrxTenant() === tenantId
-              ? call()
-              : runWithDomain(tenantId, () =>
-                  withTenantIsolation(tenantId, call, {
-                    ...actor,
-                    identity: actor?.identity ?? NO_CALLER,
-                  }),
-                ),
-          )
-        : await run(call);
-      this.post(managed, { type: 'service:ok', id: msg.id, result });
-    } catch (err) {
-      if (err instanceof ProblemException) scope.action?.refusals.set(msg.id, err);
-      this.post(managed, {
-        type: 'service:err',
-        id: msg.id,
-        error: (err as Error).message,
-        ...(isDependencyDown(err) ? { status: 503 } : {}),
-      });
-    }
-  }
-
-  /**
-   * A `ctx` member only the host can answer (RFC step 7), answered as the request
-   * the call names — from the host's own record of it, never from the worker.
-   * `checkPermission` answers for that request's user and no other, with the
-   * inline extension's own check run in the request's async context (its tenant,
-   * and the API key the gate admitted); outside a request it answers false.
+   * A declared route's or action's `host` call, answered as the invocation the
+   * call names — from the host's own record of it, never from the worker.
+   * Anything else is refused, from every worker.
    */
   private async handleHostCall(
     managed: ManagedWorker,
@@ -1202,63 +897,11 @@ export class WorkerExtensionHost {
     let scope: InvokeScope | undefined;
     try {
       scope = requestScope(managed, msg.requestId, msg.op);
-      // In a joined request transaction, at the caller's place in its turns: a
-      // query made for a call inside the worker's `db.transaction()` runs in it,
-      // rather than wait for the scope that is waiting for this answer.
+      // In a joined request transaction, at the caller's place in its turns.
       const run = (scope?.txn?.joined && scope.within) || scope?.run || (<R>(fn: () => R) => fn());
-      const session = async () => (scope?.session ? await run(scope.session) : null) ?? null;
-      const who = async () =>
-        scope?.user?.id ?? ((await session()) as { user?: { id?: string } } | null)?.user?.id;
-      const [a, b, c] = msg.args;
-      const { op } = msg;
+      const [a] = msg.args;
       let result: unknown;
-      switch (op) {
-        case 'getSession':
-          result = withoutSessionToken(await session());
-          break;
-        case 'checkPermission': {
-          const check = managed.source?.checkPermission;
-          result =
-            !!check &&
-            typeof a === 'string' &&
-            a === (await who()) &&
-            (await run(() => check(a, String(b), String(c))));
-          break;
-        }
-        case 'getUserRoles':
-          result =
-            typeof a === 'string' && a === (await who()) ? await run(() => getUserRoles(a)) : [];
-          break;
-        case 'emit': {
-          const event = refuseEvent(managed, a, 'emit');
-          if (c) await run(() => engineEvents.emitAsync(event as never, b as never));
-          else run(() => engineEvents.emit(event as never, b as never));
-          break;
-        }
-        case 'on':
-          this.subscribe(managed, refuseEvent(managed, a, 'on'), String(b));
-          break;
-        case 'off':
-          managed.listeners?.get(String(a))?.();
-          managed.listeners?.delete(String(a));
-          break;
-        case 'waitForService':
-          // The inline scope's rules (refused owners at once); the value stays here.
-          await serviceRegistry
-            .scope(managed.name, managed.mayCall)
-            .waitFor(String(a), typeof b === 'number' ? b : undefined);
-          result = true;
-          break;
-        case 'unregisterService':
-          if (managed.registeredServices.delete(String(a))) {
-            serviceRegistry.unregisterAs(managed.name, String(a));
-          }
-          break;
-        case 'describeDenial':
-          result = await run(() =>
-            describeDenial(getCurrentTenantTrx() ?? getDb(), String(a), String(b)),
-          );
-          break;
+      switch (msg.op) {
         case 'collections': {
           const route = scope?.route;
           const answer = managed.source?.collections;
@@ -1278,7 +921,10 @@ export class WorkerExtensionHost {
           break;
         }
         default:
-          throw new Error(`unknown host call "${String(msg.op)}"`);
+          throw new Error(
+            `host call "${String(msg.op)}" is refused: a worker-isolated extension is declared ` +
+              'model only — its routes reach host.collections, its actions their host (ADR 0056)',
+          );
       }
       this.post(managed, { type: 'host:ok', id: msg.id, result });
     } catch (err) {
@@ -1294,26 +940,20 @@ export class WorkerExtensionHost {
 
   /**
    * Run `extName`'s action `name` in its worker (ADR 0056), as the request this
-   * is called in: its tenant, caller and transaction, as a worker service an
-   * inline route calls. `mountActions` made every check before this, and `host`
-   * is the one it built: the worker's `host` calls are answered by it.
+   * is called in: its tenant, caller and transaction. `mountActions` made every
+   * check before this, and `host` is the one it built: the worker's `host` calls
+   * are answered by it.
    */
   async runAction(extName: string, name: string, input: unknown, host: ActionHost) {
     const managed = this.workers.get(extName);
     if (!managed || managed.respawning) throw boxDown(extName, managed?.disabled);
     const scope = callerScope();
     try {
-      return await this.invokeWorkerService(
-        managed,
-        name,
-        [input, host.timezone],
-        {
-          ...scope,
-          ...(inlineServiceTxn.getStore() ?? (await joinRequestTxn(scope))),
-          action: { host, refusals: new Map() },
-        },
-        'action:invoke',
-      );
+      return await this.invokeAction(managed, name, [input, host.timezone], {
+        ...scope,
+        ...(await joinRequestTxn(scope)),
+        action: { host, refusals: new Map() },
+      });
     } catch (err) {
       // A refusal is the action's answer, and the box's own (busy, timed out,
       // crashed) was logged where it arose; anything else is its failure, named.
@@ -1329,141 +969,54 @@ export class WorkerExtensionHost {
   }
 
   /**
-   * Deliver `event` to the worker's listener `key`, as the tenant and caller it
-   * was emitted for, and only where the extension is active for that tenant
-   * (`guardEventHandler`, as an inline listener). The listener's second
-   * argument names that tenant: the engine's record, not whatever the
-   * emitter's payload claims. The caller is `callerScope`'s: the emitting
-   * request's user, so the listener's `checkPermission` answers for that user as
-   * an inline listener's (run in the emitter's async context) does — and for no
-   * one when the event was emitted outside a request. No session: a user id,
-   * never the request's credentials. Nor the emitter's transaction: delivery
-   * runs after the emitter's `await`, often past its COMMIT, and a host call
-   * answered in it met "Transaction is already committed".
-   */
-  private subscribe(managed: ManagedWorker, event: string, key: string): void {
-    const deliver = (payload: unknown) => {
-      const scope = runWithoutTenantTrx(callerScope);
-      return this.invokeWorkerService(
-        managed,
-        key,
-        [payload, { tenantId: scope.tenantId }],
-        scope,
-        'event:deliver',
-      ).catch((err: Error) =>
-        console.error(
-          `${boxTag(managed.name, managed.source)} listener for "${event}" failed: ${err.message}`,
-        ),
-      );
-    };
-    const listener = (payload: unknown) =>
-      guardEventHandler(deliver, managed.name, getDb())(payload);
-    managed.listeners ??= new Map();
-    managed.listeners.get(key)?.();
-    managed.listeners.set(key, engineEvents.on(event as never, listener as never));
-  }
-
-  /** A worker dependency counts as running only while its worker is up; an
-   *  inline one while the loader has it. */
-  private isDependencyRunning(name: string): boolean {
-    const w = this.workers.get(name);
-    if (w) return !w.stopped && !w.respawning;
-    const loaded = extensionLoader.loaded.get(name);
-    return loaded !== undefined && !loaded.workerIsolation;
-  }
-
-  /**
-   * Ask `target` to run a service it registered, on behalf of a caller in
-   * `scope`, and return its result.
+   * Ask `target` to run its action `name` on behalf of a caller in `scope`, and
+   * return its result.
    *
    * The invoke id is recorded in the target's `invokeTenants` for as long as the
-   * call is pending, so the queries the service makes under it run as the
-   * caller's tenant and user — the same record, and the same lifetime, as a
-   * route invocation's. Without it the service queried as no request at all, which
-   * the isolation predicate answers with the default tenant.
-   *
-   * The service's `getSession` is the caller's user id and nothing more —
-   * `{ user: { id } }` for the id its `checkPermission` answers for, or null
-   * (owner decision 2026-10-24). Never the caller's session: called from a
-   * worker route, the scope carried that route's whole Better Auth session
-   * into the callee; called inline, it carried none, and getSession was null
-   * for a user checkPermission answered for.
+   * call is pending, so the `host` calls the action makes under it are answered
+   * as the caller — the same record, and the same lifetime, as a route
+   * invocation's.
    */
-  private async invokeWorkerService(
+  private async invokeAction(
     target: ManagedWorker,
     name: string,
     args: unknown[],
     scope: InvokeScope,
-    type: 'service:invoke' | 'event:deliver' | 'action:invoke' = 'service:invoke',
   ): Promise<unknown> {
-    const invokeId = rpcId('inv-svc');
+    const invokeId = rpcId('inv-act');
     // In a request, a call into the box: counted, and refused past its limit.
-    // An event delivery holds no request's connection.
     const leave = scope.txn ? this.admit(target, scope.txn) : () => {};
-    // The caller's id as `handleHostCall`'s `who` resolves it: on a public route
-    // the gate sets no user, and the route's own session names it.
-    const callerId = async () => {
-      if (scope.user?.id) return scope.user.id;
-      const run = scope.run ?? (<R>(fn: () => R) => fn());
-      const found = scope.session ? await run(scope.session) : null;
-      return (found as { user?: { id?: string } } | null)?.user?.id;
-    };
-    target.invokeTenants.set(
-      invokeId,
-      type !== 'event:deliver'
-        ? {
-            ...scope,
-            session: async () => {
-              const id = await callerId();
-              return id ? { user: { id } } : null;
-            },
-          }
-        : scope,
-    );
+    target.invokeTenants.set(invokeId, scope);
     try {
       const reply = await new Promise<
-        Extract<WorkerToHostMessage, { type: 'service:invoke:ok' | 'service:invoke:err' }>
+        Extract<WorkerToHostMessage, { type: 'action:ok' | 'action:err' }>
       >((resolve, reject) => {
-        invokeWaiters.set(invokeId, {
-          expect: target.name,
-          resolve,
-          reject,
-          ...(type === 'action:invoke' ? { action: name } : {}),
-        });
+        invokeWaiters.set(invokeId, { expect: target.name, action: name, resolve, reject });
         setTimeout(
           () => {
             if (!invokeWaiters.has(invokeId)) return;
             invokeWaiters.delete(invokeId);
             // Its work is over: nothing more it sends runs as this request.
             target.invokeTenants.delete(invokeId);
-            const what = `${type === 'action:invoke' ? 'action' : type === 'event:deliver' ? 'listener' : 'service'} "${name}"`;
-            const err = this.timedOut(target, what);
+            const err = this.timedOut(target, `action "${name}"`);
             // Its statement cancelled first, while the request still holds the
             // connection: the caller's answer is what ends the request.
             if (scope.txn?.joined) void cancelJoinedStatement(scope.txn).finally(() => reject(err));
             else reject(err);
-            // In a request, the request's hard timeout, as a worker route's (ADR
-            // 0009 §3). Outside one (an event delivery, a call from a timer) there
-            // is no request transaction to bound: the fixed ceiling, and a host
-            // transaction the callee opened ends on its own timer, not this one.
+            // In a request, the request's hard timeout, as a worker route's.
+            // Outside one, the fixed ceiling.
           },
           scope.txn ? requestTxnTimeoutMs : REQUEST_TXN_TIMEOUT_MS,
         );
-        this.post(target, {
-          type,
-          id: invokeId,
-          name,
-          args,
-          ...(scope.txn ? { requestTxn: true as const } : {}),
-        });
+        this.post(target, { type: 'action:invoke', id: invokeId, name, args });
       });
-      if (reply.type === 'service:invoke:err') {
+      if (reply.type === 'action:err') {
         // An action's refusal as it was raised: the engine's own, or one it threw.
         const raised = reply.hostError && scope.action?.refusals.get(reply.hostError);
         if (raised) throw raised;
-        if (scope.action && reply.refusal) throw crossedRefusal(reply.refusal);
-        const err = new Error(reply.error ?? 'service call failed');
-        throw scope.action && reply.errno ? Object.assign(err, { errno: reply.errno }) : err;
+        if (reply.refusal) throw crossedRefusal(reply.refusal);
+        const err = new Error(reply.error ?? 'action failed');
+        throw reply.errno ? Object.assign(err, { errno: reply.errno }) : err;
       }
       return reply.result;
     } finally {
@@ -1524,45 +1077,6 @@ export class WorkerExtensionHost {
       504,
       `extension "${managed.name}": ${what} call timeout, no answer within ${ms} ms`,
     );
-  }
-
-  private handleServiceRegister(
-    managed: ManagedWorker,
-    msg: Extract<WorkerToHostMessage, { type: 'service:register' }>,
-  ): void {
-    try {
-      // The scope holds it to `<extension>.*`: first-come registration let a
-      // worker claim a name another extension publishes and answer its callers.
-      // Publish a stub in the host registry that, when called, forwards
-      // to the worker via service:invoke. This is what makes worker-
-      // registered services callable from inline extensions / other
-      // workers. The caller's tenant and user are the ones its async context
-      // runs as.
-      serviceRegistry.scope(managed.name).register(msg.name, async (...args: unknown[]) => {
-        const scope = callerScope();
-        return this.invokeWorkerService(managed, msg.name, args, {
-          ...scope,
-          // Called by an inline service a worker request called: in that request.
-          // Else by inline code serving a request: in that request's transaction.
-          ...(inlineServiceTxn.getStore() ?? (await joinRequestTxn(scope))),
-        });
-      });
-      managed.registeredServices.add(msg.name);
-      this.post(managed, { type: 'service:register:ok', id: msg.id });
-    } catch (err) {
-      this.post(managed, {
-        type: 'service:register:err',
-        id: msg.id,
-        error: (err as Error).message,
-      });
-    }
-  }
-
-  private findServiceOwner(serviceName: string): ManagedWorker | null {
-    for (const w of this.workers.values()) {
-      if (w.registeredServices.has(serviceName)) return w;
-    }
-    return null;
   }
 
   /**
@@ -1646,22 +1160,14 @@ export class WorkerExtensionHost {
           );
           const id = rpcId('inv');
           const reqTenantId = (c.get('tenant') as { id?: string } | null)?.id ?? null;
-          const user = (c.get('user') ?? undefined) as { id?: string } | undefined;
-          const auth = live.source?.auth;
           const scope: InvokeScope = {
             ...currentScope(reqTenantId),
-            user,
             run: AsyncLocalStorage.snapshot(),
-            session: async () => auth?.api.getSession({ headers: c.req.raw.headers }) ?? null,
             route: { extName: managed.name, c },
           };
-          // The request's own tenant transaction, joined as a worker service an
-          // inline route calls joins it: one connection, so an inline service
-          // this route calls writes where the route reads, inside its
-          // `db.transaction()` if it is in one. It used to be a transaction of
-          // its own beside the tenant one: the route did not see the service's
-          // rows, a scope that threw kept them, and the two committed apart.
-          // A request with no tenant transaction still opens its own.
+          // The request's own tenant transaction, joined: what the route's
+          // `host.collections` calls write is kept or undone with the request.
+          // A request with no tenant transaction still opens its own record.
           const joined = await joinRequestTxn(scope);
           const txn = joined.txn ?? newRequestTxn();
           let leave: () => void;
@@ -1698,8 +1204,6 @@ export class WorkerExtensionHost {
                   headers,
                   query: c.req.query(),
                   body: body?.length ? body : undefined,
-                  tenantId: reqTenantId ?? undefined,
-                  user,
                 });
               } catch (err) {
                 live.pendingInvokes.delete(id);
@@ -1739,10 +1243,10 @@ export class WorkerExtensionHost {
             }
             return new Response((err as Error).message, { status: 500 });
           } finally {
-            // Timed out, or the worker died: nothing it wrote is kept. Nor what
-            // the request's tenant transaction holds for it — an inline service
-            // it called wrote there: as for an inline route that threw,
-            // `tenantMiddleware` rolls it back on `c.error`, and keeps this answer.
+            // Timed out, or the worker died: nothing it wrote is kept. What the
+            // request's tenant transaction holds for it is rolled back, as for an
+            // inline route that threw: `tenantMiddleware` does on `c.error`, and
+            // keeps this answer.
             if (!(await endRequestTxn(txn, false))) {
               c.error ??= new Error('the worker request was rolled back');
             }
@@ -1812,18 +1316,12 @@ function currentScope(tenantId: string | null): InvokeScope {
 }
 
 /**
- * `currentScope` plus the request's user and async context, for a call into a
- * worker service (or an event delivered to a worker listener) from the caller's
- * own context: what an inline service called
- * there would see, so the service's `checkPermission` answers for that user (an
- * API key's id too) and no other. Read from the engine's record of the request
- * transaction, never from the caller; no request, no user. Without it a worker
- * service answered false for every user (owner decision L4).
+ * `currentScope` plus the caller's async context, for an action run from the
+ * caller's own context: read from the engine's record of the request
+ * transaction, never from the caller.
  */
 function callerScope(): InvokeScope {
-  const scope = currentScope(getCurrentDomainOrNull());
-  const id = scope.actor?.identity?.userId || scope.actor?.userId;
-  return { ...scope, ...(id ? { user: { id } } : {}), run: AsyncLocalStorage.snapshot() };
+  return { ...currentScope(getCurrentDomainOrNull()), run: AsyncLocalStorage.snapshot() };
 }
 
 /**
@@ -1834,7 +1332,6 @@ function callerScope(): InvokeScope {
  * Refused, not demoted to no tenant: such a message is work a request started
  * and did not wait for (a timer, an un-awaited promise, a handler past the 30 s
  * timeout), still carrying the request's async context after the request ended.
- * Run tenantless, tenant B's leftover work read the default tenant's rows.
  */
 function requestScope(
   managed: ManagedWorker,
@@ -1851,58 +1348,21 @@ function requestScope(
   return managed.invokeTenants.get(requestId);
 }
 
-// Waiter pool for cross-worker service invokes.
+// Waiter pool for action runs, by invoke id.
 //
-// Module-scoped so any host method can stash a resolver under the rpcId — and
-// that used to be the whole story: ANY worker's reply handler could route a
-// response back, for ANY pending id. Combined with sequential ids, a
-// worker-isolated extension could answer a service call made to a DIFFERENT
-// extension and return whatever it liked. Cross-extension service calls are
-// how extensions trust each other, so the caller believed it.
-//
-// `expect` pins the worker that was actually asked. A reply from anyone else
-// is dropped.
+// Module-scoped, and every worker's reply handler reads it: `expect` pins the
+// worker that was actually asked, so a worker cannot answer an action run sent
+// to a DIFFERENT extension with whatever it likes. A reply from anyone else is
+// dropped.
 const invokeWaiters = new Map<
   string,
   {
     expect: string;
-    resolve: (
-      msg: Extract<WorkerToHostMessage, { type: 'service:invoke:ok' | 'service:invoke:err' }>,
-    ) => void;
+    resolve: (msg: Extract<WorkerToHostMessage, { type: 'action:ok' | 'action:err' }>) => void;
     reject: (err: Error) => void;
-    /** An action run: its own extension stopping is not a dependency's. */
-    action?: string;
+    action: string;
   }
 >();
-
-/** Unsubscribe every `ctx.events.on` a worker made. */
-function dropListeners(managed: ManagedWorker): void {
-  for (const off of managed.listeners?.values() ?? []) off();
-  managed.listeners?.clear();
-}
-
-/**
- * `event` if the worker may emit it or listen to it: its own `<name>.*` events,
- * and for `on` those of an extension it declared it depends on. Never the
- * engine's — a `record.*` payload carries rows the worker's own reads would not
- * return — and never another extension's emit, which listeners would believe.
- */
-function refuseEvent(managed: ManagedWorker, event: unknown, op: 'emit' | 'on'): string {
-  const owners = op === 'emit' ? [managed.name] : [managed.name, ...managed.mayCall.keys()];
-  if (
-    typeof event === 'string' &&
-    // The engine's own, whatever an extension is named.
-    !ENGINE_EVENT_NAMESPACES.some((ns) => event.startsWith(ns)) &&
-    owners.some((o) => o !== 'engine' && event.startsWith(`${o}.`))
-  ) {
-    return event;
-  }
-  throw new Error(
-    `extension "${managed.name}" may not ${op === 'emit' ? 'emit' : 'listen to'} ` +
-      `"${String(event)}": a worker-isolated extension ${op === 'emit' ? 'emits' : 'listens to'} ` +
-      `only "<extension>.*" events of its own${op === 'on' ? ' or of its declared dependencies' : ''}`,
-  );
-}
 
 /** Settle every call waiting on `extName`'s worker: it will not answer. */
 function failPendingInvokes(extName: string): void {
@@ -1910,13 +1370,11 @@ function failPendingInvokes(extName: string): void {
     if (waiter.expect !== extName) continue;
     invokeWaiters.delete(id);
     waiter.reject(
-      waiter.action
-        ? problem(
-            'extension.unavailable',
-            503,
-            `extension "${extName}" stopped while running action "${waiter.action}"; nothing it wrote was kept`,
-          )
-        : dependencyDown(extName),
+      problem(
+        'extension.unavailable',
+        503,
+        `extension "${extName}" stopped while running action "${waiter.action}"; nothing it wrote was kept`,
+      ),
     );
   }
 }
@@ -1933,13 +1391,6 @@ function failPendingRoutes(managed: ManagedWorker): void {
 }
 
 const NOT_COMMITTED = 'The request could not be committed; nothing it wrote was kept.';
-
-const DEPENDENCY_DOWN = 'extension.dependency_unavailable';
-
-/** 503, so the HTTP caller sees "try again", not a server fault. */
-function dependencyDown(extName: string): ProblemException {
-  return problem(DEPENDENCY_DOWN, 503, `dependency "${extName}" is not running`);
-}
 
 /**
  * A call into an extension that is not answering (ADR 0056): restarting after a
@@ -1983,16 +1434,12 @@ async function cancelJoinedStatement(txn: RequestTxn): Promise<void> {
   );
 }
 
-function isDependencyDown(err: unknown): boolean {
-  return err instanceof ProblemException && err.code === DEPENDENCY_DOWN;
-}
-
 /**
- * The request transaction a worker service called from inline code joins: the
- * request's own tenant transaction (`tenantMiddleware`), one per request,
- * ordered by its turns (`db/trx-sequencer.ts`) with the caller's statements and
- * `db.transaction()` scopes. Nothing outside a request's transaction — boot,
- * timers, events, jobs — and nothing once the request is ending.
+ * The request transaction a worker route or action joins: the request's own
+ * tenant transaction (`tenantMiddleware`), one per request, ordered by its turns
+ * (`db/trx-sequencer.ts`) with the caller's statements and `db.transaction()`
+ * scopes. Nothing outside a request's transaction — boot, timers, events, jobs
+ * — and nothing once the request is ending.
  */
 const joinedTxns = new WeakMap<object, Promise<RequestTxn>>();
 
@@ -2005,7 +1452,7 @@ async function joinRequestTxn(scope: InvokeScope): Promise<Pick<InvokeScope, 'tx
   const state = requestTransactionState();
   if (state === 'none') return {};
   if (state === 'over') {
-    throw new Error("the request's transaction is over; a worker service cannot join it");
+    throw new Error("the request's transaction is over; a worker-isolated extension cannot join it");
   }
   let pending = joinedTxns.get(trx);
   // Cached as a promise before any await: two first calls under `Promise.all`
@@ -2024,7 +1471,7 @@ async function openJoinedTxn(trx: Database): Promise<RequestTxn> {
   const on = await transactionTurns(trx);
   // Every transaction `getDb()` opens is sequenced; one that is not cannot be
   // shared safely, and the call is refused rather than run beside it.
-  if (!on) throw new Error("the request's transaction cannot be joined by a worker service");
+  if (!on) throw new Error("the request's transaction cannot be joined by a worker-isolated extension");
   // Read once, when the first call joins: a timeout then cancels what runs on
   // the connection (`cancelJoinedStatement`) without needing it.
   const { rows } = await on.send(
@@ -2034,7 +1481,7 @@ async function openJoinedTxn(trx: Database): Promise<RequestTxn> {
   // Ends before the request's transaction does: what is still queued is refused,
   // so no statement of the worker's lands after it.
   if (!beforeRequestTransactionEnds(() => endRequestTxn(joined, true))) {
-    throw new Error("the request's transaction cannot be joined by a worker service");
+    throw new Error("the request's transaction cannot be joined by a worker-isolated extension");
   }
   return joined;
 }
