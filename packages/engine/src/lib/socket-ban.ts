@@ -25,8 +25,6 @@
  * little-endian on both architectures.
  */
 
-import { fileURLToPath } from 'node:url';
-import { runningAsCompiledBinary } from './edge-functions/runner-sentinel.js';
 
 // linux/audit.h
 const AUDIT_ARCH = { x64: 0xc000003e, arm64: 0xc00000b7 } as const;
@@ -89,82 +87,59 @@ export function socketBanFilter(arch: string = process.arch): Uint8Array {
   return new Uint8Array(out.buffer);
 }
 
-/** The argument that makes this binary load the filter into itself and exec the rest. */
-export const SOCKET_BAN_SENTINEL = '__socket-ban-exec';
 /** The environment the banned process gets, carried past the loader as JSON. */
 const EXEC_ENV = 'ZVELTIO_SOCKET_BAN_ENV';
 
 /**
- * What the runner spawns instead of `argv`, `env`: this binary under
- * SOCKET_BAN_SENTINEL (`binary-entry.ts`), which loads the filter and execs
- * `argv` with exactly `env`. The runner's own process keeps AF_UNIX for its
- * socket; everything it starts runs under the filter, containers and systemd
- * alike. Not `setpriv --seccomp-filter`: the bare-metal hosts (Ubuntu 22.04
- * and 24.04, Debian 11 and 12) ship util-linux older than 2.41.
- * No BUN_BE_BUN here: it would turn the binary into plain `bun`, which never
- * reads the sentinel. Running from source, `bun binary-entry.ts` reaches it.
+ * What the runner spawns instead of `argv`, `env`: this binary as plain Bun
+ * (BUN_BE_BUN, about 5 ms; the engine bundle's own entry costs 200), running
+ * a loader that sets no_new_privs, loads the filter on its thread — the one
+ * that execs, so nothing of it outlives the exec unbanned — and execs `argv`
+ * with exactly `env`. The runner keeps AF_UNIX for its own socket; everything
+ * it starts runs under the filter, containers and systemd alike. Not
+ * `setpriv --seccomp-filter`: the bare-metal hosts (Ubuntu 22.04 and 24.04,
+ * Debian 11 and 12) ship util-linux older than 2.41. Nothing on disk for a
+ * process to rewrite before the next one starts. The loader reads its argv
+ * from /proc/self/cmdline: `bun -e` drops a `--` from process.argv.
  */
 export function socketBanned(
   argv: string[],
   env: Record<string, string>,
 ): { argv: string[]; env: Record<string, string> } {
-  const entry = runningAsCompiledBinary()
-    ? []
-    : [fileURLToPath(new URL('../binary-entry.ts', import.meta.url))];
+  const filter = Buffer.from(socketBanFilter()).toString('base64');
+  const loader = `const { dlopen, FFIType: T, ptr } = require('bun:ffi');
+const fail = (why) => { console.error('[socket-ban] ' + why); process.exit(126); };
+const argv = require('node:fs').readFileSync('/proc/self/cmdline', 'latin1').split('\\0').slice(3, -1);
+const env = JSON.parse(process.env.${EXEC_ENV});
+const file = argv[0].includes('/') ? argv[0] : Bun.which(argv[0]);
+if (!file) fail(argv[0] + ': not found');
+const { symbols: c } = dlopen('libc.so.6', {
+  prctl: { args: [T.i32, T.u64, T.u64, T.u64, T.u64], returns: T.i32 },
+  execve: { args: [T.ptr, T.ptr, T.ptr], returns: T.i32 },
+});
+// Every buffer a pointer names stays referenced until execve.
+const keep = [];
+const cstr = (s, enc) => { const b = Buffer.from(s + '\\0', enc); keep.push(b); return BigInt(ptr(b)); };
+const list = (xs, enc) => { const v = new BigUint64Array([...xs.map((x) => cstr(x, enc)), 0n]); keep.push(v); return v; };
+const prog = Buffer.from('${filter}', 'base64');
+// struct sock_fprog { u16 len; struct sock_filter *filter; }
+const fprog = new BigUint64Array([BigInt(prog.length / 8), BigInt(ptr(prog))]);
+// PR_SET_NO_NEW_PRIVS, then PR_SET_SECCOMP with SECCOMP_MODE_FILTER.
+if (c.prctl(38, 1, 0, 0, 0) !== 0) fail('PR_SET_NO_NEW_PRIVS failed');
+if (c.prctl(22, 2, BigInt(ptr(fprog)), 0, 0) !== 0) fail('the kernel refused the seccomp filter');
+const path = Buffer.from(file + '\\0', 'latin1');
+// argv back as the bytes it came in; env as the UTF-8 JSON carried.
+c.execve(path, list(argv, 'latin1'), list(Object.entries(env).map(([k, v]) => k + '=' + v), 'utf8'));
+fail('execve ' + file + ' failed');`;
   return {
-    argv: [process.execPath, ...entry, SOCKET_BAN_SENTINEL, ...argv],
+    argv: [process.execPath, '-e', loader, ...argv],
     env: {
+      BUN_BE_BUN: '1',
       [EXEC_ENV]: JSON.stringify(env),
       // To find argv[0] as spawn did: the child's PATH, else the runner's.
       PATH: env.PATH ?? process.env.PATH ?? '/usr/sbin:/usr/bin:/sbin:/bin',
     },
   };
-}
-
-/**
- * The SOCKET_BAN_SENTINEL side: no_new_privs, the filter on this thread (the
- * one that execs, so nothing of this process outlives it unbanned), then
- * execve. Returns only by exiting 126 with the reason.
- */
-export async function execUnderSocketBan(argv: string[]): Promise<never> {
-  const fail = (why: string): never => {
-    console.error(`[socket-ban] ${why}`);
-    process.exit(126);
-  };
-  const env = JSON.parse(process.env[EXEC_ENV] ?? 'null') as Record<string, string> | null;
-  if (!env || !argv[0]) return fail(`usage: ${SOCKET_BAN_SENTINEL} <argv...> with ${EXEC_ENV}`);
-  const file = argv[0].includes('/') ? argv[0] : Bun.which(argv[0]);
-  if (!file) return fail(`${argv[0]}: not found`);
-  const { dlopen, FFIType: T, ptr } = await import('bun:ffi');
-  const { symbols: c } = dlopen('libc.so.6', {
-    prctl: { args: [T.i32, T.u64, T.u64, T.u64, T.u64], returns: T.i32 },
-    execve: { args: [T.ptr, T.ptr, T.ptr], returns: T.i32 },
-  });
-  // Every buffer a pointer names stays referenced until execve.
-  const keep: ArrayBufferView[] = [];
-  const cstr = (s: string) => {
-    const b = Buffer.from(`${s}\0`);
-    keep.push(b);
-    return BigInt(ptr(b));
-  };
-  const list = (xs: string[]) => {
-    const v = new BigUint64Array([...xs.map(cstr), 0n]);
-    keep.push(v);
-    return ptr(v);
-  };
-  const prog = socketBanFilter();
-  // struct sock_fprog { u16 len; struct sock_filter *filter; }
-  const fprog = new BigUint64Array([BigInt(prog.length / 8), BigInt(ptr(prog))]);
-  const PR_SET_SECCOMP = 22;
-  const PR_SET_NO_NEW_PRIVS = 38;
-  const SECCOMP_MODE_FILTER = 2;
-  if (c.prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) !== 0) return fail('PR_SET_NO_NEW_PRIVS failed');
-  if (c.prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, BigInt(ptr(fprog)), 0, 0) !== 0) {
-    return fail('the kernel refused the seccomp filter');
-  }
-  const path = Buffer.from(`${file}\0`);
-  c.execve(path, list(argv), list(Object.entries(env).map(([k, v]) => `${k}=${v}`)));
-  return fail(`execve ${file} failed`);
 }
 
 /**
