@@ -242,4 +242,48 @@ describe('loadView + ViewRenderer', () => {
       ['/admin/crm/bad', false],
     ]);
   });
+
+  it('a toolbar button with a `when` is not drawn: no record is in scope', () => {
+    const html = draw({
+      kind: 'list',
+      view: {
+        type: 'list',
+        collection: 'deals',
+        actions: [
+          { action: 'go', label: 'GO', when: [{ field: 'stage', op: 'null' }] },
+          { action: 'all', label: 'ALL' },
+        ],
+      },
+      columns: [],
+      rows: [],
+    });
+    expect(html).not.toContain('>GO<');
+    expect(html).toContain('>ALL<');
+  });
+
+  it('onOpen runs once per record across reads, and its failure does not stop the read', async () => {
+    const { client, calls } = fakeClient();
+    const view: View = {
+      type: 'detail',
+      collection: 'deals',
+      record: { $param: 'id' },
+      onOpen: { action: 'markRead', input: { id: { $record: 'id' } } },
+    };
+    const opened = new WeakMap();
+    const posts = () => calls.filter((c) => c.startsWith('POST')).length;
+    for (let i = 0; i < 3; i++)
+      await loadView(client, 'crm', view, { params: { id: 'a' } }, opened);
+    expect(posts()).toBe(1);
+    await loadView(client, 'crm', view, { params: { id: 'b' } }, opened);
+    expect(posts()).toBe(2);
+
+    client.post = async () => {
+      throw new Error('refused');
+    };
+    const n = await loadView(client, 'crm', view, { params: { id: 'a' } });
+    expect(n.kind).toBe('detail');
+    const html = draw(n);
+    expect(html).toContain('Alpha');
+    expect(html).toContain('refused');
+  });
 });
