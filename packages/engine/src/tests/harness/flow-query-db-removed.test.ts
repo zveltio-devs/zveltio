@@ -107,6 +107,7 @@ d('flow query_db is removed (ADR 0058)', () => {
       json('PUT', { type: 'query_db', config: { query: 'SELECT 1' } }),
     );
     expect(retype.status).toBe(400);
+    expect(await retype.text()).toContain('ADR 0058');
   });
 
   it('the CHECK refuses a new query_db row', async () => {

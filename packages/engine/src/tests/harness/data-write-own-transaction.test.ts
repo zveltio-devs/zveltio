@@ -59,6 +59,7 @@ d('a data API write needs its tenant transaction (ADR 0035)', () => {
   /** Each `record.created` of this file's collection, and whether its listener met a transaction. */
   const listened: Array<{ title: string; inTrx: boolean }> = [];
   let unlisten = () => {};
+  let publishSpy: ReturnType<typeof spyOn> | undefined;
 
   const committed = async (title: string) =>
     (
@@ -113,7 +114,7 @@ d('a data API write needs its tenant transaction (ADR 0035)', () => {
     ).rows[0]!.id;
     const bus = realtimeBus();
     const publish = bus.publish.bind(bus);
-    spyOn(bus, 'publish').mockImplementation(async (e) => {
+    publishSpy = spyOn(bus, 'publish').mockImplementation(async (e) => {
       const ev = e as { collection?: string; data?: { title?: string } };
       if (ev.collection === C) {
         const title = String(ev.data?.title);
@@ -133,6 +134,7 @@ d('a data API write needs its tenant transaction (ADR 0035)', () => {
 
   afterAll(async () => {
     unlisten();
+    publishSpy?.mockRestore();
     if (!db) return;
     await sql`DELETE FROM zv_flow_runs WHERE flow_id = ${flow}::uuid`.execute(db).catch(() => {});
     await asDefaultTenant(db, sql`DELETE FROM zv_flows WHERE id = ${flow}::uuid`).catch(() => {});
