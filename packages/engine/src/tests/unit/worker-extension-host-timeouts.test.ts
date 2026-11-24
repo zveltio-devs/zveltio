@@ -1,11 +1,11 @@
 /**
- * WorkerExtensionHost — cross-worker service + route invoke timeouts.
+ * WorkerExtensionHost — action run + route invoke timeouts.
  */
 
-import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, jest, spyOn } from 'bun:test';
+import type { ActionHost } from '@zveltio/sdk/extension';
 import { Hono } from 'hono';
 import { WorkerExtensionHost, _internalForTests } from '../../lib/worker-extension-host.js';
-import { callableDeps } from '../../lib/service-registry.js';
 
 const { dispatchMessage, mountProxy, resetInvokeWaiters } = _internalForTests;
 
@@ -14,8 +14,6 @@ function makeManaged(
   overrides: {
     name: string;
     routes?: { method: string; path: string }[];
-    registeredServices?: string[];
-    dependencies?: string[];
   },
 ) {
   const posted: unknown[] = [];
@@ -34,9 +32,6 @@ function makeManaged(
     invokeTenants: new Map(),
     pendingInits: new Map(),
     pendingPings: new Map(),
-    registeredServices: new Set(overrides.registeredServices ?? []),
-    dependencies: new Set(overrides.dependencies ?? []),
-    mayCall: callableDeps(overrides.dependencies ?? []),
     proxyUnmount: () => {},
     workerGeneration: 1,
     enabledAt: Date.now(),
@@ -60,33 +55,23 @@ afterEach(() => {
 });
 
 describe('WorkerExtensionHost — invoke timeouts', () => {
-  it('returns service:err when a cross-worker service call times out', async () => {
+  it('answers 504 when an action run outlives its timeout', async () => {
     const host = new WorkerExtensionHost(new Hono());
-    makeManaged(host, { name: 'owner-timeout', registeredServices: ['slow.svc'] });
-    const { managed: caller, posted } = makeManaged(host, {
-      name: 'caller-timeout',
-      dependencies: ['owner-timeout'],
-    });
-
-    dispatchMessage(host, caller, {
-      type: 'service:call',
-      id: 'svc-timeout',
-      name: 'slow.svc',
-      args: [],
-    });
-
-    await Promise.resolve();
-    jest.advanceTimersByTime(30_001);
-    await Promise.resolve();
-
-    const err = posted.find(
-      (m) =>
-        typeof m === 'object' &&
-        m !== null &&
-        (m as { type?: string }).type === 'service:err' &&
-        (m as { id?: string }).id === 'svc-timeout',
-    ) as { error?: string } | undefined;
-    expect(err?.error).toContain('call timeout');
+    makeManaged(host, { name: 'owner-timeout' });
+    const errors = spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const run = host.runAction('owner-timeout', 'slow', {}, {
+        timezone: 'UTC',
+      } as unknown as ActionHost);
+      await Promise.resolve();
+      jest.advanceTimersByTime(30_001);
+      await expect(run).rejects.toMatchObject({
+        status: 504,
+        message: expect.stringContaining('call timeout'),
+      });
+    } finally {
+      errors.mockRestore();
+    }
   });
 
   it('returns 504 when a proxied route invoke times out', async () => {
@@ -108,9 +93,6 @@ describe('WorkerExtensionHost — invoke timeouts', () => {
       invokeTenants: new Map(),
       pendingInits: new Map(),
       pendingPings: new Map(),
-      registeredServices: new Set<string>(),
-      dependencies: new Set<string>(),
-      mayCall: new Map<string, boolean>(),
       proxyUnmount: () => {},
       workerGeneration: 1,
       enabledAt: Date.now(),

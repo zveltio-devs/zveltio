@@ -1,22 +1,20 @@
-// The host side of the step-7 ctx contract: a worker's `host:call` is answered
-// from the host's own record of the request it names — never from anything the
-// worker says about who it is, which tenant it serves or which extension it is.
+// The host side of a worker's `host:call`: answered from the host's own record
+// of the invocation it names — never from anything the worker says about who it
+// is, which tenant it serves or which extension it is — and only for what a
+// declared route or action may call.
 import { describe, expect, it } from 'bun:test';
 import { Hono } from 'hono';
 import type {
   HostToWorkerMessage,
   WorkerToHostMessage,
 } from '../../lib/worker-extension-protocol.js';
-import { callableDeps } from '../../lib/service-registry.js';
 import { problem } from '../../lib/problem.js';
-import { engineEvents } from '../../lib/runtime/index.js';
 import { WorkerExtensionHost, _internalForTests } from '../../lib/worker-extension-host.js';
 
 const { dispatchMessage, mountProxy } = _internalForTests;
 const U1 = 'user-1';
-const GOD = 'user-god';
 
-function setup(name = 'probe', deps: string[] = []) {
+function setup(name = 'probe') {
   const host = new WorkerExtensionHost(new Hono());
   const posted: HostToWorkerMessage[] = [];
   const checks: unknown[][] = [];
@@ -31,20 +29,17 @@ function setup(name = 'probe', deps: string[] = []) {
     routes: [] as { method: string; path: string }[],
     pendingInvokes: new Map(),
     invokeTenants: new Map<string, unknown>(),
-    registeredServices: new Set<string>(),
-    dependencies: new Set(deps),
-    mayCall: callableDeps(deps),
     source: {
-      checkPermission: async (...args: unknown[]) => {
+      collections: async (...args: unknown[]): Promise<unknown> => {
         checks.push(args);
-        return true;
+        return { answered: args[1] };
       },
     },
     proxyUnmount: () => {},
     stopped: false,
   };
   // The host's record of a request it dispatched for U1.
-  managed.invokeTenants.set('inv-1', { tenantId: null, user: { id: U1 } });
+  managed.invokeTenants.set('inv-1', { tenantId: null });
   const call = async (msg: Record<string, unknown>) => {
     posted.length = 0;
     dispatchMessage(
@@ -68,160 +63,78 @@ function setup(name = 'probe', deps: string[] = []) {
   return { host, managed, call, checks, posted };
 }
 
-describe('worker host call: checkPermission', () => {
-  it("answers for the request's user, with the inline extension's own check", async () => {
-    const { call, checks } = setup();
-    const res = await call({
-      op: 'checkPermission',
-      args: [U1, 'crm', 'read'],
-      requestId: 'inv-1',
+describe('worker host call: declared model only (RFC v3 phase D slice 4, S2)', () => {
+  // The test override's unsigned worker is the one `setup` builds: no key id,
+  // no registry key. It used to be served every op below with the inline
+  // extension's own answers; now no worker, signed or not, is.
+  const OFF_MODEL = [
+    ['checkPermission', [U1, 'crm', 'read']],
+    ['getUserRoles', [U1]],
+    ['getSession', []],
+    ['emit', ['probe.ping', {}, true]],
+    ['on', ['probe.ping', 'l1']],
+    ['off', ['l1']],
+    ['waitForService', ['probe.x', 10]],
+    ['unregisterService', ['probe.x']],
+    ['describeDenial', ['crm', 'read']],
+    ['internals', []],
+  ] as const;
+  for (const [op, args] of OFF_MODEL) {
+    it(`refuses ${op} from an unsigned worker, asking nothing inline`, async () => {
+      const { call, checks } = setup();
+      const res = await call({ op, args, requestId: 'inv-1' });
+      expect(res.type).toBe('host:err');
+      expect(res.error).toContain('declared model only');
+      expect(checks).toEqual([]);
     });
-    expect(res).toEqual({ type: 'host:ok', id: 'c1', result: true });
-    expect(checks).toEqual([[U1, 'crm', 'read']]);
+  }
+
+  it("answers a route's host.collections from the host's record of its request", async () => {
+    const { call, managed, checks } = setup();
+    const c = { req: 'the request' };
+    managed.invokeTenants.set('inv-r', { tenantId: null, route: { extName: 'probe', c } });
+    const res = await call({
+      op: 'collections',
+      args: ['collections.read', 'items', '1'],
+      requestId: 'inv-r',
+    });
+    expect(res).toEqual({ type: 'host:ok', id: 'c1', result: { answered: 'collections.read' } });
+    expect(checks).toEqual([[c, 'collections.read', ['items', '1']]]);
   });
 
-  it('refuses any other user the worker names, without asking Casbin', async () => {
-    const { call, checks } = setup();
-    const res = await call({
-      op: 'checkPermission',
-      args: [GOD, 'crm', 'read'],
-      requestId: 'inv-1',
-    });
-    expect(res.result).toBe(false);
-    expect(checks).toEqual([]);
-  });
-
-  it('ignores an identity smuggled into the message', async () => {
-    const { call, checks } = setup();
-    const res = await call({
-      op: 'checkPermission',
-      args: [GOD, 'crm', 'read'],
-      requestId: 'inv-1',
-      user: { id: GOD },
-      tenantId: 'other-tenant',
-    });
-    expect(res.result).toBe(false);
-    expect(checks).toEqual([]);
-  });
-
-  it('answers false outside any request', async () => {
-    const { call, checks } = setup();
-    const res = await call({ op: 'checkPermission', args: [U1, 'crm', 'read'] });
-    expect(res.result).toBe(false);
-    expect(checks).toEqual([]);
+  it('refuses host.collections outside a route request of this extension', async () => {
+    const { call, managed } = setup();
+    managed.invokeTenants.set('inv-o', { tenantId: null, route: { extName: 'other', c: {} } });
+    for (const requestId of [undefined, 'inv-1', 'inv-o']) {
+      const res = await call({ op: 'collections', args: ['collections.read', 'x', '1'], requestId });
+      expect(res.type).toBe('host:err');
+      expect(res.error).toContain('answers only in a route request of this extension');
+    }
   });
 
   it('refuses a request id the host never issued, or that is over', async () => {
     const { call } = setup();
     const res = await call({
-      op: 'checkPermission',
-      args: [U1, 'crm', 'read'],
+      op: 'collections',
+      args: ['collections.read', 'x', '1'],
       requestId: 'inv-x',
     });
     expect(res.type).toBe('host:err');
     expect(res.error).toContain('is over (or was never issued)');
   });
 
-  it("cannot borrow another extension's request", async () => {
-    const other = setup('other');
-    const res = await other.call({
-      op: 'checkPermission',
-      args: [U1, 'crm', 'read'],
-      requestId: 'inv-elsewhere',
-    });
-    expect(res.type).toBe('host:err');
-  });
-
-  it('carries a 503 the check raises, as inline problemOnError would answer it', async () => {
+  it('carries the status of a refusal, as inline problemOnError would answer it', async () => {
     const { call, managed } = setup();
-    managed.source.checkPermission = async () => {
+    managed.invokeTenants.set('inv-r', { tenantId: null, route: { extName: 'probe', c: {} } });
+    managed.source.collections = async () => {
       throw problem('permission.unavailable', 503, 'retry');
     };
     const res = await call({
-      op: 'checkPermission',
-      args: [U1, 'crm', 'read'],
-      requestId: 'inv-1',
+      op: 'collections',
+      args: ['collections.list', 'x', {}],
+      requestId: 'inv-r',
     });
     expect(res).toMatchObject({ type: 'host:err', status: 503 });
-  });
-});
-
-describe('worker host call: session', () => {
-  it("is the request's own, whatever the worker sent", async () => {
-    const { call, managed } = setup();
-    managed.invokeTenants.set('inv-2', {
-      tenantId: null,
-      session: async () => ({ user: { id: U1 } }),
-    });
-    expect((await call({ op: 'getSession', args: [], requestId: 'inv-2' })).result).toEqual({
-      user: { id: U1 },
-    });
-    expect((await call({ op: 'getSession', args: [] })).result).toBe(null);
-  });
-
-  it('never carries the session token, the credential itself', async () => {
-    const { call, managed } = setup();
-    managed.invokeTenants.set('inv-2', {
-      tenantId: null,
-      session: async () => ({ user: { id: U1 }, session: { id: 's1', userId: U1, token: 'tok' } }),
-    });
-    expect((await call({ op: 'getSession', args: [], requestId: 'inv-2' })).result).toEqual({
-      user: { id: U1 },
-      session: { id: 's1', userId: U1 },
-    });
-  });
-});
-
-describe('worker host call: events', () => {
-  it("emits only the extension's own events", async () => {
-    const { call } = setup();
-    const seen: unknown[] = [];
-    const off = engineEvents.on('probe.ping' as never, ((p: unknown) => seen.push(p)) as never);
-    try {
-      expect((await call({ op: 'emit', args: ['probe.ping', { n: 1 }, true] })).type).toBe(
-        'host:ok',
-      );
-      expect(seen).toEqual([{ n: 1 }]);
-      for (const event of ['record.created', 'other.ping', 'probeX.ping']) {
-        const res = await call({ op: 'emit', args: [event, {}, false] });
-        expect(res.type).toBe('host:err');
-        expect(res.error).toContain(`may not emit "${event}"`);
-      }
-    } finally {
-      off();
-    }
-  });
-
-  it('an extension named like an engine namespace still cannot use engine events', async () => {
-    const { call } = setup('record', ['user']);
-    for (const op of ['emit', 'on']) {
-      for (const event of ['record.created', 'user.login']) {
-        expect((await call({ op, args: [event, 'k', false] })).type).toBe('host:err');
-      }
-    }
-  });
-
-  it('listens to its own and its declared dependencies, never the engine or a stranger', async () => {
-    const { call, managed, host } = setup('probe', ['dep']);
-    for (const event of ['probe.ping', 'dep.ping']) {
-      expect((await call({ op: 'on', args: [event, event] })).type).toBe('host:ok');
-    }
-    for (const event of ['record.created', 'stranger.ping']) {
-      const res = await call({ op: 'on', args: [event, 'k'] });
-      expect(res.error).toContain(`may not listen to "${event}"`);
-    }
-    const before = engineEvents.listenerCount('dep.ping' as never);
-    expect((await call({ op: 'off', args: ['dep.ping'] })).type).toBe('host:ok');
-    expect(engineEvents.listenerCount('dep.ping' as never)).toBe(before - 1);
-    // Stopping the worker drops what is left.
-    (host as unknown as { workers: Map<string, unknown> }).workers.set('probe', managed);
-    await host.stop('probe');
-    expect(engineEvents.listenerCount('probe.ping' as never)).toBe(0);
-  });
-
-  it('refuses an op it does not know', async () => {
-    const { call } = setup();
-    expect((await call({ op: 'internals', args: [] })).error).toContain('unknown host call');
   });
 });
 

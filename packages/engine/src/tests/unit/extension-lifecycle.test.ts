@@ -150,7 +150,6 @@ describe('unloadExtension', () => {
       name: 'e-worker',
       stopped: false,
       heartbeatTimer: undefined,
-      registeredServices: new Set<string>(),
       pendingInvokes: new Map(),
       proxyUnmount: () => {
         unmounted = true;
@@ -179,7 +178,6 @@ describe('unloadExtension', () => {
     hostWorkers(host).set('e-stuck', {
       name: 'e-stuck',
       stopped: false,
-      registeredServices: new Set<string>(),
       pendingInvokes: new Map(),
       proxyUnmount: () => {
         throw new Error('unmount boom');

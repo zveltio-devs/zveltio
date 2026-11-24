@@ -156,7 +156,6 @@ describe('WorkerExtensionHost — duplicate start guard', () => {
       invokeTenants: new Map(),
       pendingInits: new Map(),
       pendingPings: new Map(),
-      registeredServices: new Set(),
       proxyUnmount: () => {},
       workerGeneration: 1,
       enabledAt: Date.now(),

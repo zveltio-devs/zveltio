@@ -416,7 +416,6 @@ for (const m of [
           id: `init-${bundleSha256.slice(0, 4)}`,
           bundleUrl: pathToFileURL(file).href,
           bundleSha256,
-          declaredOnly: true,
           extName: name,
           env: { extensionPath: dir },
         });
