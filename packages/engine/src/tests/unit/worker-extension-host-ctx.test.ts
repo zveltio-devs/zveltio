@@ -11,7 +11,7 @@ import type {
 import { problem } from '../../lib/problem.js';
 import { WorkerExtensionHost, _internalForTests } from '../../lib/worker-extension-host.js';
 
-const { dispatchMessage, mountProxy } = _internalForTests;
+const { dispatchMessage, mountProxy, invokeWaiterCount } = _internalForTests;
 const U1 = 'user-1';
 
 function setup(name = 'probe') {
@@ -194,5 +194,22 @@ describe('worker route body past the frame limit', () => {
     const res = await app.request('/ext/probe/x', { method: 'POST', body: 'x' });
     expect(res.status).toBe(413);
     expect(managed.pendingInvokes.size).toBe(0);
+  });
+});
+
+describe('worker action args past the frame limit', () => {
+  it('fails the call and leaves no waiter behind', async () => {
+    const { FrameTooLargeError } = await import('../../lib/worker-extension-transport.js');
+    const host = new WorkerExtensionHost(new Hono());
+    const { managed } = setup();
+    managed.worker.postMessage = () => {
+      throw new FrameTooLargeError('frame of 40000000 bytes exceeds 33554432');
+    };
+    (host as unknown as { workers: Map<string, unknown> }).workers.set('probe', managed);
+    const before = invokeWaiterCount();
+    await expect(
+      host.runAction('probe', 'big', {}, { timezone: 'UTC' } as never),
+    ).rejects.toThrow();
+    expect(invokeWaiterCount()).toBe(before);
   });
 });

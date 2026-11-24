@@ -993,7 +993,7 @@ export class WorkerExtensionHost {
         Extract<WorkerToHostMessage, { type: 'action:ok' | 'action:err' }>
       >((resolve, reject) => {
         invokeWaiters.set(invokeId, { expect: target.name, action: name, resolve, reject });
-        setTimeout(
+        const timer = setTimeout(
           () => {
             if (!invokeWaiters.has(invokeId)) return;
             invokeWaiters.delete(invokeId);
@@ -1009,7 +1009,15 @@ export class WorkerExtensionHost {
           },
           scope.txn ? requestTxnTimeoutMs : REQUEST_TXN_TIMEOUT_MS,
         );
-        this.post(target, { type: 'action:invoke', id: invokeId, name, args });
+        try {
+          this.post(target, { type: 'action:invoke', id: invokeId, name, args });
+        } catch (err) {
+          // Never sent (a frame past the limit): nothing waits, and no timer is
+          // left to cancel the caller's statement 30 s later.
+          invokeWaiters.delete(invokeId);
+          clearTimeout(timer);
+          reject(err);
+        }
       });
       if (reply.type === 'action:err') {
         // An action's refusal as it was raised: the engine's own, or one it threw.
@@ -1187,7 +1195,7 @@ export class WorkerExtensionHost {
                 live.pendingInvokes.delete(id);
                 live.invokeTenants.delete(id);
                 const err = this.timedOut(live, `route ${r.method} ${r.path}`);
-                // As an action's (`invokeWorkerService`): its statement first.
+                // As an action's (`invokeAction`): its statement first.
                 if (txn.joined) void cancelJoinedStatement(txn).finally(() => reject(err));
                 else reject(err);
                 // The request's hard timeout, the same as its transaction's: a
@@ -1271,6 +1279,7 @@ export class WorkerExtensionHost {
 
 /** Test-only export — never import outside src/tests/. */
 export const _internalForTests = {
+  invokeWaiterCount: () => invokeWaiters.size,
   dispatchMessage(
     host: WorkerExtensionHost,
     managed: ManagedWorker,
