@@ -213,14 +213,14 @@ the filesystem, and the worker imports the bundle itself. From there:
 
 - Every worker is declared model only (ADR 0056 d1, amendment 2026-11-21; RFC
   extension-model-v3 phase D slice 4): collections, actions, jobs and declared
-  routes — a signed one, level 2 (registry-signed community) or level 3
-  (operator key), and the test override's unsigned one alike. Its `register()`
+  routes — level 2 (registry-signed community) or level 3 (operator key), the
+  only workers that run. Its `register()`
   may use neither its app nor its `ctx`; the host answers only the `host` calls
   of its declared routes and actions, and any other frame it sends — SQL, a
   service, an event, a `ctx` member, forged or not — runs nothing; it serves
-  only the routes its manifest declares; and for a signed one
-  `engine/migrations/*.sql` refuses the load. An unsigned extension never runs
-  outside the test override.
+  only the routes its manifest declares; and `engine/migrations/*.sql` refuses
+  the load. An unsigned worker never runs, under the test suite's inline
+  override too: worker fixtures are signed with a test operator key.
 - No SQL crosses from any worker (RFC extension-model-v3 decision 2, phase D
   slice 4): a `db:query` frame is not part of the protocol, and the host runs
   nothing for it. A worker reaches its collections through `host.collections`,

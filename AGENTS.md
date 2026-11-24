@@ -353,8 +353,10 @@ generated).
   key on `OPERATOR_PUBLIC_KEYS_JSON` (`docs/extensions/signatures.md`). No
   `NODE_ENV` is an exception: a `zveltio-extensions` checkout a dev or test
   engine loads is signed first (`bun scripts/sign-as-registry.ts <dir>
-  [--key-id <id>]`); an in-process harness test with unsigned fixtures uses
-  `_setInlineForTests`.
+  [--key-id <id>]`); an in-process harness test with unsigned inline fixtures
+  uses `_setInlineForTests`. A worker fixture is never unsigned: sign it with
+  `signAsOperator` (`packages/engine/src/testing/operator-signed.ts`), as the
+  override no longer lets a worker in.
 - Edge functions run in a separate process per invocation with a minimal env,
   a kernel memory ceiling (`EDGE_MEMORY_LIMIT_MB`) and a wall-clock kill. There
   is no in-process mode; `EDGE_SANDBOX_MODE` is ignored. A function that lists
