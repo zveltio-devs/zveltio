@@ -21,9 +21,9 @@ const NAME = `it_view_${Date.now().toString(36)}`;
 const EVENTS = `it_events_${Date.now().toString(36)}`;
 /** A tree with an order: a move is one bulk write. */
 const OUTLINE = `it_outline_${Date.now().toString(36)}`;
-const p2 = (n: number) => String(n).padStart(2, '0');
-const day = (d: Date) => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
-const TODAY = day(new Date());
+// A UTC date: the timeline window is computed in UTC (#1872), so a local date
+// falls outside it near midnight on a machine east or west of UTC.
+const TODAY = new Date().toISOString().slice(0, 10);
 
 beforeAll(async () => {
   await api.post('/api/collections', {
@@ -184,6 +184,8 @@ describe('view/2 renderer — against the engine', () => {
     const second = (
       await dataApi.list(OUTLINE, { filter: JSON.stringify({ title: { eq: 'Second' } }) })
     ).records[0];
+    const bulk = vi.spyOn(dataApi, 'bulkUpdate');
+    const update = vi.spyOn(dataApi, 'update');
     await fireEvent.click(
       container.querySelector(`[data-node="${second.id}"] [aria-label="Move up"]`) as HTMLElement,
     );
@@ -197,5 +199,9 @@ describe('view/2 renderer — against the engine', () => {
       },
       { timeout: 10_000 },
     );
+    expect(bulk).toHaveBeenCalledOnce();
+    expect(update).not.toHaveBeenCalled();
+    bulk.mockRestore();
+    update.mockRestore();
   });
 });

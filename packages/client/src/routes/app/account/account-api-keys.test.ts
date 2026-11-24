@@ -37,6 +37,9 @@ describe('/app/account API keys', () => {
     });
     await fireEvent.click(screen.getByLabelText('read Tasks'));
     await fireEvent.click(screen.getByLabelText('update Tasks'));
+    // Ticked, then unticked: a collection left with no action is no scope.
+    await fireEvent.click(screen.getByLabelText('read notes'));
+    await fireEvent.click(screen.getByLabelText('read notes'));
     await fireEvent.input(screen.getAllByLabelText('Name')[1]!, { target: { value: 'ci' } });
     await fireEvent.click(screen.getByRole('button', { name: 'Issue key' }));
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { cell, fromInput, inputKind, isWritable, toInput } from '@zveltio/ui/fields';
 
 describe('workspace field mapping', () => {
@@ -25,6 +25,16 @@ describe('workspace field mapping', () => {
   it('round-trips a timestamp through the local datetime input', () => {
     const stored = '2026-10-27T18:30:42.000Z';
     expect(fromInput('datetime-local', toInput('datetime-local', stored), 't')).toBe(stored);
+  });
+
+  it('fills the datetime input with the local wall clock, not UTC', () => {
+    // CI runs in UTC, where the round trip above holds without any offset.
+    const offset = vi.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(-120);
+    try {
+      expect(toInput('datetime-local', '2026-10-27T18:30:42.000Z')).toBe('2026-10-27T20:30:42');
+    } finally {
+      offset.mockRestore();
+    }
   });
 
   it('shows objects as JSON and cuts long text', () => {
