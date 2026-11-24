@@ -106,7 +106,15 @@ export interface Column {
 /** What a view shows, read; the tree follows the view's. `from`: the kind it stands in for. */
 export type Loaded = { from?: string } & (
   | { kind: 'list'; view: ListView; columns: Column[]; rows: Row[]; total?: number }
-  | { kind: 'detail'; view: DetailView; columns: Column[]; record: Row | null; panels: Loaded[] }
+  | {
+      kind: 'detail';
+      view: DetailView;
+      columns: Column[];
+      record: Row | null;
+      panels: Loaded[];
+      /** Why `onOpen` failed: reported, the record still shown. */
+      error?: string;
+    }
   | { kind: 'form'; view: FormView; columns: Column[]; record: Row | null }
   | { kind: 'stat'; view: StatView; value: unknown }
   | { kind: 'split' | 'tabs'; view: View; children: Loaded[] }
@@ -132,12 +140,16 @@ const INPUT_TYPE: Record<string, string> = {
  * Reads what `view` shows, as the client's caller. A reference with no value
  * yet (no row selected in the pane it names) reads nothing; an engine refusal
  * throws `ZveltioApiError`.
+ *
+ * `opened`: the record each detail's `onOpen` last ran for. Pass the same map
+ * to every read of a page so `onOpen` runs once per record, not once per read.
  */
 export async function loadView(
   client: ZveltioClient,
   extension: string,
   view: View,
   scope: ViewScope = {},
+  opened: WeakMap<View, unknown> = new WeakMap(),
 ): Promise<Loaded> {
   let readable: Promise<Map<string, SchemaField[]>> | undefined;
   const schemaOf = async (c: string) => {
@@ -189,13 +201,20 @@ export async function loadView(
         const cols = columns(viewFields(v.fields, schema, 'detail'), schema);
         const id = resolveValue(v.record, s);
         const record = id == null ? null : await client.collection(v.collection).get(String(id));
-        if (record && v.onOpen && matches(v.onOpen.when, record, s)) {
-          const input = resolveInput(v.onOpen.input, { ...s, record });
-          if (input) await run(v.onOpen.action, input);
+        let error: string | undefined;
+        if (record && v.onOpen && opened.get(v) !== record.id) {
+          opened.set(v, record.id);
+          const input = matches(v.onOpen.when, record, s)
+            ? resolveInput(v.onOpen.input, { ...s, record })
+            : null;
+          if (input)
+            await run(v.onOpen.action, input).catch((e: unknown) => {
+              error = e instanceof Error ? e.message : String(e);
+            });
         }
         const inner = { ...s, record: record ?? undefined };
         const panels = await Promise.all((v.panels ?? []).map((p) => load(p, inner)));
-        return { kind: 'detail', view: v, columns: cols, record, panels };
+        return { kind: 'detail', view: v, columns: cols, record, panels, error };
       }
       case 'form': {
         if ('action' in v) {
@@ -278,8 +297,9 @@ function Buttons({
   host: ViewHost;
   scope: ViewScope;
 }) {
+  // A `when` holds of a record: with none in scope (a toolbar) it cannot hold.
   const live = (buttons ?? []).filter(
-    (b) => !('when' in b) || matches(b.when, scope.record ?? {}, scope),
+    (b) => !('when' in b) || !b.when || (!!scope.record && matches(b.when, scope.record, scope)),
   );
   if (!live.length) return null;
   return (
@@ -366,6 +386,7 @@ export function ViewRenderer({ node, host }: { node: Loaded; host: ViewHost }): 
         const scope = { ...host.scope, record: node.record };
         return (
           <section className="zv-detail">
+            {node.error && <p role="alert">{node.error}</p>}
             <Buttons buttons={node.view.actions} host={host} scope={scope} />
             <dl>
               {node.columns.map((c) => [
@@ -504,18 +525,19 @@ export function ExtensionView({
   const [node, setNode] = useState<Loaded | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
+  const [opened] = useState(() => new WeakMap<View, unknown>());
 
   useEffect(() => {
     let live = true;
     // ponytail: the whole page reads again on any change; per-pane reads if pages grow large.
-    loadView(client, extension, shownView, scope).then(
+    loadView(client, extension, shownView, scope, opened).then(
       (n) => live && setNode(n),
       (e: unknown) => live && setNote(e instanceof Error ? e.message : String(e)),
     );
     return () => {
       live = false;
     };
-  }, [client, extension, shownView, scope, version]);
+  }, [client, extension, shownView, scope, version, opened]);
 
   const fail = (e: unknown) => setNote(e instanceof Error ? e.message : String(e));
   const act = async (result: unknown) => {
