@@ -33,6 +33,7 @@ import {
   harnessAvailable,
 } from '../../testing/app-harness.js';
 import { newSoftPasskey, passkeyStepUp, registerSoftPasskey } from '../../testing/step-up.js';
+import { signAsOperator } from '../../testing/operator-signed.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const SFX = String(Date.now()).slice(-7);
@@ -115,7 +116,7 @@ export default {
 };
 `;
 
-function writeExt(base: string, name: string, worker: boolean) {
+async function writeExt(base: string, name: string, worker: boolean) {
   const dir = join(base, name);
   mkdirSync(join(dir, 'engine'), { recursive: true });
   writeFileSync(
@@ -132,6 +133,8 @@ function writeExt(base: string, name: string, worker: boolean) {
     }),
   );
   writeFileSync(join(dir, 'engine', 'index.js'), worker ? workerEntry(name) : entry(name));
+  // A worker is signed, as in production; the inline one rides the test override.
+  if (worker) await signAsOperator(dir, name);
 }
 
 d('an extension mutation authorized against admin needs the configuration window', () => {
@@ -203,7 +206,7 @@ d('an extension mutation authorized against admin needs the configuration window
       await sql`INSERT INTO zv_extension_registry
                   (name, display_name, tenant_id, is_installed, is_enabled)
                 VALUES (${name}, ${name}, NULL, true, true)`.execute(db);
-      writeExt(base, name, mode !== 'inline');
+      await writeExt(base, name, mode !== 'inline');
       if (mode !== 'inline') process.env.ZVELTIO_EXT_TRANSPORT = mode;
       await extensionLoader.loadExtension(name, app, ctx, base);
       loadErrors[name] = extensionLoader.getLastLoadError(name);

@@ -2,7 +2,7 @@
  * An inline extension's `ctx.db` statement runs as `zveltio_ext` inside a tenant
  * transaction, so SQL the analyzer gets wrong still cannot reach the engine.
  *
- * The analyzer (`assertWorkerSqlAllowed`) was the only barrier: in a tenant
+ * The analyzer (`assertExtSqlAllowed`) was the only barrier: in a tenant
  * transaction `ctx.db` ran as `zveltio_rls`, which holds DML on every table in
  * `public` except the credential ones. Measured on master with the analyzer
  * switched off — the seam below — `SELECT … FROM zv_api_keys`, `FROM "user"` and
@@ -10,19 +10,19 @@
  * `set_config('role', 'none', true)` left the REST of the request running as the
  * engine's login role (a superuser here).
  *
- * The seam: `assertWorkerSqlAllowed` is replaced by a pass-through to the real
+ * The seam: `assertExtSqlAllowed` is replaced by a pass-through to the real
  * one, which this file can switch off. Off, every statement reaches Postgres
  * exactly as an analyzer miss would; on — the default, and the state other files
  * see if the mock outlives this one — nothing differs from production.
  */
 import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
-import * as policy from '../../lib/extensions/worker-sql-policy.js';
+import * as policy from '../../lib/extensions/ext-sql-policy.js';
 
-const realAssert = policy.assertWorkerSqlAllowed;
+const realAssert = policy.assertExtSqlAllowed;
 let analyzerOff = false;
-mock.module('../../lib/extensions/worker-sql-policy.js', () => ({
+mock.module('../../lib/extensions/ext-sql-policy.js', () => ({
   ...policy,
-  assertWorkerSqlAllowed: (...a: Parameters<typeof realAssert>) =>
+  assertExtSqlAllowed: (...a: Parameters<typeof realAssert>) =>
     analyzerOff ? undefined : realAssert(...a),
 }));
 

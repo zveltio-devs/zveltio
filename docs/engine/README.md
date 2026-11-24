@@ -51,7 +51,7 @@ packages/engine/src/
 |---|---|
 | `data/` | Collections and everything that writes to them: `ddl-manager`, `ddl-queue`, `query-parse`, `query-alter`, `write-pipeline`, `field-crypto`, `field-type-registry`, per-verb `handlers/` |
 | `tenancy/` | The isolation boundary: `tenant-manager`, `tenant-context`, `tenant-scope`, `rls`, `permissions`, `entity-access`, `column-permissions`, `row-rule-policy`, `rule-operators`, `resource-grants` |
-| `extensions/` | Loading and running plugins: `discovery`, `load`, `register`, `lifecycle`, `capabilities`, `manifest-schema`, `migration-runner`, `worker-sql-policy`, `consent`, `revocations` |
+| `extensions/` | Loading and running plugins: `discovery`, `load`, `register`, `lifecycle`, `capabilities`, `manifest-schema`, `migration-runner`, `ext-sql-policy`, `consent`, `revocations` |
 | `flows/` | Automation: `flow-executor`, `flow-scheduler`, `flow-step-schemas`, `cron` |
 | `runtime/` | Process-level services: `cache`, `event-bus`, `realtime-bus`, `cron-runner`, `telemetry`, `garbage-collector`, `memory-monitor` |
 | `storage/` | `driver` abstraction with `local-driver` and `s3-driver`, plus `probe` |

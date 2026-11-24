@@ -18,7 +18,7 @@ export * from './extension-download.js';
 export * from './extension-errors.js';
 export * from './extension-license.js';
 export * from './extension-loader.js';
-export * from './worker-sql-policy.js';
+export * from './ext-sql-policy.js';
 export { refreshForwardApproval } from './consent.js';
 export {
   actionHostCall,

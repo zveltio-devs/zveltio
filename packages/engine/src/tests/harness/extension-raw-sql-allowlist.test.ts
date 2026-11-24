@@ -7,7 +7,7 @@
  * proxy for `getExecutor()`, got the real one, and Postgres answered — so an
  * extension refused `ctx.db.selectFrom('session')` read the same bearer tokens
  * one line later. The rule is now the worker bridge's analyzer
- * (`assertWorkerSqlAllowed`) with the extension's grants: collections, its own
+ * (`assertExtSqlAllowed`) with the extension's grants: collections, its own
  * `zv_<ext>_*` namespace, and the tables its migrations create or a grant names.
  *
  * Engine helpers handed to extensions (`ctx.DDLManager`, `dynamicInsert`) run

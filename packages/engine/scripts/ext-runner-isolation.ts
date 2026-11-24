@@ -25,7 +25,7 @@
  */
 
 import { lookup } from 'node:dns/promises';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ensureWorkerRuntimeOnDisk, startRunner } from '../src/lib/ext-runner.js';
@@ -154,6 +154,8 @@ channel.postMessage({
   type: 'init',
   id: 'init-1',
   bundleUrl: pathToFileURL(bundle).href,
+  // The runtime imports only bytes that hash to what the signature lists.
+  bundleSha256: new Bun.CryptoHasher('sha256').update(readFileSync(bundle)).digest('hex'),
   extName: 'isolation-probe',
   env: { NODE_ENV: 'production', extensionPath: extDir },
 });

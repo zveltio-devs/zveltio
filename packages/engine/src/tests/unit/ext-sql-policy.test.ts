@@ -10,26 +10,26 @@
 
 import { describe, expect, it } from 'bun:test';
 import {
-  assertWorkerSqlAllowed,
+  assertExtSqlAllowed,
   collectionsWritten,
   coveringExtensionNames,
   noteExtensionNames,
   ownedPrefixFor,
   ownsByPrefix,
-  WorkerSqlPolicyError,
-  workerSqlEngineTables,
-} from '../../lib/extensions/worker-sql-policy.js';
+  ExtSqlPolicyError,
+  extSqlEngineTables,
+} from '../../lib/extensions/ext-sql-policy.js';
 
 const EXT = 'ai';
 /** The engine's own tables, read from its migrations as the bridge reads them. */
-const ENGINE = await workerSqlEngineTables();
+const ENGINE = await extSqlEngineTables();
 
 function allowed(sql: string): boolean {
   try {
-    assertWorkerSqlAllowed(EXT, sql, ENGINE);
+    assertExtSqlAllowed(EXT, sql, ENGINE);
     return true;
   } catch (e) {
-    if (e instanceof WorkerSqlPolicyError) return false;
+    if (e instanceof ExtSqlPolicyError) return false;
     throw e;
   }
 }
@@ -45,10 +45,10 @@ describe('owned prefixes do not overlap: the longest one owns the table', () => 
   // `ovl` owns `zv_ovl_`, which also spells every table of `ovl/sub`.
   const reaches = (ext: string, table: string) => {
     try {
-      assertWorkerSqlAllowed(ext, `SELECT * FROM ${table}`, ENGINE);
+      assertExtSqlAllowed(ext, `SELECT * FROM ${table}`, ENGINE);
       return true;
     } catch (e) {
-      if (e instanceof WorkerSqlPolicyError) return false;
+      if (e instanceof ExtSqlPolicyError) return false;
       throw e;
     }
   };
@@ -65,7 +65,7 @@ describe('owned prefixes do not overlap: the longest one owns the table', () => 
     expect(coveringExtensionNames('ovl/sub')).toContain('ovl');
     // Still allowed by name when a grant or its own migration names it.
     expect(() =>
-      assertWorkerSqlAllowed(
+      assertExtSqlAllowed(
         'ovl',
         'SELECT * FROM zv_ovl_sub_items',
         ENGINE,
@@ -75,7 +75,7 @@ describe('owned prefixes do not overlap: the longest one owns the table', () => 
   });
 });
 
-describe('assertWorkerSqlAllowed — engine tables', () => {
+describe('assertExtSqlAllowed — engine tables', () => {
   const blocked = [
     'SELECT * FROM zv_api_keys',
     'SELECT * FROM zv_tenants',
@@ -93,10 +93,10 @@ describe('assertWorkerSqlAllowed — engine tables', () => {
   it('blocks an engine table that shares the extension prefix', () => {
     const as = (ext: string, sql: string) => {
       try {
-        assertWorkerSqlAllowed(ext, sql, ENGINE);
+        assertExtSqlAllowed(ext, sql, ENGINE);
         return true;
       } catch (e) {
-        if (e instanceof WorkerSqlPolicyError) return false;
+        if (e instanceof ExtSqlPolicyError) return false;
         throw e;
       }
     };
@@ -123,7 +123,7 @@ describe('assertWorkerSqlAllowed — engine tables', () => {
 
   it('names every offending table in the error', () => {
     try {
-      assertWorkerSqlAllowed(EXT, 'SELECT * FROM zv_tenants, zv_api_keys', ENGINE);
+      assertExtSqlAllowed(EXT, 'SELECT * FROM zv_tenants, zv_api_keys', ENGINE);
       throw new Error('should have thrown');
     } catch (e) {
       expect((e as Error).message).toContain('zv_api_keys');
@@ -132,7 +132,7 @@ describe('assertWorkerSqlAllowed — engine tables', () => {
   });
 });
 
-describe('assertWorkerSqlAllowed — what stays permitted', () => {
+describe('assertExtSqlAllowed — what stays permitted', () => {
   const permitted = [
     'SELECT * FROM zvd_orders',
     'SELECT * FROM zvd_orders WHERE total > $1',
@@ -219,7 +219,7 @@ describe('assertWorkerSqlAllowed — what stays permitted', () => {
   });
 });
 
-describe('assertWorkerSqlAllowed — hiding places', () => {
+describe('assertExtSqlAllowed — hiding places', () => {
   it('ignores a table name that only appears inside a string literal', () => {
     expect(allowed("SELECT * FROM zvd_logs WHERE msg = 'read zv_api_keys please'")).toBe(true);
   });
@@ -270,7 +270,7 @@ describe('assertWorkerSqlAllowed — hiding places', () => {
   });
 });
 
-describe('assertWorkerSqlAllowed — bodies that execute as code', () => {
+describe('assertExtSqlAllowed — bodies that execute as code', () => {
   // Blanking dollar-quoted blocks keeps a table name *mentioned* in a string
   // from being read as a reference. It also emptied the one place where a
   // reference is most dangerous: the body of a DO block, which Postgres runs as
@@ -335,7 +335,7 @@ describe('assertWorkerSqlAllowed — bodies that execute as code', () => {
  * GRANT, COMMENT and SET name their target elsewhere or nowhere, so each was
  * accepted and ran as the engine role — measured through `ctx.db`.
  */
-describe('assertWorkerSqlAllowed — statement kinds', () => {
+describe('assertExtSqlAllowed — statement kinds', () => {
   it('refuses every kind that is not a query or DML, on any table', () => {
     for (const s of [
       'TRUNCATE "session"',
@@ -418,7 +418,7 @@ describe('assertWorkerSqlAllowed — statement kinds', () => {
   });
 });
 
-describe('assertWorkerSqlAllowed — functions that leave the sandbox', () => {
+describe('assertExtSqlAllowed — functions that leave the sandbox', () => {
   it('refuses the GUC setter, however it is spelled', () => {
     // The request transaction runs as zveltio_rls; the session user is the
     // engine's, so `role` = none drops back to it, and rls_bypass turns RLS off.
@@ -480,22 +480,20 @@ describe('assertWorkerSqlAllowed — functions that leave the sandbox', () => {
  * in-process. Both were prefix denylists once, and both missed the unprefixed
  * Better-Auth tables for the same reason.
  */
-describe('assertWorkerSqlAllowed — schema-qualified references', () => {
+describe('assertExtSqlAllowed — schema-qualified references', () => {
   it('refuses the system catalogues by schema, whatever the table is called', () => {
     for (const q of [
       'SELECT * FROM information_schema.tables',
       'SELECT * FROM pg_catalog.pg_authid',
       'SELECT rolname FROM pg_catalog.pg_roles',
     ]) {
-      expect(() => assertWorkerSqlAllowed('finance/banking', q, ENGINE)).toThrow(
-        WorkerSqlPolicyError,
-      );
+      expect(() => assertExtSqlAllowed('finance/banking', q, ENGINE)).toThrow(ExtSqlPolicyError);
     }
   });
 
   it('names what it refused, so the author can see which reference was the problem', () => {
     expect(() =>
-      assertWorkerSqlAllowed('finance/banking', 'SELECT * FROM information_schema.columns', ENGINE),
+      assertExtSqlAllowed('finance/banking', 'SELECT * FROM information_schema.columns', ENGINE),
     ).toThrow(/information_schema\.columns/);
   });
 
@@ -503,12 +501,12 @@ describe('assertWorkerSqlAllowed — schema-qualified references', () => {
     // `public` is where everything the extension owns lives, so qualifying with it
     // must not itself be an offence — only another schema is.
     expect(() =>
-      assertWorkerSqlAllowed('finance/banking', 'SELECT * FROM public.zvd_invoices', ENGINE),
+      assertExtSqlAllowed('finance/banking', 'SELECT * FROM public.zvd_invoices', ENGINE),
     ).not.toThrow();
   });
 });
 
-describe('assertWorkerSqlAllowed — the engine metadata that shares the zvd_ prefix', () => {
+describe('assertExtSqlAllowed — the engine metadata that shares the zvd_ prefix', () => {
   // `zvd_permissions` is the Casbin policy table. Through the bridge's fallback
   // role (`zveltio_rls`, which holds DML on it) a worker extension could insert
   // itself a `god` grant: the prefix check let every `zvd_` name through.
@@ -546,14 +544,14 @@ describe('ONLY before a table', () => {
       'SELECT * FROM ONLY zvd_orders',
       'DELETE FROM ONLY (zvd_orders)',
     ]) {
-      expect(() => assertWorkerSqlAllowed('crm', q, ENGINE)).not.toThrow();
+      expect(() => assertExtSqlAllowed('crm', q, ENGINE)).not.toThrow();
     }
     for (const q of [
       'UPDATE ONLY zvd_permissions SET v0 = 1',
       'DELETE FROM ONLY (zvd_permissions)',
       'SELECT * FROM ONLY "user"',
     ]) {
-      expect(() => assertWorkerSqlAllowed('crm', q, ENGINE)).toThrow(/zvd_permissions|user/);
+      expect(() => assertExtSqlAllowed('crm', q, ENGINE)).toThrow(/zvd_permissions|user/);
     }
   });
 

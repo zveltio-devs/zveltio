@@ -32,7 +32,7 @@
  *
  * The mark is the `zveltio.system_collections` setting, which only the engine
  * writes: `set_config` is one of the functions `ctx.db` refuses to an extension
- * (`worker-sql-policy.ts`). It is restored when `fn` settles, so the window is
+ * (`ext-sql-policy.ts`). It is restored when `fn` settles, so the window is
  * the call. Everything on the transaction during that window shares it — which
  * is the request's own work; nothing from another request runs on it.
  *

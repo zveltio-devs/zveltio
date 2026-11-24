@@ -20,7 +20,6 @@ import { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
 import { revokeExtensionDbRoles } from '../../lib/extensions/ext-db-role.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
-import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extension-host.js';
 import {
   forgetInstalled,
@@ -28,6 +27,7 @@ import {
   harnessAvailable,
   markInstalled,
 } from '../../testing/app-harness.js';
+import { signAsOperator } from '../../testing/operator-signed.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const SFX = String(Date.now()).slice(-7);
@@ -98,7 +98,6 @@ d('worker transport contract: the process transport carries the protocol', () =>
   const cwd = process.cwd();
 
   beforeAll(async () => {
-    _setInlineForTests(true); // unsigned fixtures: the test override stands in for a signature
     ({ db } = await getTestApp());
     base = mkdtempSync(join(tmpdir(), 'wkr-transport-'));
     // Bun loads `.env` from its working directory. CI has none, so plant one
@@ -119,6 +118,7 @@ d('worker transport contract: the process transport carries the protocol', () =>
         }),
       );
       writeFileSync(join(dir, 'engine', 'index.js'), entry(name));
+      await signAsOperator(dir, name);
 
       process.env.ZVELTIO_EXT_TRANSPORT = transport;
       _resetWorkerHostForTests();
@@ -127,8 +127,10 @@ d('worker transport contract: the process transport carries the protocol', () =>
       const ctx = extensionLoader.ctx ?? ({ db, fieldTypeRegistry: { register() {} } } as never);
       await markInstalled(db, name);
       await extensionLoader.loadExtension(name, app, ctx, base);
-      expect(extensionLoader.getLastLoadError(name)).toBeUndefined();
+      // Inside the try: a failed load must still forget its registry row, which
+      // otherwise blocks every later default grant (no manifest on record).
       try {
+        expect(extensionLoader.getLastLoadError(name)).toBeUndefined();
         results[transport] = await transcript(app, name);
         const np = await app.request(`/ext/${name}/nodeproc`);
         nodeProc = { status: np.status, body: await np.json().catch(() => null) };
@@ -147,7 +149,6 @@ d('worker transport contract: the process transport carries the protocol', () =>
   }, 60_000);
 
   afterAll(() => {
-    _setInlineForTests(false);
     process.chdir(cwd);
     if (saved === undefined) delete process.env.ZVELTIO_EXT_TRANSPORT;
     else process.env.ZVELTIO_EXT_TRANSPORT = saved;

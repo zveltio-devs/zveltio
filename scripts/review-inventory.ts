@@ -495,7 +495,7 @@ const SECTIONS: Section[] = [
       `${E}lib/ext-runner.ts`,
       `${E}lib/worker-extension-runtime.ts`,
       `${E}lib/worker-extension-protocol.ts`,
-      `${E}lib/extensions/worker-sql-policy.ts`,
+      `${E}lib/extensions/ext-sql-policy.ts`,
       `${E}lib/extensions/deno.ts`,
       `${E}lib/extensions/job-runner.ts`,
       `${E}lib/extensions/tcp-relay.ts`,

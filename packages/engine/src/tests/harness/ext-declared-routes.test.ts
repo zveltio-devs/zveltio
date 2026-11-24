@@ -26,7 +26,6 @@ import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import type { ExtensionContext } from '../../lib/extensions/internals.js';
 import { ManifestSchema } from '../../lib/extensions/manifest-schema.js';
 import { invalidateActivationCache } from '../../lib/extensions/activation.js';
-import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { jobQueueName, unregisterJobs } from '../../lib/extensions/jobs.js';
 import { getAuth } from '../../lib/auth.js';
 import { engineEvents } from '../../lib/runtime/index.js';
@@ -44,6 +43,7 @@ import {
   getTestApp,
   harnessAvailable,
 } from '../../testing/app-harness.js';
+import { signAsOperator } from '../../testing/operator-signed.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = String(Date.now()).slice(-7);
@@ -122,7 +122,13 @@ d('a declared route answered by a plain function (ADR 0039)', () => {
       ctx,
     } as unknown as ExtensionLoader;
   }
-  async function load(ext: ZveltioExtension, manifest: Rec, dir = `/tmp/${ext.name}`) {
+  async function load(
+    ext: ZveltioExtension,
+    manifest: Rec,
+    dir = `/tmp/${ext.name}`,
+    /** The operator key a worker's directory is signed with (RFC v3 phase D slice 4, S4). */
+    keyId?: string,
+  ) {
     const parsed = ManifestSchema.parse({ name: ext.name, version: '1.0.0', ...manifest });
     await sql`DELETE FROM zv_extension_registry WHERE name = ${ext.name}`.execute(db);
     await sql`
@@ -145,6 +151,8 @@ d('a declared route answered by a plain function (ADR 0039)', () => {
       ctx,
       parsed as never,
       new Set(),
+      [],
+      keyId,
     );
   }
   const call = (ext: string, path: string, method = 'GET', cookie?: string, body?: string) =>
@@ -156,7 +164,6 @@ d('a declared route answered by a plain function (ADR 0039)', () => {
 
   beforeAll(async () => {
     ({ app: engine, db } = await getTestApp());
-    _setInlineForTests(true);
     god = await createGodSession(engine, db);
     member = (await createMemberSession(engine, db, {})).cookie;
     app = new Hono();
@@ -212,6 +219,7 @@ d('a declared route answered by a plain function (ADR 0039)', () => {
         { name, category: 'custom', async register() {} },
         { ...manifest, engine: { entry: 'engine/index.js', bundled: true, isolation: 'worker' } },
         join(base, name),
+        await signAsOperator(join(base, name), name),
       );
     };
     await worker(WEXT, workerEntry, { routes });
@@ -377,6 +385,7 @@ d('a declared route answered by a plain function (ADR 0039)', () => {
           engine: { entry: 'engine/index.js', bundled: true, isolation: 'worker' },
         },
         join(base, BAD),
+        await signAsOperator(join(base, BAD), BAD),
       ),
     ).rejects.toThrow('names handler "ghost"');
   }, 30_000);

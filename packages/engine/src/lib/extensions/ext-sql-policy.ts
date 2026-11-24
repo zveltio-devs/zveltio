@@ -1,14 +1,12 @@
 /**
- * Table policy for the worker→host SQL bridge.
+ * Statement and table policy for an inline extension's `ctx.db`.
  *
- * Worker-isolated extensions send raw SQL text to the host, which used to run it
- * with `pool.unsafe()` — no table restriction, no timeout, no statement limit.
- * That inverted the trust model: `enforcePublisherTier` requires *community*
- * (untrusted, third-party) extensions to run in a worker precisely because the
- * worker is supposed to be the boundary, yet the bridge gave them strictly MORE
- * reach than an inline extension, which is proxied through createRestrictedDb.
+ * Only first-party code runs inline (ADR 0056 d2), and `ctx.db` is the only SQL
+ * any extension reaches (RFC v3 phase D slice 4). Every statement it sends — raw
+ * SQL and compiled builders alike (`extension-context.ts`) — is read here before
+ * Postgres sees it, with the extension's grants.
  *
- * This module re-states that proxy's rule for raw SQL: an extension may touch
+ * The rule is createRestrictedDb's, re-stated for SQL text: an extension may touch
  * user-data tables (`zvd_*`) and its own namespace (`zv_<ext>_*`), but not the
  * engine's own `zv_*` tables — where the sessions, API keys, tenants and Casbin
  * policies live.
@@ -36,11 +34,12 @@
  * Statements whose body is code (`DO`, `CALL`, `CREATE FUNCTION`, `PREPARE` /
  * `EXECUTE`) fall outside it: a body can assemble a table name at runtime
  * (`'zv_' || 'api_keys'`), so no text scan can clear one. So does transaction
- * control: a `COMMIT` ends the bridge's transaction and turns its `SET LOCAL
+ * control: a `COMMIT` ends the request's transaction and turns its `SET LOCAL
  * ROLE` and tenant GUC into session settings on a pooled connection. The engine
  * issues BEGIN, COMMIT and SAVEPOINT itself, on its own handle, for
  * `ctx.db.transaction()`. Schema changes go through the extension's migrations
- * and `ctx.DDLManager`, both of which run on the engine's handle, not here.
+ * and `ctx.DDLManager`, both of which run on the engine's handle, not through
+ * this check.
  *
  * `SET TRANSACTION` is the one SET admitted: it can only narrow the current
  * transaction (`READ ONLY`, an isolation level Postgres accepts only before the
@@ -55,8 +54,8 @@ const STATEMENT_KINDS =
  * The statement-kind rule cannot see these, and neither can the table
  * allowlist, because each reaches past it through an argument:
  *
- *   - `set_config` is `SET` spelled as a function. The request transaction runs
- *     as `zveltio_worker` with the tenant in a GUC, and the session user is the
+ *   - `set_config` is `SET` spelled as a function. The statement runs as the
+ *     extension's role with the tenant in a GUC, and the session user is the
  *     engine's: `set_config('role', 'none', true)` drops back to it, and
  *     `set_config('zveltio.rls_bypass', 'on', true)` switches RLS off for the
  *     rest of the request. `current_setting` (reading) stays legal.
@@ -70,9 +69,9 @@ const STATEMENT_KINDS =
  *     `ts_stat`, `crosstab`, `setval('zv_…_seq', …)` — which no table scan reads.
  *
  * A denylist, unlike the rest of this file: Postgres has thousands of
- * functions and an allowlist of them would refuse ordinary SQL. The role is the
- * layer that holds for the worker bridge; for an inline extension this list and
- * the statement-kind rule are what stand between it and the engine role.
+ * functions and an allowlist of them would refuse ordinary SQL. The extension's
+ * database role (`ext-db-role.ts`) is the layer under it; this list and the
+ * statement-kind rule are what stand in front of it.
  */
 const SANDBOX_ESCAPES = new RegExp(
   `^(?:${[
@@ -118,10 +117,10 @@ const SANDBOX_ESCAPES = new RegExp(
 /** The function name before a `(`, quoted or not; schema qualification dropped. */
 const CALLEE = /("?)([A-Za-z_][\w$]*)\1\s*$/;
 
-export class WorkerSqlPolicyError extends Error {
+export class ExtSqlPolicyError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'WorkerSqlPolicyError';
+    this.name = 'ExtSqlPolicyError';
   }
 }
 
@@ -273,18 +272,18 @@ function stripNonCode(sql: string): string {
  * `SANDBOX_ESCAPES`, naming only tables the extension may reach. Refused before
  * Postgres sees it, so a refusal inside the request transaction aborts nothing.
  */
-export function assertWorkerSqlAllowed(
+export function assertExtSqlAllowed(
   extName: string,
   sql: string,
   engineTables: ReadonlySet<string>,
   /**
    * Tables this extension may reach beyond the two prefixes: the ones its own
    * migrations create and the ones `EXTENSION_TABLE_GRANTS` names — the same set
-   * `createRestrictedDb` takes. Given for inline extensions, whose raw SQL is
-   * checked here too; the worker bridge passes none.
+   * `createRestrictedDb` takes. `ctx.db` always passes them; left out, only the
+   * two prefixes are reachable.
    */
   allowedTables?: ReadonlySet<string>,
-  channel = 'the worker SQL bridge',
+  channel = 'ctx.db',
 ): void {
   const granted = new Set([...(allowedTables ?? [])].map((t) => t.toLowerCase()));
   const code = stripNonCode(sql);
@@ -292,12 +291,11 @@ export function assertWorkerSqlAllowed(
   // Checked on the stripped text, so a keyword has to be real code: a
   // `SELECT 'call me'` is a SELECT, and a `;` inside a string ends nothing.
   const refuse = (what: string, why: string): never => {
-    throw new WorkerSqlPolicyError(
+    throw new ExtSqlPolicyError(
       `Extension "${extName}" attempted ${what} through ${channel}. ${why}`,
     );
   };
-  // One statement. The worker bridge's reserved connection already refuses a
-  // second one, but `ctx.db` on the pool sends a parameterless query through
+  // One statement. `ctx.db` on the pool sends a parameterless query through
   // the simple-query protocol, which runs `SELECT 1; TRUNCATE "session"` whole —
   // and every rule below reads only the first statement's kind.
   if (code.replace(/[\s;]+$/, '').includes(';')) {
@@ -351,7 +349,7 @@ export function assertWorkerSqlAllowed(
   // This matched `zv_*` and nothing else, which made it a denylist over an open
   // namespace: it had no rule at all for UNPREFIXED tables, and that is exactly
   // where Better-Auth keeps `user`, `session`, `account`, `verification` and
-  // `twoFactor`. None of them has RLS, and the worker role holds DML on every
+  // `twoFactor`. None of them has RLS, and the engine role holds DML on every
   // table in `public`, so `SELECT token FROM "session"` and
   // `UPDATE "user" SET role = 'admin'` were both accepted — by the sandbox whose
   // entire purpose is to contain code the platform has decided not to trust.
@@ -379,9 +377,8 @@ export function assertWorkerSqlAllowed(
     // `zvd_` is the collection prefix, and also the prefix of the engine's own
     // metadata: `zvd_permissions` (the Casbin policy table), `zvd_rls_policies`,
     // `zvd_column_permissions`, `zvd_collections`, `zvd_webhooks`… Letting the
-    // prefix through let a worker extension write itself a `god` grant whenever
-    // the bridge ran as `zveltio_rls` (the fallback where `zveltio_worker` could
-    // not be created). Collections are `zvd_*` minus what the engine creates.
+    // prefix through let an extension write itself a `god` grant. Collections
+    // are `zvd_*` minus what the engine creates.
     if (ref.table.startsWith('zvd_') && !engineTables.has(ref.table)) continue;
     // The owned prefix is `zv_<ext>_`, and engine tables share the `zv_` stem:
     // an extension named `api` owned `zv_api_keys`, `audit` owned `zv_audit_log`.
@@ -393,7 +390,7 @@ export function assertWorkerSqlAllowed(
   }
 
   if (offenders.size > 0) {
-    throw new WorkerSqlPolicyError(
+    throw new ExtSqlPolicyError(
       `Extension "${extName}" attempted to access ${[...offenders].sort().join(', ')} ` +
         `through ${channel}. Extensions may query user data tables ` +
         (allowedTables
@@ -408,10 +405,10 @@ export function assertWorkerSqlAllowed(
 
 /**
  * The engine's own tables, derived from its migrations (`engineOwnedTables`), as
- * `assertWorkerSqlAllowed` takes them. Loaded lazily: `register.ts` is heavy, and
+ * `assertExtSqlAllowed` takes them. Loaded lazily: `register.ts` is heavy, and
  * this module is also imported where only `ownedPrefixFor` is needed.
  */
-export async function workerSqlEngineTables(): Promise<ReadonlySet<string>> {
+export async function extSqlEngineTables(): Promise<ReadonlySet<string>> {
   const { engineOwnedTables } = await import('./register.js');
   return engineOwnedTables();
 }
@@ -443,7 +440,7 @@ export function collectionsWritten(sql: string): string[] {
 export async function assertNoWrittenByActionsWrite(
   extName: string,
   sql: string,
-  channel = 'the worker SQL bridge',
+  channel = 'ctx.db',
 ): Promise<void> {
   const names = collectionsWritten(sql);
   if (names.length === 0) return;
@@ -454,13 +451,13 @@ export async function assertNoWrittenByActionsWrite(
   const deletes = /\b(?:delete|merge)\b/i.test(stripNonCode(sql));
   for (const name of names) {
     if (hasWrittenBy(await DDLManager.getCollection(read, name))) {
-      throw new WorkerSqlPolicyError(
+      throw new ExtSqlPolicyError(
         `Extension "${extName}" attempted to write ${name} through ${channel}. It holds ` +
           "fields only its extension's actions and jobs write, through host.collections.",
       );
     }
     const cascade = deletes ? await cascadeRefusal(name, undefined) : null;
-    if (cascade) throw new WorkerSqlPolicyError(`Extension "${extName}" (${channel}): ${cascade}`);
+    if (cascade) throw new ExtSqlPolicyError(`Extension "${extName}" (${channel}): ${cascade}`);
   }
 }
 

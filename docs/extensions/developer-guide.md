@@ -1552,12 +1552,11 @@ host forwards each declared route and action over a channel and answers the
 - **Declared model only** (ADR 0056 d1, amendment 2026-11-21; RFC
   extension-model-v3 phase D slice 4): a registry-signed community extension
   (level 2) and an operator-signed one (level 3) — every extension that runs on
-  the runner, since an unsigned one never runs — declare collections, actions,
-  jobs and routes, and so does the test override's unsigned worker. The host
-  answers only a declared route's or action's `host` calls; any other frame —
-  SQL, a service, an event, forged or not — runs nothing; only the manifest's
-  `routes` are served; for a signed one `engine/migrations/*.sql` refuses the
-  load
+  the runner, since an unsigned one never runs, in tests too — declare
+  collections, actions, jobs and routes. The host answers only a declared
+  route's or action's `host` calls; any other frame — SQL, a service, an
+  event, forged or not — runs nothing; only the manifest's `routes` are
+  served; `engine/migrations/*.sql` refuses the load
 - **Use for:** third-party / community extensions where the
   publisher isn't audited, code where crash isolation matters more
   than the latency cost

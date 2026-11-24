@@ -58,7 +58,7 @@ stylistic ones.
    object (temp table, function) that the engine role later executes; does a
    disabled or uninstalled extension keep any grant; can one extension reach
    another's tables at the database layer.
-5. **The extension SQL analyzer.** `lib/extensions/worker-sql-policy.ts` and
+5. **The extension SQL analyzer.** `lib/extensions/ext-sql-policy.ts` and
    the ctx.db wrapper: every statement's compiled SQL is checked (builder and
    raw), one statement of an allowed kind, a table allowlist, a function
    denylist, and a lexer that must agree with Postgres (dollar quotes,

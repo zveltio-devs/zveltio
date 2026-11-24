@@ -15,6 +15,7 @@ import {
 } from '../../lib/worker-extension-host.js';
 import { encodeFrame, FrameDecoder } from '../../lib/worker-extension-transport.js';
 import type { ExtensionChannel } from '../../lib/worker-extension-transport.js';
+import { signedWorkerDir } from '../../testing/operator-signed.js';
 
 /** A fake extension process: the host's channel opener returns it. */
 const fakeChannel = (C: new () => unknown) => async () => new C() as unknown as ExtensionChannel;
@@ -459,7 +460,9 @@ describe('WorkerExtensionHost — start() over a fake channel', () => {
 
     const app = new Hono();
     const host = new WorkerExtensionHost(app, fakeChannel(MockWorker));
-    await host.start('mock-ext', '/tmp/mock-ext', 'engine/index.js', {
+    const { dir, source } = await signedWorkerDir('mock-ext');
+    await host.start('mock-ext', dir, 'engine/index.js', {
+      ...source,
       declaredRoutes: [{ method: 'GET', path: '/ready', handler: 'ready' }],
     });
     expect(host.isRunning('mock-ext')).toBe(true);
@@ -495,7 +498,8 @@ describe('WorkerExtensionHost — heartbeat hang detection', () => {
 
     const app = new Hono();
     const host = new WorkerExtensionHost(app, fakeChannel(MockWorker));
-    await host.start('hang-ext', '/tmp/hang', 'engine/index.js');
+    const { dir, source } = await signedWorkerDir('hang-ext');
+    await host.start('hang-ext', dir, 'engine/index.js', source);
     const managed = host.getHealth().find((h) => h.name === 'hang-ext');
     expect(managed?.workerGeneration).toBe(1);
 

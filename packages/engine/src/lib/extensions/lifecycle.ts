@@ -89,13 +89,11 @@ export async function unloadExtension(
   // End the worker process, for extensions that have one.
   //
   // Unloading dropped every main-thread trace of the extension — services,
-  // query alters, cron — and left its worker running. That worker is the whole
-  // isolation story for community-tier extensions: it holds the SQL bridge and
-  // its own timers, so a "disabled" third-party extension kept querying the
-  // database. `stop()` has existed on the host since workers were introduced;
-  // nothing called it.
+  // query alters, cron — and left its worker running, so a "disabled"
+  // third-party extension kept serving and kept its own timers. `stop()` has
+  // existed on the host since workers were introduced; nothing called it.
   //
-  // Done first so the worker cannot issue further bridge calls while the
+  // Done first so the worker cannot issue further `host` calls while the
   // registries below are being torn down. Deliberately best-effort: an
   // extension that fails to stop must still be removed from memory, or a
   // wedged worker would make it impossible to disable anything.
@@ -226,8 +224,8 @@ async function declaredPin(
  * `name` has just loaded (`ExtensionLoader.loadExtension`), perhaps at a newer
  * version: a loaded extension that found it absent — not loaded yet, or below
  * its optional `minVersion` — asks again, so the dependency reaches it without
- * reloading it. Its `serviceDeps` is the map its `ctx.services` scope and the
- * worker broker read, so marking the dependency callable there is the whole change.
+ * reloading it. Its `serviceDeps` is the map its `ctx.services` scope reads, so
+ * marking the dependency callable there is the whole change.
  */
 export async function refreshOptionalDependents(
   loader: ExtensionLoader,

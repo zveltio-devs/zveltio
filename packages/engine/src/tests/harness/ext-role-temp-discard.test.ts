@@ -16,13 +16,13 @@
  * each statement reaches Postgres as an analyzer miss would.
  */
 import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
-import * as policy from '../../lib/extensions/worker-sql-policy.js';
+import * as policy from '../../lib/extensions/ext-sql-policy.js';
 
-const realAssert = policy.assertWorkerSqlAllowed;
+const realAssert = policy.assertExtSqlAllowed;
 let analyzerOff = false;
-mock.module('../../lib/extensions/worker-sql-policy.js', () => ({
+mock.module('../../lib/extensions/ext-sql-policy.js', () => ({
   ...policy,
-  assertWorkerSqlAllowed: (...a: Parameters<typeof realAssert>) =>
+  assertExtSqlAllowed: (...a: Parameters<typeof realAssert>) =>
     analyzerOff ? undefined : realAssert(...a),
 }));
 

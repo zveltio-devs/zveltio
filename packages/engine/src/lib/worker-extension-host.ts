@@ -199,7 +199,8 @@ export interface WorkerCtxSource {
   mountActions?: (sub: Hono) => void;
   /**
    * The id of the operator key its directory signature verified against, named
-   * in every log line about it (ADR 0056). `key=absent` for an unsigned one.
+   * in every log line about it (ADR 0056). Either this or `registryKeyId` is
+   * set: an unsigned worker never starts (`signedLevel`).
    */
   keyId?: string;
   /**
@@ -362,30 +363,31 @@ function boxTag(name: string, source?: WorkerCtxSource): string {
 }
 
 /**
- * Its trust level when signed: 3 for an operator key, 2 for the registry's. Both
- * are declared model only (ADR 0056 d1, amendment 2026-11-21); null only for an
- * unsigned bundle, which runs under the test override alone.
+ * Its trust level: 3 for an operator key, 2 for the registry's. Both are
+ * declared model only (ADR 0056 d1, amendment 2026-11-21). An unsigned bundle
+ * has none and never runs, under the test override either (RFC v3 phase D
+ * slice 4, S4): the loader refuses it, and so does the host, at every spawn.
  */
-function signedLevel(source?: WorkerCtxSource): 2 | 3 | null {
+function signedLevel(extName: string, source?: WorkerCtxSource): 2 | 3 {
   if (source?.keyId !== undefined) return 3;
-  return source?.registryKeyId !== undefined ? 2 : null;
+  if (source?.registryKeyId !== undefined) return 2;
+  throw new Error(`"${extName}" is not signed, and an unsigned extension never runs (ADR 0056)`);
 }
 
 /**
- * ADR 0056 d1 and amendment 2026-11-16 point 4: a signed extension's signature
- * — an operator's, or the registry's kept with its files — is verified again at
- * every spawn (first start, crash respawn, restart) before its bundle is
- * imported, and the bundle's signed sha256 goes to the worker, which imports
- * only bytes that hash to it. Undefined for an unsigned one.
+ * ADR 0056 d1 and amendment 2026-11-16 point 4: its signature — an operator's,
+ * or the registry's kept with its files — is verified again at every spawn
+ * (first start, crash respawn, restart) before its bundle is imported, and the
+ * bundle's signed sha256 goes to the worker, which imports only bytes that hash
+ * to it.
  */
 async function signedBundleSha256(
   extName: string,
   extDir: string,
   bundleEntry: string,
   source: WorkerCtxSource,
-): Promise<string | undefined> {
-  const level = signedLevel(source);
-  if (level === null) return undefined;
+): Promise<string> {
+  const level = signedLevel(extName, source);
   const loadedKey = level === 3 ? source.keyId : source.registryKeyId;
   const signed =
     level === 3
@@ -652,7 +654,7 @@ export class WorkerExtensionHost {
         type: 'init',
         id: initId,
         bundleUrl,
-        ...(bundleSha256 ? { bundleSha256 } : {}),
+        bundleSha256,
         extName,
         env: {
           NODE_ENV: nodeEnv() ?? 'production',
@@ -1024,8 +1026,7 @@ export class WorkerExtensionHost {
         const raised = reply.hostError && scope.action?.refusals.get(reply.hostError);
         if (raised) throw raised;
         if (reply.refusal) throw crossedRefusal(reply.refusal);
-        const err = new Error(reply.error ?? 'action failed');
-        throw reply.errno ? Object.assign(err, { errno: reply.errno }) : err;
+        throw new Error(reply.error ?? 'action failed');
       }
       return reply.result;
     } finally {
@@ -1231,11 +1232,6 @@ export class WorkerExtensionHost {
               console.error(
                 `${boxTag(live.name, live.source)} route ${r.method} ${r.path} failed: ${resp.error}`,
               );
-              // An uncaught SQLSTATE answers as an inline route's (22P02 → 400, 55P03 → 503).
-              if (resp.errno) {
-                const err = Object.assign(new Error(resp.error), { errno: resp.errno });
-                return problemOnError(err, c as unknown as Context);
-              }
               return new Response(resp.error ?? 'worker error', { status: 500 });
             }
             return new Response(resp.body ?? null, {

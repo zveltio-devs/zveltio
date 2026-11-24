@@ -7,6 +7,7 @@ import { Hono } from 'hono';
 import type { HostToWorkerMessage } from '../../lib/worker-extension-protocol.js';
 import { WorkerExtensionHost, _resetWorkerHostForTests } from '../../lib/worker-extension-host.js';
 import type { ExtensionChannel } from '../../lib/worker-extension-transport.js';
+import { signedWorkerDir } from '../../testing/operator-signed.js';
 
 /** A fake extension process: the host's channel opener returns it. */
 const fakeChannel = (C: new () => unknown) => async () => new C() as unknown as ExtensionChannel;
@@ -16,6 +17,34 @@ afterEach(() => {
 });
 
 describe('WorkerExtensionHost — init failures', () => {
+  // RFC v3 phase D slice 4, S4: no worker runs unsigned, under the test override
+  // either — the host refuses at every spawn, before it opens a process.
+  it('refuses an unsigned bundle before opening its process', async () => {
+    let opened = 0;
+    // Would answer init:ok, as a worker that imported the bundle does.
+    const MockWorker = class {
+      onmessage: ((e: MessageEvent) => void) | null = null;
+      onerror: ((e: ErrorEvent) => void) | null = null;
+      postMessage(msg: HostToWorkerMessage) {
+        if (msg.type === 'init') {
+          queueMicrotask(() =>
+            this.onmessage?.({ data: { type: 'init:ok', id: msg.id } } as MessageEvent),
+          );
+        }
+      }
+      terminate() {}
+    };
+    const host = new WorkerExtensionHost(new Hono(), async () => {
+      opened++;
+      return fakeChannel(MockWorker)();
+    });
+    await expect(host.start('unsigned-ext', '/tmp/unsigned', 'engine/index.js')).rejects.toThrow(
+      /is not signed/,
+    );
+    expect(opened).toBe(0);
+    expect(host.isRunning('unsigned-ext')).toBe(false);
+  });
+
   it('throws when the worker responds with init:err', async () => {
     const MockWorker = class {
       onmessage: ((e: MessageEvent) => void) | null = null;
@@ -33,7 +62,8 @@ describe('WorkerExtensionHost — init failures', () => {
     };
 
     const host = new WorkerExtensionHost(new Hono(), fakeChannel(MockWorker));
-    await expect(host.start('init-err-ext', '/tmp/init-err', 'engine/index.js')).rejects.toThrow(
+    const { dir, source } = await signedWorkerDir('init-err-ext');
+    await expect(host.start('init-err-ext', dir, 'engine/index.js', source)).rejects.toThrow(
       /init failed: bad manifest/,
     );
     await host.stopAll().catch(() => {});
@@ -62,10 +92,11 @@ describe('WorkerExtensionHost — init failures', () => {
     }) as typeof setTimeout);
 
     const host = new WorkerExtensionHost(new Hono(), fakeChannel(MockWorker));
+    const { dir, source } = await signedWorkerDir('init-timeout-ext');
     try {
-      await expect(
-        host.start('init-timeout-ext', '/tmp/timeout', 'engine/index.js'),
-      ).rejects.toThrow(/did not init within 15s/);
+      await expect(host.start('init-timeout-ext', dir, 'engine/index.js', source)).rejects.toThrow(
+        /did not init within 15s/,
+      );
     } finally {
       timeoutSpy.mockRestore();
       await host.stopAll().catch(() => {});

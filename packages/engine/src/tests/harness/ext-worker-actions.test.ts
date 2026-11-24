@@ -37,7 +37,6 @@ import { getEnforcer, invalidateAllPermissionCaches } from '../../lib/tenancy/pe
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/tenant-manager.js';
 import { effectiveTimeZone } from '../../lib/tenancy/timezone.js';
 import { toJsonb } from '../../lib/jsonb.js';
-import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import {
   asAuditOwner,
   asDefaultTenant,
@@ -50,10 +49,10 @@ import {
   harnessAvailable,
   ruleObjects,
 } from '../../testing/app-harness.js';
+import { signAsOperator } from '../../testing/operator-signed.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
 // Module state every later file of one `bun test` run shares: put back what was there.
-let wasInline = false;
 const STAMP = String(Date.now()).slice(-7);
 const C = `wact_${STAMP}`;
 const OTHER = `wact_other_${STAMP}`;
@@ -153,6 +152,8 @@ d('a worker-isolated extension’s actions run in its worker, decided by the eng
     });
     mkdirSync(join(base, name, 'engine'), { recursive: true });
     writeFileSync(join(base, name, 'engine', 'index.js'), code);
+    // Signed, as every worker that runs is (RFC v3 phase D slice 4, S4).
+    const keyId = await signAsOperator(join(base, name), name);
     await sql`DELETE FROM zv_extension_registry WHERE name = ${name}`.execute(db);
     await sql`
       INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled, manifest)
@@ -181,6 +182,8 @@ d('a worker-isolated extension’s actions run in its worker, decided by the eng
       ctx,
       parsed as never,
       new Set(),
+      [],
+      keyId,
     );
   }
 
@@ -203,7 +206,6 @@ d('a worker-isolated extension’s actions run in its worker, decided by the eng
   beforeAll(async () => {
     ({ app: engine, db } = await getTestApp());
     await ruleObjects(db, RES);
-    wasInline = _setInlineForTests(true);
     for (const name of [C, OTHER]) {
       await DDLManager.createCollection(db, {
         name,
@@ -275,7 +277,6 @@ d('a worker-isolated extension’s actions run in its worker, decided by the eng
   }, 60_000);
 
   afterAll(async () => {
-    _setInlineForTests(wasInline);
     invalidateActivationCache();
     if (saved.transport === undefined) delete process.env.ZVELTIO_EXT_TRANSPORT;
     else process.env.ZVELTIO_EXT_TRANSPORT = saved.transport;

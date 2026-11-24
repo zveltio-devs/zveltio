@@ -24,6 +24,7 @@ import type { ExtensionContext } from '../../lib/extensions/internals.js';
 import * as workerExtensionHost from '../../lib/worker-extension-host.js';
 import { CannedDb } from './fixtures/canned-db.js';
 import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
+import { signAsOperator } from '../../testing/operator-signed.js';
 
 function tmpExt(files: Record<string, string>): string {
   const dir = mkdtempSync(join(tmpdir(), 'zv-wni-'));
@@ -80,15 +81,24 @@ describe('loadExtensionFromDir — worker isolation does not import in-process',
     _setInlineForTests(true);
     const marker = join(mkdtempSync(join(tmpdir(), 'zv-mark-')), 'imported.txt');
     const base = workerFixture(marker, 'worker');
+    // Signed, as every worker that loads is: past the tier gate, so the
+    // assertion below is about the import, not a refusal before it.
+    await signAsOperator(join(base, 'wk-ext'));
+    let started = false;
 
     const startMock = spyOn(workerExtensionHost, 'getWorkerHost').mockReturnValue({
-      start: async () => {},
+      start: async () => {
+        started = true;
+      },
       stop: async () => {},
+      isRunning: () => started,
     } as never);
 
     try {
       const loader = fakeLoader();
       await loadExtensionFromDir(loader, 'wk-ext', new Hono(), loader.ctx, base);
+      expect(loader.lastLoadError.get('wk-ext')).toBeUndefined();
+      expect(started).toBe(true);
       // The only assertion that matters: the module's top-level never ran.
       expect(existsSync(marker)).toBe(false);
     } finally {
@@ -110,48 +120,51 @@ describe('loadExtensionFromDir — worker isolation does not import in-process',
     expect(readFileSync(marker, 'utf-8')).toBe('imported');
   });
 
-  it('still discovers migrations for a worker extension, from disk', async () => {
-    // The engine has to run them, and it can no longer ask the module for the
-    // list — so it reads the conventional engine/migrations/*.sql directory.
-    _setInlineForTests(true);
-    const marker = join(mkdtempSync(join(tmpdir(), 'zv-mark-')), 'imported.txt');
-    const base = tmpExt({
-      'mig-ext/manifest.json': JSON.stringify({
-        name: 'mig-ext',
-        version: '1.0.0',
-        engine: { bundled: true, entry: 'engine/index.js', isolation: 'worker' },
-      }),
-      'mig-ext/engine/index.js': `
-        import { writeFileSync } from 'node:fs';
-        writeFileSync(${JSON.stringify(marker)}, 'imported');
-        export default { name: 'mig-ext', async register() {} };
-      `,
-      'mig-ext/engine/migrations/002_second.sql': 'SELECT 2;',
-      'mig-ext/engine/migrations/001_first.sql': 'SELECT 1;',
-      'mig-ext/engine/migrations/notes.md': 'not a migration',
+  // A migration is raw SQL run as the engine, and every worker is declared model
+  // only (ADR 0056): none runs, signed or not, under the test override too
+  // (RFC v3 phase D slice 4, S4 — the override used to let an unsigned one in).
+  for (const signed of [true, false]) {
+    it(`refuses a${signed ? ' signed' : 'n unsigned'} worker extension's engine/migrations/*.sql, running none`, async () => {
+      _setInlineForTests(true);
+      const marker = join(mkdtempSync(join(tmpdir(), 'zv-mark-')), 'imported.txt');
+      const base = tmpExt({
+        'mig-ext/manifest.json': JSON.stringify({
+          name: 'mig-ext',
+          version: '1.0.0',
+          engine: { bundled: true, entry: 'engine/index.js', isolation: 'worker' },
+        }),
+        'mig-ext/engine/index.js': `
+          import { writeFileSync } from 'node:fs';
+          writeFileSync(${JSON.stringify(marker)}, 'imported');
+          export default { name: 'mig-ext', async register() {} };
+        `,
+        'mig-ext/engine/migrations/001_first.sql': 'SELECT 1;',
+      });
+      if (signed) await signAsOperator(join(base, 'mig-ext'));
+
+      const migRunner = await import('../../lib/extensions/migration-runner.js');
+      const runSpy = spyOn(migRunner, 'runExtensionMigrations').mockImplementation(async () => {});
+      let started = false;
+      const hostSpy = spyOn(workerExtensionHost, 'getWorkerHost').mockReturnValue({
+        start: async () => {
+          started = true;
+        },
+        stop: async () => {},
+      } as never);
+
+      try {
+        const loader = fakeLoader();
+        await loadExtensionFromDir(loader, 'mig-ext', new Hono(), loader.ctx, base);
+        expect(loader.lastLoadError.get('mig-ext')).toMatch(
+          signed ? /declared model only/ : /is not signed/,
+        );
+        expect(runSpy).not.toHaveBeenCalled();
+        expect(started).toBe(false);
+        expect(existsSync(marker)).toBe(false);
+      } finally {
+        runSpy.mockRestore();
+        hostSpy.mockRestore();
+      }
     });
-
-    const seen: string[][] = [];
-    const migRunner = await import('../../lib/extensions/migration-runner.js');
-    const runSpy = spyOn(migRunner, 'runExtensionMigrations').mockImplementation(
-      async (ext: any) => {
-        seen.push(ext.getMigrations?.() ?? []);
-      },
-    );
-    const hostSpy = spyOn(workerExtensionHost, 'getWorkerHost').mockReturnValue({
-      start: async () => {},
-      stop: async () => {},
-    } as never);
-
-    try {
-      const loader = fakeLoader();
-      await loadExtensionFromDir(loader, 'mig-ext', new Hono(), loader.ctx, base);
-      expect(existsSync(marker)).toBe(false);
-      const paths = seen[0] ?? [];
-      expect(paths.map((p) => p.split('/').pop())).toEqual(['001_first.sql', '002_second.sql']);
-    } finally {
-      runSpy.mockRestore();
-      hostSpy.mockRestore();
-    }
-  });
+  }
 });

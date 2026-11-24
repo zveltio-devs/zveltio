@@ -63,7 +63,7 @@ import { parseMigrationSql } from './extension-utils.js';
  */
 async function assertMigrationTablesAllowed(extName: string, sqlText: string): Promise<void> {
   const { EXTENSION_TABLE_GRANTS, engineOwnedTables } = await import('./register.js');
-  const { ownedPrefixFor } = await import('./worker-sql-policy.js');
+  const { ownedPrefixFor } = await import('./ext-sql-policy.js');
   const engineTables = await engineOwnedTables();
   const granted = new Set((EXTENSION_TABLE_GRANTS[extName] ?? []).map((t) => t.toLowerCase()));
   const owned = ownedPrefixFor(extName).toLowerCase();

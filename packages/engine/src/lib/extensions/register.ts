@@ -296,7 +296,7 @@ export async function engineOwnedTables(): Promise<Set<string>> {
  *
  * The clamp is deliberately "not an ENGINE table" rather than "inside the
  * extension's own `zv_<ext>_*` namespace". The namespace rule reads better and
- * is what `assertWorkerSqlAllowed` enforces for worker SQL, but the installed
+ * is what `assertExtSqlAllowed` enforces for raw SQL, but the installed
  * ecosystem does not follow it: 109 of ~300 extension tables are named for the
  * feature rather than the folder — `workflow/approvals` owns `zv_approval_*`,
  * `geospatial/postgis` owns `zv_geofences`. Those are still the extension's own
