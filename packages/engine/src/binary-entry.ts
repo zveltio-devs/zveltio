@@ -25,8 +25,12 @@
  */
 
 import { EDGE_RUNNER_SENTINEL } from './lib/edge-functions/runner-sentinel.js';
+import { SOCKET_BAN_SENTINEL, execUnderSocketBan } from './lib/socket-ban.js';
 
-if (process.argv[2] === EDGE_RUNNER_SENTINEL) {
+if (process.argv[2] === SOCKET_BAN_SENTINEL) {
+  // Every process the extension runner starts (lib/socket-ban.ts, ADR 0023).
+  await execUnderSocketBan(process.argv.slice(3));
+} else if (process.argv[2] === EDGE_RUNNER_SENTINEL) {
   const bootstrap = process.argv[3];
   if (!bootstrap) {
     console.error(`${EDGE_RUNNER_SENTINEL} needs the path of a bootstrap module`);

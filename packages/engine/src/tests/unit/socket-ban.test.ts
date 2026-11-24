@@ -5,6 +5,7 @@
 // do. Each check also runs without the filter: the control that this host
 // opens what the filter has to refuse.
 import { describe, expect, it } from 'bun:test';
+import { runnerWrap } from '../../lib/ext-runner.js';
 import { checkSocketBan, socketBanFilter } from '../../lib/socket-ban.js';
 
 const loader = (filter: Uint8Array | null) =>
@@ -180,6 +181,7 @@ describe.skipIf(process.platform !== 'linux')('checkSocketBan', () => {
     const refused = checkSocketBan(under(null));
     expect(refused).toContain('AF_INET: fd');
     expect(refused).toContain('AF_SMC: fd');
+    expect(refused).toContain('AF_UNIX: fd');
   });
 
   it('refuses a wrap that fails to start, and releases what it took', () => {
@@ -198,5 +200,48 @@ describe.skipIf(process.platform !== 'linux')('checkSocketBan', () => {
       () => ({ exitCode: 0, stdout: Buffer.from('{"AF_INET":"errno 13"}\n') }),
     );
     expect(refused).not.toBeNull();
+  });
+});
+
+// ADR 0023, owner 2026-11-24: on bare metal too, every process the runner
+// starts loads the filter itself. The unit's RestrictAddressFamilies=AF_UNIX
+// left them AF_UNIX (measured: `AF_UNIX: fd 5` under the unit's seccomp).
+describe.skipIf(process.platform !== 'linux')('runnerWrap, as the bare-metal runner starts a process', () => {
+  const probe = `
+const { dlopen, FFIType, read } = require('bun:ffi');
+const { symbols: c } = dlopen('libc.so.6', {
+  socket: { args: [FFIType.i32, FFIType.i32, FFIType.i32], returns: FFIType.i32 },
+  __errno_location: { returns: FFIType.ptr },
+});
+const open = (f, t) => { const fd = c.socket(f, t, 0); return fd >= 0 ? 'fd' : 'errno ' + read.i32(c.__errno_location(), 0); };
+const fs = require('node:fs');
+console.log(JSON.stringify({
+  unixStream: open(1, 1),
+  unixDgram: open(1, 2),
+  inet: open(2, 1),
+  seccomp: fs.readFileSync('/proc/self/status', 'utf8').match(/Seccomp:\\s+(\\d)/)?.[1],
+  cmdline: fs.readFileSync('/proc/self/cmdline', 'utf8').split('\\0').slice(3, -1),
+  env: { ...process.env },
+}));`;
+
+  it('starts it under the ban, AF_UNIX included, with exactly its argv and env', () => {
+    const { argv, env, release } = runnerWrap(null)([process.execPath, '-e', probe, 'a', '--', 'b'], {
+      env: { BUN_BE_BUN: '1', ONLY: 'this' },
+    });
+    expect(release).toBeUndefined();
+    const r = Bun.spawnSync(argv, { env, stderr: 'pipe' });
+    expect(r.stderr.toString()).toBe('');
+    expect(JSON.parse(r.stdout.toString())).toEqual({
+      unixStream: 'errno 13',
+      unixDgram: 'errno 13',
+      inet: 'errno 13',
+      seccomp: '2',
+      cmdline: ['a', '--', 'b'],
+      env: { BUN_BE_BUN: '1', ONLY: 'this' },
+    });
+  });
+
+  it('passes the start check the runner makes before it serves', () => {
+    expect(checkSocketBan(runnerWrap(null))).toBeNull();
   });
 });

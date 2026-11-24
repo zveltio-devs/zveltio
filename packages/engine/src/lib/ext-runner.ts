@@ -53,7 +53,7 @@ import { createServer, type Socket } from 'node:net';
 import { spawn } from 'node:child_process';
 import { WORKER_RUNTIME_SOURCE } from './worker-extension-runtime-source.generated.js';
 import { createHash } from 'node:crypto';
-import { checkSocketBan, writeSocketBan } from './socket-ban.js';
+import { checkSocketBan, socketBanned } from './socket-ban.js';
 
 // Bun's `--compile` mode does NOT auto-bundle workers. Embed the pre-
 // compiled worker JS as a string constant and write it to a temp file
@@ -168,26 +168,7 @@ export async function runExtRunner(): Promise<never> {
     chmodSync(dirname(edgeBootstrapPath), 0o755);
     chmodSync(edgeBootstrapPath, 0o644);
   }
-  // Container mode: each process under a uid of its own and the socket ban
-  // (ADR 0023), both through setpriv. On systemd the unit bans sockets for the
-  // runner and everything it starts.
-  const allocate = uidBase === null ? null : uidAllocator(uidBase);
-  const wrapWith =
-    (socketBan?: string): RouteWrap =>
-    (argv, opts) => {
-      if (!allocate) return { argv };
-      const { uid, release } = allocate();
-      return {
-        release,
-        argv: limitArgv(setprivArgv(uid, argv, socketBan), opts?.addressSpace ?? true),
-      };
-    };
-  // The bare-metal `edge` instance (root, a uid per invocation) already bans
-  // sockets for everything it starts through its unit's RestrictAddressFamilies,
-  // and a host's setpriv may predate --seccomp-filter (util-linux < 2.41, e.g.
-  // Ubuntu 24.04): load the filter only where the probe shows no ban without it.
-  let wrap = wrapWith();
-  if (allocate && checkSocketBan(wrap)) wrap = wrapWith(writeSocketBan());
+  const wrap = runnerWrap(uidBase === null ? null : uidAllocator(uidBase));
   const unbanned = checkSocketBan(wrap);
   if (unbanned) {
     console.error(`[ext-runner] ${unbanned}`);
@@ -262,10 +243,10 @@ export function routeConnection(
     }
     // Memory and tasks: the unit's cgroup limits, per extension, or in
     // container mode the rlimits `wrap` sets (limitArgv).
-    const { argv, release } = opts.wrap(opts.workerArgv);
+    const { argv, env, release } = opts.wrap(opts.workerArgv, { env: opts.childEnv });
     const child = spawn(argv[0]!, argv.slice(1), {
       stdio: ['pipe', 'pipe', 'inherit'],
-      env: opts.childEnv,
+      env: env ?? opts.childEnv,
       cwd: '/',
     });
     if (release) child.on('exit', release);
@@ -288,15 +269,37 @@ export function routeConnection(
   });
 }
 
-/** `addressSpace: false` for Deno, which cannot start under RLIMIT_AS (job-runner.ts). */
-type RouteWrap = (
+/**
+ * How the runner starts a process: the argv and environment to spawn instead
+ * (the socket ban's loader, a uid drop), and what to give back when it exits.
+ * `addressSpace: false` for Deno, which cannot start under RLIMIT_AS
+ * (job-runner.ts). No `env` back: spawn the one passed in.
+ */
+export type RouteWrap = (
   argv: string[],
-  opts?: { addressSpace?: boolean },
-) => { argv: string[]; release?: () => void };
+  opts: { env: Record<string, string>; addressSpace?: boolean },
+) => { argv: string[]; env?: Record<string, string>; release?: () => void };
 // 'E' of the edge header; see EDGE_HEADER_TAG in edge-functions/subprocess-runner.ts.
 const EDGE_TAG_BYTE = 0x45;
 // 'J' of the job header; see JOB_HEADER_TAG in extensions/job-runner.ts.
 const JOB_TAG_BYTE = 0x4a;
+
+/**
+ * How the runner starts every process: under the socket ban (ADR 0023),
+ * loaded by this binary before exec (socketBanned) — the runner itself keeps
+ * AF_UNIX for its socket; with `allocate` (container mode, the bare-metal
+ * `edge` instance) also under a uid of its own and rlimits. The ban is
+ * outermost: it loads as root, before prlimit and setpriv, and RLIMIT_AS
+ * never meets the loader's JIT.
+ */
+export function runnerWrap(allocate: ReturnType<typeof uidAllocator> | null): RouteWrap {
+  return (argv, opts) => {
+    if (!allocate) return socketBanned(argv, opts.env);
+    const { uid, release } = allocate();
+    const limited = limitArgv(setprivArgv(uid, argv), opts.addressSpace ?? true);
+    return { release, ...socketBanned(limited, opts.env) };
+  };
+}
 
 /**
  * Container mode: a uid per extension process, from `base` up. A uid stays
@@ -318,17 +321,14 @@ export function uidAllocator(base: number): () => { uid: number; release: () => 
 
 /**
  * Bun's spawn ignores `uid` without a word (measured: the child ran as root).
- * `seccompFilter`: the socket ban's file (socket-ban.ts), which setpriv loads
- * under no_new_privs, last before exec.
  */
-export function setprivArgv(uid: number, argv: string[], seccompFilter?: string): string[] {
+export function setprivArgv(uid: number, argv: string[]): string[] {
   return [
     'setpriv',
     `--reuid=${uid}`,
     `--regid=${uid}`,
     '--clear-groups',
     '--no-new-privs',
-    ...(seccompFilter ? [`--seccomp-filter=${seccompFilter}`] : []),
     '--',
     ...argv,
   ];

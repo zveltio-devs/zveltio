@@ -41,6 +41,7 @@ import { spawn } from 'bun';
 import { cgroupLimitAvailable, limitedCommand } from '../edge-functions/subprocess-runner.js';
 import { extensionTransport } from '../worker-extension-transport.js';
 import { ensureDeno } from './deno.js';
+import type { RouteWrap } from '../ext-runner.js';
 
 export const RUNNER_LIMITS = {
   hostCalls: 1000,
@@ -516,8 +517,8 @@ async function overRunner(r: RunnerRun): Promise<JobProc> {
 
 /**
  * Runner side of one job connection (`first` holds the bytes read so far):
- * spawn Deno through `wrap` — the uid drop and the socket ban in containers,
- * the unit's own on systemd — without RLIMIT_AS, under RLIMIT_CPU and the
+ * spawn Deno through `wrap` — the socket ban, and in containers the uid
+ * drop — without RLIMIT_AS, under RLIMIT_CPU and the
  * RSS watchdog; pipe the connection to it; end with one `{"runner":…}` line.
  * The child could print such a line itself; it describes only its own run,
  * and the runner's comes last.
@@ -525,10 +526,7 @@ async function overRunner(r: RunnerRun): Promise<JobProc> {
 export function serveJobConnection(
   conn: Socket,
   first: Buffer,
-  wrap: (
-    argv: string[],
-    opts?: { addressSpace?: boolean },
-  ) => { argv: string[]; release?: () => void },
+  wrap: RouteWrap,
   // The runner verifies the binary it runs, and never downloads one: it has no network.
   locate: () => Promise<string> = () => ensureDeno({ download: false }),
 ): void {
@@ -564,17 +562,17 @@ export function serveJobConnection(
         let p: JobProc;
         let release: (() => void) | undefined;
         try {
-          const wrapped = wrap(
-            limitedCommand(denoArgv(deno, memoryMb), 0, cpuSeconds(timeoutSeconds), false),
-            { addressSpace: false },
-          );
-          release = wrapped.release;
           // PATH: the wrap's prlimit, setpriv and sh are named bare, as in checkSocketBan.
           const env = {
             DENO_DIR: denoDir(),
             PATH: process.env.PATH ?? '/usr/sbin:/usr/bin:/sbin:/bin',
           };
-          p = spawnDeno(wrapped.argv, env, memoryMb);
+          const wrapped = wrap(
+            limitedCommand(denoArgv(deno, memoryMb), 0, cpuSeconds(timeoutSeconds), false),
+            { env, addressSpace: false },
+          );
+          release = wrapped.release;
+          p = spawnDeno(wrapped.argv, wrapped.env ?? env, memoryMb);
         } catch (err) {
           // The uid goes back, and the engine hears why now, not at its wall clock.
           release?.();
