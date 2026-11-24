@@ -328,7 +328,9 @@ A filter the API cannot apply answers `400`, in either format: an unknown
 field, an unknown operator, a list value (`{"tag":[1,2]}` — write
 `{"tag":{"in":[1,2]}}`), or a `filter` that is not a JSON object. Before
 beta.98 such a filter was dropped and the request listed every row the caller
-could read.
+could read. A field marked `encrypted: true` takes no filter and no sort: its
+column holds ciphertext, so it answers the `400` of an unknown field (before
+this, `eq` never matched and `neq` returned every row).
 
 The four text operators are case-insensitive and literal — `%` and `_` match
 themselves, not any run or any character. `not_contains` keeps rows where the

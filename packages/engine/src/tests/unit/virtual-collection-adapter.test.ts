@@ -133,6 +133,21 @@ describe('translateQuery (pure)', () => {
     ).toThrow(/does not support operator "gt"/);
   });
 
+  it('the unsupported-operator message names no source_url (it may carry a credential)', () => {
+    const cfg = baseConfig({
+      source_url: 'https://api.example/?token=s3cret',
+      supported_operators: ['eq'],
+    });
+    let msg = '';
+    try {
+      translateQuery(cfg, baseQuery({ filters: [{ field: 'a', op: 'gt', value: 1 }] }));
+    } catch (e) {
+      msg = (e as Error).message;
+    }
+    expect(msg).toContain('does not support operator');
+    expect(msg).not.toContain('s3cret');
+  });
+
   it('maps zveltio field names to external names via field_mapping', () => {
     const cfg = baseConfig({ field_mapping: { title: 'name' } });
     const qs = translateQuery(

@@ -160,8 +160,10 @@ export function translateQuery(config: VirtualConfig, query: VirtualQuery): stri
     // and both translate the same below, so a config naming either admits both.
     const named = filter.op === 'ilike' || filter.op === 'like' ? ['like', 'ilike'] : [filter.op];
     if (supportedOps && !named.some((op) => supportedOps.includes(op))) {
+      // No source_url here: the caller sees this message, and an operator may
+      // put a credential in the URL.
       throw new Error(
-        `Virtual source "${config.source_url}" does not support operator "${filter.op}" ` +
+        `Virtual source does not support operator "${filter.op}" ` +
           `on field "${filter.field}". Supported operators: ${supportedOps.join(', ')}`,
       );
     }
