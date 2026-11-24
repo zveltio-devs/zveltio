@@ -100,8 +100,12 @@ d('zv_audit_log hash chain (ADR 0060 decision 3)', () => {
       const inner = asTenant(db, T.held, (trx) =>
         auditLog(trx, { type: EV, resourceId: 'inner' }),
       ).then(() => 'committed');
-      const timeout = new Promise((r) => setTimeout(() => r('blocked'), 5000));
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise((r) => {
+        timer = setTimeout(() => r('blocked'), 5000);
+      });
       order.push((await Promise.race([inner, timeout])) as string);
+      clearTimeout(timer);
     });
     expect(order).toEqual(['committed']);
     expect(await chainOf(T.held)).toMatchObject({ ok: true, verified: 2 });

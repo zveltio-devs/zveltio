@@ -292,6 +292,9 @@ d('members issue their own API keys (ADR 0010)', () => {
     const savedProxy = process.env.TRUSTED_PROXY;
     process.env.NODE_ENV = 'development'; // the limiter bypasses itself under 'test'
     process.env.TRUSTED_PROXY = 'true';
+    const before = await sql<{ max_requests: number }>`
+      SELECT max_requests FROM zv_rate_limit_configs WHERE key_prefix = 'api'`.execute(db);
+    const prior = before.rows[0]!.max_requests;
     await sql`UPDATE zv_rate_limit_configs SET max_requests = 3 WHERE key_prefix = 'api'`.execute(
       db,
     );
@@ -304,7 +307,7 @@ d('members issue their own API keys (ADR 0010)', () => {
         seen.push((await self(key, `198.51.100.${200 + ++ip}`)).status);
       expect(seen).toEqual([200, 200, 200, 429]);
     } finally {
-      await sql`UPDATE zv_rate_limit_configs SET max_requests = 200 WHERE key_prefix = 'api'`.execute(
+      await sql`UPDATE zv_rate_limit_configs SET max_requests = ${prior} WHERE key_prefix = 'api'`.execute(
         db,
       );
       invalidateRateLimitCache('api');

@@ -14,7 +14,6 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { getAuth } from '../../lib/auth.js';
-import { gateInternals } from '../../lib/extensions/capabilities.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import { generateApiKey, hashApiKey } from '../../lib/security/index.js';
 import { DEFAULT_TENANT_ID } from '../../lib/tenancy/index.js';
