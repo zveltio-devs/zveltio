@@ -25,6 +25,7 @@
  */
 
 import type { ManifestDependency } from '../extension/index.js';
+import { z } from 'zod';
 import { parseMigrationSql } from './migration-parse.js';
 
 export { SHARED_MESSAGE_KEYS } from './shared-message-keys.js';
@@ -220,8 +221,7 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
   }
 
   // Actions and jobs: the engine's manifest schema refuses the whole extension
-  // on any of these. Whether `input` compiles as a JSON Schema needs Zod, so
-  // that one is left to the engine.
+  // on any of these (parity: engine tests/unit/manifest-validate-parity.test.ts).
   const NAME = /^[a-z][a-zA-Z0-9]*$/;
   const strings = (v: unknown) =>
     v === undefined || (Array.isArray(v) && v.every((s) => typeof s === 'string'));
@@ -244,6 +244,8 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
       seen.add(e.name);
       if (!isObject(e.input))
         out.push(err(code, `"${e.name}": "input" must be a JSON Schema object`));
+      else if (!compileInput(e.input))
+        out.push(err(code, `"${e.name}": "input" is not a JSON Schema the engine can compile`));
       for (const k of ['reads', 'writes', 'enqueues', 'calls', 'fromPublicRoutes']) {
         if (!strings(e[k])) out.push(err(code, `"${e.name}": "${k}" must be an array of names`));
       }
@@ -453,8 +455,7 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
     const egress = j.egress;
     const egressOk =
       egress === undefined ||
-      (Array.isArray(egress) &&
-        egress.every((e) => typeof e === 'string' && /^[a-z0-9.\-[\]:]+$/.test(e)));
+      (Array.isArray(egress) && egress.every((e) => typeof e === 'string' && isEgressEntry(e)));
     if (!egressOk) {
       out.push(
         err(
@@ -505,11 +506,11 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
     }
     // ADR 0048 d1: a clock that enqueues the job, five cron fields in UTC, as the engine reads them.
     if (j.schedule !== undefined) {
-      if (typeof j.schedule !== 'string' || !isCron(j.schedule)) {
+      if (typeof j.schedule !== 'string' || !cronFires(j.schedule)) {
         out.push(
           err(
             'MANIFEST_BAD_JOB',
-            `job "${j.name}": schedule "${String(j.schedule)}" is not a five-field cron expression (minute hour day-of-month month day-of-week; *, n, a-b, a,b and /step; in UTC)`,
+            `job "${j.name}": schedule "${String(j.schedule)}" is not a five-field cron expression that fires (minute hour day-of-month month day-of-week; *, n, a-b, a,b and /step; in UTC)`,
           ),
         );
       } else if (!(Array.isArray(obj.permissions) && obj.permissions.includes('data:system'))) {
@@ -517,6 +518,13 @@ export function validateManifest(input: ManifestValidationInput): ValidationErro
           err(
             'MANIFEST_BAD_JOB',
             `job "${j.name}": a scheduled job runs with no caller, which needs the data:system capability`,
+          ),
+        );
+      } else if (compileInput(j.input)?.safeParse({}).success === false) {
+        out.push(
+          err(
+            'MANIFEST_BAD_JOB',
+            `job "${j.name}": a scheduled job is enqueued with input {}, which its input schema must accept`,
           ),
         );
       }
@@ -1447,27 +1455,76 @@ export function validateExtension(input: ValidateExtensionInput): ValidationResu
   };
 }
 
-/** Five cron fields, each `*`, `n`, `a-b` or a list of them, with `/step`; in range. */
-function isCron(expr: string): boolean {
-  const ranges = [
-    [0, 59],
-    [0, 23],
-    [1, 31],
-    [1, 12],
-    [0, 7],
-  ] as const;
-  const fields = expr.trim().split(/\s+/);
-  return (
-    fields.length === 5 &&
-    fields.every((field, i) =>
-      field.split(',').every((part) => {
-        const m = /^(\*|(\d+)(?:-(\d+))?)(?:\/(\d+))?$/.exec(part);
-        if (!m) return false;
-        const [min, max] = ranges[i]!;
-        const lo = m[2] === undefined ? min : Number(m[2]);
-        const hi = m[3] === undefined ? (m[2] === undefined ? max : lo) : Number(m[3]);
-        return lo >= min && hi <= max && lo <= hi && (m[4] === undefined || Number(m[4]) >= 1);
-      }),
+/** The engine's `inputSchemaIssue`: the compiled schema, or null when Zod cannot compile it. */
+function compileInput(input: unknown): z.ZodType | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+  try {
+    return z.fromJSONSchema(input as Parameters<typeof z.fromJSONSchema>[0]);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The engine's `parseEgress`: a host or host:port, written the way the URL
+ * parser writes it back, or it could never match a request.
+ */
+function isEgressEntry(e: string): boolean {
+  if (
+    !/^(\[[0-9a-f:.]+\]|[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*)(:\d{1,5})?$/.test(
+      e,
     )
-  );
+  )
+    return false;
+  try {
+    return new URL(`http://${e}`).hostname === e.replace(/:\d{1,5}$/, '');
+  } catch {
+    return false;
+  }
+}
+
+/** One cron field as the set it matches (the engine's `parseField`), or null. */
+function cronField(raw: string, min: number, max: number): Set<number> | null {
+  const out = new Set<number>();
+  for (const part of raw.split(',')) {
+    const m = /^(\*|(\d+)(?:-(\d+))?)(?:\/(\d+))?$/.exec(part);
+    if (!m) return null;
+    const step = m[4] === undefined ? 1 : Number(m[4]);
+    const lo = m[2] === undefined ? min : Number(m[2]);
+    // A bare number with a step runs to the end of the range.
+    const hi = m[3] !== undefined ? Number(m[3]) : m[2] === undefined || m[4] ? max : lo;
+    if (step < 1 || lo < min || hi > max || lo > hi) return null;
+    for (let v = lo; v <= hi; v += step) out.add(v);
+  }
+  return out;
+}
+
+/**
+ * Five cron fields that fire within four years, as the engine's `nextCronRun`
+ * reads them: day-of-month and day-of-week OR when both are restricted (do not
+ * start with `*`), AND otherwise; 7 is Sunday.
+ */
+function cronFires(expr: string): boolean {
+  const p = expr.trim().split(/\s+/);
+  if (p.length !== 5) return false;
+  const [minute, hour, dom, month, dow] = (
+    [
+      [0, 59],
+      [0, 23],
+      [1, 31],
+      [1, 12],
+      [0, 7],
+    ] as const
+  ).map(([lo, hi], i) => cronField(p[i]!, lo, hi));
+  if (!minute || !hour || !dom || !month || !dow) return false;
+  if (dow.delete(7)) dow.add(0);
+  const either = !p[2]!.startsWith('*') && !p[4]!.startsWith('*');
+  const day = new Date();
+  for (let i = 0; i < 366 * 4; i++, day.setUTCDate(day.getUTCDate() + 1)) {
+    if (!month.has(day.getUTCMonth() + 1)) continue;
+    const d = dom.has(day.getUTCDate());
+    const w = dow.has(day.getUTCDay());
+    if (either ? d || w : d && w) return true;
+  }
+  return false;
 }
