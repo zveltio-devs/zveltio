@@ -205,9 +205,8 @@ Ordered from most to least trusted:
 4. **Community extensions** — run **worker-isolated**: in production on the
    extension runner, a process under a uid of its own with no engine files,
    environment or database connection ([RFC](../engine/rfc-extension-runner.md));
-   their SQL crosses to the engine, restricted to an allowlist on a reserved
-   connection with a statement timeout, as the `zveltio_worker` database role
-   which holds no grants on Better-Auth tables. Without a reachable runner,
+   no SQL crosses from them: they reach their collections through
+   `host.collections`, which the engine answers. Without a reachable runner,
    production refuses them. Outside production they run as a child of the
    engine, under its uid — the same protocol, no boundary.
 5. **Edge functions and flow scripts** — a separate process per invocation with

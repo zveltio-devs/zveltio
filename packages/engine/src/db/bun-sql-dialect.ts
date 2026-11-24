@@ -272,8 +272,8 @@ export function registerActivePool(pool: RawPool | null): void {
   _registeredPool = pool;
 }
 
-/** Exposed for the worker-extension-host (C-minimal isolation): worker
- *  RPC `db:query` runs against this pool with the host as gatekeeper. */
+/** The active pool: the worker-extension host cancels a timed-out request's
+ *  statement through it (`cancelJoinedStatement`). */
 export function getActiveBunPool(): RawPool | null {
   return _activeBunPool ?? _registeredPool;
 }
@@ -456,8 +456,8 @@ class BunSqlDriver implements Driver {
     //   bug back.
     //
     //   `getActiveBunPool()` keeps handing out a CLOSED pool. The
-    //   worker-extension host runs its `db:query` RPC through exactly that
-    //   handle.
+    //   worker-extension host cancels timed-out statements through exactly
+    //   that handle.
     //
     // It surfaced as a harness test that failed in CI and never locally:
     // `expect(after).not.toBe(before)` — the pool was the same object, because

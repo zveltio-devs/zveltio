@@ -218,10 +218,11 @@ the filesystem, and the worker imports the bundle itself. From there:
   frame it sends, forged or not; it serves only the routes its manifest declares;
   and `engine/migrations/*.sql` refuses the load. An unsigned extension never
   runs.
-- The SQL bridge, kept for the test override only, restricts SQL to user-data
-  tables (`zvd_*`) and the extension's own `zv_<ext>_*` namespace, runs on a
-  reserved connection (so a second statement after a semicolon is rejected by the
-  server) and is capped by a statement timeout.
+- No SQL crosses from any worker, signed or not, the test override's unsigned
+  one included (RFC extension-model-v3 decision 2, phase D slice 4): the host
+  answers every `db:query` frame with a refusal and runs nothing. A worker
+  reaches its collections through `host.collections`, which the engine answers
+  in the request's transaction under the caller's rules.
 - The extension is a process of its own. In production it runs on the extension
   runner, under a uid that cannot read the engine's files, environment or
   processes, with an environment of `NODE_ENV` alone and no network until the
@@ -246,8 +247,6 @@ What it costs, and what it still does not give:
   reach through `node:fs` or the network beyond the SSRF filter. Treat the
   publisher tier and signature as the controls that decide *whether* code runs,
   and the worker as what constrains it once it does.
-- The SQL bridge runs on the engine pool rather than inside the caller's tenant
-  transaction, so it is not RLS-scoped. The table policy above is what limits it.
 
 The subprocess-per-invocation runner is the **only** runner for edge functions.
 The in-process Worker mode was removed: a thread cannot be given a memory

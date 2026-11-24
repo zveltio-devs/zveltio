@@ -18,9 +18,9 @@
  *
  * What makes it a boundary: the runtime runs under a uid that cannot read the
  * engine's files (`.env`, storage), the engine's process state, or another
- * extension's runner directory, and it holds no database connection —
- * `db:query` still crosses to the engine, which is also the only broker
- * between extensions.
+ * extension's runner directory, and it holds no database connection: no SQL
+ * crosses (RFC extension-model-v3 decision 2), only `host` calls, which the
+ * engine answers; the engine is also the only broker between extensions.
  *
  * Who may connect: only the engine's uid, read from the kernel with
  * SO_PEERCRED.

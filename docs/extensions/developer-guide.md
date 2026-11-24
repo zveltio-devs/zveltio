@@ -1504,9 +1504,10 @@ invocation over a channel and runs its SQL through its own pool.
 - **Memory isolation:** ⚠️ partial — a separate process, bounded by the
   runner's limits (`RLIMIT_AS` caps virtual memory, not RSS; the cgroup is what
   protects the engine). The engine does not measure its RSS.
-- **DB credentials:** ✅ — worker never sees `DATABASE_URL`. Every
-  query crosses the IPC boundary; the host gatekeeps execution
-- **The same `ctx`:** `db` (Kysely, plus the raw `db.query()`), `auth`,
+- **DB credentials:** ✅ — worker never sees `DATABASE_URL`, and no SQL
+  crosses: the host refuses every `db` statement a worker sends (RFC
+  extension-model-v3 decision 2); data goes through `host.collections`
+- **The same `ctx`:** `db` (present, every statement refused), `auth`,
   `checkPermission`, `events` (`on`/`emit`/`emitAsync`), `config` and
   `services`, each answered by the host with the inline rules. A worker's
   `checkPermission` and `getUserRoles` answer for the request's user only (in
@@ -1525,22 +1526,16 @@ invocation over a channel and runs its SQL through its own pool.
   makes every check there; the worker runs the function, and each `host` call
   is answered by the host the engine built for that request — as its caller, in
   its transaction. An `ActionRefusal` crosses as its status and code
-- **Transactions:** a route request is one database transaction, as
-  inline: committed when the handler answers, rolled back when it throws,
-  times out (30 s) or the worker dies; `db.transaction()` is a savepoint in
-  it. Outside a request (`register()`, timers, events) each statement
-  commits on its own, and `db.transaction().execute(cb)` is a transaction
-  the engine holds for the callback: committed when `cb` resolves, rolled
-  back when it throws, times out (30 s) or the worker dies; nested calls
-  are savepoints. At most 4 open at once per extension
+- **Transactions:** a route request or action is one database transaction,
+  as inline: what its `host` calls wrote is committed when the handler
+  answers, rolled back when it throws, times out (30 s) or the worker dies
 - **Fails alone** (ADR 0056):
   - *Timeout.* A route, action or service call that has not answered within
     the request's hard timeout (30 s) answers `504 extension.timeout`; the
     statement running on its request's connection is cancelled
     (`pg_cancel_backend`, only while that connection is still in the same
     transaction), so the request rolls back and every lock it held is released
-    at the timeout. Each statement of the extension's own `db` is also under a
-    10 s `statement_timeout`.
+    at the timeout.
   - *Concurrency.* One extension serves at most a quarter of the pool's
     connections' worth of requests at once (`DB_POOL_MAX / 4`, at least 1); a
     request's nested calls into it count once. One more answers
@@ -1570,8 +1565,10 @@ invocation over a channel and runs its SQL through its own pool.
   handed an app and a ctx that refuse every use, so one that registers a route
   or touches `ctx` fails the load; the host refuses any `ctx.db`,
   `ctx.services` or `ctx.events` frame, forged or not; only the manifest's
-  `routes` are served; `engine/migrations/*.sql` refuses the load. The bridge
-  surface described above remains for the test override only
+  `routes` are served; `engine/migrations/*.sql` refuses the load. No SQL
+  crosses from any worker, the test override's unsigned one included: its
+  `ctx.db` is refused by the host (RFC extension-model-v3 decision 2). The rest
+  of the bridge surface described above remains for the test override only
 - **Use for:** third-party / community extensions where the
   publisher isn't audited, code where crash isolation matters more
   than the latency cost
