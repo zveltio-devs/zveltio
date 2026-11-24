@@ -48,6 +48,8 @@ describe('judgeAnchor (ADR 0060 decision 5)', () => {
     expect(at({ seq: 5, hash: h('b') })).toBe('changed');
     // A cut row dated before the anchor cannot reach past the head it anchored.
     expect(at({ seq: 6, hash: h('c') }, AT - 1)).toBe('changed');
+    // Same millisecond as the anchor counts as after it: retention may cut in the anchor's ms.
+    expect(at({ seq: 6, hash: h('c') }, AT)).toBe('covered');
   });
 
   it('a genesis moved back, gone or rewritten is genesis_changed', () => {
