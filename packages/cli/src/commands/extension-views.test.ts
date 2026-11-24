@@ -45,7 +45,7 @@ describe('checkViews', () => {
     expect(checkViews(dir, m)).toEqual([]);
   });
 
-  it('reports a view that is not view/2, and one that names what it does not own', () => {
+  it('skips a view/1 document and reports a view/2 one that names what it does not own', () => {
     const dir = fixture({});
     writeFileSync(
       join(dir, 'studio/views/bad.json'),

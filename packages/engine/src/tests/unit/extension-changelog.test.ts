@@ -35,6 +35,15 @@ describe('changelogBetween', () => {
     ]);
   });
 
+  it('answers newest first whatever order the file keeps', () => {
+    const md = '## 1.0.0\n\n- one\n\n## 1.2.0\n\n- two\n\n## 1.1.0\n';
+    expect(changelogBetween(md, null, '1.2.0').map((e) => e.version)).toEqual([
+      '1.2.0',
+      '1.1.0',
+      '1.0.0',
+    ]);
+  });
+
   it('is empty when the installed version is the catalog one', () => {
     expect(changelogBetween(MD, '1.10.0', '1.10.0')).toEqual([]);
   });

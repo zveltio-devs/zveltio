@@ -13,12 +13,23 @@ import { credentialsPath, engineFetch, saveSession, sessionFor, signIn } from '.
 
 const realFetch = globalThis.fetch;
 let dir: string;
+const savedEnv = {
+  XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+  ZVELTIO_NO_BROWSER: process.env.ZVELTIO_NO_BROWSER,
+};
 
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), 'zv-cli-session-'));
   process.env.XDG_CONFIG_HOME = dir;
 });
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+afterAll(() => {
+  // Other CLI test files share this bun process: give the environment back.
+  for (const [k, v] of Object.entries(savedEnv)) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+  rmSync(dir, { recursive: true, force: true });
+});
 afterEach(() => {
   globalThis.fetch = realFetch;
 });

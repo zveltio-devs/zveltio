@@ -83,6 +83,11 @@ describe('initAuth with BETTER_AUTH_SECRETS', () => {
     use(undefined, `2:${NEW},1:${OLD}`);
     const key = await secretConfig();
     expect(await symmetricDecrypt({ key, data: v1 })).toBe('JBSWY3DPEHPK3PXP');
+    // Passed, not left to Better Auth's own read of the same variable.
+    expect(getAuth().options.secrets).toEqual([
+      { version: 2, value: NEW },
+      { version: 1, value: OLD },
+    ]);
     // New values are written under the current (first) version.
     expect((await symmetricEncrypt({ key, data: 'x' })).startsWith('$ba$2$')).toBe(true);
   });
