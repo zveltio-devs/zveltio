@@ -601,7 +601,8 @@ replica. Trashed records are purged by the trash scheduler, not by this sweep.
   at the latest time an anchor named it, and answers its worst status. An anchor
   file must be well formed, named for its own date, and dated no later than a
   day ahead; any other fails verify (`error`). Per anchored chain: `ok` (the anchored entry is still on the chain, unchanged),
-  `covered` (a cut past it, made after the anchor was written), `behind` (the chain ends
+  `covered` (a cut past it, made after the anchor was written; the anchor's own
+  millisecond counts as after), `behind` (the chain ends
   before the anchored entry: its newest rows were removed), `changed` (the
   entry at the anchored `seq` is gone or hashes differently: the chain was
   rewritten, or a cut past it dated before the anchor) or `genesis_changed`
