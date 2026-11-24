@@ -21,20 +21,22 @@ describe('WorkerExtensionHost — init failures', () => {
   // either — the host refuses at every spawn, before it opens a process.
   it('refuses an unsigned bundle before opening its process', async () => {
     let opened = 0;
+    // Would answer init:ok, as a worker that imported the bundle does.
+    const MockWorker = class {
+      onmessage: ((e: MessageEvent) => void) | null = null;
+      onerror: ((e: ErrorEvent) => void) | null = null;
+      postMessage(msg: HostToWorkerMessage) {
+        if (msg.type === 'init') {
+          queueMicrotask(() =>
+            this.onmessage?.({ data: { type: 'init:ok', id: msg.id } } as MessageEvent),
+          );
+        }
+      }
+      terminate() {}
+    };
     const host = new WorkerExtensionHost(new Hono(), async () => {
       opened++;
-      return {
-        postMessage(msg: HostToWorkerMessage) {
-          if (msg.type === 'init') {
-            queueMicrotask(() =>
-              this.onmessage?.({ data: { type: 'init:ok', id: msg.id } } as MessageEvent),
-            );
-          }
-        },
-        onmessage: null as ((e: MessageEvent) => void) | null,
-        onerror: null,
-        terminate() {},
-      } as unknown as ExtensionChannel;
+      return fakeChannel(MockWorker)();
     });
     await expect(host.start('unsigned-ext', '/tmp/unsigned', 'engine/index.js')).rejects.toThrow(
       /is not signed/,
@@ -92,9 +94,9 @@ describe('WorkerExtensionHost — init failures', () => {
     const host = new WorkerExtensionHost(new Hono(), fakeChannel(MockWorker));
     const { dir, source } = await signedWorkerDir('init-timeout-ext');
     try {
-      await expect(
-        host.start('init-timeout-ext', dir, 'engine/index.js', source),
-      ).rejects.toThrow(/did not init within 15s/);
+      await expect(host.start('init-timeout-ext', dir, 'engine/index.js', source)).rejects.toThrow(
+        /did not init within 15s/,
+      );
     } finally {
       timeoutSpy.mockRestore();
       await host.stopAll().catch(() => {});

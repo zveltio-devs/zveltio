@@ -487,9 +487,7 @@ describe('assertExtSqlAllowed — schema-qualified references', () => {
       'SELECT * FROM pg_catalog.pg_authid',
       'SELECT rolname FROM pg_catalog.pg_roles',
     ]) {
-      expect(() => assertExtSqlAllowed('finance/banking', q, ENGINE)).toThrow(
-        ExtSqlPolicyError,
-      );
+      expect(() => assertExtSqlAllowed('finance/banking', q, ENGINE)).toThrow(ExtSqlPolicyError);
     }
   });
 

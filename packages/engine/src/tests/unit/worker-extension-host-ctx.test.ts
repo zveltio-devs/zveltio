@@ -153,7 +153,12 @@ describe('a SQLSTATE a worker names', () => {
     managed.worker.postMessage = (msg: HostToWorkerMessage) => {
       const cb = managed.pendingInvokes.get((msg as { id: string }).id);
       // A forged invalid-input code, which `problemOnError` answers 400.
-      cb?.({ type: 'route:err', id: (msg as { id: string }).id, error: 'bad', errno: '22P02' } as never);
+      cb?.({
+        type: 'route:err',
+        id: (msg as { id: string }).id,
+        error: 'bad',
+        errno: '22P02',
+      } as never);
     };
     (host as unknown as { workers: Map<string, unknown> }).workers.set('probe', managed);
     mountProxy(host, managed as never);
@@ -161,22 +166,22 @@ describe('a SQLSTATE a worker names', () => {
     expect(res.status).toBe(500);
   });
 
-  it('is not carried onto an action\'s failure', async () => {
+  it("is not carried onto an action's failure", async () => {
     const host = new WorkerExtensionHost(new Hono());
     const { managed } = setup();
     managed.worker.postMessage = (msg: HostToWorkerMessage) => {
       const id = (msg as { id: string }).id;
       queueMicrotask(() =>
-        (host as unknown as { handleWorkerMessage(m: unknown, d: unknown): void }).handleWorkerMessage(
-          managed,
-          { type: 'action:err', id, error: 'bad', errno: '23505' },
-        ),
+        (
+          host as unknown as { handleWorkerMessage(m: unknown, d: unknown): void }
+        ).handleWorkerMessage(managed, { type: 'action:err', id, error: 'bad', errno: '23505' }),
       );
     };
     (host as unknown as { workers: Map<string, unknown> }).workers.set('probe', managed);
-    const err = await host
-      .runAction('probe', 'go', {}, { timezone: 'UTC' } as never)
-      .catch((e: unknown) => e as { errno?: unknown; message?: string });
+    const err = await host.runAction('probe', 'go', {}, { timezone: 'UTC' } as never).then(
+      () => ({}) as { errno?: unknown; message?: string },
+      (e: unknown) => e as { errno?: unknown; message?: string },
+    );
     expect(err.message).toBe('bad');
     expect(err.errno).toBeUndefined();
   });

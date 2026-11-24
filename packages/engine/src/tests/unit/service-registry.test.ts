@@ -8,10 +8,7 @@
  */
 
 import { describe, expect, it } from 'bun:test';
-import {
-  ServiceRegistryImpl,
-  serviceRegisterRefusal,
-} from '../../lib/service-registry.js';
+import { ServiceRegistryImpl, serviceRegisterRefusal } from '../../lib/service-registry.js';
 
 /** `names`, every one callable — the shape `scope` takes. */
 const callableDeps = (names: string[]) => new Map(names.map((n) => [n, true]));
