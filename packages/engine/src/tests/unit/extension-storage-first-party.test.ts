@@ -9,7 +9,8 @@
  * (`enforcePublisherTier`); every other one runs in a worker. A third party may
  * publish as `storage/evil` (the registry reserves no namespace), declare
  * `storage`, and get operator consent. Its worker received the keys at init,
- * because `postMessage` clones the config getter's value.
+ * because `postMessage` clones the config getter's value; since RFC v3 phase D
+ * slice 4 a worker receives no `ctx.config` at all.
  */
 
 import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
@@ -63,7 +64,7 @@ describe('storage credentials go to first-party extensions only', () => {
       isRunning: () => false,
       stop: mock(async () => {}),
       start: mock(async (...args: unknown[]) => {
-        source = args[5] as { config?: unknown };
+        source = args[3] as { config?: unknown };
       }),
     } as never);
     try {
@@ -84,10 +85,10 @@ describe('storage credentials go to first-party extensions only', () => {
         new Set(),
       );
       expect(source).toBeDefined();
-      // What the worker actually receives: the init message is cloned.
-      const posted = structuredClone(source!.config) as { objectStorage?: unknown };
-      expect(posted.objectStorage).toBeUndefined();
-      expect(JSON.stringify(posted)).not.toContain('instance-secret');
+      // A worker is declared model only (RFC v3 phase D slice 4): it is handed
+      // no `ctx.config` at all, keys or not.
+      expect(source!.config).toBeUndefined();
+      expect(JSON.stringify(source)).not.toContain('instance-secret');
     } finally {
       hostSpy.mockRestore();
     }
@@ -100,7 +101,7 @@ describe('storage credentials go to first-party extensions only', () => {
       remount: () => false,
       stop: mock(async () => {}),
       start: mock(async (...args: unknown[]) => {
-        source = args[5] as { config?: unknown };
+        source = args[3] as { config?: unknown };
       }),
     } as never);
     try {
@@ -118,8 +119,8 @@ describe('storage credentials go to first-party extensions only', () => {
       } as never);
       await reRegisterExtension(loader, 'storage/evil', new Hono());
       expect(source).toBeDefined();
-      const posted = structuredClone(source!.config) as { objectStorage?: unknown };
-      expect(posted.objectStorage).toBeUndefined();
+      expect(source!.config).toBeUndefined();
+      expect(JSON.stringify(source)).not.toContain('instance-secret');
     } finally {
       hostSpy.mockRestore();
     }

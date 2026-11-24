@@ -345,17 +345,18 @@ for (const m of [
       expect(await load(name)).toBeUndefined();
       const replies = () =>
         warn.mock.calls.map((c) => String(c[0])).filter((l) => l.includes('] forged '));
-      for (let i = 0; i < 60 && replies().length < 4; i++) await Bun.sleep(50);
-      for (const id of ['forged-db', 'forged-host', 'forged-reg', 'forged-call']) {
-        expect(replies().find((l) => l.includes(` ${id} `))).toMatch(
-          /:err .* is refused: .*level 3.*declared model only/,
-        );
-      }
+      for (let i = 0; i < 60 && replies().length < 1; i++) await Bun.sleep(50);
+      await Bun.sleep(200);
+      // The one protocol frame among them is answered with a refusal; the
+      // others are not frames of the protocol at all (RFC v3 phase D slice 4):
+      // nothing runs, nothing answers, one line is logged.
+      expect(replies()).toHaveLength(1);
+      expect(replies()[0]).toMatch(/ forged-host host:err host call ".*" is refused: .*declared model only/);
       expect(
-        error.mock.calls.some((c) =>
-          String(c[0]).startsWith(`[ext:${name} key=${KEY}] ctx.db is refused`),
+        error.mock.calls.filter((c) =>
+          String(c[0]).startsWith(`[ext:${name} key=${KEY}] refused a "db:query" frame`),
         ),
-      ).toBe(true);
+      ).toHaveLength(1);
     } finally {
       warn.mockRestore();
       error.mockRestore();
