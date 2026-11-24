@@ -27,7 +27,8 @@
 #
 # Deno jobs (ADR 0023 decision 2, job-runner-isolation.ts): a job runs on the
 # runner under a uid of its own that cannot read the engine's .env, with the
-# socket ban loaded (Seccomp: 2, read from outside while it is held), its
+# socket ban loaded (a seccomp filter more than the container's, read from
+# outside while it is held), its
 # host.fetch answered through the engine although the runner has no network,
 # and a job past its memoryMb killed by the runner's watchdog.
 #
@@ -46,6 +47,18 @@ dc() { docker compose --project-directory "$ROOT" -f "$GEN/docker-compose.engine
 trap 'dc down -v --remove-orphans >/dev/null 2>&1 || true; rm -rf "$GEN"' EXIT
 
 dc up -d --build --wait engine ext-runner >/dev/null || { dc logs ext-runner | tail -40; exit 1; }
+
+# The release compose's own hardening, read from the running container: the
+# probes below cannot tell it is there (the socket ban refuses a raw socket
+# before network_mode: none would, and setpriv sets no_new_privs itself).
+st=$(dc exec -T ext-runner cat /proc/1/status)
+grep -qE '^CapEff:[[:space:]]+00000000000000e0$' <<<"$st" \
+  || { echo "FAIL: the runner holds more than SETUID/SETGID/KILL (cap_drop/cap_add)"; fail_early=1; }
+grep -qE '^NoNewPrivs:[[:space:]]+1$' <<<"$st" || { echo "FAIL: the runner lacks no-new-privileges"; fail_early=1; }
+[ "$(dc exec -T ext-runner ls /sys/class/net | tr -d '\r' | tr '\n' ' ')" = "lo " ] \
+  || { echo "FAIL: the runner has a network interface (network_mode: none)"; fail_early=1; }
+dc exec -T ext-runner touch /zveltio-ro-probe 2>/dev/null \
+  && { echo "FAIL: the runner's root filesystem is writable (read_only)"; fail_early=1; }
 
 SOCK=/run/zveltio-ext/runner.sock
 # Both handed over world-writable with no sticky bit (as an emptyDir is).
@@ -178,8 +191,12 @@ for _ in $(seq 1 30); do
 done
 juid=$(awk '/^Uid:/{print $2; exit}' <<<"$jstat")
 [ -n "$juid" ] && [ "$juid" -ge 200000 ] || { echo "FAIL: the Deno job ran as uid ${juid:-?}, not one of its own"; fail=1; }
-grep -qE '^Seccomp:[[:space:]]+2' <<<"$jstat" && grep -qE '^NoNewPrivs:[[:space:]]+1' <<<"$jstat" \
-  || { echo "FAIL: the Deno job runs without the socket ban"; fail=1; }
+# Docker's own profile shows `Seccomp: 2` for every process: the ban is one
+# filter more than a process of this container without it.
+base=$(dc exec -T ext-runner awk '/^Seccomp_filters:/{print $2}' /proc/self/status | tr -d '\r')
+jf=$(awk '/^Seccomp_filters:/{print $2; exit}' <<<"$jstat")
+[ -n "$jf" ] && [ -n "$base" ] && [ "$jf" -gt "$base" ] && grep -qE '^NoNewPrivs:[[:space:]]+1' <<<"$jstat" \
+  || { echo "FAIL: the Deno job runs without the socket ban (filters ${jf:-?}, container ${base:-?})"; fail=1; }
 [ -n "$juid" ] && { dc exec -T -u "$juid" ext-runner cat /opt/zveltio/.env 2>/dev/null || true; } | grep -q hunter2 \
   && { echo "FAIL: the Deno job's uid reads the engine's .env"; fail=1; }
 wait "$job_pid" || true
