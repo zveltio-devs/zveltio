@@ -68,8 +68,15 @@ describe('enforcePublisherTier — escape hatches', () => {
       const unsigned = await enforcePublisherTier('worker-ext', m);
       expect(unsigned.ok).toBe(false);
       if (!unsigned.ok) expect(unsigned.lastLoadError).toContain('is not signed');
+      // Nor under the test override (RFC v3 phase D slice 4, S4): no mode in
+      // which a worker differs from production.
+      _setInlineForTests(true);
+      const overridden = await enforcePublisherTier('worker-ext', m);
+      expect(overridden.ok).toBe(false);
+      if (!overridden.ok) expect(overridden.lastLoadError).toContain('is not signed');
       expect(spy).not.toHaveBeenCalled();
     } finally {
+      _setInlineForTests(false);
       spy.mockRestore();
     }
   });
