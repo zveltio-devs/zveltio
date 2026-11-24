@@ -52,6 +52,8 @@ import {
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
+// Module state every later file of one `bun test` run shares: put back what was there.
+let wasInline = false;
 const STAMP = String(Date.now()).slice(-7);
 const C = `wact_${STAMP}`;
 const OTHER = `wact_other_${STAMP}`;
@@ -204,7 +206,7 @@ d('a worker-isolated extension’s actions run in its worker, decided by the eng
   beforeAll(async () => {
     ({ app: engine, db } = await getTestApp());
     await ruleObjects(db, RES);
-    _setInlineForTests(true);
+    wasInline = _setInlineForTests(true);
     for (const name of [C, OTHER]) {
       await DDLManager.createCollection(db, {
         name,
@@ -276,6 +278,7 @@ d('a worker-isolated extension’s actions run in its worker, decided by the eng
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(wasInline);
     invalidateActivationCache();
     if (saved.transport === undefined) delete process.env.ZVELTIO_EXT_TRANSPORT;
     else process.env.ZVELTIO_EXT_TRANSPORT = saved.transport;

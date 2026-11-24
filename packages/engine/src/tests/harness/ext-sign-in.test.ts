@@ -38,6 +38,8 @@ import {
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
+// Module state every later file of one `bun test` run shares: put back what was there.
+let wasInline = false;
 const STAMP = String(Date.now()).slice(-7);
 const EXT = `sgn${STAMP}`;
 const NOCAP = `sgnn${STAMP}`;
@@ -185,7 +187,7 @@ d('signing in is one engine operation (ADR 0039 decisions 7, 8)', () => {
 
   beforeAll(async () => {
     ({ app: engine, db } = await getTestApp());
-    _setInlineForTests(true);
+    wasInline = _setInlineForTests(true);
     await createGodSession(engine, db);
     godEmail = String(
       (await sql<Rec>`SELECT email FROM "user" WHERE role = 'god' LIMIT 1`.execute(db)).rows[0]
@@ -201,6 +203,7 @@ d('signing in is one engine operation (ADR 0039 decisions 7, 8)', () => {
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(wasInline);
     invalidateActivationCache();
     if (!db) return;
     await sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${NOCAP})`.execute(db);

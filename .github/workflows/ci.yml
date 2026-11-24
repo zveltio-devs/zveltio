@@ -831,6 +831,18 @@ jobs:
           PGUSER: postgres
           PGPASSWORD: postgres
         run: bun run check:schema-snapshot
+      - name: Install template holds every declared collection
+        # The harness jobs have no sibling checkout, so this file skips there:
+        # it runs here, where the extensions and Postgres both are. The sibling
+        # check makes a missing clone a failure, not a silent skip.
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+        run: |
+          test -d ../zveltio-extensions
+          cd packages/engine && bun test src/tests/harness/install-template-declared-collections.test.ts
 
   integration-tests:
     name: Integration Tests
