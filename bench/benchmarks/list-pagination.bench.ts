@@ -72,14 +72,20 @@ export async function runListPagination(opts: RunOptions): Promise<ListResult> {
 
     const deepPageNumber = Math.max(1, Math.floor(seedRows / pageSize));
 
+    // The engine caches an offset list for 10 s, keyed on the request URL
+    // (lib/data/query-cache.ts). Repeating one URL would time Valkey, not the
+    // query: every request carries a fresh `sample`, which the list ignores.
+    let sample = 0;
+    const fresh = () => `&sample=${sample++}`;
+
     // ── Page 1 ─────────────────────────────────────────────────────
     for (let i = 0; i < warmup; i++) {
-      await timedGet(client, `/api/data/${name}?page=1&limit=${pageSize}`);
+      await timedGet(client, `/api/data/${name}?page=1&limit=${pageSize}${fresh()}`);
     }
     const firstPageSamples: number[] = [];
     const firstPageDuration = await measure(async () => {
       for (let i = 0; i < iterations; i++) {
-        const r = await timedGet(client, `/api/data/${name}?page=1&limit=${pageSize}`);
+        const r = await timedGet(client, `/api/data/${name}?page=1&limit=${pageSize}${fresh()}`);
         if (r.status !== 200) throw new Error(`firstPage returned ${r.status}`);
         firstPageSamples.push(r.durationMs);
       }
@@ -87,14 +93,17 @@ export async function runListPagination(opts: RunOptions): Promise<ListResult> {
 
     // ── Deep page (offset) ─────────────────────────────────────────
     for (let i = 0; i < warmup; i++) {
-      await timedGet(client, `/api/data/${name}?page=${deepPageNumber}&limit=${pageSize}`);
+      await timedGet(
+        client,
+        `/api/data/${name}?page=${deepPageNumber}&limit=${pageSize}${fresh()}`,
+      );
     }
     const deepPageSamples: number[] = [];
     const deepPageDuration = await measure(async () => {
       for (let i = 0; i < iterations; i++) {
         const r = await timedGet(
           client,
-          `/api/data/${name}?page=${deepPageNumber}&limit=${pageSize}`,
+          `/api/data/${name}?page=${deepPageNumber}&limit=${pageSize}${fresh()}`,
         );
         if (r.status !== 200) throw new Error(`deepPage returned ${r.status}`);
         deepPageSamples.push(r.durationMs);
@@ -105,20 +114,30 @@ export async function runListPagination(opts: RunOptions): Promise<ListResult> {
     // Walk forward, capturing each next-cursor and timing the request.
     const cursorSamples: number[] = [];
     const cursorDuration = await measure(async () => {
-      let cursor: string | undefined;
-      let i = 0;
-      while (i < iterations) {
+      let cursor: string | null = null;
+      let followed = 0;
+      let pageOneFirst: string | undefined;
+      for (let i = 0; i < iterations; i++) {
         const q = cursor
           ? `?limit=${pageSize}&cursor=${encodeURIComponent(cursor)}`
-          : `?limit=${pageSize}`;
+          : `?limit=${pageSize}${fresh()}`;
         const r = await timedGet(client, `/api/data/${name}${q}`);
         if (r.status !== 200) throw new Error(`cursor returned ${r.status}`);
         cursorSamples.push(r.durationMs);
-        const body = r.body as { meta?: { nextCursor?: string } } | undefined;
-        cursor = body?.meta?.nextCursor;
-        if (!cursor) cursor = undefined; // restart from page 1
-        i++;
+        // `{ records, pagination, next_cursor }` (lib/data/handlers/list.ts). A
+        // missing key is a renamed contract: the walk would time page 1 forever.
+        const body = r.body as
+          | { records?: Array<{ id?: string }>; next_cursor?: string | null }
+          | undefined;
+        if (!body || !('next_cursor' in body))
+          throw new Error('cursor: the list response carries no next_cursor');
+        const first = body.records?.[0]?.id;
+        if (!cursor) pageOneFirst = first;
+        else if (first === pageOneFirst) throw new Error('cursor: a cursor served page 1 again');
+        else followed++;
+        cursor = body.next_cursor ?? null; // null: the rows ran out, restart
       }
+      if (followed === 0) throw new Error('cursor: no request followed a cursor');
     });
 
     return {

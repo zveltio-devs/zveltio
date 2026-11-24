@@ -49,7 +49,9 @@ test('the palette creates, and ? shows the keyboard map', async ({ page }) => {
   await page.waitForTimeout(600);
   await page.keyboard.press('Enter');
   await page.waitForTimeout(2500);
-  await expect(page.getByRole('dialog')).toBeVisible();
+  // By name: the palette is a dialog too, and an Enter that ran nothing leaves
+  // it open — an unnamed dialog would match it and pass.
+  await expect(page.getByRole('dialog', { name: /new collection|colecție nouă/i })).toBeVisible();
   // The URL is clean again: `?new=1` opened the dialog and was consumed, so a
   // back navigation does not reopen it.
   expect(page.url()).not.toContain('new=1');
