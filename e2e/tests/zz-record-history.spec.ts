@@ -78,9 +78,14 @@ test('a record shows who changed it and what', async ({ page }) => {
   await page.waitForTimeout(1800);
 
   // The email, not a truncated id — that is the half the audit table got wrong
-  // for the same reason, and the half a reader actually needs.
-  await expect(page.getByText(E2E.admin.email).first()).toBeVisible();
-  // Both events, in order: the update on top, the creation under it.
-  await expect(page.getByText(/record updated|înregistrare actualizată/i)).toBeVisible();
-  await expect(page.getByText(/record created|înregistrare creată/i)).toBeVisible();
+  // for the same reason, and the half a reader actually needs. Inside each
+  // history entry: the sidebar shows the same email on every page.
+  const history = page.getByRole('listitem');
+  const updated = history.filter({ hasText: /record updated|înregistrare actualizată/i });
+  const created = history.filter({ hasText: /record created|înregistrare creată/i });
+  // Both events: the update and the creation.
+  await expect(updated).toBeVisible();
+  await expect(created).toBeVisible();
+  await expect(updated).toContainText(E2E.admin.email);
+  await expect(created).toContainText(E2E.admin.email);
 });

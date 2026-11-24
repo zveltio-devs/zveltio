@@ -17,6 +17,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SQL } from 'bun';
+import { sqlState } from '../db/bun-sql-quirks.js';
 
 // Dozens of tests `mkdtempSync(join(tmpdir(), 'zv-…'))` and never remove the
 // directory. Measured 2026-10-26: 23 333 of them, 2.3 GB, filled the /tmp tmpfs
@@ -72,8 +73,10 @@ afterAll(async () => {
        WHERE g.ptype = 'g' AND g.v0 ~ '^[A-Za-z0-9]{32}$'
          AND NOT EXISTS (SELECT 1 FROM "user" u WHERE u.id = g.v0)
     `;
-  } catch {
-    // No harness schema (a unit run against an empty database): nothing to clear.
+  } catch (err) {
+    // No harness schema (a unit run against an empty database): nothing to
+    // clear. Anything else is a cleanup that did not happen.
+    if (sqlState(err) !== '42P01') throw err;
   } finally {
     await sql.end();
   }
