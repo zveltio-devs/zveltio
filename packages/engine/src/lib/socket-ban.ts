@@ -25,7 +25,6 @@
  * little-endian on both architectures.
  */
 
-
 // linux/audit.h
 const AUDIT_ARCH = { x64: 0xc000003e, arm64: 0xc00000b7 } as const;
 // socket, io_uring_setup, io_uring_enter, io_uring_register

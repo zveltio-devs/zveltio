@@ -1369,11 +1369,7 @@ export const edgeBootstrapPath = bootstrapPath;
  * spawn the bootstrap under the requested ceilings, through `wrap` (the socket
  * ban; setpriv in containers), feed it the envelope, and answer with what it left behind.
  */
-export function serveEdgeConnection(
-  conn: Socket,
-  first: Buffer,
-  wrap: RouteWrap,
-): void {
+export function serveEdgeConnection(conn: Socket, first: Buffer, wrap: RouteWrap): void {
   let buf = first;
   let proc: Runner | null = null;
   let done = false;

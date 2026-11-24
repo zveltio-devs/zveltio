@@ -206,8 +206,10 @@ describe.skipIf(process.platform !== 'linux')('checkSocketBan', () => {
 // ADR 0023, owner 2026-11-24: on bare metal too, every process the runner
 // starts loads the filter itself. The unit's RestrictAddressFamilies=AF_UNIX
 // left them AF_UNIX (measured: `AF_UNIX: fd 5` under the unit's seccomp).
-describe.skipIf(process.platform !== 'linux')('runnerWrap, as the bare-metal runner starts a process', () => {
-  const probe = `
+describe.skipIf(process.platform !== 'linux')(
+  'runnerWrap, as the bare-metal runner starts a process',
+  () => {
+    const probe = `
 const { dlopen, FFIType, read } = require('bun:ffi');
 const { symbols: c } = dlopen('libc.so.6', {
   socket: { args: [FFIType.i32, FFIType.i32, FFIType.i32], returns: FFIType.i32 },
@@ -224,24 +226,28 @@ console.log(JSON.stringify({
   env: { ...process.env },
 }));`;
 
-  it('starts it under the ban, AF_UNIX included, with exactly its argv and env', () => {
-    const { argv, env, release } = runnerWrap(null)([process.execPath, '-e', probe, 'a', '--', 'b'], {
-      env: { BUN_BE_BUN: '1', ONLY: 'this' },
+    it('starts it under the ban, AF_UNIX included, with exactly its argv and env', () => {
+      const { argv, env, release } = runnerWrap(null)(
+        [process.execPath, '-e', probe, 'a', '--', 'b'],
+        {
+          env: { BUN_BE_BUN: '1', ONLY: 'this' },
+        },
+      );
+      expect(release).toBeUndefined();
+      const r = Bun.spawnSync(argv, { env, stderr: 'pipe' });
+      expect(r.stderr.toString()).toBe('');
+      expect(JSON.parse(r.stdout.toString())).toEqual({
+        unixStream: 'errno 13',
+        unixDgram: 'errno 13',
+        inet: 'errno 13',
+        seccomp: '2',
+        cmdline: ['a', '--', 'b'],
+        env: { BUN_BE_BUN: '1', ONLY: 'this' },
+      });
     });
-    expect(release).toBeUndefined();
-    const r = Bun.spawnSync(argv, { env, stderr: 'pipe' });
-    expect(r.stderr.toString()).toBe('');
-    expect(JSON.parse(r.stdout.toString())).toEqual({
-      unixStream: 'errno 13',
-      unixDgram: 'errno 13',
-      inet: 'errno 13',
-      seccomp: '2',
-      cmdline: ['a', '--', 'b'],
-      env: { BUN_BE_BUN: '1', ONLY: 'this' },
-    });
-  });
 
-  it('passes the start check the runner makes before it serves', () => {
-    expect(checkSocketBan(runnerWrap(null))).toBeNull();
-  });
-});
+    it('passes the start check the runner makes before it serves', () => {
+      expect(checkSocketBan(runnerWrap(null))).toBeNull();
+    });
+  },
+);
