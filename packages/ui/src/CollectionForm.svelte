@@ -42,6 +42,7 @@ $effect(() => {
   values = Object.fromEntries(fields.map((f) => [f.name, toInput(f.kind, record?.[f.name])]));
 });
 let saving = $state(false);
+let deleting = $state(false);
 let problem = $state<string | null>(null);
 
 function message(err: unknown): string {
@@ -71,11 +72,15 @@ async function save(e: SubmitEvent) {
 }
 
 async function remove() {
+  if (deleting) return;
+  deleting = true;
   problem = null;
   try {
     await onDelete?.();
   } catch (err) {
     problem = message(err);
+  } finally {
+    deleting = false;
   }
 }
 </script>
@@ -109,7 +114,7 @@ async function remove() {
 
     <div class="card-actions justify-between mt-2">
       {#if record && onDelete}
-        <Button variant="ghost" class="text-error" onclick={remove}>{labels.delete}</Button>
+        <Button variant="ghost" class="text-error" loading={deleting} onclick={remove}>{labels.delete}</Button>
       {:else}<span></span>{/if}
       <Button type="submit" variant="primary" loading={saving}>{saving ? labels.saving : labels.save}</Button>
     </div>

@@ -99,12 +99,12 @@ describe('requireUser', () => {
     // page and the link someone followed is lost.
     const err = await requireUser(
       engineFetch(REAL.anonymous, false) as never,
-      url('/app/data/orders'),
+      url('/app/data/orders?page=2'),
     ).catch((e) => e);
 
     const r = asRedirect(err);
     expect(r.status).toBe(302);
-    expect(r.location).toBe('/auth/login?returnTo=%2Fapp%2Fdata%2Forders');
+    expect(r.location).toBe('/auth/login?returnTo=%2Fapp%2Fdata%2Forders%3Fpage%3D2');
   });
 
   it('treats an unreachable engine as not signed in', async () => {

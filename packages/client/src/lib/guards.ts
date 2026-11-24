@@ -67,7 +67,7 @@ export async function requireUser(
 
   const user = session?.user;
   if (!user) {
-    throw redirect(302, `/auth/login?returnTo=${encodeURIComponent(url.pathname)}`);
+    throw redirect(302, `/auth/login?returnTo=${encodeURIComponent(url.pathname + url.search)}`);
   }
   return { user: { ...user, roles: user.roles ?? [] } };
 }
