@@ -129,8 +129,8 @@ class CollectionRef<T extends Record<string, any>> {
 
   list(params?: ListParams): Promise<ListResult<T>> {
     const qs = new URLSearchParams();
-    if (params?.page) qs.set('page', String(params.page));
-    if (params?.limit) qs.set('limit', String(params.limit));
+    if (params?.page != null) qs.set('page', String(params.page));
+    if (params?.limit != null) qs.set('limit', String(params.limit));
     if (params?.sort) qs.set('sort', params.sort);
     if (params?.order) qs.set('order', params.order);
     if (params?.search) qs.set('search', params.search);
@@ -147,7 +147,7 @@ class CollectionRef<T extends Record<string, any>> {
     if (params.bucket) qs.set('bucket', params.bucket);
     if (params.filter) qs.set('filter', JSON.stringify(params.filter));
     if (params.search) qs.set('search', params.search);
-    if (params.limit) qs.set('limit', String(params.limit));
+    if (params.limit != null) qs.set('limit', String(params.limit));
     return this.client['request']('GET', `${this.path}/aggregate?${qs}`);
   }
 

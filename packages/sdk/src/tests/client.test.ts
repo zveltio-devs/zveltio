@@ -64,6 +64,15 @@ describe('ZveltioClient URL building', () => {
     });
   });
 
+  it('sends a zero page or limit for the engine to refuse, instead of dropping it', async () => {
+    const urls = captureUrls();
+    const client = createZveltioClient({ baseUrl: 'https://engine.test' });
+    await client.collection('orders').list({ page: 0, limit: 0 });
+    await client.collection('orders').aggregate({ fn: ['count'], limit: 0 });
+    expect(new URL(urls[0] as string).search).toBe('?page=0&limit=0');
+    expect(new URL(urls[1] as string).searchParams.get('limit')).toBe('0');
+  });
+
   it('asks the engine who its key is at the route that answers it', async () => {
     const urls = captureUrls();
     const client = createZveltioClient({ baseUrl: 'https://engine.test', apiKey: 'zvk_x' });

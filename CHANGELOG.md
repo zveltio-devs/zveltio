@@ -4,6 +4,12 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Fixed — the SDK sends a zero `page` or `limit` instead of dropping it (D01).** `list({ limit: 0 })` and `aggregate({ limit: 0 })` left the value off, so the engine answered its default page of 20 rows for a request it refuses. The value now reaches the engine, which answers `400`.
+
+**Fixed — signing in on the public client returns to the page's query too (C14).** The guard put only the path in `returnTo`, so `/app/data/orders?page=2` landed on page 1.
+
+**Fixed — `CollectionForm` deletes once (C15).** Its delete button had no busy state, so a double click called `onDelete` twice; it now shows the loading state and ignores clicks until the first call settles.
+
 **Fixed (security) — on bare metal, an extension's process can no longer open an AF_UNIX socket (ADR 0023, owner 2026-11-24).** The systemd runner gave the processes it starts only its unit's `RestrictAddressFamilies=AF_UNIX`, which the runner needs for its own socket: an extension, edge function or Deno job could open AF_UNIX sockets, stream or datagram, and reach any host socket `PrivateNetwork` and `InaccessiblePaths` left visible (measured: `AF_UNIX: fd 5` under the unit's seccomp). Now every process any runner starts, containers and systemd alike, loads the `socket-ban.ts` filter before exec: the runner spawns its own binary as Bun, which loads the filter through `bun:ffi` and execs the process (about 7 ms a spawn). The runner itself keeps AF_UNIX for its socket. The start check also probes `AF_UNIX`, so a runner whose processes can open one refuses to start. `setpriv --seccomp-filter` is no longer used, so the container image no longer needs util-linux 2.41.
 
 **Fixed (security) — an `encrypted` field is a text field (A14).** The engine seals only strings, so `encrypted: true` on a number, date or JSON field stored its values in plaintext under a flag that said otherwise. Such a field is now refused with `400` when it is declared, and so is a retype that would carry the flag onto a non-text column. A field already declared that way is left as it is: its stored values are plaintext.
