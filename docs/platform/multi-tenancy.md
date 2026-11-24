@@ -705,7 +705,13 @@ by the engine and reached through the data API under the caller's grants, row
 rules and the tenant, like any other collection. The rest of this section is
 how the engine confines the legacy `ctx.db` path that v1 extensions still use.
 
-Extension code running in a worker uses the `zveltio_worker` role: `NOLOGIN`,
+No SQL crosses from extension code running in a worker (RFC
+extension-model-v3 decision 2, phase D slice 4): the host refuses every
+`db:query`, and the worker reaches its collections through `host.collections`.
+What follows describes the `zveltio_worker` role the removed SQL bridge ran as;
+the engine still creates and grants it until it is retired in a later step.
+
+Extension code running in a worker used the `zveltio_worker` role: `NOLOGIN`,
 `NOSUPERUSER`, `NOBYPASSRLS`, with DML on the collection tables and, granted
 when a worker extension loads, on that extension's own tables — its
 `zv_<ext>_*` namespace and the `zvd_*` tables its migrations create — and an

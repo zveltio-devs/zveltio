@@ -6,6 +6,9 @@
 // rows, an Error logged by the extension reached the engine log as `{}`, and
 // boot spawned every worker twice (once into the throwaway app, once more on
 // the real one). Driven through the real loader, over the process transport.
+//
+// The SQL cases went with the bridge (RFC extension-model-v3 decision 2, phase
+// D slice 4: no SQL crosses from a worker); boot and logging remain.
 import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -166,21 +169,6 @@ d('worker SQL bridge answers as the inline driver does', () => {
     describe(t, () => {
       it('boot spawns the worker once: re-registering on the serving app keeps it', () => {
         expect(out[t]?.sameWorker).toBe(true);
-      });
-
-      it('encodes array parameters as the inline driver does', () => {
-        expect(out[t]?.arr).toEqual({ status: 200, body: { tags: ['x', 'y"z', null], n: 1 } });
-      });
-
-      it('keeps the SQLSTATE and the constraint, so a unique violation maps to 400', () => {
-        expect(out[t]?.dup).toEqual({
-          status: 400,
-          body: { errno: '23505', constraint: `${table(t)}_tag_key`, table: table(t) },
-        });
-      });
-
-      it('reports the rows an UPDATE and a DELETE without RETURNING touched', () => {
-        expect(out[t]?.count).toEqual({ updated: 1, deleted: 1 });
       });
 
       it('logs an Error with its message, code and stack, not as {}', () => {

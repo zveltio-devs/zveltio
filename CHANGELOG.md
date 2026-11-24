@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Changed (security) — no SQL crosses from an extension process (RFC extension-model-v3 phase D slice 4).** The host refused a worker's `db:query` only when the worker was signed (levels 2 and 3, every worker production runs); an unsigned one, which only the test override loads, still had its SQL run on a reserved connection as `zveltio_worker`. The host now refuses `db:query` from every worker, before it looks at who signed it, and runs nothing; the SQL bridge behind it is deleted (about 900 lines: the worker's request and host transactions, savepoints, the role pick, the raw statement path). A worker reaches its collections through `host.collections`. No production behaviour changes. Proof: `tests/unit/worker-extension-host-ipc.test.ts` and `tests/harness/worker-transport-contract.test.ts`.
+
 **Fixed — the SDK sends a zero `page` or `limit` instead of dropping it (D01).** `list({ limit: 0 })` and `aggregate({ limit: 0 })` left the value off, so the engine answered its default page of 20 rows for a request it refuses. The value now reaches the engine, which answers `400`.
 
 **Fixed — signing in on the public client returns to the page's query too (C14).** The guard put only the path in `returnTo`, so `/app/data/orders?page=2` landed on page 1.

@@ -167,8 +167,8 @@ List them in `manifest.json` and ship one file per name, in the
   through `host.collections`. Any other write — the data API (single, bulk,
   `PUT`, delete), sync, `ctx.internals.*Record`,
   another extension's action — answers 409 `written_by_actions`, for god and
-  API keys too. `ctx.db` and the worker SQL bridge may not write such a
-  collection at all, the owner's included. On create a flagged field takes its
+  API keys too. `ctx.db` may not write such a collection at all, the owner's
+  included (no SQL crosses from a worker at all). On create a flagged field takes its
   declared default. A delete anywhere whose foreign keys would cascade into a
   flagged collection, or set a flagged field to null, answers the same 409 —
   decided on the key, so such a parent is deleted only by the owner's actions.

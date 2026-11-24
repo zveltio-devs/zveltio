@@ -56,20 +56,24 @@ export default {
   mountStrategy: 'subapp',
   async register(app, ctx) {
     const may = (c, obj, act) => ctx.checkPermission(c.get('user').id, obj, act);
+    // A worker writes nothing here: no SQL crosses from it (RFC extension-model-v3
+    // decision 2), so the refusal and the window are what its routes show.
+    const write = (title) =>
+      ${worker ? 'Promise.resolve()' : `ctx.db.insertInto('${TABLE}').values({ title }).execute()`};
     const save = async (c, label) => {
-      await ctx.db.insertInto('${TABLE}').values({ title: label }).execute();
+      await write(label);
       return c.json({ saved: true });
     };
     app.get('/settings', async (c) => c.json({ admin: await may(c, 'admin', '*') }));
     // Writes before it checks, so a refusal must also undo the write.
     app.post('/settings', async (c) => {
-      await ctx.db.insertInto('${TABLE}').values({ title: 'early' }).execute();
+      await write('early');
       return (await may(c, 'admin', '*')) ? save(c, 'settings') : c.json({ error: 'no' }, 403);
     });
     // Swallows whatever the check throws, as several extensions do — after a
     // write, so the refusal it swallowed must still undo that write.
     app.post('/swallow', async (c) => {
-      await ctx.db.insertInto('${TABLE}').values({ title: 'early-swallow' }).execute();
+      await write('early-swallow');
       return (await may(c, 'admin', '*').catch(() => false)) ? save(c, 'swallow') : c.json({ error: 'Forbidden' }, 403);
     });
     app.post('/items', async (c) =>
@@ -241,12 +245,8 @@ d('an extension mutation authorized against admin needs the configuration window
     ).toBe(200);
     expect(await titles()).toEqual([
       'early',
-      'early',
-      'early-swallow',
       'early-swallow',
       'settings',
-      'settings',
-      'swallow',
       'swallow',
       'tenant-admin',
     ]);

@@ -387,6 +387,10 @@ export async function grantExtensionDbRole(
  * beyond collections. Not `EXTENSION_TABLE_GRANTS`: the bridge passes the
  * analyzer no grants. The role is the extension's own under `zveltio_worker`
  * where the engine can make one, else `zveltio_worker` itself.
+ *
+ * No SQL crosses from a worker any more (RFC extension-model-v3 decision 2), so
+ * nothing runs as these roles; they are retired with `zveltio_worker` in a later
+ * phase D slice 4 step, which takes this grant with them.
  */
 export async function grantWorkerDbRole(
   db: Database,
@@ -397,8 +401,8 @@ export async function grantWorkerDbRole(
   try {
     // The bridge picks the role when it exists; absent (001 could not create
     // it), the bridge refuses worker SQL and there is nothing to grant.
-    // SET, as the bridge's own pick (pickWorkerSqlRole): a role it cannot switch
-    // to is one it does not use.
+    // SET, as the bridge's own pick did: a role it cannot switch to is one it
+    // does not use.
     const r = await sql<{ member: boolean }>`
       SELECT pg_has_role(current_user, oid, 'SET') AS member
         FROM pg_roles WHERE rolname = ${WORKER_DB_ROLE}

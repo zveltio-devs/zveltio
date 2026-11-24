@@ -9,8 +9,8 @@
  *      receives the route table, mounts proxy routes under `/ext/<name>/*`.
  *   2. Inbound HTTP hits the proxy → IPC to worker → handler runs → IPC
  *      back → response written to client.
- *   3. Worker DB queries arrive as `db:query` → host executes via the
- *      real shared pool → posts `db:ok` / `db:err` back.
+ *   3. A worker reaches data through `host` (`host:call`); a `db:query` is
+ *      refused from every worker (RFC extension-model-v3 decision 2).
  *   4. `stop(name)` ends the process and removes proxy routes.
  *
  * Reliability (alpha.122):
@@ -30,8 +30,6 @@
  *
  * Security envelope:
  *   - Worker never receives DATABASE_URL or any other env credential.
- *   - All SQL is executed by the host with the host's pool — RLS still
- *     applies, tenant scoping still works.
  *   - The extension is a process. On the runner it runs under a uid of
  *     its own with kernel limits (RFC extension-runner); as a local child
  *     (`process`, development) under the engine's uid, with no boundary.
@@ -50,7 +48,6 @@ import type {
   RouteInvokeResponse,
   InitResponse,
 } from './worker-extension-protocol.js';
-import { pgErrorFields } from './worker-extension-protocol.js';
 import {
   type ExtensionChannel,
   extensionTransport,
@@ -68,10 +65,8 @@ import {
 import { activePoolMax, getDb, type Database } from '../db/index.js';
 import { auditLog } from './audit.js';
 import { verifyExtensionDir } from './security/index.js';
-import { sqlState } from '../db/bun-sql-quirks.js';
 import { CompiledQuery } from 'kysely';
-import { Turns, transactionTurns } from '../db/trx-sequencer.js';
-import type { RawPool } from '../db/bun-sql-dialect.js';
+import { transactionTurns } from '../db/trx-sequencer.js';
 import {
   CREDENTIAL_HEADERS,
   actionHostCall,
@@ -87,13 +82,6 @@ import { compilePattern, extensionRequestRefused } from '../middleware/extension
 import { ProblemException, problem, problemOnError } from './problem.js';
 import { ENGINE_EVENT_NAMESPACES, engineEvents } from './runtime/index.js';
 import {
-  assertNoWrittenByActionsWrite,
-  assertWorkerSqlAllowed,
-  workerDbRoleFor,
-  workerSqlEngineTables,
-} from './extensions/index.js';
-import {
-  NO_UNITS,
   beforeRequestTransactionEnds,
   describeDenial,
   getCurrentDomainOrNull,
@@ -103,14 +91,11 @@ import {
   getRequestActor,
   getResolvedMembership,
   getUserRoles,
-  issuerSettings,
   NO_CALLER,
-  rowActorSettings,
   type RequestActor,
   runOutsideTenantContext,
   runWithDomain,
   runWithoutTenantTrx,
-  temporaryObjectsRestricted,
   withTenantIsolation,
 } from './tenancy/index.js';
 
@@ -338,11 +323,6 @@ interface ManagedWorker {
    * asserts is one it picked.
    */
   invokeTenants: Map<string, InvokeScope>;
-  /**
-   * `db.transaction()` callbacks running outside a request (owner decision 4),
-   * by the id the worker minted for each: one host transaction, one connection.
-   */
-  hostTxns?: Map<string, HostTxn>;
   pendingInits: Map<string, (res: InitResponse) => void>;
   pendingPings: Map<string, () => void>;
   /** Service names this worker has registered. Used to unregister on
@@ -451,12 +431,12 @@ const CRASH_WINDOW_MS = 10 * 60_000;
 
 /**
  * Requests one worker-isolated extension may serve at once (ADR 0056): a quarter
- * of the pool, the share `hostTxnCap` gives one extension alone. Each holds a
+ * of the pool, and never less than one. Each holds a
  * pooled connection — its request's — for as long as the extension takes, so
  * past this a slow or hostile extension would starve the engine's own requests.
  */
 export function boxConcurrencyLimit(poolMax: number): number {
-  return hostTxnCap(poolMax, 1);
+  return Math.max(1, Math.floor(poolMax / 4));
 }
 
 /** How every log line about an extension names it: its name and its signing key (ADR 0056). */
@@ -1017,12 +997,17 @@ export class WorkerExtensionHost {
 
   private handleWorkerMessage(managed: ManagedWorker, msg: WorkerToHostMessage): void {
     const level = signedLevel(managed.source);
-    const off = level === null ? null : offModel(msg);
+    // RFC extension-model-v3 decision 2 (phase D slice 4): no SQL crosses from
+    // any worker, whatever signed it; the test override's unsigned one included.
+    const off = msg.type === 'db:query' || level !== null ? offModel(msg) : null;
     if (off) {
       const error =
-        `${off} is refused: "${managed.name}" is signed by ${level === 3 ? 'an operator' : 'the registry'} ` +
-        `key (level ${level}), which is declared model only — collections, actions, jobs, ` +
-        `declared routes (ADR 0056)`;
+        level === null
+          ? `${off} is refused: no SQL crosses from an extension process; it reaches its ` +
+            `collections through host.collections (RFC extension-model-v3 decision 2)`
+          : `${off} is refused: "${managed.name}" is signed by ${level === 3 ? 'an operator' : 'the registry'} ` +
+            `key (level ${level}), which is declared model only — collections, actions, jobs, ` +
+            `declared routes (ADR 0056)`;
       // Logged once per process: a bundle posting in a loop must not flood the log.
       if (!managed.refusalLogged) {
         managed.refusalLogged = true;
@@ -1062,9 +1047,6 @@ export class WorkerExtensionHost {
         }
         break;
       }
-      case 'db:query':
-        void this.handleDbQuery(managed, msg);
-        break;
       case 'service:call':
         void this.handleServiceCall(managed, msg);
         break;
@@ -1103,68 +1085,6 @@ export class WorkerExtensionHost {
       case 'log':
         console[msg.level](`${boxTag(managed.name, managed.source)} ${msg.message}`);
         break;
-    }
-  }
-
-  private async handleDbQuery(
-    managed: ManagedWorker,
-    msg: Extract<WorkerToHostMessage, { type: 'db:query' }>,
-  ): Promise<void> {
-    try {
-      // The tenant of the request this query was issued under, from the host's
-      // own dispatch record. A query outside any request — a background hook —
-      // names no id and runs with no tenant context, which the isolation
-      // predicate resolves to no tenant at all (DR-03) rather than to everything. A
-      // query naming a request that is over is refused (`requestScope`).
-      let scope: InvokeScope | undefined;
-      try {
-        scope = requestScope(managed, msg.requestId, 'query');
-      } catch (err) {
-        // A transaction outliving the invocation it was opened in ends with it.
-        if (msg.txn) endHostTxn(managed, msg.txn, 'rolled back: its invocation is over');
-        throw err;
-      }
-      // Inside a request the transaction id names nothing: the request is the
-      // transaction (RFC step 8), and the worker cannot open a second one in it.
-      const rows =
-        msg.txn && !scope?.txn
-          ? await hostTxnStatement(
-              managed,
-              msg,
-              msg.txn,
-              scope,
-              hostTxnCap(activePoolMax(), this.workers.size),
-            )
-          : msg.savepoint
-            ? await requestSavepoint(managed.name, scope, msg.savepoint, scopeKey(msg))
-            : await runRawWithParams(
-                managed.name,
-                msg.sql,
-                msg.params,
-                scope,
-                scope && levelOf(scope, scopeKey(msg)),
-              );
-      // The affected-row count rides on Bun's result array, which neither
-      // transport carries across: an UPDATE without RETURNING reported 0.
-      const count = (rows as { count?: unknown }).count;
-      this.post(managed, {
-        type: 'db:ok',
-        id: msg.id,
-        rows,
-        ...(typeof count === 'number' ? { count } : {}),
-      });
-    } catch (err) {
-      // The SQLSTATE, as the inline driver puts it on the error: without it a
-      // unique violation the extension answers with 400 was a 500.
-      const errno = sqlState(err);
-      this.post(managed, {
-        type: 'db:err',
-        id: msg.id,
-        error: (err as Error).message,
-        ...(errno ? { errno, code: (err as { code?: string }).code } : {}),
-        // detail/constraint/table/column: what names the failing row or key.
-        pg: pgErrorFields(err),
-      });
     }
   }
 
@@ -1211,7 +1131,7 @@ export class WorkerExtensionHost {
       if (refusal) throw new Error(refusal);
       // The callee runs where the caller made the call: in the request's
       // transaction, inside the caller's `db.transaction()` if it made it there.
-      const within = scope.txn ? levelOf(scope, scopeKey(msg)) : undefined;
+      const within = scope.txn ? scope.within : undefined;
       if (ownerWorker && ownerWorker.name !== managed.name) {
         const result = await this.invokeWorkerService(ownerWorker, msg.name, msg.args, {
           ...scope,
@@ -1285,10 +1205,7 @@ export class WorkerExtensionHost {
       // In a joined request transaction, at the caller's place in its turns: a
       // query made for a call inside the worker's `db.transaction()` runs in it,
       // rather than wait for the scope that is waiting for this answer.
-      const run =
-        (scope?.txn?.joined && levelOf(scope, scopeKey(msg))) ||
-        scope?.run ||
-        (<R>(fn: () => R) => fn());
+      const run = (scope?.txn?.joined && scope.within) || scope?.run || (<R>(fn: () => R) => fn());
       const session = async () => (scope?.session ? await run(scope.session) : null) ?? null;
       const who = async () =>
         scope?.user?.id ?? ((await session()) as { user?: { id?: string } } | null)?.user?.id;
@@ -1552,15 +1469,6 @@ export class WorkerExtensionHost {
     } finally {
       leave();
       target.invokeTenants.delete(invokeId);
-      // A scope the service left open outlives it: undone, so the caller's turn comes.
-      if (scope.txn) await abandonScopes(scope.txn, target.name, invokeId);
-      // And a host transaction it left un-awaited: its next statement would be
-      // refused anyway (`handleDbQuery`), so it ends now instead of holding its
-      // connection until the hard timeout.
-      for (const [id, open] of target.hostTxns ?? []) {
-        if (open.requestId === invokeId)
-          endHostTxn(target, id, 'rolled back: its invocation is over');
-      }
     }
   }
 
@@ -1878,26 +1786,11 @@ export const _internalForTests = {
   resetInvokeWaiters(): void {
     invokeWaiters.clear();
   },
-  /** The once-only "no worker SQL role" warning, so a test can see it fire. */
-  resetNoWorkerSqlRoleWarning(): void {
-    _warnedNoWorkerSqlRole = false;
-  },
   newRequestTxn,
   failPendingRoutes,
-  requestSavepoint,
   /** The request transaction's hard timeout; no argument restores the default. */
   setRequestTxnTimeoutMs(ms = REQUEST_TXN_TIMEOUT_MS): void {
     requestTxnTimeoutMs = ms;
-  },
-  /**
-   * The tenant the host would apply to a `db:query` naming `requestId`.
-   *
-   * Exposed so a test can assert the resolution WITHOUT a database: the whole
-   * point is that the answer comes from the host's dispatch record and not from
-   * anything the worker sent, and that is a property of this lookup.
-   */
-  resolveDbTenant(managed: ManagedWorker, requestId?: string): string | null | undefined {
-    return requestId ? managed.invokeTenants.get(requestId)?.tenantId : undefined;
   },
 };
 
@@ -2037,10 +1930,6 @@ function failPendingRoutes(managed: ManagedWorker): void {
     managed.pendingInvokes.delete(id);
     resolve({ type: 'route:err', id, error: `worker "${managed.name}" exited mid-request` });
   }
-  // And its transactions outside a request: no callback is left to end them.
-  for (const id of managed.hostTxns?.keys() ?? []) {
-    endHostTxn(managed, id, 'rolled back: the worker exited');
-  }
 }
 
 const NOT_COMMITTED = 'The request could not be committed; nothing it wrote was kept.';
@@ -2098,282 +1987,6 @@ function isDependencyDown(err: unknown): boolean {
   return err instanceof ProblemException && err.code === DEPENDENCY_DOWN;
 }
 
-/** Wall-clock ceiling for a single extension query, in seconds. */
-const WORKER_QUERY_TIMEOUT_S = 10;
-
-/**
- * Execute `sql` with `params` on behalf of a worker extension.
- *
- * This used to be `pool.unsafe(sql)` with nothing in front of it, which handed
- * every worker-isolated extension unrestricted SQL as the database owner — the
- * opposite of the intent, since `enforcePublisherTier` sends *untrusted*
- * community extensions down this path specifically because the worker is meant
- * to be the boundary. Three things now stand between the message and the
- * database:
- *
- *  - the table policy, which refuses references to engine `zv_*` tables the
- *    extension does not own (sessions, API keys, tenants, Casbin policies);
- *  - a reserved connection, which Bun drives through the extended-query
- *    protocol. `pool.unsafe()` uses the simple-query protocol and accepts
- *    several statements per command, so `…; DROP TABLE "user"` was previously a
- *    single message away. On a reserved connection the server rejects it;
- *  - a statement_timeout, so one extension cannot pin a connection forever.
- *
- *  - `SET LOCAL ROLE zveltio_worker` (or the extension's own role under it), so
- *    the query runs as a plain role rather than as the database owner. On a
- *    stock install the engine connects as the image's POSTGRES_USER, which is
- *    a SUPERUSER, so worker SQL previously ran with every privilege Postgres
- *    has and RLS did not apply to it at all. Under the
- *    role, the isolation policies bind: with no tenant GUC on this connection
- *    the predicate resolves to no tenant (engine migration 123, DR-03), so an
- *    extension sees no tenant's rows instead of all of them.
- *
- *  - the caller's tenant, set as the `zveltio.current_tenant` GUC so the
- *    isolation policies resolve to the tenant whose request this is. The host
- *    reads it from its OWN dispatch record, keyed by the invocation id the
- *    worker quotes — the worker never states a tenant, because a tenant it
- *    states is a tenant it chose.
- *
- * A query issued outside any request — a background hook, a scheduled task —
- * carries no invocation id and therefore no tenant. It gets no tenant's rows,
- * which is what the predicate resolves to with no GUC (the default tenant's
- * only where the operator opted out, ZVELTIO_FAIL_CLOSED_TENANT=0). That is a
- * limitation rather than a hole: such code has no caller to inherit a tenant
- * from, and reading nothing is a bug the extension can see, where reading
- * everyone's was one nobody could.
- */
-/**
- * The role the worker SQL bridge switches to: the extension's own (`own`, made
- * at load under `zveltio_worker` — lib/extensions/ext-db-role.ts), else
- * `zveltio_worker`, else null, and the bridge then refuses the query rather
- * than run it as the engine role (migration 001 creates `zveltio_worker`).
- *
- * Never `zveltio_rls`. It used to be the last fallback, and it is the request
- * role: the collection policy (migration 058) passes a statement with no actor
- * under it as the engine's own work, so a background hook — no tenant, no
- * caller — read the default tenant's rows of every collection, where under
- * `zveltio_worker` it reads none. Measured. It also holds `user`, `session` and
- * `account`, leaving the text allowlist as the only layer between an untrusted
- * extension and every session token.
- *
- * Usable means this login may SET it, not merely that it exists: a membership
- * with SET FALSE failed `SET LOCAL ROLE`, which aborts the
- * transaction, so every worker query on such an install failed.
- */
-export async function pickWorkerSqlRole(
-  conn: { unsafe(q: string, params?: unknown[]): Promise<unknown> },
-  own?: string,
-): Promise<string | null> {
-  const [picked] = (await conn.unsafe(
-    `SELECT (SELECT rolname FROM pg_roles
-              WHERE rolname IN ($1, 'zveltio_worker')
-                AND pg_has_role(current_user, oid, 'SET')
-              ORDER BY rolname = 'zveltio_worker' LIMIT 1) AS role`,
-    [own ?? 'zveltio_worker'],
-  )) as { role?: string | null }[];
-  const role = picked?.role;
-  return role && /^[a-z0-9_]+$/.test(role) ? role : null;
-}
-
-let _warnedNoWorkerSqlRole = false;
-
-function noWorkerSqlRole(extName: string): Error {
-  if (!_warnedNoWorkerSqlRole) {
-    _warnedNoWorkerSqlRole = true;
-    console.warn(
-      '[worker-host] worker SQL is refused: this engine may not SET zveltio_worker, and ' +
-        'will not run a worker extension query as its own role or as zveltio_rls. Run ' +
-        'scripts/bootstrap-db-role.sh as a superuser, then restart.',
-    );
-  }
-  return new Error(
-    `Worker SQL refused for "${extName}": no database role to run it as (zveltio_worker ` +
-      'must exist and be SET-able by the engine role; see scripts/bootstrap-db-role.sh).',
-  );
-}
-
-type Reserved = Awaited<ReturnType<RawPool['reserve']>>;
-
-/**
- * A reserved connection in a transaction set up for `extName`'s SQL, as the
- * caller in `scope`. On failure it is rolled back and released.
- */
-async function openWorkerTxn(extName: string, scope?: InvokeScope): Promise<Reserved> {
-  const { getActiveBunPool } = await import('../db/bun-sql-dialect.js');
-  const pool = getActiveBunPool();
-  if (!pool) throw new Error('BunSQL pool not initialized — host cannot run worker queries');
-  const reserved = await pool.reserve();
-  try {
-    // Everything below runs in a transaction so the role and the tenant GUC are
-    // `SET LOCAL` and unwind themselves — on COMMIT, on ROLLBACK, and on any
-    // error in between.
-    //
-    // They used to be session settings reset in `finally`, with every reset
-    // written `.catch(() => undefined)`. That is best-effort cleanup on a
-    // connection going straight back into the pool, and the comment there
-    // already named the price: "leaking either would silently cap or
-    // de-privilege unrelated engine queries that reuse this connection."
-    //
-    // It did. Under concurrency, Better Auth borrowed a connection this bridge
-    // had left as `zveltio_rls` and answered `permission denied for table
-    // session` — 401s and 500s on requests that had nothing to do with any
-    // extension. The tenant GUC leaks by the same path and is the worse half: a
-    // pooled connection carrying another tenant's id scopes whatever runs on it
-    // next, outside a tenant transaction, to that tenant.
-    //
-    // `SET LOCAL` cannot leak, because Postgres unwinds it. Statements that
-    // would end this transaction early are refused by `assertWorkerSqlAllowed`.
-    await reserved.unsafe('BEGIN');
-    await applyWorkerSettings(reserved, extName, scope);
-    return reserved;
-  } catch (err) {
-    await endWorkerTxn(reserved, false);
-    throw err;
-  }
-}
-
-/**
- * What `applyWorkerSettings` sets for a caller in `tenantId`: every name, so a
- * joined request transaction can put the caller's own values back after.
- */
-function workerSettings(scope: InvokeScope | undefined): [string, string][] {
-  // Extension work is an actor, whoever the caller — none included (ADR 0040):
-  // with no identity a rule on a caller value matches no row. No tenant, no
-  // other setting: no tenant's rows, as the predicate resolves them (DR-03).
-  if (!scope?.tenantId) return [['zveltio.actor', 'on']];
-  // The tenant and the caller, from the host's own record — the settings
-  // `withTenantIsolation` publishes for the request, so the row rules keyed
-  // on the user apply here as they do to an inline extension's `ctx.db`.
-  // Without them `zveltio.actor` was never `on`, every such rule stood down,
-  // and the worker saw what an anonymous caller of the tenant sees.
-  //
-  // Deliberately NOT carried: the caller's exemptions (`rls_bypass`,
-  // `files_all`, `columns_all`) and a reach wider than this tenant
-  // (`visible_tenants`). All only widen, and this code is the extension the platform chose not
-  // to trust; it keeps the single-tenant, rules-apply view it always had.
-  // A reach NARROWER than the tenant is carried: a caller whose assignments
-  // all lapsed sees NO_UNITS inline, and saw the whole tenant through here.
-  const id = scope.actor?.identity;
-  const issuer = issuerSettings(id?.issuer);
-  const row = rowActorSettings(id);
-  return [
-    ['zveltio.current_tenant', scope.tenantId],
-    ['zveltio.user_id', id?.userId ?? ''],
-    ['zveltio.user_email', id?.email ?? ''],
-    // Whom a row rule's `user_id`/`user_email` resolve to: a key's author (ADR 0028).
-    ['zveltio.row_user_id', row.userId],
-    ['zveltio.row_user_email', row.email],
-    ['zveltio.user_role', id?.role ?? ''],
-    ['zveltio.user_roles', (id?.roles ?? []).join(',')],
-    // A key's issuer's column rules (095): only narrows, so it is carried.
-    ['zveltio.issuer_role', id?.issuerRole ?? ''],
-    // And its row rules (`getRlsFilters`): they only narrow too.
-    ['zveltio.issuer_rows', issuer.mode],
-    ['zveltio.issuer_user_id', issuer.userId],
-    ['zveltio.issuer_user_email', issuer.email],
-    ['zveltio.issuer_user_role', issuer.role],
-    ['zveltio.issuer_user_roles', issuer.roles],
-    // An anonymous request is an actor too: the tenant's `public` role (R1). So
-    // is no caller: no identity, no grant, no row a per-actor rule keeps (ADR 0040).
-    ['zveltio.actor', 'on'],
-    ['zveltio.rls_bypass', 'off'],
-    ['zveltio.files_all', 'off'],
-    ['zveltio.columns_all', 'off'],
-    // What collection permissions (R1) check — the caller's own grants, so a
-    // worker's query gets no collection its caller could not touch.
-    ['zveltio.collection_grants', id?.collectionGrants ?? ''],
-    ['zveltio.collection_all', id?.collectionAll ? 'on' : 'off'],
-    ['zveltio.system_collections', ''],
-    ['zveltio.visible_tenants', scope.noUnits ? NO_UNITS : ''],
-  ];
-}
-
-/**
- * Set a transaction up for `extName`'s SQL as the caller in `scope`: its
- * statement timeout, its role (`switching` from another role) and the caller's
- * tenant settings, all `SET LOCAL`.
- */
-async function applyWorkerSettings(
-  conn: Pick<Reserved, 'unsafe'>,
-  extName: string,
-  scope: InvokeScope | undefined,
-  switching = false,
-): Promise<void> {
-  // Per statement: a request's transaction (RFC step 8) runs many.
-  await conn.unsafe(`SET LOCAL statement_timeout = '${WORKER_QUERY_TIMEOUT_S}s'`);
-  await setWorkerRole(conn, extName, switching);
-  const settings = workerSettings(scope);
-  if (settings.length === 0) return;
-  // Parameterised: `set_config` takes bind parameters where `SET` does not.
-  await conn.unsafe(
-    `SELECT ${settings.map((_, i) => `set_config($${2 * i + 1}, $${2 * i + 2}, true)`).join(', ')}`,
-    settings.flat(),
-  );
-}
-
-/**
- * One statement of `extName`'s in a request transaction it joined, in its
- * window: the caller's role and settings read, the worker's set — what an
- * inline extension's statement gets (`asExtensionDbRole`). The window stays
- * open for the same invocation's next statement and is put back
- * (`releaseWindow`) before anything else runs on the connection: another
- * extension's statement, a savepoint, or any statement Kysely sends there
- * (`transactionTurns`). Restored after every statement, a worker route
- * paid seven round trips for each one where its own transaction paid one.
- * The request's turn is held throughout (`inRequestTxn`), so nothing of the
- * caller's runs inside it. A failed statement aborted the transaction (or the
- * savepoint around it), whose rollback restores the caller's settings.
- */
-async function joinedStatement<T>(
-  conn: Pick<Reserved, 'unsafe'>,
-  extName: string,
-  scope: InvokeScope,
-  run: () => Promise<T>,
-): Promise<T> {
-  const txn = scope.txn as RequestTxn;
-  let out: T;
-  try {
-    if (txn.window?.scope !== scope) {
-      await releaseWindow(txn);
-      // Complete only because the worker cannot change a setting itself:
-      // `assertWorkerSqlAllowed` refuses SET, RESET and `set_config` in any
-      // spelling before a statement gets here, so the settings this window
-      // changes are the ones it applies. Admit any of those in the policy and
-      // this list must grow. (`SET TRANSACTION`, which it admits, cannot raise a
-      // privilege: at most it makes the caller's own request read-only.)
-      const names = ['role', 'statement_timeout', ...workerSettings(scope).map(([n]) => n)];
-      const [saved] = (await conn.unsafe(
-        `SELECT json_object_agg(n, coalesce(current_setting(n, true), ''))::text AS s
-           FROM unnest($1::text[]) AS n`,
-        [names],
-      )) as { s: string }[];
-      // Recorded before the worker's settings go on, so a failure halfway puts
-      // the caller's back.
-      txn.window = { scope, saved: saved?.s ?? '{}' };
-      await applyWorkerSettings(conn, extName, scope, true);
-    }
-    out = await run();
-    if (!temporaryObjectsRestricted()) await conn.unsafe('DISCARD TEMP');
-  } catch (err) {
-    await releaseWindow(txn).catch(() => undefined);
-    throw err;
-  }
-  return out;
-}
-
-/** Put the caller's settings back on a joined transaction, if a worker's window is open. */
-async function releaseWindow(txn: RequestTxn): Promise<void> {
-  const open = txn.window;
-  if (!open || !txn.conn) return;
-  // Cleared before the restore: a failed restore aborts the transaction
-  // (Postgres), and SET LOCAL reverts with it, so nothing runs in the window.
-  txn.window = undefined;
-  await txn.conn.unsafe(
-    `SELECT set_config(k, v, true) FROM json_each_text($1::text::json) AS t(k, v)`,
-    [open.saved],
-  );
-}
-
 /**
  * The request transaction a worker service called from inline code joins: the
  * request's own tenant transaction (`tenantMiddleware`), one per request,
@@ -2407,120 +2020,23 @@ async function joinRequestTxn(scope: InvokeScope): Promise<Pick<InvokeScope, 'tx
 }
 
 async function openJoinedTxn(trx: Database): Promise<RequestTxn> {
-  const joined: RequestTxn = { ...newRequestTxn(), joined: true };
+  const joined: RequestTxn = { joined: true };
   const on = await transactionTurns(trx);
   // Every transaction `getDb()` opens is sequenced; one that is not cannot be
   // shared safely, and the call is refused rather than run beside it.
   if (!on) throw new Error("the request's transaction cannot be joined by a worker service");
-  joined.turns = on.turns;
-  // Whatever else is sent on the connection runs at the caller's settings.
-  on.beforeSend(() => releaseWindow(joined));
-  joined.conn = {
-    // The affected-row count as a reserved connection carries it (`count` on
-    // the rows, read by `handleDbQuery`): the pg driver's rows are a plain
-    // array, and an UPDATE or DELETE without RETURNING answered 0.
-    unsafe: async (sql: string, params?: unknown[]) => {
-      const { rows, numAffectedRows: n } = await on.send(CompiledQuery.raw(sql, params ?? []));
-      return n === undefined || 'count' in rows ? rows : Object.assign(rows, { count: Number(n) });
-    },
-  } as unknown as Reserved;
   // Read once, when the first call joins: a timeout then cancels what runs on
   // the connection (`cancelJoinedStatement`) without needing it.
-  const [backend] = (await joined.conn.unsafe(
-    'SELECT pg_backend_pid() AS pid, now()::text AS started',
-  )) as { pid: number; started: string }[];
-  joined.backend = backend;
+  const { rows } = await on.send(
+    CompiledQuery.raw('SELECT pg_backend_pid() AS pid, now()::text AS started', []),
+  );
+  joined.backend = rows[0] as { pid: number; started: string };
   // Ends before the request's transaction does: what is still queued is refused,
   // so no statement of the worker's lands after it.
-  if (!beforeRequestTransactionEnds(() => endRequestTxn(joined, true, 'its request is over'))) {
+  if (!beforeRequestTransactionEnds(() => endRequestTxn(joined, true))) {
     throw new Error("the request's transaction cannot be joined by a worker service");
   }
   return joined;
-}
-
-/**
- * `SET LOCAL ROLE` to `extName`'s role on a connection in a transaction. With
- * `switching`, from another extension's role first: a worker-to-worker service
- * call joins its caller's request transaction (RFC step 8), and the callee's SQL
- * runs as the callee.
- */
-async function setWorkerRole(
-  conn: Pick<Reserved, 'unsafe'>,
-  extName: string,
-  switching = false,
-): Promise<void> {
-  // The pick runs as the login: `pg_has_role(current_user, …)` from another
-  // extension's role answers for that role.
-  if (switching) await conn.unsafe('SET LOCAL ROLE NONE');
-  // `zveltio_worker`, not `zveltio_rls`. The latter holds SELECT, INSERT,
-  // UPDATE and DELETE on every table in `public` — including Better-Auth's
-  // `user`, `session`, `account`, `verification` and `twoFactor`, none of
-  // which has RLS. This bridge exists to sandbox extension code the platform
-  // has decided not to trust, and it was running under a role that could
-  // read every live session token on the instance.
-  //
-  // `zveltio_worker` is granted collection tables only — by applyTenantRLS,
-  // once FORCE RLS and the policy are on the table — and is
-  // NOSUPERUSER/NOBYPASSRLS, so tenant isolation on `zvd_*` holds exactly
-  // as it does for a request. The engine's own `zvd_*` metadata tables are
-  // revoked at boot (reconcileTenantRLS).
-  //
-  // ASKED which role is usable rather than attempting `SET ROLE` and catching:
-  // a refused statement aborts this transaction, so the old `catch` fallback
-  // ran its second `SET ROLE` — and then the extension's query — on an aborted
-  // transaction, and every worker query on such a deployment failed with 25P02.
-  // Measured.
-  //
-  // No usable role is refused — never run as the engine's own login, which owns
-  // every table and, on a superuser, bypasses RLS (measured: a worker under
-  // tenant A read tenant B's rows), and never as `zveltio_rls`, which the
-  // collection policy treats as the engine when no actor is set (measured: a
-  // no-tenant worker query read the default tenant's rows; see
-  // pickWorkerSqlRole). Only a broken install gets here: migration 001 creates
-  // `zveltio_worker` wherever it may (superuser, CREATEROLE), and
-  // scripts/bootstrap-db-role.sh does it where it may not.
-  const role = await pickWorkerSqlRole(conn, workerDbRoleFor(extName));
-  if (!role) throw noWorkerSqlRole(extName);
-  await conn.unsafe(`SET LOCAL ROLE ${role}`);
-}
-
-/**
- * End a transaction `openWorkerTxn` began and give the connection back clean.
- * Throws when COMMIT failed — after the cleanup, so nothing it wrote was kept.
- */
-async function endWorkerTxn(reserved: Reserved, commit: boolean): Promise<void> {
-  let failed: unknown;
-  try {
-    await reserved.unsafe(commit ? 'COMMIT' : 'ROLLBACK');
-  } catch (err) {
-    failed = err;
-    // ROLLBACK is what returns the connection clean. If even that fails the
-    // connection is in an unknown state, and the one thing it must not be is
-    // reused: a borrower inheriting a role or a tenant id is the failure this
-    // block exists to prevent. Losing a connection is cheaper than handing out
-    // a contaminated one.
-    try {
-      await reserved.unsafe('ROLLBACK');
-    } catch {
-      try {
-        (reserved as unknown as { close?: () => void }).close?.();
-      } catch {
-        /* nothing left to try — the release below still drops our hold */
-      }
-    }
-  }
-  // A temp table the role created outlives the transaction on this pooled
-  // connection, and pg_temp is searched first by the next borrower's
-  // unqualified names. Only where boot could not take TEMPORARY from the role.
-  if (!temporaryObjectsRestricted()) {
-    try {
-      await reserved.unsafe('DISCARD TEMP');
-    } catch {
-      (reserved as unknown as { close?: () => void }).close?.();
-    }
-  }
-  reserved.release();
-  if (commit && failed) throw failed;
 }
 
 /** Ceiling on a request's transaction across the bridge (RFC step 8). */
@@ -2528,421 +2044,37 @@ const REQUEST_TXN_TIMEOUT_MS = 30_000;
 let requestTxnTimeoutMs = REQUEST_TXN_TIMEOUT_MS;
 
 /**
- * The database transaction of one worker request (RFC extension-runner, step 8):
- * opened on the request's first bridged statement, held on one reserved
- * connection, ended once by `endRequestTxn` — committed when the handler
- * answered without throwing, rolled back otherwise, on the hard timeout, and
- * when the worker dies or is stopped mid-request.
- *
- * It used to be one transaction per statement, so a request that wrote twice and
- * failed in between kept the first write: a burned invoice number, an orphan
- * contact (docs/engine/rfc-extension-runner-experiment.md §4).
+ * The record of one worker request's transaction, ended once by
+ * `endRequestTxn`: committed when the handler answered without throwing, rolled
+ * back otherwise, on the hard timeout, and when the worker dies or is stopped
+ * mid-request. No SQL crosses from a worker (RFC extension-model-v3 decision 2),
+ * so it holds no connection of its own: what the worker writes through `host`
+ * runs in the engine, in the request's tenant transaction.
  */
 interface RequestTxn {
-  conn?: Reserved;
   /**
-   * An inline request's own tenant transaction, joined by a worker service it
-   * called (`joinRequestTxn`): never opened, switched or ended here.
+   * An inline request's own tenant transaction, joined by a call into a worker
+   * (`joinRequestTxn`): never opened or ended here.
    */
   joined?: true;
-  /**
-   * Joined only: the invocation whose worker settings are on the connection now,
-   * and the caller's they replaced (`joinedStatement`).
-   */
-  window?: { scope: InvokeScope; saved: string };
-  /** The extension whose role the transaction is SET to now. */
-  ext?: string;
-  /**
-   * Open `db.transaction()` savepoints, innermost last, each with the extension
-   * that opened it; named `zv_sp_<depth>` by the host. Depth names one scope
-   * because the worker runs sibling scopes in turn (`turnsHere` in the runtime).
-   */
-  savepoints: string[];
-  /** Statements run one at a time, in arrival order, on the one connection. */
-  tail: Promise<unknown>;
-  /**
-   * The order they arrive in: an open `db.transaction()` scope runs alone, and
-   * the request's other work — another extension's too, reached through a
-   * service call — waits for it to end; work made inside it runs in it.
-   */
-  turns: Turns;
-  /** Open scopes, by `scopeKey`. */
-  scopes: Map<string, TxnScope>;
-  /** Why statements are refused from now on. */
-  over?: string;
   /**
    * Joined only: the backend holding the request's transaction, and when that
    * transaction began — what `cancelJoinedStatement` signals, and checks first.
    */
   backend?: { pid: number; started: string };
   closing?: Promise<boolean>;
-  timer?: ReturnType<typeof setTimeout>;
-}
-
-/**
- * A `db.transaction()` scope open in a request's transaction, across every
- * worker that shares it. The runtime orders an invocation's own scopes; the
- * host orders them against the other invocations' work, which it alone sees.
- */
-interface TxnScope {
-  /** Runs its argument at this scope's level of `RequestTxn.turns`. */
-  runIn: RunIn;
-  /** Its savepoints open now: nested `db.transaction()` calls keep the id. */
-  depth: number;
-  /** Savepoints open below it when it began. */
-  base: number;
-  end: () => void;
-}
-
-/** The scope a worker message names: its invocation and its `db.transaction()` id. */
-function scopeKey(msg: { requestId?: string; txn?: string }): string | undefined {
-  return msg.requestId && msg.txn ? `${msg.requestId} ${msg.txn}` : undefined;
-}
-
-/** Where a statement of `scope`'s invocation in scope `key` takes its turn. */
-function levelOf(scope: InvokeScope, key: string | undefined): RunIn | undefined {
-  return (key && scope.txn?.scopes.get(key)?.runIn) || scope.within;
 }
 
 function newRequestTxn(): RequestTxn {
-  return { savepoints: [], tail: Promise.resolve(), turns: new Turns(), scopes: new Map() };
-}
-
-/** Run `fn` on the request's transaction, opening it on the first statement. */
-function inRequestTxn<T>(
-  txn: RequestTxn,
-  extName: string,
-  scope: InvokeScope,
-  fn: (conn: Reserved) => Promise<T>,
-  at: RunIn = direct,
-): Promise<T> {
-  return at(() => txn.turns.run(() => onConnection(txn, extName, scope, fn)));
-}
-
-function onConnection<T>(
-  txn: RequestTxn,
-  extName: string,
-  scope: InvokeScope,
-  fn: (conn: Reserved) => Promise<T>,
-): Promise<T> {
-  const run = txn.tail.then(async () => {
-    if (txn.over) throw new Error(`the database transaction is over (${txn.over})`);
-    if (!txn.conn) {
-      txn.conn = await openWorkerTxn(extName, scope);
-      txn.ext = extName;
-      const ms = requestTxnTimeoutMs;
-      txn.timer = setTimeout(
-        () => void endRequestTxn(txn, false, `rolled back: timed out after ${ms} ms`),
-        ms,
-      );
-    } else if (!txn.joined && txn.ext !== extName) {
-      // Cleared first: a failed switch must not leave a statement to run as
-      // whatever role the switch stopped at.
-      txn.ext = undefined;
-      await setWorkerRole(txn.conn, extName, true);
-      txn.ext = extName;
-    }
-    return fn(txn.conn);
-  });
-  txn.tail = run.catch(() => undefined);
-  return run;
+  return {};
 }
 
 /**
- * End the request's transaction, once: COMMIT with `commit`, else ROLLBACK, and
- * release the connection. Resolves true when what the request wrote stands —
- * committed, or nothing was written — and false when it was rolled back, here
- * or earlier (the timeout), or COMMIT failed. Later calls get the first answer.
+ * End the request's transaction, once. Resolves true when what the request
+ * wrote stands and false when it was rolled back; later calls get the first
+ * answer.
  */
-function endRequestTxn(txn: RequestTxn, commit: boolean, why?: string): Promise<boolean> {
-  if (txn.closing) return txn.closing;
-  txn.over = why ?? (commit ? 'committed' : 'rolled back');
-  clearTimeout(txn.timer);
-  // Work waiting for a scope that will not end now runs, and is refused.
-  for (const key of [...txn.scopes.keys()]) closeScope(txn, key);
-  txn.closing = txn.tail.then(async () => {
-    const conn = txn.conn;
-    // A joined transaction is its request's to end.
-    if (!conn || txn.joined) return commit;
-    try {
-      await endWorkerTxn(conn, commit);
-      return commit;
-    } catch (err) {
-      console.error('[worker-host] a request transaction failed to commit:', err);
-      return false;
-    }
-  });
+function endRequestTxn(txn: RequestTxn, commit: boolean): Promise<boolean> {
+  txn.closing ??= Promise.resolve(commit);
   return txn.closing;
-}
-
-/**
- * `db.transaction()` in a worker: a savepoint in its request's transaction,
- * named here — the worker never sends transaction-control text. A scope `key`
- * names (one per `db.transaction()` id of an invocation; outside a request
- * there is none) runs alone from its `begin` to its outermost end: the request's
- * other work, from any extension, waits for it — and work made inside it, a
- * service the scope calls included, runs in it.
- *
- * Without that a worker service called beside the scope had its statements land
- * in the scope's savepoint and undone with it, and a scope of its own opened
- * there made the caller's RELEASE fail.
- */
-async function requestSavepoint(
-  extName: string,
-  scope: InvokeScope | undefined,
-  op: 'begin' | 'release' | 'rollback',
-  key?: string,
-): Promise<unknown[]> {
-  if (!scope?.txn) {
-    throw new Error(
-      'no database transaction is open to take a savepoint in: outside a request only ' +
-        'db.transaction().execute() opens one',
-    );
-  }
-  const txn = scope.txn;
-  const open = key ? txn.scopes.get(key) : undefined;
-  if (key && !open && op === 'begin') return openScope(txn, extName, scope, key);
-  try {
-    await inRequestTxn(
-      txn,
-      extName,
-      scope,
-      (conn) => savepointOp(txn, extName, conn, op),
-      open?.runIn ?? scope.within,
-    );
-  } catch (err) {
-    // A failed RELEASE leaves the savepoint; the rollback that follows ends it.
-    if (open && op === 'rollback' && --open.depth === 0) closeScope(txn, key as string);
-    throw err;
-  }
-  if (open) {
-    open.depth += op === 'begin' ? 1 : -1;
-    if (open.depth === 0) closeScope(txn, key as string);
-  }
-  return [];
-}
-
-/** Open scope `key` once the request's work before it is done, and take its savepoint. */
-function openScope(
-  txn: RequestTxn,
-  extName: string,
-  scope: InvokeScope,
-  key: string,
-): Promise<unknown[]> {
-  return new Promise((resolve, reject) => {
-    void (scope.within ?? direct)(() =>
-      txn.turns.exclusive(async () => {
-        let end = () => {};
-        const ended = new Promise<void>((r) => {
-          end = r;
-        });
-        const runIn = AsyncLocalStorage.snapshot() as RunIn;
-        txn.scopes.set(key, { runIn, depth: 1, base: txn.savepoints.length, end });
-        try {
-          await onConnection(txn, extName, scope, (conn) =>
-            savepointOp(txn, extName, conn, 'begin'),
-          );
-        } catch (err) {
-          closeScope(txn, key);
-          reject(err);
-          return;
-        }
-        resolve([]);
-        await ended;
-      }),
-    );
-  });
-}
-
-function closeScope(txn: RequestTxn, key: string): void {
-  const open = txn.scopes.get(key);
-  txn.scopes.delete(key);
-  open?.end();
-}
-
-/**
- * Roll back the scopes invocation `requestId` left open when it ended — a
- * service that returned without awaiting its `db.transaction()` — so the
- * request's other work is not left waiting on them.
- */
-async function abandonScopes(txn: RequestTxn, extName: string, requestId: string): Promise<void> {
-  for (const [key, open] of txn.scopes) {
-    if (!key.startsWith(`${requestId} `)) continue;
-    const name = `zv_sp_${open.base + 1}`;
-    await open
-      .runIn(() =>
-        txn.turns.run(() =>
-          onConnection(txn, extName, { tenantId: null }, async (conn) => {
-            txn.ext = undefined;
-            await releaseWindow(txn);
-            await conn.unsafe(`ROLLBACK TO SAVEPOINT ${name}`);
-            await conn.unsafe(`RELEASE SAVEPOINT ${name}`);
-            txn.savepoints.length = open.base;
-          }),
-        ),
-      )
-      .catch(() => undefined);
-    closeScope(txn, key);
-  }
-}
-
-/** One savepoint statement, for the extension that owns it. */
-async function savepointOp(
-  txn: RequestTxn,
-  extName: string,
-  conn: Reserved,
-  op: 'begin' | 'release' | 'rollback',
-): Promise<void> {
-  // At the caller's settings, always: a ROLLBACK TO would otherwise put back
-  // (or take away) a worker's window behind `txn.window`'s back.
-  await releaseWindow(txn);
-  if (op === 'begin') {
-    await conn.unsafe(`SAVEPOINT zv_sp_${txn.savepoints.length + 1}`);
-    txn.savepoints.push(extName);
-    return;
-  }
-  // Only the extension that opened the innermost savepoint ends it: another
-  // one could otherwise roll back work it does not own.
-  if (txn.savepoints.at(-1) !== extName) throw new Error('no db.transaction() is open');
-  const name = `zv_sp_${txn.savepoints.length}`;
-  if (op === 'rollback') {
-    // ROLLBACK TO also undoes every SET LOCAL ROLE since the savepoint, so the
-    // role the connection is in may no longer be `txn.ext`'s: forget it, and
-    // the next statement sets its own.
-    txn.ext = undefined;
-    await conn.unsafe(`ROLLBACK TO SAVEPOINT ${name}`);
-  }
-  await conn.unsafe(`RELEASE SAVEPOINT ${name}`);
-  txn.savepoints.pop();
-}
-
-/**
- * A `db.transaction()` callback outside a request — `register()`, a timer, an
- * event delivery, a service inline code called outside one (owner decision 4): the
- * host's own transaction, on a connection of its own, as the scope a lone
- * statement of the same work runs as (the invocation's tenant and caller, or
- * none). `begin` opens it, the outermost `release` commits it, the outermost
- * `rollback` rolls it back; nested ones are savepoints, as in a request. The
- * request's hard timeout and its role and GUC hygiene apply unchanged.
- */
-interface HostTxn {
-  txn: RequestTxn;
-  /** The invocation it was opened in; every statement on it must name the same. */
-  requestId?: string;
-}
-
-/**
- * Host transactions one worker may hold open at once. Each holds a pooled
- * connection, so all of them together get a quarter of the pool, shared evenly
- * by the extensions on the runner, and never less than one each (owner decision,
- * 2026-10-10). Read at every `begin`: a load or unload moves the cap for the next
- * transaction, and ones already open are never cut short.
- */
-export function hostTxnCap(poolMax: number, extensions: number): number {
-  return Math.max(1, Math.floor(Math.floor(poolMax / 4) / Math.max(1, extensions)));
-}
-
-async function hostTxnStatement(
-  managed: ManagedWorker,
-  msg: Extract<WorkerToHostMessage, { type: 'db:query' }>,
-  id: string,
-  scope: InvokeScope | undefined,
-  cap: number,
-): Promise<unknown[]> {
-  managed.hostTxns ??= new Map();
-  const { savepoint: op } = msg;
-  let open = managed.hostTxns.get(id);
-  if (open && open.requestId !== msg.requestId) {
-    throw new Error(`database transaction ${id} belongs to other work`);
-  }
-  if (!open) {
-    // Ended already (timed out, its worker work over): nothing left to undo.
-    if (op === 'rollback') return [];
-    if (op !== 'begin') throw new Error(`database transaction ${id} is over (or was never opened)`);
-    for (const [k, t] of managed.hostTxns) if (t.txn.over) managed.hostTxns.delete(k);
-    if (managed.hostTxns.size >= cap) {
-      throw new Error(
-        `db.transaction() refused: "${managed.name}" already holds ${cap} open ` +
-          'transactions outside a request',
-      );
-    }
-    open = { txn: newRequestTxn(), requestId: msg.requestId };
-    managed.hostTxns.set(id, open);
-    try {
-      // BEGIN now, so the hard timeout counts from the callback's start.
-      return await inRequestTxn(
-        open.txn,
-        managed.name,
-        scope ?? { tenantId: null },
-        async () => [],
-      );
-    } catch (err) {
-      endHostTxn(managed, id);
-      throw err;
-    }
-  }
-  const inTxn = { tenantId: null, ...scope, txn: open.txn };
-  if (!op) return runRawWithParams(managed.name, msg.sql, msg.params, inTxn);
-  if (op === 'begin' || open.txn.savepoints.length > 0) {
-    return requestSavepoint(managed.name, inTxn, op);
-  }
-  managed.hostTxns.delete(id);
-  const commit = op === 'release';
-  const earlier = open.txn.over;
-  if (!(await endRequestTxn(open.txn, commit)) && commit) {
-    throw new Error(
-      'the database transaction could not be committed; nothing it wrote was kept ' +
-        `(${earlier ?? 'COMMIT failed'})`,
-    );
-  }
-  return [];
-}
-
-/** Roll back and forget a host transaction, if it is still open. */
-function endHostTxn(managed: ManagedWorker, id: string, why?: string): void {
-  const open = managed.hostTxns?.get(id);
-  if (!open) return;
-  managed.hostTxns?.delete(id);
-  void endRequestTxn(open.txn, false, why);
-}
-
-/**
- * One statement for `extName`: inside its request's transaction when it serves a
- * route or a service called during a request, whoever the caller (RFC step 8),
- * else in a transaction of its own — background work (`register()`, timers,
- * events, jobs) has no request whose answer could commit it, unless it opened
- * one (`hostTxnStatement`).
- */
-async function runRawWithParams(
-  extName: string,
-  sql: string,
-  params: unknown[],
-  scope?: InvokeScope,
-  at?: RunIn,
-): Promise<unknown[]> {
-  assertWorkerSqlAllowed(extName, sql, await workerSqlEngineTables());
-  await assertNoWrittenByActionsWrite(extName, sql);
-  const { encodeArrayParams } = await import('../db/bun-sql-dialect.js');
-  const args = params.length > 0 ? encodeArrayParams(params) : undefined;
-  const exec = (conn: Reserved) => conn.unsafe(sql, args) as Promise<unknown[]>;
-  if (scope?.txn?.joined) {
-    return inRequestTxn(
-      scope.txn,
-      extName,
-      scope,
-      (conn) => joinedStatement(conn, extName, scope, () => exec(conn)),
-      at,
-    );
-  }
-  if (scope?.txn) return inRequestTxn(scope.txn, extName, scope, exec, at);
-  const reserved = await openWorkerTxn(extName, scope);
-  let rows: unknown[];
-  try {
-    rows = await exec(reserved);
-  } catch (err) {
-    await endWorkerTxn(reserved, false);
-    throw err;
-  }
-  await endWorkerTxn(reserved, true);
-  return rows;
 }

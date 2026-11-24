@@ -4,21 +4,17 @@
  *
  * A trigger function runs as the role that wrote the row unless it is SECURITY
  * DEFINER. Collection writes now arrive as `zveltio_ext` (inline extension in a
- * tenant transaction), `zveltio_worker` (the worker SQL bridge) and
- * `zveltio_rls` (REST), and each holds only the collection — so a trigger that
+ * tenant transaction) and `zveltio_rls` (REST) — no SQL crosses from a worker
+ * any more (RFC extension-model-v3 decision 2), and each holds only the collection — so a trigger that
  * writes anywhere else fails that writer's ordinary INSERT/UPDATE/DELETE with
  * `permission denied`. Measured: an online-migration changelog trigger (since
  * removed, ADR 0041) did exactly that for `zveltio_ext` and `zveltio_worker`, so
  * every extension write to a collection failed while the migration ran.
  *
  * Driven through the real paths: `ctx.db` from `createRestrictedDb` inside a
- * tenant transaction and on the pool, a real worker extension through the IPC
- * bridge, and REST with a god session.
+ * tenant transaction and on the pool, and REST with a god session.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
@@ -28,22 +24,17 @@ import {
   grantExtensionDbRole,
   revokeExtensionDbRoles,
 } from '../../lib/extensions/ext-db-role.js';
-import { extensionLoader } from '../../lib/extensions/extension-loader.js';
 import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { createRestrictedDb } from '../../lib/extensions/extension-context.js';
-import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import { applyTenantRLS, getCurrentTenantTrx } from '../../lib/tenancy/index.js';
-import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extension-host.js';
 import { withTenantIsolation } from '../../lib/tenancy/index.js';
 import {
   ALL_COLLECTIONS_ACTOR,
   asDefaultTenant,
   connectedAsSuperuser,
   createGodSession,
-  forgetInstalled,
   getTestApp,
   harnessAvailable,
-  markInstalled,
 } from '../../testing/app-harness.js';
 
 const d = harnessAvailable() ? describe : describe.skip;
@@ -58,25 +49,6 @@ const TENANT = '00000000-0000-0000-0000-000000000001';
 const COLLECTION = `trgprobe_${Date.now()}`;
 const TABLE = `zvd_${COLLECTION}`;
 const INLINE = 'trginline';
-const WORKER = 'trgworker';
-
-const ENTRY = `
-export default {
-  name: '${WORKER}',
-  async register(app, ctx) {
-    const run = async (c, q, ...p) => {
-      try { return c.json({ ok: true, rows: await ctx.db.query(q, ...p) }); }
-      catch (e) { return c.json({ ok: false, error: e.message }, 500); }
-    };
-    app.post('/rows', async (c) => run(c,
-      'INSERT INTO ${TABLE} (title) VALUES ($1) RETURNING id', (await c.req.json()).title));
-    app.patch('/rows/:id', async (c) => run(c,
-      'UPDATE ${TABLE} SET title = $1 WHERE id = $2', (await c.req.json()).title, c.req.param('id')));
-    app.delete('/rows/:id', async (c) => run(c,
-      'DELETE FROM ${TABLE} WHERE id = $1', c.req.param('id')));
-  },
-};
-`;
 
 interface Writer {
   insert(title: string): Promise<string>;
@@ -87,8 +59,6 @@ interface Writer {
 d('collection triggers under every restricted writer role', () => {
   let app: Hono;
   let db: Database;
-  let base = '';
-  const workerApp = new Hono();
   const writers: Record<string, Writer> = {};
 
   beforeAll(async () => {
@@ -137,46 +107,6 @@ d('collection triggers under every restricted writer role', () => {
     };
     writers['ctx.db on the pool'] = kysely(createRestrictedDb(db, INLINE));
 
-    base = mkdtempSync(join(tmpdir(), 'trg-wkr-'));
-    const dir = join(base, WORKER);
-    mkdirSync(join(dir, 'engine'), { recursive: true });
-    writeFileSync(
-      join(dir, 'manifest.json'),
-      JSON.stringify({
-        name: WORKER,
-        version: '1.0.0',
-        engine: { entry: 'engine/index.js', bundled: true, isolation: 'worker' },
-      }),
-    );
-    writeFileSync(join(dir, 'engine', 'index.js'), ENTRY);
-    _resetWorkerHostForTests();
-    // What the tenant middleware does for the request the worker serves: its
-    // tenant, and a transaction run as an actor (R1) — the host records both.
-    workerApp.use('*', async (c, next) => {
-      c.set('tenant' as never, { id: TENANT } as never);
-      await withTenantIsolation(TENANT, () => next(), { identity: ALL_COLLECTIONS_ACTOR });
-    });
-    getWorkerHost(workerApp);
-    const ctx = extensionLoader.ctx ?? ({ db, fieldTypeRegistry: { register() {} } } as never);
-    await markInstalled(db, WORKER);
-    await extensionLoader.loadExtension(WORKER, workerApp, ctx, base);
-    expect(extensionLoader.getLastLoadError(WORKER)).toBeUndefined();
-    const viaWorker = async (method: string, path: string, body?: unknown) => {
-      const res = await workerApp.request(`/ext/${WORKER}${path}`, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: body === undefined ? undefined : JSON.stringify(body),
-      });
-      const out = (await res.json()) as { ok: boolean; rows?: { id: string }[]; error?: string };
-      if (!out.ok) throw new Error(out.error);
-      return out.rows ?? [];
-    };
-    writers['worker bridge'] = {
-      insert: async (title) => (await viaWorker('POST', '/rows', { title }))[0]!.id,
-      update: async (id, title) => void (await viaWorker('PATCH', `/rows/${id}`, { title })),
-      remove: async (id) => void (await viaWorker('DELETE', `/rows/${id}`)),
-    };
-
     const viaRest = async (method: string, path: string, body?: unknown) => {
       const res = await app.request(`/api/data/${COLLECTION}${path}`, {
         method,
@@ -199,15 +129,11 @@ d('collection triggers under every restricted writer role', () => {
 
   afterAll(async () => {
     _setInlineForTests(false);
-    await getWorkerHost(workerApp).stopAll();
-    _resetWorkerHostForTests();
-    if (base) rmSync(base, { recursive: true, force: true });
     await sql`DROP TABLE IF EXISTS ${sql.table(TABLE)} CASCADE`.execute(db);
     await asDefaultTenant(db, sql`DELETE FROM zv_sync_tombstones WHERE collection = ${TABLE}`);
     await db.deleteFrom('zvd_collections').where('name', '=', COLLECTION).execute();
     // Roles are cluster-wide and outlive the test database.
-    for (const ext of [INLINE, WORKER]) await revokeExtensionDbRoles(db, ext, true);
-    await forgetInstalled(db, WORKER);
+    await revokeExtensionDbRoles(db, INLINE, true);
   });
 
   const row = async (id: string) =>
@@ -220,12 +146,7 @@ d('collection triggers under every restricted writer role', () => {
       )
     ).rows[0];
 
-  for (const name of [
-    'ctx.db in a tenant transaction',
-    'ctx.db on the pool',
-    'worker bridge',
-    'REST',
-  ]) {
+  for (const name of ['ctx.db in a tenant transaction', 'ctx.db on the pool', 'REST']) {
     it.skipIf(poolUnwritable(name))(
       `${name}: search vector, updated_at and the sync tombstone`,
       async () => {
