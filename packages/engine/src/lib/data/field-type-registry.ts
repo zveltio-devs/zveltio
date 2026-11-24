@@ -161,6 +161,21 @@ export function secretFieldRefusal(
   return null;
 }
 
+/**
+ * Why an `encrypted: true` field of this column type is refused, or null. The
+ * engine seals only strings, into a text column: a number, a date or a JSON
+ * value kept its type and was stored in plaintext under a flag that said
+ * otherwise (A14). A `secret` is sealed by its own type and takes no flag.
+ */
+export function encryptedFieldRefusal(
+  field: Pick<FieldConfig, 'name' | 'type' | 'encrypted'>,
+  columnType: string | undefined,
+): string | null {
+  if (!field.encrypted || field.type === 'secret') return null;
+  if (columnType?.toLowerCase() === 'text') return null;
+  return `Field "${field.name}" of type "${field.type}" cannot be encrypted: only a text column holds ciphertext.`;
+}
+
 /** The CHECK that keeps a `secret` column ciphertext or NULL (either field envelope; migration 131). */
 export function secretCheckSql(column: string): string {
   const col = `"${column.replace(/"/g, '""')}"`;
@@ -197,6 +212,8 @@ export class FieldTypeRegistry {
     if (typeDef.db.virtual) return null; // computed — no real column
 
     const parts = [`"${field.name}"`, typeDef.db.columnType];
+    const encRefusal = encryptedFieldRefusal(field, typeDef.db.columnType);
+    if (encRefusal) throw new Error(encRefusal);
 
     if (field.required) parts.push('NOT NULL');
     // No column-level UNIQUE: that is `UNIQUE (<col>)` across every tenant of

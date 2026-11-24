@@ -95,6 +95,11 @@ deletes all its rules and revoked defaults, in every tenant.
 | `vector` | `vector(N)` | pgvector embedding | `dimensions` |
 | `computed` | — | Formula field (not stored) | `expression` |
 
+`encrypted: true` is accepted only on a field whose column is `text`: the
+engine seals strings into it. On any other column (a number, a date, JSON) the
+field is refused when it is declared, and so is a retype that would carry the
+flag onto such a column. A `secret` field is always sealed and takes no flag.
+
 ## API Endpoints
 
 Once a collection is created, all CRUD endpoints are available automatically:

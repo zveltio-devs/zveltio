@@ -26,6 +26,7 @@ import {
   fieldTypeRegistry,
   renderSqlDefault,
   secretCheckSql,
+  encryptedFieldRefusal,
   secretFieldRefusal,
 } from './field-type-registry.js';
 import { publishEveryTenant } from '../tenancy/index.js';
@@ -327,6 +328,11 @@ export async function checkFieldChange(
   if (newType && newType !== fieldDef.type) {
     const targetDef = fieldTypeRegistry.get(newType);
     if (!targetDef) throw new FieldChangeError(`Unknown field type: "${newType}"`, 400);
+    const encRefusal = encryptedFieldRefusal(
+      { name: fieldName, type: newType, encrypted: fieldDef.encrypted === true },
+      targetDef.db.columnType,
+    );
+    if (encRefusal) throw new FieldChangeError(encRefusal, 400);
     const resolved = resolveConversion(fieldDef.type, newType, targetDef.db.columnType, fieldName);
     if (!resolved.ok) throw new FieldChangeError(resolved.reason, 400);
     conv = resolved;
