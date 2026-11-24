@@ -44,6 +44,10 @@ export interface ViewScope {
 const isRef = (v: unknown): v is Ref =>
   typeof v === 'object' && v !== null && !Array.isArray(v) && Object.keys(v)[0]?.startsWith('$');
 
+/** An own property only: `constructor` on a plain record is no field. */
+const own = (o: Record<string, unknown> | undefined, k: string): unknown =>
+  o && Object.hasOwn(o, k) ? o[k] : undefined;
+
 function localToday(): string {
   const d = new Date();
   const p = (n: number) => String(n).padStart(2, '0');
@@ -57,10 +61,10 @@ export function resolveValue(v: Value, s: ViewScope): unknown {
     return out.some((x) => x === undefined) ? undefined : out;
   }
   if (!isRef(v)) return v;
-  if ('$record' in v) return s.record?.[v.$record];
-  if ('$selected' in v) return s.selected?.[v.$selected];
-  if ('$selection' in v) return s.selection?.map((r) => r[v.$selection]);
-  if ('$param' in v) return s.params?.[v.$param];
+  if ('$record' in v) return own(s.record, v.$record);
+  if ('$selected' in v) return own(s.selected, v.$selected);
+  if ('$selection' in v) return s.selection?.map((r) => own(r, v.$selection));
+  if ('$param' in v) return own(s.params, v.$param);
   if ('$user' in v) return s.user;
   return s.today ?? localToday();
 }
@@ -153,7 +157,7 @@ export function toFilter(
       if (value === undefined) return null;
     }
     // The data API takes one value per field and operator; `validateView` refuses the pair twice.
-    if (out[c.field] && c.op in out[c.field]) {
+    if (Object.hasOwn(out, c.field) && c.op in out[c.field]) {
       throw new Error(`view/2: "${c.field}" ${c.op} is given twice in one condition list`);
     }
     out[c.field] = { ...out[c.field], [c.op]: value };
@@ -167,7 +171,7 @@ const cmp = (a: unknown, b: unknown) =>
     : String(a ?? '').localeCompare(String(b ?? ''));
 
 function holds(c: Condition, row: Record<string, unknown>, s: ViewScope): boolean {
-  const have = row[c.field];
+  const have = own(row, c.field);
   if (!('value' in c)) return c.op === 'null' ? have == null : have != null;
   const want = resolveValue(c.value, s);
   if (want === undefined) return false;
