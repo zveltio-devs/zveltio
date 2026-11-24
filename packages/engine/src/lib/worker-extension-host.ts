@@ -1017,12 +1017,17 @@ export class WorkerExtensionHost {
 
   private handleWorkerMessage(managed: ManagedWorker, msg: WorkerToHostMessage): void {
     const level = signedLevel(managed.source);
-    const off = level === null ? null : offModel(msg);
+    // RFC extension-model-v3 decision 2 (phase D slice 4): no SQL crosses from
+    // any worker, whatever signed it; the test override's unsigned one included.
+    const off = msg.type === 'db:query' || level !== null ? offModel(msg) : null;
     if (off) {
       const error =
-        `${off} is refused: "${managed.name}" is signed by ${level === 3 ? 'an operator' : 'the registry'} ` +
-        `key (level ${level}), which is declared model only — collections, actions, jobs, ` +
-        `declared routes (ADR 0056)`;
+        level === null
+          ? `${off} is refused: no SQL crosses from an extension process; it reaches its ` +
+            `collections through host.collections (RFC extension-model-v3 decision 2)`
+          : `${off} is refused: "${managed.name}" is signed by ${level === 3 ? 'an operator' : 'the registry'} ` +
+            `key (level ${level}), which is declared model only — collections, actions, jobs, ` +
+            `declared routes (ADR 0056)`;
       // Logged once per process: a bundle posting in a loop must not flood the log.
       if (!managed.refusalLogged) {
         managed.refusalLogged = true;
