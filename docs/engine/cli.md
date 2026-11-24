@@ -399,7 +399,9 @@ Pre-publish checks: manifest schema, dependency allow-list, bundle quota.
 
 ### `zveltio extension publish`
 
-Validate, pack, archive, sign and upload an extension to the registry.
+Pack, build Studio, validate what ships, archive, sign and upload an extension to
+the registry. A validation failure stops it with exit 1 before anything is
+archived.
 
 ```bash
 zveltio extension publish --token <registry-token>
