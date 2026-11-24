@@ -5,7 +5,8 @@
  * for the engine's own work. Extension code ran there too, in four places: its
  * own `ctx.internals.withTenantIsolation`, a per-tenant cron, a listener, and a
  * worker statement with no caller (gone: no SQL crosses from a worker, RFC
- * extension-model-v3 decision 2). So a `data:system` extension (or, before
+ * extension-model-v3 decision 2, and no worker calls a service or listens to an
+ * event, phase D slice 4). So a `data:system` extension (or, before
  * ADR 0058 removed the exemption, one the operator exempted) read every row under
  * `* created_by eq user_id` and wrote, updated and deleted another user's row,
  * and decided a row under ADR 0016's `order_author neq user_id`.
@@ -17,10 +18,6 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { DDLManager } from '../../lib/data/index.js';
@@ -33,12 +30,9 @@ import {
   revokeExtensionDbRoles,
 } from '../../lib/extensions/ext-db-role.js';
 import { createRestrictedDb } from '../../lib/extensions/extension-context.js';
-import { extensionLoader } from '../../lib/extensions/extension-loader.js';
-import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import { invalidateActivationCache } from '../../lib/extensions/activation.js';
-import { dispatchToWs, engineEvents, EXTENSION_BROADCAST_EVENT } from '../../lib/runtime/index.js';
-import { serviceRegistry } from '../../lib/service-registry.js';
+import { dispatchToWs, EXTENSION_BROADCAST_EVENT } from '../../lib/runtime/index.js';
 import { createRlsPolicy } from '../../lib/tenancy/rls.js';
 import {
   applyTenantRLS,
@@ -47,7 +41,6 @@ import {
   getCurrentTenantTrx,
   runWithDomain,
 } from '../../lib/tenancy/index.js';
-import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extension-host.js';
 import {
   asTenant,
   dropTestCollection,
@@ -69,23 +62,6 @@ const STATIC = `ncstat_${SFX}`;
 /** An inline `data:system` extension, and a worker one the operator exempted. */
 const EXT = `ncext${SFX}`;
 const U1 = `nc-user-${SFX}`;
-/** A real worker whose listener calls `SVC`, an inline service of `EXT`'s. */
-const LISTENER = `ncwl${SFX}`;
-const SVC = `${EXT}.probe`;
-const PING = `${LISTENER}.ping`;
-const PONG = `${LISTENER}.pong`;
-const LISTENER_ENTRY = `
-export default {
-  name: '${LISTENER}',
-  async register(app, ctx) {
-    ctx.events.on('${PING}', async (p) => {
-      try { await ctx.services.get('${SVC}')(p.coll, p.reach, p.key); } catch {}
-      ctx.events.emit('${PONG}', { key: p.key });
-    });
-  },
-};
-`;
-
 /** Each collection's probe row: a user's, or one the static rule admits. */
 const ROW: Record<string, Record<string, string>> = {
   [OWN]: { title: 'probe', created_by: U1 },
@@ -205,30 +181,7 @@ d('extension work with no caller is an actor with no identity (ADR 0040)', () =>
     return out;
   };
 
-  /**
-   * 5. An inline service a worker calls from an invocation with no caller — its
-   * listener, for an event emitted outside any request. The service opens its
-   * own transaction (worker-extension-host `handleServiceCall`).
-   */
-  const heardBySvc = new Map<string, Reach>();
-  const pongs = new Map<string, () => void>();
-  let calls = 0;
-  const viaWorkerListener = async (coll: string, reach = true) => {
-    const key = `k${++calls}`;
-    const got = new Promise<void>((resolve, reject) => {
-      pongs.set(key, resolve);
-      setTimeout(() => reject(new Error(`no pong for ${key}`)), 15_000);
-    });
-    runWithDomain(TENANT, () => engineEvents.emit(PING as never, { key, coll, reach } as never));
-    await got;
-    return heardBySvc.get(key);
-  };
-  const workerApp = new Hono();
-  let base = '';
-  let offPong = () => {};
-
   beforeAll(async () => {
-    _setInlineForTests(true); // unsigned fixtures: the test override stands in for a signature
     ({ db } = await getTestApp());
     await sql`INSERT INTO "user" (id, name, email, "emailVerified", "createdAt", "updatedAt")
               VALUES (${U1}, ${U1}, ${`${U1}@example.test`}, true, now(), now())`.execute(db);
@@ -279,56 +232,10 @@ d('extension work with no caller is an actor with no identity (ADR 0040)', () =>
     await sql`INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled)
               VALUES (${EXT}, ${EXT}, ${TENANT}::uuid, true, true)`.execute(db);
     invalidateActivationCache();
-
-    // The inline service, and the worker that calls it from its listener.
-    serviceRegistry.registerAs(EXT, SVC, async (coll: string, reach: boolean, key: string) => {
-      const go = async () => {
-        heardBySvc.set(key, await probe(extDb(), coll));
-      };
-      await (reach ? sys.asSystem([coll], go) : go());
-      throw new Error('rollback');
-    });
-    extensionLoader.loaded.set(EXT, { name: EXT } as never);
-    offPong = engineEvents.on(
-      PONG as never,
-      ((p: { key: string }) => pongs.get(p.key)?.()) as never,
-    );
-    base = mkdtempSync(join(tmpdir(), 'nc-wl-'));
-    mkdirSync(join(base, LISTENER, 'engine'), { recursive: true });
-    writeFileSync(
-      join(base, LISTENER, 'manifest.json'),
-      JSON.stringify({
-        name: LISTENER,
-        version: '1.0.0',
-        dependencies: [{ name: EXT }],
-        engine: { entry: 'engine/index.js', bundled: true, isolation: 'worker' },
-      }),
-    );
-    writeFileSync(join(base, LISTENER, 'engine', 'index.js'), LISTENER_ENTRY);
-    await sql`INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled)
-              VALUES (${LISTENER}, ${LISTENER}, ${TENANT}::uuid, true, true)`.execute(db);
-    invalidateActivationCache();
-    _resetWorkerHostForTests();
-    getWorkerHost(workerApp);
-    const ctx = extensionLoader.ctx ?? ({ db, fieldTypeRegistry: { register() {} } } as never);
-    await extensionLoader.loadExtension(LISTENER, workerApp, ctx, base);
-    expect(extensionLoader.getLastLoadError(LISTENER)).toBeUndefined();
   }, 60_000);
 
   afterAll(async () => {
-    _setInlineForTests(false);
     if (!db) return;
-    await getWorkerHost(workerApp).stopAll();
-    _resetWorkerHostForTests();
-    offPong();
-    serviceRegistry.unregisterAll(EXT);
-    extensionLoader.loaded.delete(EXT);
-    extensionLoader.loaded.delete(LISTENER);
-    if (base) rmSync(base, { recursive: true, force: true });
-    await sql`DELETE FROM zv_extension_registry WHERE name = ${LISTENER}`
-      .execute(db)
-      .catch(() => {});
-    await revokeExtensionDbRoles(db, LISTENER, true).catch(() => {});
     clearExtensionBroadcasts(EXT);
     await sql`DELETE FROM zv_extension_registry WHERE name = ${EXT}`.execute(db).catch(() => {});
     invalidateActivationCache();
@@ -347,7 +254,6 @@ d('extension work with no caller is an actor with no identity (ADR 0040)', () =>
     ['its own ctx.internals.withTenantIsolation', ownTransaction],
     ['a per-tenant cron', cron],
     ['a listener', listener],
-    ['an inline service a worker listener calls', viaWorkerListener],
   ] as const) {
     it(`${path}: a per-actor rule admits no row, and ADR 0016's rule decides none`, async () => {
       // Before: { read: 1, update: 1, del: 1, insert: true } for both.

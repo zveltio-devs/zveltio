@@ -7,9 +7,11 @@
 //     the ones its manifest names in `forwardCredentials` and an operator
 //     approved; signature headers
 //     (`stripe-signature`, `x-hub-signature-256`) always pass.
-//   - No SQL crosses from the worker (RFC extension-model-v3 decision 2): the
-//     reach cases below run inline only. They held a worker's `ctx.db` to the
-//     caller's membership, grants and column rules while the SQL bridge existed.
+//   - No SQL crosses from the worker (RFC extension-model-v3 decision 2), and
+//     a worker is declared model only (phase D slice 4): its `/hook` and `/fwd`
+//     are declared routes, and the reach cases below run inline only. They held
+//     a worker's `ctx.db` to the caller's membership, grants and column rules
+//     while the SQL bridge existed.
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -94,6 +96,12 @@ export default {
 };
 `;
 
+/** The worker's: declared routes answering with the headers they were handed. */
+const workerEntry = (name: string) => `
+const seen = (request) => Response.json(Object.fromEntries(${JSON.stringify(HEADERS)}.map((h) => [h, request.headers.get(h)])));
+export default { name: '${name}', routes: { hook: seen, fwd: seen }, async register() {} };
+`;
+
 function writeExt(base: string, name: string, worker: boolean) {
   const dir = join(base, name);
   mkdirSync(join(dir, 'engine'), { recursive: true });
@@ -102,7 +110,14 @@ function writeExt(base: string, name: string, worker: boolean) {
     JSON.stringify({
       name,
       version: '1.0.0',
-      publicRoutes: ['/hook', '/fwd'],
+      ...(worker
+        ? {
+            routes: [
+              { method: 'POST', path: '/hook', access: 'public', handler: 'hook' },
+              { method: 'POST', path: '/fwd', access: 'public', handler: 'fwd' },
+            ],
+          }
+        : { publicRoutes: ['/hook', '/fwd'] }),
       forwardCredentials: { '/fwd': ['authorization'] },
       engine: {
         entry: 'engine/index.js',
@@ -111,7 +126,7 @@ function writeExt(base: string, name: string, worker: boolean) {
       },
     }),
   );
-  writeFileSync(join(dir, 'engine', 'index.js'), entry(name));
+  writeFileSync(join(dir, 'engine', 'index.js'), worker ? workerEntry(name) : entry(name));
 }
 
 d('a worker extension is handed neither the caller credentials nor a wider reach', () => {
@@ -255,19 +270,21 @@ d('a worker extension is handed neither the caller credentials nor a wider reach
       out[mode] = {
         hook: await call(mode, '/hook', creds, 'POST'),
         fwd: await call(mode, '/fwd', creds, 'POST'),
-        rowsInForce: await call(mode, '/rows', asMember),
-        rowsNoRow: await call(mode, '/rows', { cookie: unenrolled.cookie }),
-        denied: await call(mode, '/denied', asMember),
-        scribble: await call(mode, '/scribble', asMember, 'POST'),
       };
     }
-    // After every mode has counted, so one mode's insert is not the next one's row.
-    for (const mode of MODES) out[mode]!.addInForce = await call(mode, '/add', asMember, 'POST');
+    // The reach cases: inline only (no SQL crosses from a worker).
+    const mode = 'inline';
+    Object.assign(out[mode], {
+      rowsInForce: await call(mode, '/rows', asMember),
+      rowsNoRow: await call(mode, '/rows', { cookie: unenrolled.cookie }),
+      denied: await call(mode, '/denied', asMember),
+      scribble: await call(mode, '/scribble', asMember, 'POST'),
+      addInForce: await call(mode, '/add', asMember, 'POST'),
+    });
     // Every assignment of the member in the default tenant lapses.
     await sql`UPDATE zv_tenant_users SET valid_to = now() - interval '1 day'
               WHERE tenant_id = ${DEFAULT_TENANT_ID}::uuid AND user_id = ${memberId}`.execute(db);
-    // Each mode on the same two rows, so one mode's leak cannot hide the next one's.
-    for (const mode of MODES) {
+    {
       await asDefaultTenant(db, sql`DELETE FROM ${sql.table(TABLE)}`);
       await asDefaultTenant(
         db,

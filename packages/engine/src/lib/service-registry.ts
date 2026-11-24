@@ -53,7 +53,7 @@ export function serviceRegisterRefusal(extName: string, name: string): string | 
  */
 export type ServiceDeps = ReadonlyMap<string, boolean>;
 
-/** `names`, every one callable — the shape `scope` and the broker take. */
+/** `names`, every one callable — the shape `scope` takes. */
 export function callableDeps(names: Iterable<string>): ServiceDeps {
   return new Map(Array.from(names, (n) => [n, true]));
 }
@@ -94,7 +94,6 @@ export function serviceCallRefusal(
 export class ServiceRegistryImpl {
   private services = new Map<string, Entry>();
   private waiters = new Map<string, Array<(value: unknown) => void>>();
-  private watchers = new Set<() => void>();
 
   has(name: string): boolean {
     return this.services.has(name);
@@ -107,21 +106,6 @@ export class ServiceRegistryImpl {
 
   list(): string[] {
     return [...this.services.keys()];
-  }
-
-  /** Every service as `[name, owner]`: what a worker's mirror of the registry holds. */
-  entries(): Array<[string, string]> {
-    return Array.from(this.services, ([name, e]) => [name, e.owner]);
-  }
-
-  /** Call `fn` after every register or unregister; returns the unsubscribe. */
-  onChange(fn: () => void): () => void {
-    this.watchers.add(fn);
-    return () => this.watchers.delete(fn);
-  }
-
-  private changed(): void {
-    for (const fn of this.watchers) fn();
   }
 
   /** The extension (or `'engine'`) that registered `name`, or null. */
@@ -150,7 +134,6 @@ export class ServiceRegistryImpl {
       pending.forEach((resolve) => resolve(value));
       this.waiters.delete(name);
     }
-    this.changed();
   }
 
   /** Remove a service if owner matches. No-op if not present or owned by someone else. */
@@ -158,17 +141,14 @@ export class ServiceRegistryImpl {
     const existing = this.services.get(name);
     if (existing && existing.owner === owner) {
       this.services.delete(name);
-      this.changed();
     }
   }
 
   /** Remove every service owned by `owner`. Called by the extension loader on unload. */
   unregisterAll(owner: string): void {
-    let any = false;
     for (const [name, entry] of this.services) {
-      if (entry.owner === owner) any = this.services.delete(name);
+      if (entry.owner === owner) this.services.delete(name);
     }
-    if (any) this.changed();
   }
 
   async waitFor<T = unknown>(name: string, timeoutMs = 30_000): Promise<T> {

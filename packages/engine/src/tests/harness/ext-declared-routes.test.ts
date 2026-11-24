@@ -84,9 +84,8 @@ export default {
     }),
     mine: () => Response.json({ mine: true }),
   },
-  async register(app) {
-    app.get('/legacy', (c) => c.text('legacy'));
-  },
+  // Declared model only (RFC v3 phase D slice 4): its register() registers nothing.
+  async register() {},
 };
 `;
 /** A public route, and a caller route of a shape that `/sub/login` would fill. */
@@ -215,7 +214,7 @@ d('a declared route answered by a plain function (ADR 0039)', () => {
         join(base, name),
       );
     };
-    await worker(WEXT, workerEntry, { publicRoutes: ['/legacy'], routes });
+    await worker(WEXT, workerEntry, { routes });
     await worker(NWEXT, nestedEntry, {
       routes: [
         { method: 'GET', path: '/login', access: 'public', handler: 'login' },
@@ -288,10 +287,13 @@ d('a declared route answered by a plain function (ADR 0039)', () => {
       expect((await call(ext, '/nothing')).status).toBe(401);
     }, 30_000);
 
-    it(`${label}: publicRoutes still opens a route (deprecated alias)`, async () => {
-      const res = await call(ext, '/legacy');
-      expect([res.status, await res.text()]).toEqual([200, 'legacy']);
-    }, 30_000);
+    // A register() route exists inline only: a worker is declared model only.
+    if (label === 'inline') {
+      it(`${label}: publicRoutes still opens a route (deprecated alias)`, async () => {
+        const res = await call(ext, '/legacy');
+        expect([res.status, await res.text()]).toEqual([200, 'legacy']);
+      }, 30_000);
+    }
   }
 
   it('worker: a name of two segments is served the route the gate decided on', async () => {

@@ -1,7 +1,8 @@
 /**
- * A worker route request carries the tenant the host resolved from the request
- * context, never one the worker states, and the host's record of it does not
- * outlive the request.
+ * A worker route request is recorded on the host as the tenant the host
+ * resolved from the request context, and the worker is handed neither that
+ * tenant nor the caller: its `host` calls are answered from the host's record,
+ * which does not outlive the request.
  */
 
 import { describe, expect, it, mock } from 'bun:test';
@@ -19,7 +20,6 @@ function makeManaged(name = 'probe') {
     invokeTenants: new Map<string, { tenantId: string | null }>(),
     pendingInits: new Map(),
     pendingPings: new Map(),
-    registeredServices: new Set<string>(),
     proxyUnmount: () => {},
     workerGeneration: 1,
     enabledAt: Date.now(),
@@ -30,8 +30,14 @@ function makeManaged(name = 'probe') {
 }
 
 describe('worker route dispatch', () => {
-  it('records the request tenant and forwards it to the worker', async () => {
+  it('records the request tenant on the host and hands the worker neither tenant nor caller', async () => {
     const app = new Hono();
+    app.use('*', async (c, next) => {
+      c.set('tenant' as never, { id: 't1' } as never);
+      c.set('user' as never, { id: 'u1' } as never);
+      await next();
+    });
+    const recorded: unknown[] = [];
     const host = new WorkerExtensionHost(app);
     const posted: Record<string, unknown>[] = [];
     const m = makeManaged('probe');
@@ -39,6 +45,7 @@ describe('worker route dispatch', () => {
     m.worker = {
       postMessage: (msg: Record<string, unknown>) => {
         posted.push(msg);
+        recorded.push(m.invokeTenants.get(msg.id as string)?.tenantId);
         // Reply immediately so the proxy handler completes and runs its
         // cleanup — the point of the last assertion.
         const cb = m.pendingInvokes.get(msg.id as string);
@@ -57,10 +64,9 @@ describe('worker route dispatch', () => {
 
     const invoke = posted.find((p) => p.type === 'route:invoke');
     expect(invoke).toBeDefined();
-    // No tenant middleware in this test, so the resolved tenant is absent —
-    // what matters is that the field is populated from the request context
-    // rather than from anything the worker supplies.
-    expect(invoke).toHaveProperty('tenantId');
+    expect(recorded).toEqual(['t1']);
+    expect(invoke).not.toHaveProperty('tenantId');
+    expect(invoke).not.toHaveProperty('user');
     // And the record does not outlive the request.
     expect(m.invokeTenants.size).toBe(0);
   });

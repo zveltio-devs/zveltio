@@ -88,6 +88,11 @@ is a serialisable message:
 - `ping` / `pong`;
 - `shutdown`.
 
+(Since RFC extension-model-v3 phase D slice 4 the protocol is `init`,
+`route:invoke`, `action:invoke` and the `host:call` a declared route or action
+makes, besides `log`, `ping`/`pong` and `shutdown`: `db:query` and the
+`service:*` messages are gone.)
+
 The proposal:
 - **Framing:** length-prefixed JSON over a socketpair or stdio pipe created at
   spawn. No listening port, and no filesystem socket the extension could share.
@@ -281,7 +286,9 @@ runner.
        other's runner directory;
      - the engine user can manage its runners and no other unit.
    - Inter-extension services stay brokered by the engine (`service:call` →
-     `service:invoke`); runners never talk to each other.
+     `service:invoke`); runners never talk to each other. (Since phase D slice 4
+     of RFC extension-model-v3 a worker publishes no service; one extension
+     reaches another through `host.actions.run`, ADR 0014.)
    - Egress approval from the manifest (decision 2) became the consent of a
      job's `egress` authorities (ADR 0022); routes get none.
 
@@ -391,8 +398,15 @@ runner.
    onto what `ctx.db.query` returns or throws, forwards logged values as
    `Bun.inspect` prints them, and a rebuild of the app remounts a running worker
    instead of respawning it (`tests/harness/worker-sql-bridge-fidelity.test.ts`,
-   both transports).
-7. **One `ctx` contract, inline and out of process.** A worker extension gets a
+   both transports; since phase D slice 4 of RFC extension-model-v3 the SQL
+   cases are gone and the rest is `tests/harness/worker-boot-and-log.test.ts`).
+7. **One `ctx` contract, inline and out of process.** *Superseded (RFC
+   extension-model-v3 phase D slice 4, S2):* every worker is declared model only,
+   so its `register()` gets an app and a `ctx` that refuse every use, and the
+   contract below — `lib/worker-extension-ctx.ts`, the `ctx` host calls, the
+   service and event bridge — is deleted. A worker reaches the engine only
+   through the `host` of its declared routes and actions. The text is kept as the
+   record of what was built. A worker extension gets a
    `{ query() }` instead of Kysely, no `auth` (session or API key), no
    `checkPermission`, no `events`, no `config`, and a `services.get` that calls
    instead of returning the function. An extension must not need to know where it
@@ -419,7 +433,14 @@ runner.
    there, so the call fails instead; the other `auth.api` methods are absent.
    (`getUserRoles` — the request user's only — `describeDenial` and
    `services.has|waitFor|list|unregister` were added later.)
-8. **One transaction per request across the bridge.** Each bridged statement runs
+8. **One transaction per request across the bridge.** *Superseded (RFC
+   extension-model-v3 phase D slice 4):* no SQL crosses from a worker (S1), and no
+   worker publishes a service (S2), so the bridged statements, savepoints, host
+   transactions and service joins below are deleted, and ADR 0009 (a worker
+   service joins the request transaction of any caller) is superseded. What
+   remains: a worker route or action runs in its request's own tenant
+   transaction, which its `host` calls write in, committed unless the handler
+   threw, rolled back on the 30 s timeout or when the worker dies. Each bridged statement runs
    today in its own host transaction (≈7 database round-trips where inline does 1)
    and BEGIN/COMMIT/SAVEPOINT are refused, so a multi-statement write is not
    atomic: in the experiment an invoice number was burned (a gap in a fiscal

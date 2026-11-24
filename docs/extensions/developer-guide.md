@@ -250,7 +250,7 @@ computes the SHA-256, and patches these blocks in place.
 | `publicRoutes` | string[] | no | Routes reachable WITHOUT a session, relative to the `/ext/<name>` mount (e.g. `["/webhook/twilio", "/public/*"]`). Everything else is fail-closed (401 for anonymous). `*` matches across `/`. See §5 "Authentication". |
 | `signInProviders` | object[] | no | The ways to sign in you offer: `[{ id, label, kind, route }]`, `kind` `credentials` (`route` is a declared public `POST` taking `{ "username", "password" }` as JSON) or `redirect` (a declared public `GET` the browser is sent to). Listed at `GET /api/sign-in/providers`. See §5 "Signing a person in". |
 | `apiKeyRoutes` | string[] | no | Routes an API key may call as well as a session: `"<GET\|POST\|PUT\|PATCH\|DELETE> <pattern>"`, patterns as in `publicRoutes` (e.g. `["GET /invoices", "POST /invoices"]`). The key needs the scope `$ext:<name>` with the method's action. Undeclared routes stay session-only. See §5 "Authentication". |
-| `forwardCredentials` | object | no | Worker-isolated extensions only. The engine strips the caller's `Cookie`, `Authorization`, `Proxy-Authorization` and `X-API-Key` from every request it hands a worker (signature headers such as `Stripe-Signature` pass); `ctx.auth.api.getSession()` still answers with the caller's session, minus `session.token`, approved or not (in a service another extension calls: `{ user: { id } }` only). A public route that authenticates on its own names the ones it needs back, keyed by its `publicRoutes` entry: `{ "/scim/*": ["authorization"] }`. Any other key or header name fails the manifest. A request, not a grant: nothing is forwarded until an operator approves the whole map — `POST /api/marketplace/<name>/install` or `/approve-forward-credentials` with `{ "forward_credentials": { … } }` — and a version that asks for one header more forwards nothing until approved again. |
+| `forwardCredentials` | object | no | Worker-isolated extensions only. The engine strips the caller's `Cookie`, `Authorization`, `Proxy-Authorization` and `X-API-Key` from every request it hands a worker (signature headers such as `Stripe-Signature` pass); its `host` calls are answered as the caller whatever it is handed. A public route that authenticates on its own names the ones it needs back, keyed by its `publicRoutes` entry: `{ "/scim/*": ["authorization"] }`. Any other key or header name fails the manifest. A request, not a grant: nothing is forwarded until an operator approves the whole map — `POST /api/marketplace/<name>/install` or `/approve-forward-credentials` with `{ "forward_credentials": { … } }` — and a version that asks for one header more forwards nothing until approved again. |
 | `peerDependencies` | object | no | Bundled INTO `engine/index.js` when `engine.bundlePeers: true`. The "install at enable time" model was retired in alpha.113 — bundling is the only path that works on the compiled binary. |
 | `dependencies` | object[] | no | `[{ name: "other/extension", minVersion: "1.0.0" }]`. Must be enabled for this one to load; loads first. |
 | `optionalDependencies` | object[] | no | Same shape. Integrations used when present: not installed is not a load error (its services read as `null`); installed, it loads first. |
@@ -1492,11 +1492,12 @@ Set in manifest: omit `engine.isolation` (default is `inline`).
 ### Tier 2 — `worker` (opt-in, since alpha.121)
 
 The extension runs in a process of its own — on the extension runner in
-production, a child of the engine elsewhere. The host forwards each route
-invocation over a channel and runs its SQL through its own pool.
+production, a child of the engine elsewhere. It is declared model only: the
+host forwards each declared route and action over a channel and answers the
+`host` calls they make.
 
-- **Performance:** ★★★★ — +0.5–2 ms per route hit (one IPC hop),
-  +5–20 ms per chatty DB workload (one IPC hop per query)
+- **Performance:** ★★★★ — +0.5–2 ms per route hit (one IPC hop), and one
+  more per `host` call
 - **Crash isolation:** ✅ — an uncaught exception in worker code
   doesn't take the engine down. alpha.122 added auto-respawn with
   exponential backoff + heartbeat-based hang detection; five crashes in ten
@@ -1507,20 +1508,10 @@ invocation over a channel and runs its SQL through its own pool.
 - **DB credentials:** ✅ — worker never sees `DATABASE_URL`, and no SQL
   crosses: the host refuses every `db` statement a worker sends (RFC
   extension-model-v3 decision 2); data goes through `host.collections`
-- **The same `ctx`:** `db` (present, every statement refused), `auth`,
-  `checkPermission`, `events` (`on`/`emit`/`emitAsync`), `config` and
-  `services`, each answered by the host with the inline rules. A worker's
-  `checkPermission` and `getUserRoles` answer for the request's user only (in
-  a service, the user of the request it was called in; none outside one:
-  `false` and `[]`). In a service, `auth.api.getSession()` is that user's id
-  only — `{ user: { id } }`, an API key's `apikey:<uuid>` too — or `null`:
-  never the calling route's session. `services.unregister` drops only a name the worker
-  registered, and its events are
-  its own `<name>.*` (and, for `on`, its declared dependencies'). Members
-  that act inside the engine — `internals`, `fieldTypeRegistry`,
-  `queryAlter`, `entityAccess`, `adminDb`, `DDLManager`,
-  `registerPublicRoute`, `onHealthCheck`, `broadcast`, `events.onBefore` — fail the load
-  by name
+- **No `ctx`:** `register()` is handed an app and a `ctx` that refuse every
+  use, so one that registers a route or touches any `ctx` member fails the load,
+  naming it. A declared route's `host` is `host.collections`, answered as the
+  caller (no `identity`, `enqueue` or `files`: those are inline only)
 - **Actions** (ADR 0056): served as inline. The engine mounts
   `POST /ext/<name>/actions/<action>` ahead of the worker's own routes and
   makes every check there; the worker runs the function, and each `host` call
@@ -1530,7 +1521,7 @@ invocation over a channel and runs its SQL through its own pool.
   as inline: what its `host` calls wrote is committed when the handler
   answers, rolled back when it throws, times out (30 s) or the worker dies
 - **Fails alone** (ADR 0056):
-  - *Timeout.* A route, action or service call that has not answered within
+  - *Timeout.* A route or action that has not answered within
     the request's hard timeout (30 s) answers `504 extension.timeout`; the
     statement running on its request's connection is cancelled
     (`pg_cancel_backend`, only while that connection is still in the same
@@ -1556,19 +1547,17 @@ invocation over a channel and runs its SQL through its own pool.
     the marketplace list (`GET /api/marketplace`, `zveltio extensions list`)
     shows it not running, with the reason as its `last_load_error`. It is not
     kept as disabled: a restart starts it again.
-- **Limitations:** no streaming responses (body buffered as text),
-  worker-published services routed via the host registry bridge
-- **Declared model only when signed** (ADR 0056 d1, amendment 2026-11-21):
-  a registry-signed community extension (level 2) and an operator-signed one
-  (level 3) — every extension that runs on the runner, since an unsigned one
-  never runs — declare collections, actions, jobs and routes. `register()` is
-  handed an app and a ctx that refuse every use, so one that registers a route
-  or touches `ctx` fails the load; the host refuses any `ctx.db`,
-  `ctx.services` or `ctx.events` frame, forged or not; only the manifest's
-  `routes` are served; `engine/migrations/*.sql` refuses the load. No SQL
-  crosses from any worker, the test override's unsigned one included: its
-  `ctx.db` is refused by the host (RFC extension-model-v3 decision 2). The rest
-  of the bridge surface described above remains for the test override only
+- **Limitations:** no streaming responses (body buffered); no services or
+  event listeners (a change event is a job, ADR 0035)
+- **Declared model only** (ADR 0056 d1, amendment 2026-11-21; RFC
+  extension-model-v3 phase D slice 4): a registry-signed community extension
+  (level 2) and an operator-signed one (level 3) — every extension that runs on
+  the runner, since an unsigned one never runs — declare collections, actions,
+  jobs and routes, and so does the test override's unsigned worker. The host
+  answers only a declared route's or action's `host` calls; any other frame —
+  SQL, a service, an event, forged or not — runs nothing; only the manifest's
+  `routes` are served; for a signed one `engine/migrations/*.sql` refuses the
+  load
 - **Use for:** third-party / community extensions where the
   publisher isn't audited, code where crash isolation matters more
   than the latency cost

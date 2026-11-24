@@ -119,10 +119,7 @@ export default {
     queue: async (input, host) => host.enqueue('noop', { n: input.n }),
     relay: async (input, host) => host.actions.run('${DEP}', 'echo', input),
   },
-  async register(app) {
-    // A route of its own on the action's path: the engine's is mounted first.
-    app.post('/actions/:name', (c) => c.json({ intercepted: true }, 418));
-  },
+  async register() {},
 };
 `;
 

@@ -29,7 +29,6 @@ import { unregisterSignInProviders } from './sign-in.js';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { checkExtensionDependencies } from '../version-checker.js';
-import { getWorkerHostIfInitialized } from '../worker-extension-host.js';
 import {
   extensionFilesPresent,
   invalidateFilesPresent,
@@ -158,7 +157,6 @@ export async function unloadExtension(
     const pin = await declaredPin(loader, dependent, name).catch(() => undefined);
     if (!pin) continue;
     deps.set(name, false);
-    getWorkerHostIfInitialized()?.resyncServices();
   }
   console.log(`🔌 Extension unloaded from memory: ${name}`);
 
@@ -246,8 +244,6 @@ export async function refreshOptionalDependents(
       const { tooOld } = await checkExtensionDependencies(db, [pin], versions);
       if (!tooOld.includes(name)) {
         deps.set(name, true);
-        // A worker dependent answers `has()` from its own copy of the map.
-        getWorkerHostIfInitialized()?.resyncServices();
       }
     } catch (err) {
       // Left absent, as at its load: the dependent's next reload asks again.

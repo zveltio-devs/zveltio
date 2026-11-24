@@ -290,7 +290,6 @@ interface LoadedExtension {
   workerIsolation?: {
     entry: string;
     extDir: string;
-    dependencies?: string[];
     /** Manifest `forwardCredentials`: the only credentials its worker is handed. */
     forwardCredentials?: Record<string, string[]>;
     /** Manifest `routes` (ADR 0039): its worker pairs and mounts them. */

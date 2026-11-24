@@ -3,21 +3,17 @@
  *
  * Runs as its own process — the extension runner's, or a local child of the
  * engine (worker-extension-transport.ts) — speaking frames on stdin/stdout to
- * worker-extension-host.ts. The host sends an `InitRequest` with the bundle URL
- * and the runtime:
+ * worker-extension-host.ts. Every worker is declared model only (ADR 0056,
+ * amendment 2026-11-21; RFC v3 phase D slice 4). On `init` the runtime:
  *
- *   1. Dynamically imports the bundle to get the default-exported
- *      `ZveltioExtension`.
- *   2. Constructs a shadow Hono — every route registered against it
- *      lands in `this.routes` rather than mounting at the engine root.
- *   3. Constructs the extension's `ctx` (worker-extension-ctx.ts): the
- *      inline surface, each member a message to the host.
- *   4. Calls `extension.register(shadowApp, shadowCtx)`.
- *   5. Posts the route table back via `InitResponse`.
+ *   1. Imports the bundle's default-exported `ZveltioExtension`.
+ *   2. Pairs the manifest's routes and actions with the module's `routes` and
+ *      `actions`, and mounts the routes on the router it serves the host from.
+ *   3. Calls `register()` with an app and a ctx that refuse every use, so one
+ *      that registers anything fails the load, with the reason.
  *
- * After init, each `RouteInvokeRequest` from the host is dispatched
- * through the shadow Hono (which holds the real handlers). The
- * response is serialized and posted back.
+ * After init, a `route:invoke` runs a declared route and an `action:invoke` a
+ * declared action; their `host` calls are `host:call` frames the host answers.
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -25,45 +21,21 @@ import { fileURLToPath } from 'node:url';
 import { type Context, Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { sqlState } from '../db/bun-sql-quirks.js';
-import { Turns } from '../db/trx-sequencer.js';
-import { buildWorkerCtx } from './worker-extension-ctx.js';
 import { mountDeclaredRoutes, pairRouteHandlers } from './declared-routes.js';
 import type { DeclaredRouteHost } from '@zveltio/sdk/extension';
 import type {
+  ActionInvokeRequest,
+  ActionInvokeResponse,
   HostCallOp,
   HostCallResponse,
   HostToWorkerMessage,
   WorkerToHostMessage,
-  RouteDescriptor,
   RouteInvokeRequest,
-  DbQueryRequest,
-  DbQueryResponse,
-  ServiceCallResponse,
-  ServiceInvokeRequest,
-  ServiceInvokeResponse,
-  ServiceRegisterResponse,
 } from './worker-extension-protocol.js';
 import { encodeFrame, FrameDecoder } from './worker-extension-transport.js';
 
 let nextId = 0;
-const pendingDbQueries = new Map<string, (res: DbQueryResponse) => void>();
-/** `service:call` and `host:call`, answered alike. */
-const pendingCalls = new Map<string, (res: ServiceCallResponse | HostCallResponse) => void>();
-const pendingServiceRegistrations = new Map<string, (res: ServiceRegisterResponse) => void>();
-
-/** Services this worker registered. Host invokes them via service:invoke. */
-const localServices = new Map<string, (...args: unknown[]) => unknown>();
-/** The host registry's `[name, owner]`, replaced on every `services:snapshot`. */
-const serviceOwners = new Map<string, string>();
-/** This extension's `ServiceDeps`, from `init`; a snapshot carrying one replaces it. */
-const mayCall = new Map<string, boolean>();
-function fillMap<K, V>(map: Map<K, V>, entries: Iterable<[K, V]>): Map<K, V> {
-  map.clear();
-  for (const [k, v] of entries) map.set(k, v);
-  return map;
-}
-/** `ctx.events.on` listeners, by the key the host delivers them under. */
-const localListeners = new Map<string, (...args: unknown[]) => unknown>();
+const pendingCalls = new Map<string, (res: HostCallResponse) => void>();
 /** The module's actions the manifest declares (ADR 0056), paired at init. */
 const localActions = new Map<string, (input: unknown, host: unknown) => unknown>();
 
@@ -78,10 +50,6 @@ process.stdout.write = process.stderr.write.bind(process.stderr) as typeof proce
 
 function send(msg: WorkerToHostMessage): void {
   writeChannel(encodeFrame(msg));
-}
-
-function rpcId(prefix: string): string {
-  return `${prefix}-${++nextId}`;
 }
 
 // Forward console output so operators see extension logs in the engine
@@ -103,116 +71,24 @@ console.info = console.log;
 console.debug = console.log;
 
 /**
- * The route invocation a piece of work belongs to — the host's id for the
- * request, or for a `service:invoke` the host sent on a caller's behalf. A
- * query or service call names it, and the host reads the tenant from its OWN
- * record of the invocation (`invokeTenants`), never from anything the worker
- * says about it. Work that outlives the request still carries the id;
- * the host refuses it, since the record is gone.
- *
- * The protocol always had the field and the host always looked it up; this side
- * never sent it, so every worker query ran with no tenant.
+ * The invocation a `host` call belongs to: the host's id for the route request
+ * or action run. The host answers the call as its OWN record of that
+ * invocation, never as anything the worker says about it; work that outlives
+ * the invocation still carries the id, and the host refuses it.
  */
 const invocation = new AsyncLocalStorage<{
   id: string;
-  user?: unknown;
   threw?: boolean;
-  /** It holds the request's transaction on the host: a route's, or one a service joined. */
-  requestTxn?: boolean;
   /** The URL the caller sent (a route's), for a declared route's `request.url`. */
   url?: string;
 }>();
 
-/**
- * The `db.transaction()` callback a statement runs in, by an id minted here. The
- * host decides what it names: inside a request, a scope (the request is the
- * transaction, the callback a savepoint in it) that the host orders other
- * extensions' work in the request against; outside one, a transaction the host
- * opens for this callback alone (owner decision 4).
- */
-const transaction = new AsyncLocalStorage<{ id: string }>();
-
-/**
- * The turns a context's statements take on its connection: its invocation's
- * when that holds the request's transaction, else its host transaction's (two
- * of those are two connections, and overlap).
- * The host names savepoints by depth, so two `db.transaction()` scopes side by
- * side under `Promise.all` stacked theirs: the first to end released or rolled
- * back the other's, and a sibling's statement landed in it. As inline
- * (`db/trx-sequencer.ts`), a scope runs alone and siblings take turns.
- */
-const turnsOf = new WeakMap<object, Turns>();
-function turnsHere(): Turns | undefined {
-  const store = invocation.getStore();
-  const owner = store?.requestTxn ? store : transaction.getStore();
-  if (!owner) return undefined;
-  const turns = turnsOf.get(owner) ?? new Turns();
-  turnsOf.set(owner, turns);
-  return turns;
-}
-
-/** Run a `db.transaction()` callback; one nested in another keeps the outer id. */
-function inTransaction<T>(run: () => Promise<T>): Promise<T> {
-  const scope = () => (turnsHere() as Turns).exclusive(run);
-  return transaction.getStore() ? scope() : transaction.run({ id: rpcId('txn') }, scope);
-}
-
-/**
- * A query across the worker boundary, answered in the inline driver's shape:
- * the rows carry the affected-row `count`, and an error its SQLSTATE in `errno`
- * (and the driver's `code`), as Bun.SQL does.
- */
-function dbExecute(
-  sql: string,
-  params: unknown[],
-  savepoint?: DbQueryRequest['savepoint'],
-): Promise<unknown[]> {
-  const send = () => dbSend(sql, params, savepoint);
-  return turnsHere()?.run(send) ?? send();
-}
-
-function dbSend(
-  sql: string,
-  params: unknown[],
-  savepoint?: DbQueryRequest['savepoint'],
-): Promise<unknown[]> {
+/** A `host` member only the host can answer, as the invocation it is made in. */
+function hostCall(op: HostCallOp, args: unknown[]): Promise<unknown> {
   return new Promise((resolve, reject) => {
-    const id = rpcId('db');
-    pendingDbQueries.set(id, (res) => {
-      if (res.type === 'db:ok') {
-        const rows = res.rows ?? [];
-        resolve(res.count === undefined ? rows : Object.assign(rows, { count: res.count }));
-      } else {
-        const { errno, code } = res;
-        reject(
-          Object.assign(
-            new Error(res.error ?? 'db query failed'),
-            errno ? { errno, code } : {},
-            res.pg ?? {},
-          ),
-        );
-      }
-    });
-    const requestId = invocation.getStore()?.id;
-    const txn = transaction.getStore()?.id;
-    send({
-      type: 'db:query',
-      id,
-      sql,
-      params,
-      requestId,
-      ...(savepoint ? { savepoint } : {}),
-      ...(txn ? { txn } : {}),
-    });
-  });
-}
-
-/** A call the host answers; `send` names the request it serves. */
-function call(send: (id: string) => void): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    const id = rpcId('call');
+    const id = `call-${++nextId}`;
     pendingCalls.set(id, (res) => {
-      if (res.type === 'service:ok' || res.type === 'host:ok') {
+      if (res.type === 'host:ok') {
         resolve(res.result);
       } else if (res.status) {
         // Hono answers an uncaught HTTPException with its own status. `callId`
@@ -226,62 +102,30 @@ function call(send: (id: string) => void): Promise<unknown> {
         reject(new Error(res.error ?? 'call failed'));
       }
     });
-    send(id);
+    send({ type: 'host:call', id, op, args, requestId: invocation.getStore()?.id });
   });
 }
 
-/** Service call across the boundary. Stringly-typed by design. */
-function serviceCall(name: string, args: unknown[]): Promise<unknown> {
-  // The request it serves, as for a query: the host answers the call as that
-  // request's tenant, looked up in its own record.
-  const requestId = invocation.getStore()?.id;
-  // And the `db.transaction()` it is made in: the callee's statements join it.
-  const txn = transaction.getStore()?.id;
-  return call((id) =>
-    send({ type: 'service:call', id, name, args, requestId, ...(txn ? { txn } : {}) }),
-  );
+/** `host.collections` over `call`, as `ActionHost` and `RouteHost` name it. */
+function collectionsVia(
+  call: (member: string, ...args: unknown[]) => Promise<unknown>,
+): DeclaredRouteHost['collections'] {
+  // The host answers each with what the inline member returns.
+  const answer = call as (member: string, ...args: unknown[]) => Promise<never>;
+  return {
+    read: (collection: string, id: string) => answer('collections.read', collection, id),
+    list: (collection: string, query?: unknown) =>
+      answer('collections.list', collection, query ?? {}),
+    insert: (collection: string, data: unknown) => answer('collections.insert', collection, data),
+    update: (collection: string, id: string, data: unknown, options?: unknown) =>
+      answer('collections.update', collection, id, data, options ?? {}),
+    delete: async (collection: string, id: string) => {
+      await answer('collections.delete', collection, id);
+    },
+  };
 }
 
-/** A ctx member only the host can answer (worker-extension-ctx.ts). */
-function hostCall(op: HostCallOp, args: unknown[]): Promise<unknown> {
-  const requestId = invocation.getStore()?.id;
-  const txn = transaction.getStore()?.id;
-  return call((id) =>
-    send({ type: 'host:call', id, op, args, requestId, ...(txn ? { txn } : {}) }),
-  );
-}
-
-function registerService(name: string, impl: (...args: unknown[]) => unknown): void {
-  // Bridge through to the host registry — the host wraps this worker so other
-  // extensions can call back via service:invoke.
-  if (typeof impl !== 'function') {
-    throw new Error(`ctx.services.register("${name}"): impl must be a function`);
-  }
-  localServices.set(name, impl);
-  const id = rpcId('reg');
-  // Fire-and-forget — register() returns void synchronously in the SDK
-  // contract. Failures are surfaced via console; the service simply won't be
-  // reachable.
-  pendingServiceRegistrations.set(id, (res) => {
-    if (res.type === 'service:register:err') {
-      console.error(`[worker] failed to register service "${name}" with host: ${res.error}`);
-      localServices.delete(name);
-    }
-  });
-  send({ type: 'service:register', id, name });
-}
-
-let shadowApp: Hono | null = null;
-
-function collectRoutes(app: Hono): RouteDescriptor[] {
-  // Hono v4 exposes `.routes` as an array of { method, path, handler }.
-  const out: RouteDescriptor[] = [];
-  for (const r of (app as unknown as { routes: { method: string; path: string }[] }).routes) {
-    // Middleware (`use`, and the runtime's own below): nothing the host mounts.
-    if (r.method !== 'ALL') out.push({ method: r.method, path: r.path });
-  }
-  return out;
-}
+let router: Hono | null = null;
 
 /** What a third-party route or action's `fetch` rejects with. */
 const NO_EGRESS_MESSAGE =
@@ -325,18 +169,19 @@ async function verifiedBundle(url: string, sha256: string): Promise<string> {
 }
 
 /**
- * Level 3 (ADR 0056 d1): `register()` is handed an app and a ctx that refuse
- * every use, so whatever it would register fails the load, with the reason.
+ * Declared model only (ADR 0056 d1, amendment 2026-11-21; RFC v3 phase D slice
+ * 4): `register()` is handed an app and a ctx that refuse every use, so
+ * whatever it would register fails the load, with the reason.
  */
-function refusing(extName: string, what: 'app' | 'ctx'): never {
+function refusing(what: 'app' | 'ctx'): never {
   return new Proxy(
     {},
     {
       get(_target, key) {
         throw new Error(
-          `register() used ${what}.${String(key)}: "${extName}" is signed (level 2 or 3), ` +
-            'which is declared model only — collections, actions, jobs, declared routes ' +
-            '(ADR 0056). Move it into a declared action, job or route.',
+          `register() used ${what}.${String(key)}: a worker-isolated extension is declared ` +
+            'model only — collections, actions, jobs, declared routes (ADR 0056). ' +
+            'Move it into a declared action, job or route.',
         );
       },
     },
@@ -351,7 +196,6 @@ async function handleInit(msg: Extract<HostToWorkerMessage, { type: 'init' }>): 
     // secrets never reach it), and it broke Bun: `await import('node:process')`
     // after it crashed the worker (ProcessNextTick undefined, core dump).
     if (msg.env.NODE_ENV) process.env.NODE_ENV = msg.env.NODE_ENV;
-    for (const [name, owner] of msg.services ?? []) serviceOwners.set(name, owner);
     refuseFetch();
     const module = await import(
       msg.bundleSha256 ? await verifiedBundle(msg.bundleUrl, msg.bundleSha256) : msg.bundleUrl
@@ -366,45 +210,25 @@ async function handleInit(msg: Extract<HostToWorkerMessage, { type: 'init' }>): 
       return;
     }
     const app = new Hono();
-    // What `c.get('user')` reads inline: the principal the `/ext/*` gate admitted.
     app.use('*', async (c, next) => {
-      const store = invocation.getStore();
-      if (store?.user) c.set('user' as never, store.user as never);
       await next();
       // Hono rendered a throw: the host rolls the request back, as inline.
+      const store = invocation.getStore();
       if (c.error && store) store.threw = true;
     });
     app.onError(onRouteError);
-    // A router from the extension's own bundled Hono keeps that copy's default
-    // handler (the identity check `propagateErrorHandler` in register.ts explains).
-    const route = app.route.bind(app);
-    app.route = ((path: string, sub: { onError?: (h: typeof onRouteError) => unknown }) => {
-      sub?.onError?.(onRouteError);
-      return route(path, sub as Hono);
-    }) as typeof app.route;
-    const { ctx, settled } = buildWorkerCtx({
-      query: dbExecute,
-      savepoint: (op) => dbExecute('', [], op),
-      transaction: inTransaction,
-      host: hostCall,
-      serviceCall,
-      registerService,
-      listeners: localListeners,
-      config: msg.config,
-      extName: msg.extName,
-      mayCall: fillMap(mayCall, msg.mayCall ?? []),
-      owners: serviceOwners,
-    });
-    // ADR 0039: the declared routes, before `register` so its own middleware never runs
-    // for them. Their handler gets the caller's URL, not this app's.
+    // ADR 0039: the declared routes, served with the caller's URL, not this app's.
     const declared = pairRouteHandlers(msg.routes ?? [], extension.routes, (why) => {
       throw new Error(why);
     });
+    // `host.collections` as the request's caller; no files, no enqueue (no `ctx.internals`).
+    const routeHost = {
+      collections: collectionsVia((member, ...args) => hostCall('collections', [member, ...args])),
+    };
     mountDeclaredRoutes(
       app,
       declared,
-      // `host.collections` as the request's caller; no files, no enqueue (no `ctx.internals`).
-      () => (ctx.host as () => DeclaredRouteHost)(),
+      () => routeHost,
       (c) => new Request(invocation.getStore()?.url ?? c.req.url, c.req.raw),
     );
     // ADR 0056: each declared action implemented, and nothing implemented undeclared.
@@ -421,18 +245,9 @@ async function handleInit(msg: Extract<HostToWorkerMessage, { type: 'init' }>): 
         throw new Error(`action "${name}" is implemented but not declared in the manifest`);
       }
     }
-    if (msg.declaredOnly) {
-      await extension.register(refusing(msg.extName, 'app'), refusing(msg.extName, 'ctx'));
-    } else {
-      await extension.register(app, ctx);
-    }
-    await settled();
-    shadowApp = app;
-    send({
-      type: 'init:ok',
-      id: msg.id,
-      routes: collectRoutes(shadowApp),
-    });
+    await extension.register(refusing('app'), refusing('ctx'));
+    router = app;
+    send({ type: 'init:ok', id: msg.id });
   } catch (err) {
     send({
       type: 'init:err',
@@ -455,12 +270,12 @@ function onRouteError(err: Error, c: Context): Response {
 }
 
 async function handleRouteInvoke(msg: RouteInvokeRequest): Promise<void> {
-  if (!shadowApp) {
+  if (!router) {
     send({ type: 'route:err', id: msg.id, error: 'worker not initialized' });
     return;
   }
   try {
-    // Reconstruct a fetch Request the shadow Hono can dispatch.
+    // Reconstruct a fetch Request the router can dispatch.
     const url = new URL(`http://worker.local${msg.path}`);
     for (const [k, v] of Object.entries(msg.query)) {
       url.searchParams.set(k, v);
@@ -470,19 +285,8 @@ async function handleRouteInvoke(msg: RouteInvokeRequest): Promise<void> {
       headers: msg.headers,
       body: msg.body,
     });
-    const app = shadowApp;
-    const store: {
-      id: string;
-      user?: unknown;
-      threw?: boolean;
-      requestTxn: boolean;
-      url?: string;
-    } = {
-      id: msg.id,
-      user: msg.user,
-      requestTxn: true,
-      url: msg.url,
-    };
+    const app = router;
+    const store: { id: string; threw?: boolean; url?: string } = { id: msg.id, url: msg.url };
     const res = await invocation.run(store, () => app.fetch(req));
     // Bytes, not text: a binary answer (a PDF, an image) crosses unchanged.
     const body = new Uint8Array(await res.arrayBuffer());
@@ -509,38 +313,29 @@ async function handleRouteInvoke(msg: RouteInvokeRequest): Promise<void> {
   }
 }
 
-const INVOKED = {
-  'service:invoke': ['service', localServices],
-  'event:deliver': ['listener', localListeners],
-  'action:invoke': ['action', localActions],
-} as const;
-
-async function handleServiceInvoke(msg: ServiceInvokeRequest): Promise<void> {
-  const [what, registry] = INVOKED[msg.type];
-  const impl = (registry as Map<string, (...args: unknown[]) => unknown>).get(msg.name);
-  if (!impl) {
+async function handleActionInvoke(msg: ActionInvokeRequest): Promise<void> {
+  const run = localActions.get(msg.name);
+  if (!run) {
     send({
-      type: 'service:invoke:err',
+      type: 'action:err',
       id: msg.id,
-      error: `${what} "${msg.name}" not registered in this worker`,
+      error: `action "${msg.name}" not registered in this worker`,
     });
     return;
   }
-  const args =
-    msg.type === 'action:invoke' ? [msg.args[0], actionHost(String(msg.args[1]))] : msg.args;
   try {
     // The host minted this id as an invocation of its own, recorded under the
-    // CALLER's tenant, so the service's queries name it exactly as a route's do.
-    const result = await invocation.run({ id: msg.id, requestTxn: msg.requestTxn }, () =>
-      Promise.resolve(impl(...args)),
+    // caller's tenant and transaction, so the action's `host` calls name it.
+    const result = await invocation.run({ id: msg.id }, () =>
+      Promise.resolve(run(msg.args[0], actionHost(String(msg.args[1])))),
     );
-    send({ type: 'service:invoke:ok', id: msg.id, result });
+    send({ type: 'action:ok', id: msg.id, result });
   } catch (err) {
     send({
-      type: 'service:invoke:err',
+      type: 'action:err',
       id: msg.id,
       error: (err as Error)?.message ?? String(err),
-      ...(msg.type === 'action:invoke' ? actionFailure(err) : {}),
+      ...actionFailure(err),
     });
   }
 }
@@ -553,17 +348,7 @@ function actionHost(timezone: string): unknown {
   const call = (member: string, ...args: unknown[]) => hostCall('action', [member, ...args]);
   return {
     timezone,
-    collections: {
-      read: (collection: string, id: string) => call('collections.read', collection, id),
-      list: (collection: string, query?: unknown) =>
-        call('collections.list', collection, query ?? {}),
-      insert: (collection: string, data: unknown) => call('collections.insert', collection, data),
-      update: (collection: string, id: string, data: unknown, options?: unknown) =>
-        call('collections.update', collection, id, data, options ?? {}),
-      delete: async (collection: string, id: string) => {
-        await call('collections.delete', collection, id);
-      },
-    },
+    collections: collectionsVia(call),
     enqueue: (job: string, input: unknown, options?: unknown) =>
       call('enqueue', job, input, ...(options === undefined ? [] : [options])),
     actions: {
@@ -585,7 +370,7 @@ const ACTION_REFUSAL = Symbol.for('zveltio.extension.action-refusal');
  * mark does not cross the channel, and a refusal the host answered one of its
  * calls with is named by that call, so the host rethrows its own.
  */
-function actionFailure(err: unknown): Partial<ServiceInvokeResponse> {
+function actionFailure(err: unknown): Partial<ActionInvokeResponse> {
   const e = (err ?? {}) as Record<string | symbol, unknown>;
   if (typeof e.callId === 'string') return { hostError: e.callId };
   if (e[ACTION_REFUSAL] === true) {
@@ -608,40 +393,14 @@ function dispatch(msg: HostToWorkerMessage): void {
       // Bun shuts the worker down when the host calls .terminate();
       // this is just for clean intent. No-op here.
       break;
-    case 'services:snapshot':
-      fillMap(serviceOwners, msg.services);
-      if (msg.mayCall) fillMap(mayCall, msg.mayCall);
-      break;
     case 'ping':
       // Heartbeat — reply immediately. Host respawns us if it doesn't
       // get a pong within 60s of any ping.
       send({ type: 'pong', id: msg.id });
       break;
-    case 'service:invoke':
-    case 'event:deliver':
     case 'action:invoke':
-      void handleServiceInvoke(msg);
+      void handleActionInvoke(msg);
       break;
-    case 'service:register:ok':
-    case 'service:register:err': {
-      const cb = pendingServiceRegistrations.get(msg.id);
-      if (cb) {
-        pendingServiceRegistrations.delete(msg.id);
-        cb(msg);
-      }
-      break;
-    }
-    case 'db:ok':
-    case 'db:err': {
-      const cb = pendingDbQueries.get(msg.id);
-      if (cb) {
-        pendingDbQueries.delete(msg.id);
-        cb(msg);
-      }
-      break;
-    }
-    case 'service:ok':
-    case 'service:err':
     case 'host:ok':
     case 'host:err': {
       const cb = pendingCalls.get(msg.id);

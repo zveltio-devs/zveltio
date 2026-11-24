@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, jest, mock, spyOn } from 'bun:test';
 import { Hono } from 'hono';
+import type { ActionHost } from '@zveltio/sdk/extension';
 import type {
   HostToWorkerMessage,
   WorkerToHostMessage,
 } from '../../lib/worker-extension-protocol.js';
-import { callableDeps, serviceRegistry } from '../../lib/service-registry.js';
 import {
   WorkerExtensionHost,
   _internalForTests,
@@ -21,13 +21,15 @@ const fakeChannel = (C: new () => unknown) => async () => new C() as unknown as 
 
 const { dispatchMessage, mountProxy, heartbeat, resetInvokeWaiters } = _internalForTests;
 
+/** An action's host as `mountActions` builds it; the worker's calls never reach it here. */
+const actionHost = { timezone: 'UTC' } as unknown as ActionHost;
+
 function makeManaged(
   host: WorkerExtensionHost,
   overrides: {
     name: string;
     routes?: { method: string; path: string }[];
     onPost?: (msg: HostToWorkerMessage) => void;
-    dependencies?: string[];
   },
 ) {
   const posted: HostToWorkerMessage[] = [];
@@ -47,9 +49,6 @@ function makeManaged(
     invokeTenants: new Map(),
     pendingInits: new Map(),
     pendingPings: new Map(),
-    registeredServices: new Set<string>(),
-    dependencies: new Set(overrides.dependencies ?? []),
-    mayCall: callableDeps(overrides.dependencies ?? []),
     proxyUnmount: () => {},
     workerGeneration: 1,
     enabledAt: Date.now(),
@@ -87,18 +86,10 @@ describe('WorkerExtensionHost — IPC message routing', () => {
   beforeEach(() => {
     _resetWorkerHostForTests();
     resetInvokeWaiters();
-    serviceRegistry.unregisterAll('ipc-test');
-    serviceRegistry.unregisterAll('owner-a');
-    serviceRegistry.unregisterAll('caller-b');
   });
   afterEach(() => {
     resetInvokeWaiters();
     _resetWorkerHostForTests();
-    serviceRegistry.unregisterAll('ipc-test');
-    serviceRegistry.unregisterAll('owner-a');
-    serviceRegistry.unregisterAll('caller-b');
-    serviceRegistry.unregisterAll('engine');
-    serviceRegistry.unregisterAll('inline');
   });
 
   it('resolves pending route invokes on route:ok', async () => {
@@ -130,84 +121,35 @@ describe('WorkerExtensionHost — IPC message routing', () => {
     expect(managed.pendingPings.has('ping-1')).toBe(false);
   });
 
-  it('refuses db:query from every worker, unsigned too: no connection is taken, no SQL runs', async () => {
-    // RFC extension-model-v3 decision 2 (phase D slice 4): an extension process
-    // reaches its collections through host.collections; no SQL crosses. A
-    // worker with no signature (the test override's) used to be served here.
+  it('answers no frame outside the protocol, from any worker, unsigned too: no SQL, service or event crosses', async () => {
+    // RFC v3 phase D slice 4 (S2): every worker is declared model only. The
+    // test override's unsigned worker used to be served `service:call`,
+    // `service:register` and `db:query` here; none of them is a frame any more.
     const bunSql = await import('../../db/bun-sql-dialect.js');
     const reserve = mock(async () => ({ unsafe: async () => [], release: () => undefined }));
     const poolSpy = spyOn(bunSql, 'getActiveBunPool').mockReturnValue({ reserve } as never);
     const errors = spyOn(console, 'error').mockImplementation(() => {});
     try {
       const host = new WorkerExtensionHost(new Hono());
-      const { managed, posted } = makeManaged(host, { name: 'db-ext' });
-      for (const id of ['db-1', 'db-2']) {
-        dispatchMessage(host, managed, { type: 'db:query', id, sql: 'SELECT 1', params: [42] });
+      const { managed, posted } = makeManaged(host, { name: 'off-ext' });
+      for (const frame of [
+        { type: 'db:query', id: 'db-1', sql: 'SELECT 1', params: [42] },
+        { type: 'service:call', id: 'svc-1', name: 'x.y', args: [] },
+        { type: 'service:register', id: 'reg-1', name: 'off-ext.y' },
+      ]) {
+        dispatchMessage(host, managed, frame as unknown as WorkerToHostMessage);
       }
       await new Promise((r) => setTimeout(r, 0));
       expect(reserve).not.toHaveBeenCalled();
-      for (const id of ['db-1', 'db-2']) {
-        const reply = posted.find((m) => m.id === id) as { type: string; error?: string };
-        expect(reply.type).toBe('db:err');
-        expect(reply.error).toContain('no SQL crosses from an extension process');
-      }
+      expect(posted).toEqual([]);
       // Logged once, naming the extension: a bundle posting in a loop floods nothing.
       expect(errors).toHaveBeenCalledTimes(1);
-      expect(String(errors.mock.calls[0]?.[0])).toContain('db-ext');
+      expect(String(errors.mock.calls[0]?.[0])).toContain('off-ext');
+      expect(String(errors.mock.calls[0]?.[0])).toContain('declared model only');
     } finally {
       poolSpy.mockRestore();
       errors.mockRestore();
     }
-  });
-
-  it('service:call resolves inline registry services', async () => {
-    serviceRegistry.registerAs('inline', 'inline.echo', (value: unknown) => `echo:${value}`);
-    const host = new WorkerExtensionHost(new Hono());
-    const { managed, posted } = makeManaged(host, { name: 'svc-inline', dependencies: ['inline'] });
-    dispatchMessage(host, managed, {
-      type: 'service:call',
-      id: 'svc-1',
-      name: 'inline.echo',
-      args: ['hi'],
-    });
-    await new Promise((r) => setTimeout(r, 0));
-    const ok = posted.find((m) => m.type === 'service:ok' && m.id === 'svc-1');
-    expect(ok?.type).toBe('service:ok');
-    if (ok?.type === 'service:ok') expect(ok.result).toBe('echo:hi');
-  });
-
-  it('service:call returns service:err for unknown services', async () => {
-    const host = new WorkerExtensionHost(new Hono());
-    const { managed, posted } = makeManaged(host, { name: 'svc-miss' });
-    dispatchMessage(host, managed, {
-      type: 'service:call',
-      id: 'svc-2',
-      name: 'no.such.service',
-      args: [],
-    });
-    await new Promise((r) => setTimeout(r, 0));
-    const err = posted.find((m) => m.type === 'service:err' && m.id === 'svc-2');
-    expect(err?.type).toBe('service:err');
-    if (err?.type === 'service:err') expect(err.error).toContain('not found');
-  });
-
-  it('service:call returns service:err when an inline service throws', async () => {
-    serviceRegistry.registerAs('inline', 'inline.boom', () => {
-      throw new Error('inline exploded');
-    });
-    const host = new WorkerExtensionHost(new Hono());
-    const { managed, posted } = makeManaged(host, { name: 'svc-throw', dependencies: ['inline'] });
-    dispatchMessage(host, managed, {
-      type: 'service:call',
-      id: 'svc-3',
-      name: 'inline.boom',
-      args: [],
-    });
-    await new Promise((r) => setTimeout(r, 0));
-    const err = posted.find((m) => m.type === 'service:err' && m.id === 'svc-3');
-    expect(err?.type).toBe('service:err');
-    if (err?.type === 'service:err') expect(err.error).toContain('inline exploded');
-    serviceRegistry.unregisterAs('inline', 'inline.boom');
   });
 
   it('remounts a running worker on the current app and keeps it; none running, or respawning, is false', async () => {
@@ -272,11 +214,9 @@ describe('WorkerExtensionHost — IPC message routing', () => {
     dispatchMessage(host, managed, {
       type: 'init:ok',
       id: 'init-ok',
-      routes: [{ method: 'GET', path: '/ready' }],
     });
     const res = await promise;
     expect(res.type).toBe('init:ok');
-    if (res.type === 'init:ok') expect(res.routes).toHaveLength(1);
   });
 
   it('forwards worker log lines to console', () => {
@@ -295,232 +235,85 @@ describe('WorkerExtensionHost — IPC message routing', () => {
     }
   });
 
-  it('service:register publishes a worker-owned service callable from the host', async () => {
-    const host = new WorkerExtensionHost(new Hono());
-    const { managed, posted } = makeManaged(host, {
-      name: 'owner-a',
-      onPost: (msg) => {
-        if (msg.type === 'service:invoke' && msg.name === 'owner-a.ping') {
-          queueMicrotask(() => {
-            dispatchMessage(host, managed, {
-              type: 'service:invoke:ok',
-              id: msg.id,
-              result: 'pong',
-            });
-          });
-        }
-      },
-    });
-    dispatchMessage(host, managed, {
-      type: 'service:register',
-      id: 'reg-1',
-      name: 'owner-a.ping',
-    });
-    await new Promise((r) => setTimeout(r, 0));
-    expect(posted.some((m) => m.type === 'service:register:ok' && m.id === 'reg-1')).toBe(true);
-    expect(managed.registeredServices.has('owner-a.ping')).toBe(true);
-    const result = await serviceRegistry.get<() => Promise<string>>('owner-a.ping')?.();
-    expect(result).toBe('pong');
-  });
-
-  it('ignores a service:invoke reply from a worker that was not asked', async () => {
-    // The waiter pool is module-scoped and was keyed on the rpc id alone, with
-    // no record of WHO the invoke went to — and the ids were `inv-svc-1`,
-    // `inv-svc-2` from a process-wide counter. So a worker-isolated extension
-    // could guess the id of a cross-extension call it was not party to and
-    // answer it with whatever it liked, and the caller believed it: service
-    // calls are how extensions trust each other.
+  it('ignores an action reply from a worker that was not asked', async () => {
+    // The waiter pool is module-scoped; `expect` pins the worker the run went
+    // to, so another worker cannot answer it with whatever it likes.
     const host = new WorkerExtensionHost(new Hono());
     let capturedId = '';
     const { managed: owner } = makeManaged(host, {
       name: 'owner-a',
       onPost: (msg) => {
-        if (msg.type === 'service:invoke' && msg.name === 'owner-a.secret') capturedId = msg.id;
+        if (msg.type === 'action:invoke' && msg.name === 'secret') capturedId = msg.id;
       },
     });
     const { managed: impostor } = makeManaged(host, { name: 'caller-b' });
-
-    dispatchMessage(host, owner, { type: 'service:register', id: 'reg-2', name: 'owner-a.secret' });
-    await new Promise((r) => setTimeout(r, 0));
-
-    const call = serviceRegistry.get<() => Promise<string>>('owner-a.secret')!();
+    const run = host.runAction('owner-a', 'secret', {}, actionHost);
     await new Promise((r) => setTimeout(r, 0));
     expect(capturedId).not.toBe('');
 
-    // The impostor answers the owner's pending call.
-    dispatchMessage(host, impostor, {
-      type: 'service:invoke:ok',
-      id: capturedId,
-      result: 'forged',
-    });
+    dispatchMessage(host, impostor, { type: 'action:ok', id: capturedId, result: 'forged' });
     await new Promise((r) => setTimeout(r, 0));
 
-    // Dropped: the call is still pending, so the real owner can still answer.
-    dispatchMessage(host, owner, { type: 'service:invoke:ok', id: capturedId, result: 'genuine' });
-    expect(await call).toBe('genuine');
+    // Dropped: the run is still pending, so the real owner can still answer.
+    dispatchMessage(host, owner, { type: 'action:ok', id: capturedId, result: 'genuine' });
+    expect(await run).toBe('genuine');
   });
 
   it('uses unguessable rpc ids', async () => {
-    // Defence in depth behind the sender check: with `inv-svc-1`, `inv-svc-2`
-    // an attacker does not even have to observe an id to name someone else's
-    // pending call.
+    // Defence in depth behind the sender check: with sequential ids an
+    // attacker does not even have to observe an id to name someone else's
+    // pending run.
     const host = new WorkerExtensionHost(new Hono());
     const ids: string[] = [];
-    const { managed } = makeManaged(host, {
+    makeManaged(host, {
       name: 'owner-a',
       onPost: (msg) => {
-        if (msg.type === 'service:invoke') ids.push(msg.id);
+        if (msg.type === 'action:invoke') ids.push(msg.id);
       },
     });
-    dispatchMessage(host, managed, { type: 'service:register', id: 'reg-3', name: 'owner-a.ids' });
-    await new Promise((r) => setTimeout(r, 0));
-    const svc = serviceRegistry.get<() => Promise<string>>('owner-a.ids')!;
-    void svc();
-    void svc();
+    void host.runAction('owner-a', 'a', {}, actionHost).catch(() => {});
+    void host.runAction('owner-a', 'a', {}, actionHost).catch(() => {});
     await new Promise((r) => setTimeout(r, 0));
     expect(ids).toHaveLength(2);
     expect(ids[0]).not.toBe(ids[1]);
-    for (const id of ids) expect(id).toMatch(/^inv-svc-[0-9a-f-]{36}$/);
+    for (const id of ids) expect(id).toMatch(/^inv-act-[0-9a-f-]{36}$/);
   });
 
-  it('service:register:err when host registry registration throws', async () => {
-    const host = new WorkerExtensionHost(new Hono());
-    const { managed, posted } = makeManaged(host, { name: 'reg-fail' });
-    const regSpy = spyOn(serviceRegistry, 'registerAs').mockImplementation(() => {
-      throw new Error('registry full');
-    });
-    try {
-      dispatchMessage(host, managed, {
-        type: 'service:register',
-        id: 'reg-bad',
-        name: 'reg-fail.fail',
-      });
-      await new Promise((r) => setTimeout(r, 0));
-      expect(
-        posted.some(
-          (m) =>
-            m.type === 'service:register:err' && m.id === 'reg-bad' && m.error === 'registry full',
-        ),
-      ).toBe(true);
-      expect(managed.registeredServices.has('reg-fail.fail')).toBe(false);
-    } finally {
-      regSpy.mockRestore();
-      serviceRegistry.unregisterAll('reg-fail');
-    }
-  });
-
-  it('service:invoke:err rejects the host caller', async () => {
+  it("action:err rejects the caller with the worker's error", async () => {
     const host = new WorkerExtensionHost(new Hono());
     const { managed } = makeManaged(host, {
       name: 'owner-err',
       onPost: (msg) => {
-        if (msg.type === 'service:invoke' && msg.name === 'owner-err.boom') {
-          queueMicrotask(() => {
+        if (msg.type === 'action:invoke') {
+          queueMicrotask(() =>
             dispatchMessage(host, managed, {
-              type: 'service:invoke:err',
+              type: 'action:err',
               id: msg.id,
               error: 'handler blew up',
-            });
-          });
+            }),
+          );
         }
       },
     });
-    dispatchMessage(host, managed, {
-      type: 'service:register',
-      id: 'reg-err',
-      name: 'owner-err.boom',
-    });
-    await new Promise((r) => setTimeout(r, 0));
-    await expect(serviceRegistry.get<() => Promise<string>>('owner-err.boom')?.()).rejects.toThrow(
-      'handler blew up',
-    );
-    serviceRegistry.unregisterAll('owner-err');
-  });
-
-  it('service:call forwards to a different worker that owns the service', async () => {
-    const host = new WorkerExtensionHost(new Hono());
-    const { managed: owner, posted: ownerPosted } = makeManaged(host, {
-      name: 'owner-svc',
-      onPost: (msg) => {
-        if (msg.type === 'service:invoke' && msg.name === 'owner-svc.echo') {
-          queueMicrotask(() => {
-            dispatchMessage(host, owner, {
-              type: 'service:invoke:ok',
-              id: msg.id,
-              result: 'echoed',
-            });
-          });
-        }
-      },
-    });
-    dispatchMessage(host, owner, {
-      type: 'service:register',
-      id: 'reg-owner',
-      name: 'owner-svc.echo',
-    });
-    await new Promise((r) => setTimeout(r, 0));
-
-    const { managed: caller, posted: callerPosted } = makeManaged(host, {
-      name: 'caller-svc',
-      dependencies: ['owner-svc'],
-    });
-    dispatchMessage(host, caller, {
-      type: 'service:call',
-      id: 'cross-1',
-      name: 'owner-svc.echo',
-      args: ['ping'],
-    });
-    await new Promise((r) => setTimeout(r, 0));
-
-    const ok = callerPosted.find((m) => m.type === 'service:ok' && m.id === 'cross-1');
-    expect(ok?.type).toBe('service:ok');
-    if (ok?.type === 'service:ok') expect(ok.result).toBe('echoed');
-    expect(
-      ownerPosted.some((m) => m.type === 'service:invoke' && m.name === 'owner-svc.echo'),
-    ).toBe(true);
-    serviceRegistry.unregisterAll('owner-svc');
-  });
-
-  it("refuses a worker's registration outside its own namespace", async () => {
-    const host = new WorkerExtensionHost(new Hono());
-    const { managed, posted } = makeManaged(host, { name: 'squat' });
-    for (const name of ['crm.contacts.lookup', 'squatter.x', 'squat']) {
-      dispatchMessage(host, managed, { type: 'service:register', id: `sq-${name}`, name });
+    const errors = spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await expect(host.runAction('owner-err', 'boom', {}, actionHost)).rejects.toThrow(
+        'handler blew up',
+      );
+    } finally {
+      errors.mockRestore();
     }
-    await new Promise((r) => setTimeout(r, 0));
-    expect(posted.filter((m) => m.type === 'service:register:err')).toHaveLength(3);
-    expect(serviceRegistry.has('crm.contacts.lookup')).toBe(false);
   });
 
-  it('refuses a call to a service whose owner is not a declared dependency', async () => {
-    serviceRegistry.registerAs('inline', 'inline.echo', () => 'leaked');
-    serviceRegistry.registerAs('engine', 'engine.internal', () => 'leaked');
+  it('settles an action in flight with 503 when its worker stops', async () => {
     const host = new WorkerExtensionHost(new Hono());
-    // Declaring `engine` opens nothing of the engine's.
-    const { managed, posted } = makeManaged(host, { name: 'nodeps', dependencies: ['engine'] });
-    for (const name of ['inline.echo', 'engine.internal']) {
-      dispatchMessage(host, managed, { type: 'service:call', id: name, name, args: [] });
-    }
-    await new Promise((r) => setTimeout(r, 0));
-    expect(posted.some((m) => m.type === 'service:ok')).toBe(false);
-    const errs = posted.filter((m) => m.type === 'service:err');
-    expect(errs.map((m) => (m.type === 'service:err' ? m.error : ''))).toEqual([
-      'extension "nodeps" may not call service "inline.echo": declare "inline" in its manifest dependencies or optionalDependencies',
-      'extension "nodeps" may not call service "engine.internal": it is not an engine-public service',
-    ]);
-  });
-
-  it('settles a call in flight with 503 when the owning worker stops', async () => {
-    const host = new WorkerExtensionHost(new Hono());
-    const { managed } = makeManaged(host, { name: 'owner-a' });
-    dispatchMessage(host, managed, { type: 'service:register', id: 'r', name: 'owner-a.hang' });
-    await new Promise((r) => setTimeout(r, 0));
-    const call = serviceRegistry.get<() => Promise<unknown>>('owner-a.hang')!();
+    makeManaged(host, { name: 'owner-a' });
+    const run = host.runAction('owner-a', 'hang', {}, actionHost);
     await new Promise((r) => setTimeout(r, 0));
     await host.stop('owner-a');
-    await expect(call).rejects.toMatchObject({
+    await expect(run).rejects.toMatchObject({
       status: 503,
-      message: 'dependency "owner-a" is not running',
+      message: 'extension "owner-a" stopped while running action "hang"; nothing it wrote was kept',
     });
   });
 });
@@ -626,15 +419,13 @@ describe('WorkerExtensionHost — Hono proxy routes', () => {
 });
 
 describe('WorkerExtensionHost — stop() teardown', () => {
-  it('unregisters worker services and clears the worker map', async () => {
+  it('ends the worker and clears the worker map', async () => {
     const host = new WorkerExtensionHost(new Hono());
     const { managed } = makeManaged(host, { name: 'stop-ext' });
-    managed.registeredServices.add('stop.svc');
-    serviceRegistry.registerAs('stop-ext', 'stop.svc', () => 'x');
     const timer = setInterval(() => {}, 60_000);
     (managed as { heartbeatTimer?: ReturnType<typeof setInterval> }).heartbeatTimer = timer;
     await host.stop('stop-ext');
-    expect(serviceRegistry.get('stop.svc')).toBeNull();
+    expect(managed.worker.terminate).toHaveBeenCalled();
     expect(host.isRunning('stop-ext')).toBe(false);
     clearInterval(timer);
   });
@@ -645,7 +436,7 @@ describe('WorkerExtensionHost — start() over a fake channel', () => {
     _resetWorkerHostForTests();
   });
 
-  it('spawns, inits, and mounts proxy routes under /ext/<name>', async () => {
+  it('spawns, inits, and mounts its declared routes under /ext/<name>, never one the worker claims', async () => {
     const MockWorker = class {
       onmessage: ((e: MessageEvent) => void) | null = null;
       onerror: ((e: ErrorEvent) => void) | null = null;
@@ -656,7 +447,8 @@ describe('WorkerExtensionHost — start() over a fake channel', () => {
               data: {
                 type: 'init:ok',
                 id: msg.id,
-                routes: [{ method: 'GET', path: '/ready' }],
+                // What an old runtime reported: not a route the host serves.
+                routes: [{ method: 'GET', path: '/claimed' }],
               },
             } as MessageEvent);
           });
@@ -667,9 +459,13 @@ describe('WorkerExtensionHost — start() over a fake channel', () => {
 
     const app = new Hono();
     const host = new WorkerExtensionHost(app, fakeChannel(MockWorker));
-    await host.start('mock-ext', '/tmp/mock-ext', 'engine/index.js');
+    await host.start('mock-ext', '/tmp/mock-ext', 'engine/index.js', {
+      declaredRoutes: [{ method: 'GET', path: '/ready', handler: 'ready' }],
+    });
     expect(host.isRunning('mock-ext')).toBe(true);
     expect(host.getHealth()[0]?.routes).toBe(1);
+    // @ts-expect-error — test seam
+    expect(host.workers.get('mock-ext')!.routes).toEqual([{ method: 'GET', path: '/ready' }]);
     await host.stop('mock-ext');
   });
 });
@@ -689,7 +485,7 @@ describe('WorkerExtensionHost — heartbeat hang detection', () => {
         if (msg.type === 'init') {
           queueMicrotask(() => {
             this.onmessage?.({
-              data: { type: 'init:ok', id: msg.id, routes: [] },
+              data: { type: 'init:ok', id: msg.id },
             } as MessageEvent);
           });
         }

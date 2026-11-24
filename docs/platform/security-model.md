@@ -211,18 +211,21 @@ declare `isolation: worker`. Their code is then **never imported into the engine
 process** — the loader builds a metadata-only descriptor from the manifest and
 the filesystem, and the worker imports the bundle itself. From there:
 
-- A signed one — level 2 (registry-signed community) or level 3 (operator key) —
-  is declared model only (ADR 0056 d1, amendment 2026-11-21): collections,
-  actions, jobs and declared routes. Its `register()` may use neither its app nor
-  its `ctx`; the host refuses every `ctx.db`, `ctx.services` and `ctx.events`
-  frame it sends, forged or not; it serves only the routes its manifest declares;
-  and `engine/migrations/*.sql` refuses the load. An unsigned extension never
-  runs.
-- No SQL crosses from any worker, signed or not, the test override's unsigned
-  one included (RFC extension-model-v3 decision 2, phase D slice 4): the host
-  answers every `db:query` frame with a refusal and runs nothing. A worker
-  reaches its collections through `host.collections`, which the engine answers
-  in the request's transaction under the caller's rules.
+- Every worker is declared model only (ADR 0056 d1, amendment 2026-11-21; RFC
+  extension-model-v3 phase D slice 4): collections, actions, jobs and declared
+  routes — a signed one, level 2 (registry-signed community) or level 3
+  (operator key), and the test override's unsigned one alike. Its `register()`
+  may use neither its app nor its `ctx`; the host answers only the `host` calls
+  of its declared routes and actions, and any other frame it sends — SQL, a
+  service, an event, a `ctx` member, forged or not — runs nothing; it serves
+  only the routes its manifest declares; and for a signed one
+  `engine/migrations/*.sql` refuses the load. An unsigned extension never runs
+  outside the test override.
+- No SQL crosses from any worker (RFC extension-model-v3 decision 2, phase D
+  slice 4): a `db:query` frame is not part of the protocol, and the host runs
+  nothing for it. A worker reaches its collections through `host.collections`,
+  which the engine answers in the request's transaction under the caller's
+  rules. It is handed neither the caller, the tenant id nor a `ctx.config`.
 - The extension is a process of its own. In production it runs on the extension
   runner, under a uid that cannot read the engine's files, environment or
   processes, with an environment of `NODE_ENV` alone and no network until the
