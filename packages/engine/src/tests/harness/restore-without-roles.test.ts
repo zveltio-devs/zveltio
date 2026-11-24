@@ -45,6 +45,9 @@ d('a restore without the engine roles', () => {
       db.transaction().execute(async (trx) => {
         await sql`DROP OWNED BY zveltio_flow_reader`.execute(trx);
         await enforceRoleGrantsMarker(trx);
+        // Never committed: a regression that stops refusing must not drop the
+        // role's grants from the shared harness database for every later file.
+        throw new Rollback();
       }),
     ).rejects.toThrow(/restored without the engine's database roles: zveltio_flow_reader held/);
   });
