@@ -4,11 +4,11 @@ import type {
   HostToWorkerMessage,
   WorkerToHostMessage,
 } from '../../lib/worker-extension-protocol.js';
-import { workerSqlEngineTables } from '../../lib/extensions/worker-sql-policy.js';
 import { callableDeps, serviceRegistry } from '../../lib/service-registry.js';
 import {
   WorkerExtensionHost,
   _internalForTests,
+  boxConcurrencyLimit,
   _resetWorkerHostForTests,
   getWorkerHost,
   getWorkerHostIfInitialized,
@@ -20,11 +20,6 @@ import type { ExtensionChannel } from '../../lib/worker-extension-transport.js';
 const fakeChannel = (C: new () => unknown) => async () => new C() as unknown as ExtensionChannel;
 
 const { dispatchMessage, mountProxy, heartbeat, resetInvokeWaiters } = _internalForTests;
-
-// The bridge checks every query against the engine's own tables, read once from
-// the migrations. Warm that read here so a `db:query` settles within the
-// `setTimeout(0)` the cases below wait, as it does on any engine past its first.
-await workerSqlEngineTables();
 
 function makeManaged(
   host: WorkerExtensionHost,
@@ -66,6 +61,14 @@ function makeManaged(
   host.workers.set(overrides.name, managed);
   return { managed, posted };
 }
+
+describe('boxConcurrencyLimit', () => {
+  it('is a quarter of the pool, never below one', () => {
+    expect(boxConcurrencyLimit(40)).toBe(10);
+    expect(boxConcurrencyLimit(10)).toBe(2);
+    expect(boxConcurrencyLimit(2)).toBe(1);
+  });
+});
 
 describe('WorkerExtensionHost — singleton', () => {
   beforeEach(() => _resetWorkerHostForTests());
@@ -127,86 +130,34 @@ describe('WorkerExtensionHost — IPC message routing', () => {
     expect(managed.pendingPings.has('ping-1')).toBe(false);
   });
 
-  it('executes db:query via the host pool and posts db:ok', async () => {
+  it('refuses db:query from every worker, unsigned too: no connection is taken, no SQL runs', async () => {
+    // RFC extension-model-v3 decision 2 (phase D slice 4): an extension process
+    // reaches its collections through host.collections; no SQL crosses. A
+    // worker with no signature (the test override's) used to be served here.
     const bunSql = await import('../../db/bun-sql-dialect.js');
-    // The bridge runs on a RESERVED connection: pool.unsafe() speaks the
-    // simple-query protocol and would accept `…; DROP TABLE "user"` in one
-    // message, so the mock has to expose reserve() like the real pool does.
-    const poolSpy = spyOn(bunSql, 'getActiveBunPool').mockReturnValue({
-      reserve: async () => ({
-        unsafe: async (sql: string, params?: unknown[]) =>
-          // The role pick (pickWorkerSqlRole) answers a role, or the bridge refuses.
-          sql.includes('FROM pg_roles')
-            ? [{ role: 'zveltio_worker' }]
-            : [{ sql, n: params?.length ?? 0 }],
-        release: () => undefined,
-      }),
-    } as never);
-
-    const host = new WorkerExtensionHost(new Hono());
-    const { managed, posted } = makeManaged(host, { name: 'db-ext' });
-    await dispatchMessage(host, managed, {
-      type: 'db:query',
-      id: 'db-1',
-      sql: 'SELECT 1',
-      params: [42],
-    });
-    await new Promise((r) => setTimeout(r, 0));
-    expect(posted.some((m) => m.type === 'db:ok' && m.id === 'db-1')).toBe(true);
-    poolSpy.mockRestore();
-  });
-
-  it('refuses db:query when no narrow role is usable — never runs it as the engine role', async () => {
-    const bunSql = await import('../../db/bun-sql-dialect.js');
-    const ran: string[] = [];
-    const poolSpy = spyOn(bunSql, 'getActiveBunPool').mockReturnValue({
-      reserve: async () => ({
-        unsafe: async (sql: string, params?: unknown[]) => {
-          ran.push(sql, ...((params ?? []) as string[]));
-          return sql.includes('FROM pg_roles') ? [{ role: null }] : [];
-        },
-        release: () => undefined,
-      }),
-    } as never);
+    const reserve = mock(async () => ({ unsafe: async () => [], release: () => undefined }));
+    const poolSpy = spyOn(bunSql, 'getActiveBunPool').mockReturnValue({ reserve } as never);
+    const errors = spyOn(console, 'error').mockImplementation(() => {});
     try {
       const host = new WorkerExtensionHost(new Hono());
-      const { managed, posted } = makeManaged(host, { name: 'db-norole' });
-      await dispatchMessage(host, managed, {
-        type: 'db:query',
-        id: 'db-nr',
-        sql: 'SELECT secret FROM zvd_notes',
-        params: [],
-      });
+      const { managed, posted } = makeManaged(host, { name: 'db-ext' });
+      for (const id of ['db-1', 'db-2']) {
+        dispatchMessage(host, managed, { type: 'db:query', id, sql: 'SELECT 1', params: [42] });
+      }
       await new Promise((r) => setTimeout(r, 0));
-      const err = posted.find((m) => m.id === 'db-nr');
-      expect(err?.type).toBe('db:err');
-      if (err?.type === 'db:err') expect(err.error).toContain('no database role');
-      expect(ran).not.toContain('SELECT secret FROM zvd_notes');
-      // The pick never offers the request role: under it the collection policy
-      // passes a no-actor statement as the engine's own work.
-      expect(ran.join('\n')).not.toContain('zveltio_rls');
+      expect(reserve).not.toHaveBeenCalled();
+      for (const id of ['db-1', 'db-2']) {
+        const reply = posted.find((m) => m.id === id) as { type: string; error?: string };
+        expect(reply.type).toBe('db:err');
+        expect(reply.error).toContain('no SQL crosses from an extension process');
+      }
+      // Logged once, naming the extension: a bundle posting in a loop floods nothing.
+      expect(errors).toHaveBeenCalledTimes(1);
+      expect(String(errors.mock.calls[0]?.[0])).toContain('db-ext');
     } finally {
       poolSpy.mockRestore();
+      errors.mockRestore();
     }
-  });
-
-  it('posts db:err when the BunSQL pool is unavailable', async () => {
-    const bunSql = await import('../../db/bun-sql-dialect.js');
-    const poolSpy = spyOn(bunSql, 'getActiveBunPool').mockReturnValue(null);
-
-    const host = new WorkerExtensionHost(new Hono());
-    const { managed, posted } = makeManaged(host, { name: 'db-fail' });
-    dispatchMessage(host, managed, {
-      type: 'db:query',
-      id: 'db-2',
-      sql: 'SELECT 1',
-      params: [],
-    });
-    await new Promise((r) => setTimeout(r, 0));
-    const err = posted.find((m) => m.type === 'db:err' && m.id === 'db-2');
-    expect(err?.type).toBe('db:err');
-    if (err?.type === 'db:err') expect(err.error).toContain('pool not initialized');
-    poolSpy.mockRestore();
   });
 
   it('service:call resolves inline registry services', async () => {
@@ -257,95 +208,6 @@ describe('WorkerExtensionHost — IPC message routing', () => {
     expect(err?.type).toBe('service:err');
     if (err?.type === 'service:err') expect(err.error).toContain('inline exploded');
     serviceRegistry.unregisterAs('inline', 'inline.boom');
-  });
-
-  it('posts db:err when the pool query throws', async () => {
-    const bunSql = await import('../../db/bun-sql-dialect.js');
-    const poolSpy = spyOn(bunSql, 'getActiveBunPool').mockReturnValue({
-      reserve: async () => ({
-        unsafe: async (sql: string) => {
-          // The guard issues SET statement_timeout first; only the extension's
-          // own statement should surface the failure under test.
-          if (sql.startsWith('SET ')) return [];
-          if (sql.includes('FROM pg_roles')) return [{ role: 'zveltio_worker' }];
-          throw new Error('query exploded');
-        },
-        release: () => undefined,
-      }),
-    } as never);
-
-    const host = new WorkerExtensionHost(new Hono());
-    const { managed, posted } = makeManaged(host, { name: 'db-throw' });
-    dispatchMessage(host, managed, {
-      type: 'db:query',
-      id: 'db-3',
-      sql: 'SELECT boom',
-      params: [],
-    });
-    await new Promise((r) => setTimeout(r, 0));
-    const err = posted.find((m) => m.type === 'db:err' && m.id === 'db-3');
-    expect(err?.type).toBe('db:err');
-    if (err?.type === 'db:err') expect(err.error).toContain('query exploded');
-    poolSpy.mockRestore();
-  });
-
-  it('answers db:query as the inline driver does: arrays encoded, count and SQLSTATE carried', async () => {
-    const bunSql = await import('../../db/bun-sql-dialect.js');
-    // A write reads the collection's definition first (`writtenBy`): none here.
-    const { DDLManager } = await import('../../lib/data/index.js');
-    const defSpy = spyOn(DDLManager, 'getCollection').mockResolvedValue(null);
-    const dbSpy = spyOn(await import('../../db/index.js'), 'getDb').mockReturnValue({} as never);
-    const sent: unknown[][] = [];
-    const poolSpy = spyOn(bunSql, 'getActiveBunPool').mockReturnValue({
-      reserve: async () => ({
-        unsafe: async (sql: string, params?: unknown[]) => {
-          if (sql.includes('FROM pg_roles')) return [{ role: 'zveltio_worker' }];
-          if (sql.startsWith('UPDATE')) {
-            sent.push(params ?? []);
-            return Object.assign([], { count: 3 });
-          }
-          if (sql.startsWith('INSERT')) {
-            throw Object.assign(new Error('duplicate key'), {
-              errno: '23505',
-              code: 'ERR_POSTGRES_SERVER_ERROR',
-            });
-          }
-          return [];
-        },
-        release: () => undefined,
-      }),
-    } as never);
-    try {
-      const host = new WorkerExtensionHost(new Hono());
-      const { managed, posted } = makeManaged(host, { name: 'db-fidelity' });
-      dispatchMessage(host, managed, {
-        type: 'db:query',
-        id: 'db-u',
-        sql: 'UPDATE zvd_t SET x = 1 WHERE tag = ANY($1)',
-        params: [['a', 'b"c', null]],
-      });
-      dispatchMessage(host, managed, {
-        type: 'db:query',
-        id: 'db-i',
-        sql: 'INSERT INTO zvd_t VALUES (1)',
-        params: [],
-      });
-      await new Promise((r) => setTimeout(r, 0));
-      // Bun sends a JS array as its comma-joined text: `malformed array literal`.
-      expect(sent).toEqual([['{"a","b\\"c",NULL}']]);
-      expect(posted.find((m) => m.type === 'db:ok' && m.id === 'db-u')).toMatchObject({
-        count: 3,
-      });
-      expect(posted.find((m) => m.type === 'db:err' && m.id === 'db-i')).toMatchObject({
-        error: 'duplicate key',
-        errno: '23505',
-        code: 'ERR_POSTGRES_SERVER_ERROR',
-      });
-    } finally {
-      poolSpy.mockRestore();
-      defSpy.mockRestore();
-      dbSpy.mockRestore();
-    }
   });
 
   it('remounts a running worker on the current app and keeps it; none running, or respawning, is false', async () => {

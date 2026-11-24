@@ -9,8 +9,8 @@
  *      receives the route table, mounts proxy routes under `/ext/<name>/*`.
  *   2. Inbound HTTP hits the proxy → IPC to worker → handler runs → IPC
  *      back → response written to client.
- *   3. Worker DB queries arrive as `db:query` → host executes via the
- *      real shared pool → posts `db:ok` / `db:err` back.
+ *   3. A worker reaches data through `host` (`host:call`); a `db:query` is
+ *      refused from every worker (RFC extension-model-v3 decision 2).
  *   4. `stop(name)` ends the process and removes proxy routes.
  *
  * Reliability (alpha.122):
@@ -30,8 +30,6 @@
  *
  * Security envelope:
  *   - Worker never receives DATABASE_URL or any other env credential.
- *   - All SQL is executed by the host with the host's pool — RLS still
- *     applies, tenant scoping still works.
  *   - The extension is a process. On the runner it runs under a uid of
  *     its own with kernel limits (RFC extension-runner); as a local child
  *     (`process`, development) under the engine's uid, with no boundary.
@@ -433,12 +431,12 @@ const CRASH_WINDOW_MS = 10 * 60_000;
 
 /**
  * Requests one worker-isolated extension may serve at once (ADR 0056): a quarter
- * of the pool, the share `hostTxnCap` gives one extension alone. Each holds a
+ * of the pool, and never less than one. Each holds a
  * pooled connection — its request's — for as long as the extension takes, so
  * past this a slow or hostile extension would starve the engine's own requests.
  */
 export function boxConcurrencyLimit(poolMax: number): number {
-  return hostTxnCap(poolMax, 1);
+  return Math.max(1, Math.floor(poolMax / 4));
 }
 
 /** How every log line about an extension names it: its name and its signing key (ADR 0056). */
@@ -2079,15 +2077,4 @@ function newRequestTxn(): RequestTxn {
 function endRequestTxn(txn: RequestTxn, commit: boolean): Promise<boolean> {
   txn.closing ??= Promise.resolve(commit);
   return txn.closing;
-}
-
-/**
- * Host transactions one worker may hold open at once. Each holds a pooled
- * connection, so all of them together get a quarter of the pool, shared evenly
- * by the extensions on the runner, and never less than one each (owner decision,
- * 2026-10-10). Read at every `begin`: a load or unload moves the cap for the next
- * transaction, and ones already open are never cut short.
- */
-export function hostTxnCap(poolMax: number, extensions: number): number {
-  return Math.max(1, Math.floor(Math.floor(poolMax / 4) / Math.max(1, extensions)));
 }
