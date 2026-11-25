@@ -26,7 +26,7 @@ import { buildExtensionInternals } from '../../src/lib/extensions/internals.js';
 import { invalidateActivationCache } from '../../src/lib/extensions/activation.js';
 import { activePoolMax } from '../../src/db/index.js';
 import { getAuth } from '../../src/lib/auth.js';
-import { runnerUnit } from '../../src/lib/ext-runner.js';
+import { runnerSocketPath, runnerUnit } from '../../src/lib/ext-runner.js';
 import { _resetWorkerHostForTests, boxConcurrencyLimit, getWorkerHost } from '../../src/lib/worker-extension-host.js';
 import { invalidateAllPermissionCaches } from '../../src/lib/tenancy/permissions.js';
 import { sessionPrefetch } from '../../src/middleware/session-prefetch.js';
@@ -69,7 +69,7 @@ const stats = (xs: number[]) => ({
 });
 
 // ── memory: read here, or hand the pids to the root sampler (mem-sample.sh) ──
-const MEM_DIR = '/tmp/bench-mem';
+const MEM_DIR = '/run/bench-mem';
 function smaps(pid: number) {
   try {
     const t = readFileSync(`/proc/${pid}/smaps_rollup`, 'utf8');
@@ -98,7 +98,7 @@ async function memory(label: string) {
   if (direct.length && direct.every(Boolean)) return direct;
   // Another uid's process: the root sampler reads it (a handshake on files).
   const req = join(MEM_DIR, `${process.pid}-${label}`);
-  writeFileSync(`${req}.req`, pids.join('\n'));
+  writeFileSync(`${req}.req`, `${pids.join('\n')}\n`);
   for (let i = 0; i < 200; i++) {
     if (existsSync(`${req}.ack`)) return JSON.parse(readFileSync(`${req}.ack`, 'utf8'));
     await Bun.sleep(100);
@@ -237,6 +237,9 @@ if (mode !== 'inline' && COLD > 0 && startArgs) {
   const first: number[] = [];
   for (let i = 0; i < COLD; i++) {
     await host.stop(EXT);
+    // The served app's matcher is built: the proxy routes of the restart go to a spare app
+    // (actions are mounted on the served app once and reach the worker through the host).
+    host.rebindApp(new Hono());
     await Bun.sleep(300);
     const t = performance.now();
     await host.start(name, d, entry, source);
@@ -247,6 +250,26 @@ if (mode !== 'inline' && COLD > 0 && startArgs) {
     first.push(performance.now() - t);
   }
   result.cold = { startToRegistered: stats(ready), startToFirstAction: stats(first), samplesMs: first.map((x) => +x.toFixed(1)) };
+}
+
+// ── runner floor: `systemctl start` and the socket, with no engine around it ──
+if (mode === 'runner' && COLD > 0) {
+  const unit = runnerUnit(EXT);
+  const sock = runnerSocketPath(EXT);
+  await host.stop(EXT);
+  const cmdMs: number[] = [];
+  const sockMs: number[] = [];
+  for (let i = 0; i < COLD; i++) {
+    Bun.spawnSync(['systemctl', 'stop', '--no-ask-password', unit]);
+    await Bun.sleep(300);
+    const t = performance.now();
+    Bun.spawnSync(['systemctl', 'start', '--no-ask-password', unit]);
+    cmdMs.push(performance.now() - t);
+    while (!existsSync(sock)) await Bun.sleep(1);
+    sockMs.push(performance.now() - t);
+  }
+  result.coldUnit = { systemctlStart: stats(cmdMs), startToSocket: stats(sockMs) };
+  Bun.spawnSync(['systemctl', 'stop', '--no-ask-password', unit]);
 }
 result.health = host.getHealth();
 

@@ -9,7 +9,7 @@ ROUNDS="${1:-2}"; OUT="${2:-/tmp/ext-perf}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 DBURL="${BENCH_DATABASE_URL:-postgres://zveltio_app:benchpass@127.0.0.1:5432/zveltio_bench}"
 mkdir -p "$OUT"; chmod 777 "$OUT"
-sudo bash "$HERE/mem-sample.sh" & SAMPLER=$!
+sudo env ENGINE_USER=zveltio bash "$HERE/mem-sample.sh" & SAMPLER=$!
 trap 'sudo pkill -f mem-sample.sh || true' EXIT
 for round in $(seq 1 "$ROUNDS"); do
   for pool in default 40 10; do
