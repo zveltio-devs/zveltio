@@ -151,6 +151,7 @@ describe('unloadExtension', () => {
       stopped: false,
       heartbeatTimer: undefined,
       pendingInvokes: new Map(),
+      pendingPings: new Map(),
       proxyUnmount: () => {
         unmounted = true;
       },
