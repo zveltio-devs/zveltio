@@ -1,0 +1,1 @@
+{"signin":200,"inline finance/invoicing createInvoice":{"status":200,"body":"{\"result\":{\"id\":\"6795ca9d-9270-4009-a9bf-f9bd75038a50\",\"created_at\":\"2026-11-25T12:49:24.050Z\",\"updated_at\":\"2026-11-25T12:49:24.050Z\",\"created_by\":\"JOzfFjoF4g9qMd3kPGEYkOFTF17aXlu0\",\"updated_by\":\"JOz"},"worker probe/plain ping":{"status":200,"body":"{\"result\":{\"pong\":true}}"}}

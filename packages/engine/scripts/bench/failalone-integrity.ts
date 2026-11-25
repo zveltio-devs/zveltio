@@ -9,7 +9,9 @@ const f = join(dir!, 'manifest.json');
 const m = JSON.parse(readFileSync(f, 'utf8'));
 m.integrity = {
   schemaSha256: schemaDigest(await readSchemaDir(dir!)),
-  engineSha256: createHash('sha256').update(readFileSync(join(dir!, m.engine.entry))).digest('hex'),
+  engineSha256: createHash('sha256')
+    .update(readFileSync(join(dir!, m.engine.entry)))
+    .digest('hex'),
 };
 if (worker) m.engine.isolation = 'worker';
 writeFileSync(f, JSON.stringify(m, null, 2));

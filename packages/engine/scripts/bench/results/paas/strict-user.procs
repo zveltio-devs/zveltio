@@ -1,0 +1,9 @@
+pid 1 /usr/local/bin/zveltio start  Uid: 100 100 100 100 CapEff: 0000000000000000 CapBnd: 0000000000000000 NoNewPrivs: 1 
+pid 1 /usr/local/bin/zveltio start  Uid: 100 100 100 100 CapEff: 0000000000000000 CapBnd: 0000000000000000 NoNewPrivs: 1 
+pid 32 sh -c for p in 1 $(pgrep -f "zveltio" | head -5); do echo "pid $p $(tr "\0" " "  Uid: 100 100 100 100 CapEff: 0000000000000000 CapBnd: 0000000000000000 NoNewPrivs: 1 
+sh: can't open /proc/38/cmdline: no such file
+grep: /proc/38/status: No such file or directory
+pid 38  
+sh: can't open /proc/40/cmdline: no such file
+grep: /proc/40/status: No such file or directory
+pid 40  

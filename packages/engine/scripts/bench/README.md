@@ -61,3 +61,35 @@ samples again. Memory is RSS and PSS from `smaps_rollup`, read with sudo by the
 operator's driver for the scope and every `zveltio-ext-runner@*` unit.
 `runner-load` runs `createInvoice` (3 lines) at concurrency 5 for two minutes from
 CPU 1, over HTTP, and counts `extension.busy`.
+
+## Fail-alone probe (`failalone*.sh|ts`, `probe-bad-ext/`)
+
+Three signed test extensions (declared model, one action `misbehave`): `loop`
+(`while (true) {}`), `leak` (16 MB every 5 ms, never answers), `crash`
+(`process.exit(1)`), plus `plain` (a collection and a `ping`). Each run is a fresh
+engine (compiled beta.132, `NODE_ENV=production`, scope `MemoryMax=1G`) loading
+`finance/invoicing`, `plain` and one bad extension, on the runner (operator-signed,
+`engine.isolation: worker`) or inline. **Inline needs a catalog name** (the engine
+refuses an unknown name inline: `load-phases.ts`), so the inline trees carry the same
+code under the names of first-party extensions the bench DB never loaded
+(`operations/traceability`, `developer/api-docs`, `integrations/migrators`,
+`analytics/quality`), registry-signed with a throwaway key.
+
+Load (`failalone-load.ts`, one core): data API on a plain collection, GET list and POST
+alternating at concurrency 5, plus `createInvoice` every 200 ms; 30 s baseline, then the bad
+action once a second. `failalone-prep.sh` builds the trees, `failalone.sh <runner|inline>
+<loop|leak|crash>` runs one, `failalone-report.ts results/failalone` prints the table.
+The load generator is unpinned on a 2 vCPU box with PG, the engine and the runner units.
+First time a collection is granted, the engine takes ~30 s to honour it (`GRANT_WAIT=35`).
+`results/failalone` has logs (engine, units, request logs gzipped); `results/failalone-cpuquota50`
+is the loop with `CPUQuota=50%` on the runner units.
+
+## Restrictive PaaS probe (`paas.sh`, `paas-calls.ts`)
+
+The `standalone` target of the Dockerfile (built here with the legacy builder:
+`--platform=$BUILDPLATFORM` removed, nothing else), loaded on the VM, one container,
+host network, `--memory 1g`, `finance/invoicing` (registry-signed, inline) and
+`probe/plain` (operator-signed, worker) in `/data/extensions`. States: `control`
+(docker defaults), `strict` (`--cap-drop ALL --security-opt no-new-privileges`),
+`strict-chown` (strict plus CHOWN, DAC_OVERRIDE, FOWNER) and `strict-user` (strict
+plus `--user 100:101`). `results/paas` has the state, log, `/health` and calls of each.

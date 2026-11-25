@@ -1,0 +1,3 @@
+running=true exit=0 oom=false restarts=0 caps=[ALL] secopt=[no-new-privileges] mem=1073741824 user=100:101
+health_up=1 http=200
+{"status":"ok"}
