@@ -72,6 +72,7 @@ import {
 import { activePoolMax, getDb, type Database } from '../db/index.js';
 import { auditLog } from './audit.js';
 import { verifyExtensionDir } from './security/index.js';
+import { WORKER_RUNTIME_SOURCE } from './worker-extension-runtime-source.generated.js';
 import { CompiledQuery } from 'kysely';
 import { transactionTurns } from '../db/trx-sequencer.js';
 import {
@@ -238,6 +239,13 @@ export interface WorkerCtxSource {
   runtime?: WorkerRuntime;
   /** Reads `runtime` again before each idle stop: an operator may have changed it, on any replica. */
   readRuntime?: () => Promise<WorkerRuntime>;
+  /**
+   * The init it passed before, by stamp (`initStamp`): loaded idle, its init is
+   * run once per stamp, so a bundle its worker refuses — actions or routes that
+   * do not pair, `register()` past the declared model — is refused at load, as
+   * when every worker started there, without a spawn at every boot.
+   */
+  validated?: { has(stamp: string): Promise<boolean>; record(stamp: string): Promise<void> };
 }
 
 /** What the operator chose for one extension's process (ADR 0062 d3). */
@@ -494,6 +502,18 @@ async function verifiedBundle(
   return { bundle, bundleSha256 };
 }
 
+let runtimeSha: string | undefined;
+
+/** What one init validated: the signed bundle, the runtime that ran it, the model it paired. */
+function initStamp(bundleSha256: string, source: WorkerCtxSource): string {
+  runtimeSha ??= new Bun.CryptoHasher('sha256').update(WORKER_RUNTIME_SOURCE).digest('hex');
+  return new Bun.CryptoHasher('sha256')
+    .update(
+      JSON.stringify([bundleSha256, runtimeSha, source.declaredRoutes ?? [], source.actions ?? []]),
+    )
+    .digest('hex');
+}
+
 /** A caller that chose nothing: started at `start`, never stopped for idleness. */
 const ALWAYS_ON: WorkerRuntime = { alwaysOn: true, idleTimeoutMs: 5 * 60_000 };
 
@@ -580,9 +600,25 @@ export class WorkerExtensionHost {
       // ADR 0062 d3: checked now — its signature, its bundle, a runner that can
       // exist — so a broken extension is refused at load, not at its first call;
       // spawned on that call (`live`).
-      await verifiedBundle(extName, extDir, bundleEntry, source);
+      const { bundleSha256 } = await verifiedBundle(extName, extDir, bundleEntry, source);
       const missing = extensionTransport() === 'runner' ? await runnerUnavailable(extName) : null;
       if (missing) throw runnerUnreachable(new Error(missing));
+      const stamp = initStamp(bundleSha256, source);
+      if (!(await source.validated?.has(stamp).catch(() => false))) {
+        // Bytes never run here before: their init, once, and the process ends.
+        const probe = await this.spawn(extName, extDir, bundleEntry, 0, source);
+        probe.worker.terminate();
+        if (unitRunner()) {
+          await stopRunner(extName).catch((err: Error) =>
+            console.error(`${boxTag(extName, source)} stopping its runner: ${err.message}`),
+          );
+        }
+        await source.validated
+          ?.record(stamp)
+          .catch((err: Error) =>
+            console.error(`${boxTag(extName, source)} recording its init: ${err.message}`),
+          );
+      }
       const managed = newManaged(extName, extDir, bundleEntry, NO_PROCESS, 0, source);
       managed.idle = true;
       managed.routes = (source.declaredRoutes ?? []).map(({ method, path }) => ({ method, path }));

@@ -9,7 +9,9 @@
  * every call reaches the extension through the engine, which starts it first.
  */
 
+import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { toJsonb } from '../jsonb.js';
 
 export interface RuntimePolicy {
   alwaysOn: boolean;
@@ -60,7 +62,9 @@ export function parseRuntimeBody(body: unknown): Partial<RuntimePolicy> | string
   }
   return {
     ...(alwaysOn === undefined ? {} : { alwaysOn }),
-    ...(idleTimeoutSeconds === undefined ? {} : { idleTimeoutSeconds: idleTimeoutSeconds as number }),
+    ...(idleTimeoutSeconds === undefined
+      ? {}
+      : { idleTimeoutSeconds: idleTimeoutSeconds as number }),
   };
 }
 
@@ -83,4 +87,31 @@ export async function readRuntimePolicy(db: Database, extName: string): Promise<
 /** As the worker host takes it. */
 export function workerRuntime(p: RuntimePolicy): { alwaysOn: boolean; idleTimeoutMs: number } {
   return { alwaysOn: p.alwaysOn, idleTimeoutMs: p.idleTimeoutSeconds * 1000 };
+}
+
+/**
+ * The init a worker passed, by stamp (`WorkerCtxSource.validated`): its signed
+ * bundle, the runtime that ran it and its declared model. Only a hint to skip a
+ * spawn at load — every spawn still verifies the signature — so a forged one
+ * costs a refusal at the first call instead of at load, nothing more.
+ */
+export async function validatedStamp(db: Database, extName: string): Promise<unknown> {
+  const row = await db
+    .selectFrom('zv_settings')
+    .select('value')
+    .where('key', '=', `ext_validated:${extName}`)
+    .executeTakeFirst();
+  return row?.value;
+}
+
+export async function recordValidatedStamp(
+  db: Database,
+  extName: string,
+  stamp: string,
+): Promise<void> {
+  await sql`
+    INSERT INTO zv_settings (key, value, description)
+    VALUES (${`ext_validated:${extName}`}, ${toJsonb(stamp)},
+            'The worker init this extension passed (ADR 0062 d3); see runtime-policy.ts.')
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`.execute(db);
 }
