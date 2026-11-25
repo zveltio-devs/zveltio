@@ -162,11 +162,17 @@ d('a worker is declared model only (the test override held to production)', () =
   it('refuses a forged ctx host call; a frame outside the protocol answers nothing', async () => {
     for (let i = 0; i < 40 && lines('] forged ').length < 1; i++) await Bun.sleep(50);
     await Bun.sleep(200);
+    // One refusal per process start: since lazy start (ADR 0062 step 2a) the
+    // load-time init check starts the worker once, and a later call may start it
+    // again, so register() can send the forged call more than once. Every one
+    // must be refused.
     const replies = lines('] forged ');
-    expect(replies).toHaveLength(1);
-    expect(replies[0]).toMatch(
-      / forged-perm host:err host call "checkPermission" is refused: .*declared model only/,
-    );
+    expect(replies.length).toBeGreaterThanOrEqual(1);
+    for (const r of replies) {
+      expect(r).toMatch(
+        / forged-perm host:err host call "checkPermission" is refused: .*declared model only/,
+      );
+    }
   });
 
   it('refuses a host call that outlives its request', async () => {

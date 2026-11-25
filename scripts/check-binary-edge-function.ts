@@ -129,6 +129,8 @@ const entryBuild = spawn({
     'build',
     join(ENGINE, 'src/binary-entry.ts'),
     '--compile',
+    // As build-binary.ts compiles it.
+    '--splitting',
     `--outfile=${realBinary}`,
   ],
   stdout: 'pipe',
@@ -149,6 +151,24 @@ if (help.exitCode !== 0) {
   fail(
     `the compiled entry point cannot run a command (exit ${help.exitCode})`,
     `${helpOut}\n${helpErr}`,
+  );
+}
+
+// ── Be a runner without loading the engine (ADR 0062 step 2b). Every start of
+// a runner unit is a cold start someone waits on. Compiled as one file, the
+// binary parsed the whole engine before `ext-runner` ran a line: ~200 ms and
+// ~46 MB PSS per unit. With --splitting it loads its own chunk. With no
+// environment it stops at its first check, so its peak memory is what loading
+// cost — measured 58 MB in one file, 22 MB split.
+const runner = Bun.spawnSync([realBinary, 'ext-runner'], {
+  env: { PATH: process.env.PATH ?? '' },
+  cwd: work,
+});
+const runnerMb = Math.round(runner.resourceUsage.maxRSS / 2 ** 20);
+if (!runner.stderr.toString().includes('ZVELTIO_ENGINE_UID') || runnerMb > 40) {
+  fail(
+    `\`zveltio ext-runner\` loaded the engine (peak ${runnerMb} MB, at most 40): compile with --splitting`,
+    runner.stderr.toString(),
   );
 }
 

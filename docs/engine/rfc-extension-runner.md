@@ -274,7 +274,20 @@ runner.
      plus 8 hex of its SHA-256: an escaped name (`\x2d`) breaks
      `RuntimeDirectory=%i`.
    - The engine starts the instance on enable and stops it on disable with
-     `systemctl`, over D-Bus. A polkit rule lets the engine user start, stop
+     `systemctl`, over D-Bus. (Since ADR 0062 d3: on its first call, and stops
+     it when idle.) The unit is `Type=notify`: the runner tells systemd when it
+     listens (sd_notify `READY=1`), so `systemctl start` returns with the socket
+     in place and a runner that refuses to start fails the start at once; the
+     engine polled for the socket every 100 ms before (ADR 0062 step 2b).
+   - The runner is the engine's binary, compiled with `--splitting`: `zveltio
+     ext-runner` loads its own ~170 KB chunk and never parses the engine. In one
+     file each unit start parsed all of it. Measured on the probe's VM (ADR 0062
+     step 2b): unit start to listening 260 → 88 ms with no CPU cap, the runner's
+     PSS in a running unit 29 → 13 MB. A unit holds two processes, the runner
+     and the extension's runtime: the runner cannot exec into the runtime,
+     because it keeps listening for the extension's job connections and starts
+     each job under the ban, which the extension's own process must not be able
+     to do. A polkit rule lets the engine user start, stop
      and restart `zveltio-ext-runner@*` units and nothing else, so the engine
      keeps `NoNewPrivileges` and needs no capability.
    - Each runner directory (`/run/zveltio-ext/<instance>`) belongs to that

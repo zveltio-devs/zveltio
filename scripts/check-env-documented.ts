@@ -55,7 +55,8 @@ const UPDATE = process.argv.includes('--update');
 /**
  * Names that are not this engine's configuration.
  *
- * `NODE_ENV`, `CI` and the `PG*` family are the platform's; `TMPDIR` is POSIX.
+ * `NODE_ENV`, `CI` and the `PG*` family are the platform's; `TMPDIR` is POSIX;
+ * `NOTIFY_SOCKET` is systemd's, set for the runner's `Type=notify` unit.
  * The rest are read only by fixtures — `BRAND_NEW_SECRET` and the two
  * `ZVELTIO_EXT_*` names exist to prove that extension config is namespaced, and
  * documenting them would tell an operator to set something that does nothing.
@@ -66,6 +67,7 @@ const NOT_CONFIGURATION = new Set([
   'HOME',
   'PATH',
   'TMPDIR',
+  'NOTIFY_SOCKET',
   'BRAND_NEW_SECRET',
   'ENABLE_MARKETPLACE_INTEGRATION_TESTS',
   'ZVELTIO_EXT_FINANCE_BANKING_FOO',

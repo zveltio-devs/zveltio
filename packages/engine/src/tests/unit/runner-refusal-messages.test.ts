@@ -87,4 +87,53 @@ describe('F23: OOM kill', () => {
       await host.stopAll().catch(() => {});
     }
   });
+
+  // ADR 0062 d3: a unit started on use has no cgroup before its start, where
+  // `oomKills` reads null; the count must be read once the channel is open.
+  it('names an OOM kill of a unit that was down until its start', async () => {
+    class W {
+      onmessage: ((e: MessageEvent) => void) | null = null;
+      onerror: ((e: ErrorEvent) => void) | null = null;
+      postMessage(msg: { type: string; id: string }) {
+        if (msg.type === 'init')
+          queueMicrotask(() =>
+            this.onmessage?.({ data: { type: 'init:ok', id: msg.id, routes: [] } } as MessageEvent),
+          );
+      }
+      terminate() {}
+    }
+    let kills: number | null = null; // the unit is down: no cgroup
+    const errSpy = spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+    const timeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
+      (() => 1) as unknown as typeof setTimeout,
+    );
+    const host = new WorkerExtensionHost(
+      new Hono(),
+      async () => {
+        kills = 0; // started: a fresh cgroup
+        return new W() as unknown as ExtensionChannel;
+      },
+      async () => kills,
+    );
+    try {
+      const { dir, source } = await signedWorkerDir('oom-lazy');
+      await host.start('oom-lazy', dir, 'engine/index.js', source);
+      kills = 1;
+      // @ts-expect-error — test seam into private map
+      host.workers.get('oom-lazy')!.worker.onerror?.({
+        message: 'runner closed the connection',
+      } as ErrorEvent);
+      await Bun.sleep(20);
+      const line = errSpy.mock.calls
+        .map((c) => String(c[0]))
+        .find((l) => l.includes('out of memory'));
+      expect(line).toContain('[ext:oom-lazy key=test-operator]');
+    } finally {
+      errSpy.mockRestore();
+      warnSpy.mockRestore();
+      timeoutSpy.mockRestore();
+      await host.stopAll().catch(() => {});
+    }
+  });
 });

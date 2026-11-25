@@ -76,6 +76,11 @@ async function main(): Promise<void> {
     // happen before the app's imports run. See the note in that file.
     join(engineRoot, 'src/binary-entry.ts'),
     '--compile',
+    // One chunk per dynamic import: `zveltio ext-runner` loads its own ~170 KB
+    // and never parses the engine's. In one file every start of a runner unit
+    // parsed all of it: ~200 ms before listening and ~46 MB PSS per unit
+    // (ADR 0062 step 2b, measured).
+    '--splitting',
     `--outfile=${outFile}`,
     `--target=${target}`,
     // Bun inlines process.env.NODE_ENV as "development" in a build without

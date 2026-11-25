@@ -551,17 +551,17 @@ export class WorkerExtensionHost {
       extensionTransport() === 'runner' ? oomKills(n) : Promise.resolve(null),
   ) {}
   /** The OOM-kill count when each extension's process was opened (F23). */
-  private oomBaseline = new Map<string, number>();
+  private oomBaseline = new Map<string, Promise<number | null>>();
 
   /**
    * A crash the kernel's OOM killer caused is logged as that: the channel only
    * ever says "runner closed the connection" (ADR 0062 F23).
    */
   private async noteOomKill(managed: ManagedWorker): Promise<void> {
-    const before = this.oomBaseline.get(managed.name);
+    const before = await this.oomBaseline.get(managed.name);
     const now = await this.oomKillCount(managed.name).catch(() => null);
-    if (before === undefined || now === null || now <= before) return;
-    this.oomBaseline.set(managed.name, now);
+    if (before === undefined || before === null || now === null || now <= before) return;
+    this.oomBaseline.set(managed.name, Promise.resolve(now));
     console.error(
       `${boxTag(managed.name, managed.source)} killed by the kernel: out of memory ` +
         `(oom_kill ${before} -> ${now} in its cgroup; raise MemoryMax / the container's memory limit)`,
@@ -803,9 +803,15 @@ export class WorkerExtensionHost {
     // On the runner, beside other extensions' uids: their directory is closed
     // to all of them, at every spawn.
     if (transport === 'runner') closeExtensionsDir(extensionsBaseOf(extDir, extName));
-    const baseline = await this.oomKillCount(extName).catch(() => null);
-    if (baseline !== null) this.oomBaseline.set(extName, baseline);
     const worker = await this.open(extName);
+    // Read once the process's cgroup exists: a unit started on use (ADR 0062 d3)
+    // has none before its start, so a count read then was null and no OOM kill
+    // was ever named. Not awaited: the read (`systemctl show`, ~10 ms on the
+    // probe's VM) stays out of the cold start.
+    this.oomBaseline.set(
+      extName,
+      this.oomKillCount(extName).catch(() => null),
+    );
     const managed = newManaged(extName, extDir, bundleEntry, worker, generation, source);
 
     // A channel that ends before `init` answers fails the load at once, with its

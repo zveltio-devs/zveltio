@@ -73,7 +73,9 @@ one holds no memory: on a 1 vCPU / 1 GB scope with 37 worker extensions the
 engine booted with no runner unit up (~150 MB PSS in all, against ~1 GB with
 every unit running), each called extension added ~25-55 MB PSS while it ran,
 and its idle timeout returned it to zero. Its first call after idle waits for
-it (~0.4-0.5 s on systemd). Per extension, an administrator chooses:
+it: ~0.5-0.6 s on systemd under the unit's default CPU cap, ~0.13-0.25 s with
+`CPUQuotaPeriodSec=1s` in the unit (ADR 0062 step 2b; a longer period also lets a
+looping extension cost the engine more, see [security-model.md](security-model.md)). Per extension, an administrator chooses:
 
 ```sh
 # Always on: started at boot, never stopped for idleness (latency only).

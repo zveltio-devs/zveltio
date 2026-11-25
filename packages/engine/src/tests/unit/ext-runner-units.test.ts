@@ -12,6 +12,7 @@ import {
   extensionsBaseOf,
   missingCapabilities,
   closeSharedDirs,
+  notifyReady,
   limitArgv,
   runnerInstance,
   startRunner,
@@ -59,6 +60,12 @@ describe('runnerSetupFiles', () => {
     // The socket the runner listens on is the one the engine connects to.
     expect(unit).toContain('Environment=ZVELTIO_EXT_RUNNER_SOCKET=/run/zveltio-ext/%i/runner.sock');
     expect(unit).toContain('RuntimeDirectory=zveltio-ext/%i');
+  });
+
+  // ADR 0062 step 2b: `systemctl start` returns once the runner listens
+  // (notifyReady), not before; only the runner itself may say it is ready.
+  it('is Type=notify, from the main process only, failing a start past 10 s', () => {
+    expect(unit).toContain('\nType=notify\nNotifyAccess=main\nTimeoutStartSec=10\n');
   });
 
   // ADR 0023: seccomp, which holds where IPAddressDeny's cgroup BPF is a no-op.
@@ -133,6 +140,62 @@ describe('runnerSetupFiles', () => {
     expect(rule).toContain('subject.user === "zveltio"');
     expect(rule).toContain('unit.indexOf("zveltio-ext-runner@") === 0');
     expect(rule).not.toContain('"enable"');
+  });
+});
+
+// ADR 0062 step 2b: the runner tells systemd it listens. A datagram socket
+// bound here stands in for systemd's NOTIFY_SOCKET.
+describe('notifyReady', () => {
+  async function dgram(addr: Buffer) {
+    const { dlopen, FFIType: T, ptr } = await import('bun:ffi');
+    const libc = dlopen('libc.so.6', {
+      socket: { args: [T.i32, T.i32, T.i32], returns: T.i32 },
+      bind: { args: [T.i32, T.ptr, T.u32], returns: T.i32 },
+      recv: { args: [T.i32, T.ptr, T.u64, T.i32], returns: T.i64 },
+      close: { args: [T.i32], returns: T.i32 },
+    });
+    const c = libc.symbols;
+    const fd = c.socket(1, 2, 0); // AF_UNIX, SOCK_DGRAM
+    const sa = Buffer.alloc(2 + addr.length);
+    sa.writeUInt16LE(1, 0);
+    addr.copy(sa, 2);
+    expect(c.bind(fd, ptr(sa), sa.length)).toBe(0);
+    return {
+      next(): string {
+        const buf = Buffer.alloc(64);
+        const n = Number(c.recv(fd, ptr(buf), buf.length, 0x40)); // MSG_DONTWAIT
+        return n < 0 ? '' : buf.subarray(0, n).toString();
+      },
+      close() {
+        c.close(fd);
+        libc.close();
+      },
+    };
+  }
+
+  it('sends READY=1 to a path socket and to an abstract one', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'notify-'));
+    const path = join(dir, 'n.sock');
+    const onPath = await dgram(Buffer.from(`${path}\0`));
+    const abstract = `zveltio-notify-${process.pid}`;
+    const onAbstract = await dgram(Buffer.from(`\0${abstract}`));
+    try {
+      await notifyReady(path);
+      await notifyReady(`@${abstract}`);
+      expect(onPath.next()).toBe('READY=1');
+      expect(onAbstract.next()).toBe('READY=1');
+    } finally {
+      onPath.close();
+      onAbstract.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('says nothing without NOTIFY_SOCKET, and throws when nothing listens', async () => {
+    await notifyReady('');
+    await expect(notifyReady(join(tmpdir(), `absent-${process.pid}.sock`))).rejects.toThrow(
+      'could not tell systemd',
+    );
   });
 });
 

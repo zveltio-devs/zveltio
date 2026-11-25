@@ -1566,9 +1566,9 @@ host forwards each declared route and action over a channel and answers the
   `host.actions.run`, a declared route, public (webhook) routes included, and on
   the runner a job, whose queue wakes its unit only when a job waits. A request
   the engine refuses (no session, no permission, switched off for the firm)
-  starts nothing. Measured cold on a 2 vCPU systemd host: ~370-500 ms per
-  extension, most of it the runner unit's boot (ADR 0062 step 2b brings it
-  down). After its idle timeout (5 minutes; the operator's setting) with no
+  starts nothing. Measured cold on a 2 vCPU systemd host: ~0.5-0.6 s per
+  extension under the unit's default CPU cap (~0.13-0.25 s without it), most of
+  it the runner unit's start (ADR 0062 step 2b). After its idle timeout (5 minutes; the operator's setting) with no
   call, route request or job run in it, the engine stops it — the whole runner
   unit on systemd — as the state `idle`: no crash is counted, nothing is
   respawned, its crash history is kept, and health and the marketplace list
