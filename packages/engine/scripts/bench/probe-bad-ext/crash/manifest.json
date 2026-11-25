@@ -8,7 +8,21 @@
   "zveltioMaxVersion": "4.0.0",
   "package": "@zveltio/ext-probe-crash",
   "contributes": { "engine": true, "studio": false, "fieldTypes": [] },
-  "engine": { "entry": "engine/index.js", "format": "esm", "target": "bun", "bundled": true, "bundlePeers": false },
+  "engine": {
+    "entry": "engine/index.js",
+    "format": "esm",
+    "target": "bun",
+    "bundled": true,
+    "bundlePeers": false
+  },
   "collections": ["probe_crash_log"],
-  "actions": [{ "name": "misbehave", "permission": { "resource": "probe_crash_log", "action": "execute" }, "input": { "type": "object", "additionalProperties": false, "properties": {} }, "reads": ["probe_crash_log"], "writes": [] }]
+  "actions": [
+    {
+      "name": "misbehave",
+      "permission": { "resource": "probe_crash_log", "action": "execute" },
+      "input": { "type": "object", "additionalProperties": false, "properties": {} },
+      "reads": ["probe_crash_log"],
+      "writes": []
+    }
+  ]
 }

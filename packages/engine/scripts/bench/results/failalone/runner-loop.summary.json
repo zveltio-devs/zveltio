@@ -1,1 +1,60 @@
-{"summary":{"data-list/before":{"n":3637,"ok":3637,"p50":18.7,"p95":30.4,"codes":{"200":3637}},"data-list/during":{"n":36355,"ok":36355,"p50":34.2,"p95":54,"codes":{"200":36355}},"data-post/before":{"n":3637,"ok":3637,"p50":20.2,"p95":32.9,"codes":{"201":3637}},"data-post/during":{"n":36357,"ok":36357,"p50":26,"p95":44.6,"codes":{"201":36357}},"invoice/before":{"n":98,"ok":98,"p50":101.1,"p95":142.5,"codes":{"200":98}},"invoice/during":{"n":1415,"ok":1415,"p50":116.6,"p95":164.1,"codes":{"200":1415}},"bad/before":{"n":0,"ok":0,"p50":null,"p95":null,"codes":{}},"bad/during":{"n":41,"ok":0,"p50":null,"p95":null,"codes":{"503":31,"504":10}}},"bad_calls":["30000 bad 504 30042.9ms","61043 bad 504 30051ms","92094 bad 503 24.9ms","93119 bad 504 30031.1ms","124150 bad 504 30039.5ms","155191 bad 503 27329.3ms","183520 bad 503 40.6ms","184561 bad 504 30028.4ms","215589 bad 504 30046.5ms","246636 bad 503 26969.5ms","274606 bad 503 18.6ms","275624 bad 504 30056.4ms"],"bad_bodies":["504 {\"type\":\"about:blank\",\"title\":\"Gateway Timeout\",\"status\":504,\"code\":\"extension.timeout\",\"detail\":\"extension \\\"probe/loop\\\": action \\\"misbehave\\\" call timeout, n","503 {\"type\":\"about:blank\",\"title\":\"Service Unavailable\",\"status\":503,\"code\":\"extension.unavailable\",\"detail\":\"extension \\\"probe/loop\\\" is not running (restarting af"]}
+{
+  "summary": {
+    "data-list/before": {
+      "n": 3637,
+      "ok": 3637,
+      "p50": 18.7,
+      "p95": 30.4,
+      "codes": { "200": 3637 }
+    },
+    "data-list/during": {
+      "n": 36355,
+      "ok": 36355,
+      "p50": 34.2,
+      "p95": 54,
+      "codes": { "200": 36355 }
+    },
+    "data-post/before": {
+      "n": 3637,
+      "ok": 3637,
+      "p50": 20.2,
+      "p95": 32.9,
+      "codes": { "201": 3637 }
+    },
+    "data-post/during": {
+      "n": 36357,
+      "ok": 36357,
+      "p50": 26,
+      "p95": 44.6,
+      "codes": { "201": 36357 }
+    },
+    "invoice/before": { "n": 98, "ok": 98, "p50": 101.1, "p95": 142.5, "codes": { "200": 98 } },
+    "invoice/during": {
+      "n": 1415,
+      "ok": 1415,
+      "p50": 116.6,
+      "p95": 164.1,
+      "codes": { "200": 1415 }
+    },
+    "bad/before": { "n": 0, "ok": 0, "p50": null, "p95": null, "codes": {} },
+    "bad/during": { "n": 41, "ok": 0, "p50": null, "p95": null, "codes": { "503": 31, "504": 10 } }
+  },
+  "bad_calls": [
+    "30000 bad 504 30042.9ms",
+    "61043 bad 504 30051ms",
+    "92094 bad 503 24.9ms",
+    "93119 bad 504 30031.1ms",
+    "124150 bad 504 30039.5ms",
+    "155191 bad 503 27329.3ms",
+    "183520 bad 503 40.6ms",
+    "184561 bad 504 30028.4ms",
+    "215589 bad 504 30046.5ms",
+    "246636 bad 503 26969.5ms",
+    "274606 bad 503 18.6ms",
+    "275624 bad 504 30056.4ms"
+  ],
+  "bad_bodies": [
+    "504 {\"type\":\"about:blank\",\"title\":\"Gateway Timeout\",\"status\":504,\"code\":\"extension.timeout\",\"detail\":\"extension \\\"probe/loop\\\": action \\\"misbehave\\\" call timeout, n",
+    "503 {\"type\":\"about:blank\",\"title\":\"Service Unavailable\",\"status\":503,\"code\":\"extension.unavailable\",\"detail\":\"extension \\\"probe/loop\\\" is not running (restarting af"
+  ]
+}

@@ -8,9 +8,9 @@ const misbehave = async () => {
   }
 };
 export default {
-  name: "probe/leak",
-  category: "probe",
-  mountStrategy: "subapp",
+  name: 'probe/leak',
+  category: 'probe',
+  mountStrategy: 'subapp',
   actions: { misbehave },
   async register() {},
 };

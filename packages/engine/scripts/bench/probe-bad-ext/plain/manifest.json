@@ -19,9 +19,7 @@
     "bundled": true,
     "bundlePeers": false
   },
-  "collections": [
-    "probe_notes"
-  ],
+  "collections": ["probe_notes"],
   "actions": [
     {
       "name": "ping",
@@ -34,9 +32,7 @@
         "additionalProperties": false,
         "properties": {}
       },
-      "reads": [
-        "probe_notes"
-      ],
+      "reads": ["probe_notes"],
       "writes": []
     }
   ]
