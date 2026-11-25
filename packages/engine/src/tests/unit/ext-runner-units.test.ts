@@ -3,11 +3,13 @@
 // name does not), stay unique per extension, and the files `setup` writes must
 // be what the installer and the engine expect.
 import { describe, expect, it } from 'bun:test';
-import { mkdtempSync, rmSync, statSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   checkUidRange,
+  closeExtensionsDir,
+  extensionsBaseOf,
   missingCapabilities,
   closeSharedDirs,
   limitArgv,
@@ -50,7 +52,10 @@ describe('runnerSetupFiles', () => {
     expect(unit).toContain('User=zx_%i');
     expect(unit).toContain('IPAddressDeny=any');
     expect(unit).toContain('Environment=ZVELTIO_ENGINE_UID=997');
-    expect(unit).toContain('BindReadOnlyPaths=/opt/zveltio/zveltio /opt/zveltio/extensions');
+    // The binary and the Deno only: no extension's files (ADR 0062, F15).
+    expect(unit).toContain(
+      'BindReadOnlyPaths=/opt/zveltio/zveltio -/opt/zveltio/extensions/.deno\n',
+    );
     // The socket the runner listens on is the one the engine connects to.
     expect(unit).toContain('Environment=ZVELTIO_EXT_RUNNER_SOCKET=/run/zveltio-ext/%i/runner.sock');
     expect(unit).toContain('RuntimeDirectory=zveltio-ext/%i');
@@ -244,5 +249,48 @@ describe('missingCapabilities (container mode)', () => {
 
   it('leaves the decision to checkUidRange where /proc says nothing', () => {
     expect(missingCapabilities('')).toBeNull();
+  });
+});
+
+// ADR 0062 probe "security", F15: on the runner every extension ran beside a
+// 0755 extensions directory and read every other's files. The engine closes it
+// before each spawn: others keep only the way to the Deno.
+describe('closeExtensionsDir', () => {
+  it('leaves others the search bit on the base and .deno, nothing else', () => {
+    const base = mkdtempSync(join(tmpdir(), 'zv-extdir-'));
+    try {
+      mkdirSync(join(base, 'finance', 'invoicing', 'engine'), { recursive: true, mode: 0o755 });
+      writeFileSync(join(base, 'finance', 'invoicing', 'engine', 'index.js'), 'x', { mode: 0o644 });
+      mkdirSync(join(base, 'crm'), { mode: 0o755 });
+      mkdirSync(join(base, '.deno', '2.9.8'), { recursive: true, mode: 0o755 });
+      writeFileSync(join(base, 'package.json'), '{}', { mode: 0o644 });
+      symlinkSync(join(base, 'crm'), join(base, 'link'));
+      closeExtensionsDir(base);
+      const mode = (p: string) => statSync(join(base, p)).mode & 0o7777;
+      expect(mode('.')).toBe(0o711);
+      expect(mode('finance')).toBe(0o700);
+      expect(mode('crm')).toBe(0o700); // as itself; the link to it was skipped
+      expect(mode('package.json')).toBe(0o600);
+      expect(mode('.deno')).toBe(0o755);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it('fails closed when the modes cannot be changed', () => {
+    expect(() => closeExtensionsDir('/proc/1')).toThrow(/cannot be closed to the extension runner/);
+  });
+});
+
+describe('extensionsBaseOf', () => {
+  it('is the directory the name was joined to, and refuses anything else', () => {
+    expect(extensionsBaseOf('/data/extensions/finance/invoicing', 'finance/invoicing')).toBe(
+      '/data/extensions',
+    );
+    expect(extensionsBaseOf('/data/extensions/crm/', 'crm')).toBe('/data/extensions');
+    expect(() => extensionsBaseOf('/tmp/zv-signed-abc', 'crm')).toThrow(
+      /not <extensions dir>\/crm/,
+    );
+    expect(() => extensionsBaseOf('/crm', 'crm')).toThrow();
   });
 });

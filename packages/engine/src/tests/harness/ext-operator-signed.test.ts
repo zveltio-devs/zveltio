@@ -23,7 +23,6 @@ import {
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { Hono } from 'hono';
 import { signBundle, type ZveltioKeypair } from '@zveltio/sdk/publish';
 import type { Database } from '../../db/index.js';
@@ -404,7 +403,7 @@ for (const m of [
     }
   }, 60_000);
 
-  it('imports only bytes that hash to the signed sha256, read once by the worker (s4)', async () => {
+  it('imports only bytes that hash to the signed sha256, sent by the engine (s4)', async () => {
     const name = `s3${STAMP}/bytes`;
     const dir = write(name, {}, { register: 'async register() {}' });
     const file = join(dir, 'engine', 'index.js');
@@ -417,10 +416,10 @@ for (const m of [
         ch.postMessage({
           type: 'init',
           id: `init-${bundleSha256.slice(0, 4)}`,
-          bundleUrl: pathToFileURL(file).href,
+          bundle: readFileSync(file),
           bundleSha256,
           extName: name,
-          env: { extensionPath: dir },
+          env: {},
         });
       });
     try {

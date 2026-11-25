@@ -898,7 +898,9 @@ EOF
   fi
   # chown before bun install so the zveltio user can create node_modules/
   chown -R "${ZVELTIO_USER}:${ZVELTIO_USER}" "${ZVELTIO_DIR}/extensions"
-  chmod 755 "${ZVELTIO_DIR}/extensions"
+  # Search only for others: the runners reach the Deno in .deno/ and no
+  # extension's files (the engine closes each entry before every spawn, F15).
+  chmod 711 "${ZVELTIO_DIR}/extensions"
 
   if command -v bun &>/dev/null; then
     info "Installing extension npm dependencies..."

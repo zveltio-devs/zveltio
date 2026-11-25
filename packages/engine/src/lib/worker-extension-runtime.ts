@@ -17,7 +17,6 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { fileURLToPath } from 'node:url';
 import { type Context, Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { mountDeclaredRoutes, pairRouteHandlers } from './declared-routes.js';
@@ -154,17 +153,19 @@ function refuseFetch(): void {
 }
 
 /**
- * ADR 0056 d1: an operator-signed bundle is imported from the bytes read here,
- * and only when they hash to what its signature lists — never from the path,
- * which could change between the engine's check and this import.
+ * ADR 0056 d1: a signed bundle is imported from the bytes the engine sent in
+ * `init`, and only when they hash to what its signature lists. The process
+ * reads no extension file (ADR 0062 probe "security", F15): on the runner it
+ * cannot see the extensions' directory at all, its own included.
  */
-async function verifiedBundle(url: string, sha256: string): Promise<string> {
-  const bytes = await Bun.file(fileURLToPath(url)).bytes();
+function verifiedBundle(bytes: Uint8Array, sha256: string): string {
   const got = new Bun.CryptoHasher('sha256').update(bytes).digest('hex');
   if (got !== sha256) {
     throw new Error(`its bundle is not what its signature lists (sha256 ${got}, signed ${sha256})`);
   }
-  return URL.createObjectURL(new Blob([bytes], { type: 'text/javascript' }));
+  return URL.createObjectURL(
+    new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'text/javascript' }),
+  );
 }
 
 /**
@@ -196,7 +197,7 @@ async function handleInit(msg: Extract<HostToWorkerMessage, { type: 'init' }>): 
     // after it crashed the worker (ProcessNextTick undefined, core dump).
     if (msg.env.NODE_ENV) process.env.NODE_ENV = msg.env.NODE_ENV;
     refuseFetch();
-    const module = await import(await verifiedBundle(msg.bundleUrl, msg.bundleSha256));
+    const module = await import(verifiedBundle(msg.bundle, msg.bundleSha256));
     const extension = module.default;
     if (!extension || typeof extension.register !== 'function') {
       send({

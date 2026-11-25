@@ -77,9 +77,12 @@ echo "process: $out"
 [ "$(grep -o hunter2 <<<"$out" | wc -l)" -ge 2 ] && grep -q '"net":"CONNECTED"' <<<"$out" \
   || { echo "FAIL: process transport should read both secrets and reach $URL (probe broken?)"; fail=1; }
 grep -q '"fetch":"DENIED' <<<"$out" || { echo "FAIL: the runtime did not refuse fetch (ADR 0022)"; fail=1; }
+# ADR 0062 probe "security": native code (FFI) and a child open sockets under the engine's uid.
+grep -q '"ffi socket AF_INET":"REACHED' <<<"$out" && grep -q '"child net":"REACHED' <<<"$out" \
+  || { echo "FAIL: under the engine's uid native code or a child opens no socket (probe broken?)"; fail=1; }
 
 for ext in r1 r2; do
-  out=$(probe engine bun "$PROBE" runner /opt/zveltio/.env "/data/extensions/$ext" "$SOCK")
+  out=$(probe -e PROBE_READ=/data/extensions/p/index.mjs engine bun "$PROBE" runner /opt/zveltio/.env "/data/extensions/$ext" "$SOCK")
   echo "runner:  $out"
   grep -q '"transport":"runner"' <<<"$out" || { echo "FAIL: runner probe gave no answer"; fail=1; }
   grep -q hunter2 <<<"$out" && { echo "FAIL: runner transport read an engine secret"; fail=1; }
@@ -87,6 +90,10 @@ for ext in r1 r2; do
   # network_mode: none could (that would be ENETUNREACH).
   grep -q '"net":"DENIED EACCES"' <<<"$out" || { echo "FAIL: runner transport opened a raw socket (no socket ban)"; fail=1; }
   grep -q '"write":"WROTE"' <<<"$out" && { echo "FAIL: an extension wrote into the socket directory"; fail=1; }
+  grep -qE '"ffi( socket AF_INET)?":"DENIED' <<<"$out" && grep -q '"child net":"DENIED' <<<"$out" \
+    || { echo "FAIL: native code (FFI) or a child of the extension opened a socket"; fail=1; }
+  grep -q '"read [^"]*":"REACHED' <<<"$out" && { echo "FAIL: an extension read another extension's files"; fail=1; }
+  grep -q '"REACHED' <<<"$out" && { echo "FAIL: an extension reached what it must not (escapes)"; fail=1; }
   uid=$(grep -o '"uid":[0-9]*' <<<"$out" | cut -d: -f2 || true)
   [ -n "$uid" ] && [ "$uid" -ge 200000 ] || { echo "FAIL: extension ran as uid ${uid:-?}"; fail=1; }
   uids+=("$uid")

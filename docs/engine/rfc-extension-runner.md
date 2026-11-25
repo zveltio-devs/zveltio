@@ -121,8 +121,8 @@ The runner never holds a connection string.
 |---|---|---|
 | Docker / compose | A separate `zveltio-ext-runner` service. The engine spawns extension processes in it over a control channel. | Separate container: no engine volumes or env, own network with egress policy, cgroup limits per container (or per process via a cgroup v2 subtree). |
 | Kubernetes / Helm | A sidecar container in the engine pod, or a separate Deployment. | As above, plus `NetworkPolicy` for egress, `securityContext` (non-root, read-only rootfs, no privilege escalation, seccomp `RuntimeDefault`). |
-| Bare metal (single binary) | One systemd service per extension, `zveltio-ext-runner@<instance>`, with `DynamicUser=yes`. The engine starts it through polkit and connects to its unix socket (steps 3, 3b). | A uid per extension (so the engine's files, environment and process state, and other extensions, are out of reach), the unit's sandbox (`TemporaryFileSystem`, `ProtectProc=invisible`, `IPAddressDeny`) and its cgroup limits. |
-| One container (Fly.io, Railway, Render, `docker run`) | The same runner, started beside the engine by the image's entrypoint when the container starts as root (the Dockerfile's default target; step 9b). | A uid per extension, the runner with only `CAP_SETUID`/`CAP_SETGID`/`CAP_KILL` and none of the container's environment, the engine dropped to uid 100 with no capabilities, `/data` (but `extensions/`) and the engine's `TMPDIR` closed to the extensions; per process, rlimits instead of a cgroup: 64 tasks (a fork bomb stops there) and 1024 MB of address space (about 300 MB of heap; past it that process aborts, nothing else); `tini` as PID 1 reaps what a dead runner leaves. The network is the container's, but the seccomp socket ban (ADR 0023, [Network](#network)) leaves an extension no socket to reach it with. **Not** a memory quota: the memory is shared with the engine — a PaaS gives one container and no cgroup to divide. |
+| Bare metal (single binary) | One systemd service per extension, `zveltio-ext-runner@<instance>`, with `DynamicUser=yes`. The engine starts it through polkit and connects to its unix socket (steps 3, 3b). | A uid per extension (so the engine's files, environment and process state, and other extensions, are out of reach — files included since 2026-11-25: the unit binds only the binary and `extensions/.deno`, and the engine sends each bundle's bytes over the socket), the unit's sandbox (`TemporaryFileSystem`, `ProtectProc=invisible`, `IPAddressDeny`) and its cgroup limits. |
+| One container (Fly.io, Railway, Render, `docker run`) | The same runner, started beside the engine by the image's entrypoint when the container starts as root (the Dockerfile's default target; step 9b). | A uid per extension, the runner with only `CAP_SETUID`/`CAP_SETGID`/`CAP_KILL` and none of the container's environment, the engine dropped to uid 100 with no capabilities, `/data` and the engine's `TMPDIR` closed to the extensions (`extensions/` too, but for the search bit that reaches `.deno/`); per process, rlimits instead of a cgroup: 64 tasks (a fork bomb stops there) and 1024 MB of address space (about 300 MB of heap; past it that process aborts, nothing else); `tini` as PID 1 reaps what a dead runner leaves. The network is the container's, but the seccomp socket ban (ADR 0023, [Network](#network)) leaves an extension no socket to reach it with. **Not** a memory quota: the memory is shared with the engine — a PaaS gives one container and no cgroup to divide. |
 | Development | A child of the engine speaking the runner protocol (`ZVELTIO_EXT_TRANSPORT=process`, the default outside production; step 9). | Nothing: the engine's uid. Production refuses it. |
 
 A child under the **same** uid with an empty environment is *not* enough. Processes
@@ -241,8 +241,11 @@ runner.
      default 1024 — Bun does not start under it); the unit's `MemoryMax` and
      `TasksMax` bound all of them together.
    - The unit (written by `install/install.sh` for binary installs) shows the
-     runner only the binary and the extensions directory of `ZVELTIO_DIR`
-     (`TemporaryFileSystem` + `BindReadOnlyPaths`), hides other users' processes
+     runner only the binary and the Deno the engine downloads for jobs
+     (`extensions/.deno`) of `ZVELTIO_DIR` (`TemporaryFileSystem` +
+     `BindReadOnlyPaths`; until 2026-11-25 the whole extensions directory, so
+     every extension read every other's files — ADR 0062 probe "security",
+     F15), hides other users' processes
      (`ProtectProc=invisible`) and denies every IP address (`IPAddressDeny=any`)
      until the operator allows one with `systemctl edit zveltio-ext-runner`. The
      installer also makes `storage/` `0700`; `.env` was already `0600`.
@@ -296,7 +299,9 @@ runner.
    - Compose: the opt-in overlay `docker-compose.ext-runner.yml` added one
      `ext-runner` container beside the engine (since step 9, the `ext-runner`
      service of the release compose, `scripts/generate-compose.sh`). It shares only two volumes with
-     it: the socket directory and the extensions (read-only). It has none of
+     it: the socket directory and the extensions (read-only; the engine keeps
+     that directory `0711` and each entry in it `0700`, so an extension's uid
+     reaches only `.deno/` there, and its bundle arrives over the socket). It has none of
      the engine's environment, `network_mode: none`, a read-only root, and
      `no-new-privileges`. The engine sets `ZVELTIO_EXT_TRANSPORT=runner` and
      `ZVELTIO_EXT_RUNNER_SOCKET` and connects to that socket; there is no
@@ -581,7 +586,9 @@ runner.
    - The extensions share the engine's filesystem here, so the entrypoint
      makes `/data` 0711 with everything but `extensions/` closed to group and
      others (local storage was 0644 files in 0755 directories), and gives the
-     engine a 0700 `TMPDIR`. A root-owned `/data` (a Railway volume, a
+     engine a 0700 `TMPDIR`. Since 2026-11-25 `extensions/` is 0711 too, with
+     every entry but `.deno/` closed to group and others: it was 0755, and every
+     extension read every other's files (ADR 0062, F15). A root-owned `/data` (a Railway volume, a
      container that ran as root) is handed to uid 100 first.
    - The runner now checks at start that it can run a process as both ends of
      the uid range it hands out and refuses otherwise: without `CAP_SETUID`, it

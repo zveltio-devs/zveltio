@@ -71,14 +71,21 @@ fail=0
 out=$(as_engine bun "$E/scripts/ext-runner-isolation.ts" process /opt/zveltio/.env /opt/ext/p)
 echo "process: $out"
 [ "$(grep -o hunter2 <<<"$out" | wc -l)" -ge 2 ] || { echo "FAIL: process transport should read both secrets (probe broken?)"; fail=1; }
+# ADR 0062 probe "security": native code opens a socket under the engine uid.
+# AF_UNIX: the profile above refuses every other family to the whole container.
+grep -q "\"ffi socket AF_UNIX\":\"REACHED" <<<"$out" \
+  || { echo "FAIL: under the engine uid native code opens no socket (probe broken?)"; fail=1; }
 
 # The profile leaves AF_UNIX open, as the unit does; the ban refuses it.
-out=$(as_engine PROBE_UNIX="$ZVELTIO_EXT_RUNNER_SOCKET" bun "$E/scripts/ext-runner-isolation.ts" runner /opt/zveltio/.env /opt/ext/r "$ZVELTIO_EXT_RUNNER_SOCKET")
+out=$(as_engine PROBE_UNIX="$ZVELTIO_EXT_RUNNER_SOCKET" PROBE_READ=/opt/ext/p/index.mjs bun "$E/scripts/ext-runner-isolation.ts" runner /opt/zveltio/.env /opt/ext/r "$ZVELTIO_EXT_RUNNER_SOCKET")
 echo "runner:  $out"
 grep -q "\"transport\":\"runner\"" <<<"$out" || { echo "FAIL: runner probe gave no answer"; fail=1; }
 grep -q "\"$ZVELTIO_EXT_RUNNER_SOCKET\":\"DENIED EACCES\"" <<<"$out" \
   || { echo "FAIL: the extension opened an AF_UNIX socket (no socket ban)"; fail=1; }
 grep -q hunter2 <<<"$out" && { echo "FAIL: runner transport read an engine secret"; fail=1; }
+# Native sockets through FFI, and the files of another extension.
+grep -qE "\"ffi( socket AF_UNIX)?\":\"DENIED" <<<"$out" || { echo "FAIL: native code opened a socket"; fail=1; }
+grep -q "\"REACHED" <<<"$out" && { echo "FAIL: the extension reached what it must not (escapes)"; fail=1; }
 
 # Any uid but the engine is refused: the connection closes before a runtime starts.
 out=$(setpriv --reuid=zveltio-ext --regid=zveltio-ext --init-groups env -i PATH="$PATH" HOME=/tmp \

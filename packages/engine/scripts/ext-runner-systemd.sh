@@ -68,7 +68,9 @@ probe() { # <transport> <ext dir> [target] — env PROBE_URL / PROBE_WRITE pass 
   local t="$1" d="$2" target="${3:-}"
   sudo -u zveltio env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/tmp \
     SECRET=hunter2-process-env BUN_BE_BUN=1 PROBE_URL="${PROBE_URL:-}" PROBE_WRITE="${PROBE_WRITE:-}" \
-    PROBE_UNIX="${PROBE_UNIX:-}" \
+    DATABASE_URL=postgres://zveltio:hunter2-db@127.0.0.1:5432/zveltio BETTER_AUTH_SECRET=hunter2-auth \
+    FIELD_ENCRYPTION_KEY=hunter2-fek \
+    PROBE_UNIX="${PROBE_UNIX:-}" PROBE_TCP="${PROBE_TCP:-}" PROBE_READ="${PROBE_READ:-}" \
     "${DIR}/zveltio" "${DIR}/probe.mjs" "$t" "${DIR}/.env" "${DIR}/extensions/$d" $target
 }
 
@@ -81,7 +83,18 @@ bun -e 'require("node:net").createServer((c) => c.end()).listen("\0zveltio-ci-ab
 abstract_pid=$!
 trap 'kill "$abstract_pid" 2>/dev/null || true' EXIT
 for _ in $(seq 1 50); do grep -q '@zveltio-ci-abstract' /proc/net/unix && break; sleep 0.1; done
-export PROBE_UNIX="$DBUS @zveltio-ci-abstract"
+# A Postgres where an install has one, over TCP and its unix socket (a listener
+# stands in: the probe measures the socket, not the protocol). The engine's
+# user reaches both; a runner neither (IPAddressDeny, InaccessiblePaths, ban).
+PGSOCK=/run/postgresql/.s.PGSQL.5432
+sudo install -d -m 755 /run/postgresql
+sudo "$(command -v bun)" -e 'const net = require("node:net"); const fs = require("node:fs");
+  net.createServer((c) => c.end()).listen(5432, "127.0.0.1");
+  net.createServer((c) => c.end()).listen(process.argv[1], () => fs.chmodSync(process.argv[1], 0o777))' "$PGSOCK" &
+pg_pid=$!
+trap 'kill "$abstract_pid" 2>/dev/null || true; sudo kill "$pg_pid" 2>/dev/null || true' EXIT
+for _ in $(seq 1 50); do [ -S "$PGSOCK" ] && break; sleep 0.1; done
+export PROBE_UNIX="$DBUS @zveltio-ci-abstract $PGSOCK" PROBE_TCP=127.0.0.1:5432
 
 # ── today: the engine's uid ───────────────────────────────────────────────────
 out=$(PROBE_URL="$URL" probe process p)
@@ -91,9 +104,16 @@ check "process transport opens a socket to ${URL} (network is there)" 'grep -q "
 check "process transport: the runtime refuses fetch" 'grep -q "\"fetch\":\"DENIED" <<<"$out"'
 check "process transport reaches the host's D-Bus and abstract sockets (probe works)" \
   'grep -q "\"$DBUS\":\"CONNECTED\"" <<<"$out" && grep -q "\"@zveltio-ci-abstract\":\"CONNECTED\"" <<<"$out"'
+# ADR 0062 probe "security": the controls for the runner's refusals below.
+check "process transport reaches Postgres over TCP and its socket (probe works)" \
+  'grep -q "\"tcp 127.0.0.1:5432\":\"REACHED" <<<"$out" && grep -q "\"$PGSOCK\":\"CONNECTED\"" <<<"$out"'
+check "process transport: native code (FFI) and a child open sockets (probe works)" \
+  'grep -q "\"ffi socket AF_INET\":\"REACHED" <<<"$out" && grep -q "\"child net\":\"REACHED" <<<"$out"'
+check "process transport reads the engine's DATABASE_URL, auth secret and field key (probe works)" \
+  'grep -q hunter2-db <<<"$out" && grep -q hunter2-auth <<<"$out" && grep -q hunter2-fek <<<"$out"'
 
 # ── extension A in its runner ─────────────────────────────────────────────────
-out=$(PROBE_URL="$URL" probe managed a acme/probe-a)
+out=$(PROBE_URL="$URL" PROBE_READ="${DIR}/extensions/p/index.mjs" probe managed a acme/probe-a)
 echo "runner A: $out"
 check "runner answered" 'grep -q "\"transport\":\"managed\"" <<<"$out"'
 check "runner reads no engine secret" '! grep -q hunter2 <<<"$out"'
@@ -103,6 +123,15 @@ check "runner cannot reach a host abstract socket (PrivateNetwork)" \
   'grep -q "\"@zveltio-ci-abstract\":\"DENIED" <<<"$out"'
 check "runner's process opens no AF_UNIX socket (socket ban, owner 2026-11-24)" \
   'grep -q "\"@zveltio-ci-abstract\":\"DENIED EACCES\"" <<<"$out"'
+# ADR 0062 probe "security".
+check "runner reaches no Postgres, over TCP or its socket" \
+  'grep -q "\"tcp 127.0.0.1:5432\":\"DENIED" <<<"$out" && grep -q "\"$PGSOCK\":\"DENIED" <<<"$out"'
+check "runner: native code (FFI socket(2)) and a child open no socket" \
+  '{ grep -q "\"ffi\":\"DENIED" <<<"$out" ||
+     { grep -q "\"ffi socket AF_INET\":\"DENIED" <<<"$out" && grep -q "\"ffi socket AF_UNIX\":\"DENIED" <<<"$out"; }; } &&
+   grep -q "\"child net\":\"DENIED" <<<"$out"'
+check "runner cannot read another extension's files" '! grep -q "\"read [^\"]*\":\"REACHED" <<<"$out"'
+check "runner reaches nothing past its boundary (escapes)" '! grep -q "\"REACHED" <<<"$out"'
 
 INST_A=$(ls /run/zveltio-ext)
 UNIT_A="zveltio-ext-runner@${INST_A}.service"

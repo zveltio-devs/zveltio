@@ -332,8 +332,9 @@ for (const [driver, transport] of LEGS) {
       // Outside the leg's directory, which afterAll removes: the log outlives a
       // failure (CI prints it), and the next run of the leg overwrites it.
       leg.log = join(tmpdir(), `zv-e2e-engine-${code(driver, transport)}.log`);
-      leg.sockDir = join(leg.base, '.sock');
-      mkdirSync(leg.sockDir);
+      // Not inside the extensions' directory: the runner makes it root's, and
+      // the engine closes every entry there before each spawn (ADR 0062, F15).
+      leg.sockDir = mkdtempSync(join(tmpdir(), 'zv-e2e-sock-'));
       const schema = JSON.stringify({ name: notes, fields: [{ name: 'tag', type: 'text' }] });
       writeExt(
         leg.base,
@@ -411,8 +412,7 @@ for (const [driver, transport] of LEGS) {
         .toString()
         .trim()
         .replace(/^REGISTRY_PUBLIC_KEYS_JSON=/, '');
-      // The runner's uids read the bundles.
-      Bun.spawnSync(['chmod', '-R', 'a+rX', leg.base]);
+      // The runner's uids read no bundle: the engine sends the bytes (ADR 0062, F15).
       chmodSync(leg.sockDir, 0o755);
 
       if (transport === 'runner') await startRunner(leg);
@@ -590,6 +590,7 @@ for (const [driver, transport] of LEGS) {
         ).catch(() => undefined);
       }
       if (leg.base) rmSync(leg.base, { recursive: true, force: true });
+      if (leg.sockDir) rmSync(leg.sockDir, { recursive: true, force: true });
     }, 60_000);
 
     it('a community extension installs and enables only in worker isolation', () => {

@@ -228,8 +228,14 @@ the filesystem, and the worker imports the bundle itself. From there:
   rules. It is handed neither the caller, the tenant id nor a `ctx.config`.
 - The extension is a process of its own. In production it runs on the extension
   runner, under a uid that cannot read the engine's files, environment or
-  processes, with an environment of `NODE_ENV` alone and no network until the
-  operator allows one ([RFC](../engine/rfc-extension-runner.md)). Production
+  processes, nor another extension's files, with an environment of `NODE_ENV`
+  alone and no network until the operator allows one
+  ([RFC](../engine/rfc-extension-runner.md)). It reads no extension file at all,
+  its own included: the engine sends the signed bundle's bytes when it starts
+  the process, and closes the extensions' directory to the runner's uids before
+  every start (`0711` on the directory, `0700` on each entry; only the Deno
+  binary in `.deno/` stays reachable). On systemd the unit does not show the
+  directory at all. Production
   refuses a worker-isolated extension when no runner answers, and refuses
   `ZVELTIO_EXT_TRANSPORT=process` — a child under the engine's own uid, which
   reads what the engine reads and is the development transport.

@@ -642,11 +642,14 @@ jobs:
         # and a uid other than the engine's is refused.
         run: bash packages/engine/scripts/ext-runner-isolation.sh
       - name: Container runner keeps them out of reach on the compose network
+        # Each topology reports on its own: one red step does not hide the next.
+        if: ${{ !cancelled() }}
         # RFC steps 4 and 9, against the runner the release compose ships
         # (scripts/generate-compose.sh): no secret, no egress, a uid per
         # extension, a socket no extension can replace.
         run: bash packages/engine/scripts/ext-runner-compose.sh
       - name: Runner in one container keeps them out of reach (Fly.io, Railway, Render)
+        if: ${{ !cancelled() }}
         # The Dockerfile's default target, started as root through its real
         # entrypoint: the engine dropped to 100, the runner root with three
         # capabilities, a uid per extension, /data and TMPDIR closed to them.
@@ -843,6 +846,22 @@ jobs:
         run: |
           test -d ../zveltio-extensions
           cd packages/engine && bun test src/tests/harness/install-template-declared-collections.test.ts
+      - name: Every first-party extension loads as a signed worker, or is refused by name
+        # ADR 0062 order of work step 2. Asserts the exact sets, so an extension
+        # that stops loading as a worker, or starts loading past a refusal, fails.
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+          ZVELTIO_REGISTRATION_ENABLED: '1'
+          ZVELTIO_REGISTRY_URL: http://127.0.0.1:9
+          # Unset is production, which refuses the process transport.
+          NODE_ENV: test
+        run: |
+          test -d ../zveltio-extensions
+          (cd packages/sdk && bun run build)
+          cd packages/engine && bun test src/tests/harness/ext-first-party-as-worker.test.ts
 
   integration-tests:
     name: Integration Tests

@@ -5,7 +5,8 @@
  * worker-extension-protocol.ts.
  *
  * Lifecycle:
- *   1. `start(name, bundleUrl, ctx)` spawns the worker, sends `init`,
+ *   1. `start(name, extDir, bundleEntry)` spawns the worker, sends `init`
+ *      with the signed bundle's bytes,
  *      receives the route table, mounts proxy routes under `/ext/<name>/*`.
  *   2. Inbound HTTP hits the proxy → IPC to worker → handler runs → IPC
  *      back → response written to client.
@@ -36,9 +37,14 @@
 import { nodeEnv } from './operational-modes.js';
 import type { Context, Hono } from 'hono';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { pathToFileURL } from 'node:url';
 import { join, posix } from 'node:path';
-import { ensureWorkerRuntimeOnDisk, startRunner, stopRunner } from './ext-runner.js';
+import {
+  closeExtensionsDir,
+  ensureWorkerRuntimeOnDisk,
+  extensionsBaseOf,
+  startRunner,
+  stopRunner,
+} from './ext-runner.js';
 import type {
   HostToWorkerMessage,
   WorkerToHostMessage,
@@ -599,9 +605,21 @@ export class WorkerExtensionHost {
     generation: number,
     source: WorkerCtxSource,
   ): Promise<ManagedWorker> {
-    const bundleUrl = pathToFileURL(join(extDir, bundleEntry)).href;
     const bundleSha256 = await signedBundleSha256(extName, extDir, bundleEntry, source);
+    // The bytes go in `init`: the extension's process reads no extension file
+    // (ADR 0062 probe "security", F15). Checked here against the signature, so
+    // a file swapped after the check above is refused, not sent.
+    const bundle = await Bun.file(join(extDir, bundleEntry)).bytes();
+    const got = new Bun.CryptoHasher('sha256').update(bundle).digest('hex');
+    if (got !== bundleSha256) {
+      throw new Error(
+        `"${extName}": its bundle changed after its signature was verified; load it again`,
+      );
+    }
     const transport = extensionTransport();
+    // On the runner, beside other extensions' uids: their directory is closed
+    // to all of them, at every spawn.
+    if (transport === 'runner') closeExtensionsDir(extensionsBaseOf(extDir, extName));
     const worker = await this.open(extName);
     const managed: ManagedWorker = {
       name: extName,
@@ -653,13 +671,10 @@ export class WorkerExtensionHost {
       this.post(managed, {
         type: 'init',
         id: initId,
-        bundleUrl,
+        bundle,
         bundleSha256,
         extName,
-        env: {
-          NODE_ENV: nodeEnv() ?? 'production',
-          extensionPath: extDir,
-        },
+        env: { NODE_ENV: nodeEnv() ?? 'production' },
         routes: source.declaredRoutes ?? [],
         actions: source.actions ?? [],
       });
