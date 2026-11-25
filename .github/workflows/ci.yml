@@ -843,6 +843,22 @@ jobs:
         run: |
           test -d ../zveltio-extensions
           cd packages/engine && bun test src/tests/harness/install-template-declared-collections.test.ts
+      - name: Every first-party extension loads as a signed worker, or is refused by name
+        # ADR 0062 order of work step 2. Asserts the exact sets, so an extension
+        # that stops loading as a worker, or starts loading past a refusal, fails.
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+          ZVELTIO_REGISTRATION_ENABLED: '1'
+          ZVELTIO_REGISTRY_URL: http://127.0.0.1:9
+          # Unset is production, which refuses the process transport.
+          NODE_ENV: test
+        run: |
+          test -d ../zveltio-extensions
+          (cd packages/sdk && bun run build)
+          cd packages/engine && bun test src/tests/harness/ext-first-party-as-worker.test.ts
 
   integration-tests:
     name: Integration Tests

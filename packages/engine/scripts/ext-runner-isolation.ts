@@ -117,17 +117,18 @@ export default {
     // Native code: socket(2) through libc, past every JS-level refusal.
     try {
       const { dlopen } = await import('bun:ffi');
-      let libc;
-      for (const name of ['libc.so.6', 'libc.musl-x86_64.so.1', 'libc.musl-aarch64.so.1']) {
-        try { libc = dlopen(name, { socket: { args: ['i32', 'i32', 'i32'], returns: 'i32' }, close: { args: ['i32'], returns: 'i32' } }); break; } catch {}
+      let libc, last;
+      for (const name of ['libc.musl-x86_64.so.1', 'libc.musl-aarch64.so.1', 'libc.so.6']) {
+        try { libc = dlopen(name, { socket: { args: ['i32', 'i32', 'i32'], returns: 'i32' }, close: { args: ['i32'], returns: 'i32' } }); break; } catch (e) { last = e; }
       }
-      if (!libc) throw Object.assign(new Error('no libc'), { code: 'NOLIB' });
+      // No libc loads: native code is refused one step earlier, at dlopen.
+      if (!libc) throw Object.assign(new Error('dlopen: ' + last?.message), { code: 'dlopen: ' + last?.message });
       for (const [k, fam] of [['ffi socket AF_INET', 2], ['ffi socket AF_UNIX', 1]]) {
         const fd = libc.symbols.socket(fam, 1, 0);
         escapes[k] = fd >= 0 ? 'REACHED fd ' + fd : 'DENIED ' + fd;
         if (fd >= 0) libc.symbols.close(fd);
       }
-    } catch (e) { escapes['ffi'] = e.code === 'NOLIB' ? 'NOLIB' : denied(e); }
+    } catch (e) { escapes['ffi'] = denied(e); }
     // A child: does the ban hold for what it starts? (Its stdio is a file:
     // a pipe is a socketpair, which the ban refuses.)
     if (${JSON.stringify(probeAddr)}) {

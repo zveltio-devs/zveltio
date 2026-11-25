@@ -83,19 +83,26 @@ docker exec --privileged "$C" cat "/proc/$runner/environ" | grep -q hunter2 \
 PROBE=/src/packages/engine/scripts/ext-runner-isolation.ts
 # The container's network is the engine's: only the socket ban stops a raw socket.
 URL="${PROBE_URL:-http://example.com/}"
-probe() { docker exec -u 100:101 -e PROBE_URL="$URL" -e PROBE_WRITE=/run/zveltio-ext/evil "$C" bun "$PROBE" "$@"; }
+probe() { docker exec -u 100:101 -e PROBE_URL="$URL" -e PROBE_WRITE=/run/zveltio-ext/evil -e PROBE_READ="${PROBE_READ:-}" "$C" bun "$PROBE" "$@"; }
 out=$(probe process /data/storage/upload /data/extensions/p)
 echo "process: $out"
 [ "$(grep -o hunter2 <<<"$out" | wc -l)" -ge 2 ] && grep -q '"net":"CONNECTED"' <<<"$out" \
   || { echo "FAIL: under the engine's uid the probe should read both secrets and reach $URL (probe broken?)"; fail=1; }
+# ADR 0062 probe "security": native code (FFI) and a child open sockets under the engine's uid.
+grep -q '"ffi socket AF_INET":"REACHED' <<<"$out" && grep -q '"child net":"REACHED' <<<"$out" \
+  || { echo "FAIL: under the engine's uid native code or a child opens no socket (probe broken?)"; fail=1; }
 uids=()
 for ext in r1 r2; do
-  out=$(probe runner /data/storage/upload "/data/extensions/$ext" "$SOCK")
+  out=$(PROBE_READ=/data/extensions/p/index.mjs probe runner /data/storage/upload "/data/extensions/$ext" "$SOCK")
   echo "runner:  $out"
   grep -q '"transport":"runner"' <<<"$out" || { echo "FAIL: runner probe gave no answer"; fail=1; }
   grep -q hunter2 <<<"$out" && { echo "FAIL: an extension read an engine secret"; fail=1; }
   grep -q '"net":"DENIED EACCES"' <<<"$out" || { echo "FAIL: an extension opened a raw socket (no socket ban)"; fail=1; }
   grep -q '"write":"WROTE"' <<<"$out" && { echo "FAIL: an extension wrote into the socket directory"; fail=1; }
+  grep -qE '"ffi( socket AF_INET)?":"DENIED' <<<"$out" && grep -q '"child net":"DENIED' <<<"$out" \
+    || { echo "FAIL: native code (FFI) or a child of the extension opened a socket"; fail=1; }
+  grep -q '"read [^"]*":"REACHED' <<<"$out" && { echo "FAIL: an extension read another extension's files"; fail=1; }
+  grep -q '"REACHED' <<<"$out" && { echo "FAIL: an extension reached what it must not (escapes)"; fail=1; }
   uid=$(grep -o '"uid":[0-9]*' <<<"$out" | cut -d: -f2 || true)
   [ -n "$uid" ] && [ "$uid" -ge 200000 ] || { echo "FAIL: extension ran as uid ${uid:-?}"; fail=1; }
   uids+=("${uid:-}")
