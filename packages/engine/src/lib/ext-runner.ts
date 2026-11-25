@@ -51,7 +51,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { createServer, type Socket } from 'node:net';
+import { connect, createServer, type Socket } from 'node:net';
 import { spawn } from 'node:child_process';
 import { WORKER_RUNTIME_SOURCE } from './worker-extension-runtime-source.generated.js';
 import { createHash } from 'node:crypto';
@@ -566,6 +566,38 @@ export function runnerMissing(
     'there is no systemd to start one, so third-party (worker) extensions are refused; ' +
     'first-party inline extensions are unaffected'
   );
+}
+
+/**
+ * Whether something listens on `path` now. A connection opened and closed with
+ * no byte sent spawns nothing on a runner.
+ */
+export function socketAnswers(path: string, timeoutMs = 1000): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    const sock = connect(path);
+    const done = (ok: boolean) => {
+      clearTimeout(timer);
+      sock.destroy();
+      resolve(ok);
+    };
+    const timer = setTimeout(() => done(false), timeoutMs);
+    sock.once('connect', () => done(true));
+    sock.once('error', () => done(false));
+  });
+}
+
+/**
+ * Why no runner can serve `extName` now, or null — asked at load, where nothing
+ * is spawned any more (ADR 0062 d3), so an engine without a runner still refuses
+ * its worker extensions then rather than at their first call. The shared
+ * container runner must listen; a systemd unit is started on use.
+ */
+export async function runnerUnavailable(extName: string): Promise<string | null> {
+  const missing = runnerMissing();
+  if (missing) return missing;
+  const shared = process.env.ZVELTIO_EXT_RUNNER_SOCKET;
+  if (shared && !(await socketAnswers(shared))) return `nothing listens on ${shared} (${extName})`;
+  return null;
 }
 
 /** The `oom_kill` counter of a cgroup's `memory.events`, or null if unreadable. */

@@ -291,19 +291,8 @@ const RUNNER_RESTART_MS = 30_000;
  */
 export async function runnerAnswers(extName: string): Promise<boolean> {
   if (jobPlacement() !== 'runner') return true;
-  const { runnerSocketFor, startRunner } = await import('../ext-runner.js');
-  const answers = await new Promise<boolean>((resolve) => {
-    const sock = connect(runnerSocketFor(extName));
-    const done = (ok: boolean) => {
-      clearTimeout(timer);
-      sock.destroy();
-      resolve(ok);
-    };
-    const timer = setTimeout(() => done(false), 1000);
-    sock.once('connect', () => done(true));
-    sock.once('error', () => done(false));
-  });
-  if (answers) return true;
+  const { runnerSocketFor, socketAnswers, startRunner } = await import('../ext-runner.js');
+  if (await socketAnswers(runnerSocketFor(extName))) return true;
   if (Date.now() - (runnerStarts.get(extName) ?? 0) > RUNNER_RESTART_MS) {
     runnerStarts.set(extName, Date.now());
     void startRunner(extName).catch((err: Error) =>
