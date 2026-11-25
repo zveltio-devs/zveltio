@@ -417,16 +417,11 @@ async function pumpRunner(): Promise<void> {
           continue;
         }
         runnerDownWarned.delete(extName);
-        // Before the claim: its runner is not stopped for idleness under the run.
+        const [j] = await boss.fetch<JobPayload>(q, { batchSize: 1 });
+        if (!j) continue;
+        // Only for a claimed run: a hold resets its idle timer, and this pass
+        // comes every 2 s — held on every pass, an answering runner never idled.
         const release = await holdRunner(extName);
-        const [j] = await boss.fetch<JobPayload>(q, { batchSize: 1 }).catch((err: Error) => {
-          release();
-          throw err;
-        });
-        if (!j) {
-          release();
-          continue;
-        }
         claimed = true;
         runnerBusy++;
         runnerBusyByExt.set(extName, (runnerBusyByExt.get(extName) ?? 0) + 1);
@@ -469,10 +464,16 @@ async function jobsWaiting(extName: string): Promise<boolean> {
   return r.rows[0]?.ready === true;
 }
 
-/** ADR 0062 d3: a run holds its extension's runner up — no idle stop under it. */
+let workerHostModule: typeof import('../worker-extension-host.js') | undefined;
+
+/**
+ * ADR 0062 d3: a run holds its extension's runner up — no idle stop under it.
+ * The module is kept once imported, so the hold is taken in the same turn as
+ * the claim it follows, before an idle timer can fire between them.
+ */
 async function holdRunner(extName: string): Promise<() => void> {
-  const { getWorkerHostIfInitialized } = await import('../worker-extension-host.js');
-  return (await getWorkerHostIfInitialized()?.hold(extName)) ?? (() => {});
+  workerHostModule ??= await import('../worker-extension-host.js');
+  return (await workerHostModule.getWorkerHostIfInitialized()?.hold(extName)) ?? (() => {});
 }
 
 function work(boss: JobQueue, extName: string): void {
