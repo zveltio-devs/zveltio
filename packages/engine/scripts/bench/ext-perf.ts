@@ -27,7 +27,11 @@ import { invalidateActivationCache } from '../../src/lib/extensions/activation.j
 import { activePoolMax } from '../../src/db/index.js';
 import { getAuth } from '../../src/lib/auth.js';
 import { runnerSocketPath, runnerUnit } from '../../src/lib/ext-runner.js';
-import { _resetWorkerHostForTests, boxConcurrencyLimit, getWorkerHost } from '../../src/lib/worker-extension-host.js';
+import {
+  _resetWorkerHostForTests,
+  boxConcurrencyLimit,
+  getWorkerHost,
+} from '../../src/lib/worker-extension-host.js';
 import { invalidateAllPermissionCaches } from '../../src/lib/tenancy/permissions.js';
 import { sessionPrefetch } from '../../src/middleware/session-prefetch.js';
 import { tenantMiddleware } from '../../src/middleware/tenant.js';
@@ -42,9 +46,11 @@ import {
 import { signAsOperator } from '../../src/testing/operator-signed.js';
 
 const EXT = 'finance/invoicing';
-const SIBLING = process.env.EXTENSIONS_SIBLING ?? join(import.meta.dir, '../../../../../zveltio-extensions');
+const SIBLING =
+  process.env.EXTENSIONS_SIBLING ?? join(import.meta.dir, '../../../../../zveltio-extensions');
 const mode = process.argv[2] as 'inline' | 'process' | 'runner';
-if (!['inline', 'process', 'runner'].includes(mode)) throw new Error('usage: ext-perf.ts <inline|process|runner>');
+if (!['inline', 'process', 'runner'].includes(mode))
+  throw new Error('usage: ext-perf.ts <inline|process|runner>');
 const arg = (n: string, d: string) => process.argv[process.argv.indexOf(n) + 1] ?? d;
 const OUT = arg('--out', '');
 const COLD = Number(arg('--cold', '20'));
@@ -74,7 +80,12 @@ function smaps(pid: number) {
   try {
     const t = readFileSync(`/proc/${pid}/smaps_rollup`, 'utf8');
     const kb = (k: string) => Number(new RegExp(`^${k}:\\s+(\\d+)`, 'm').exec(t)?.[1] ?? 0);
-    return { pid, rss_kb: kb('Rss'), pss_kb: kb('Pss'), cmd: readFileSync(`/proc/${pid}/cmdline`, 'utf8').replace(/\0/g, ' ').slice(0, 80) };
+    return {
+      pid,
+      rss_kb: kb('Rss'),
+      pss_kb: kb('Pss'),
+      cmd: readFileSync(`/proc/${pid}/cmdline`, 'utf8').replace(/\0/g, ' ').slice(0, 80),
+    };
   } catch {
     return null;
   }
@@ -87,7 +98,11 @@ async function memory(label: string) {
     return 'sampled by ext-perf.sh into <run>.mem';
   }
   if (mode === 'inline') return [smaps(process.pid)];
-  const kids = Bun.spawnSync(['pgrep', '-P', String(process.pid)]).stdout.toString().split('\n').filter(Boolean).map(Number);
+  const kids = Bun.spawnSync(['pgrep', '-P', String(process.pid)])
+    .stdout.toString()
+    .split('\n')
+    .filter(Boolean)
+    .map(Number);
   return kids.map(smaps);
 }
 
@@ -119,21 +134,35 @@ _setInlineForTests(mode === 'inline');
 await markInstalled(db, EXT);
 const ctx =
   extensionLoader.ctx ??
-  ({ db, auth: getAuth(), internals: buildExtensionInternals(), fieldTypeRegistry: { register() {} } } as never);
+  ({
+    db,
+    auth: getAuth(),
+    internals: buildExtensionInternals(),
+    fieldTypeRegistry: { register() {} },
+  } as never);
 await extensionLoader.loadExtension(EXT, app, ctx, base);
-if (!extensionLoader.loaded.has(EXT)) throw new Error(`not loaded: ${extensionLoader.getLastLoadError(EXT)}`);
+if (!extensionLoader.loaded.has(EXT))
+  throw new Error(`not loaded: ${extensionLoader.getLastLoadError(EXT)}`);
 invalidateActivationCache();
 
 // The mode must be what was asked: inline routes cannot be unmounted, so a
 // worker that is absent (or present under inline) means the run is not what it says.
-if (host.isRunning(EXT) !== (mode !== 'inline')) throw new Error(`mode ${mode}: worker running = ${host.isRunning(EXT)}`);
+if (host.isRunning(EXT) !== (mode !== 'inline'))
+  throw new Error(`mode ${mode}: worker running = ${host.isRunning(EXT)}`);
 if (mode === 'runner') {
-  const a = Bun.spawnSync(['systemctl', 'is-active', runnerUnit(EXT)]).stdout.toString().trim();
+  const a = Bun.spawnSync(['systemctl', 'is-active', runnerUnit(EXT)])
+    .stdout.toString()
+    .trim();
   if (a !== 'active') throw new Error(`runner unit is ${a}`);
 }
 
 for (let i = 0; i < 300; i++) {
-  const t = await asDefaultTenant(db, sql<{ n: string }>`SELECT count(*)::text n FROM pg_class WHERE relname IN ('zvd_invoices','zvd_invoice_lines','zvd_document_series','zvd_company_profile')`);
+  const t = await asDefaultTenant(
+    db,
+    sql<{
+      n: string;
+    }>`SELECT count(*)::text n FROM pg_class WHERE relname IN ('zvd_invoices','zvd_invoice_lines','zvd_document_series','zvd_company_profile')`,
+  );
   if (t.rows[0]?.n === '4') break;
   await Bun.sleep(100);
 }
@@ -157,7 +186,12 @@ await invalidateAllPermissionCaches();
 const body = (lines: number) =>
   JSON.stringify({
     client_name: 'Bench Client SRL',
-    lines: Array.from({ length: lines }, (_, i) => ({ description: `line ${i}`, quantity: 2, unit_price: 10 + i, tax_rate: 19 })),
+    lines: Array.from({ length: lines }, (_, i) => ({
+      description: `line ${i}`,
+      quantity: 2,
+      unit_price: 10 + i,
+      tax_rate: 19,
+    })),
   });
 const bodies = { 3: body(3), 20: body(20) } as Record<number, string>;
 const call = (lines: number) =>
@@ -211,7 +245,10 @@ for (const lines of [3, 20]) {
     }),
   );
   const concWall = performance.now() - t1;
-  (result.lines as Record<number, unknown>)[lines] = { seq: summarise(seq, seqWall), conc: summarise(conc, concWall) };
+  (result.lines as Record<number, unknown>)[lines] = {
+    seq: summarise(seq, seqWall),
+    conc: summarise(conc, concWall),
+  };
 }
 result.memory = { idle: memIdle, afterRun: await memory('after') };
 
@@ -234,7 +271,11 @@ if (mode !== 'inline' && COLD > 0 && startArgs) {
     ready.push(t1 - t);
     first.push(performance.now() - t);
   }
-  result.cold = { startToRegistered: stats(ready), startToFirstAction: stats(first), samplesMs: first.map((x) => +x.toFixed(1)) };
+  result.cold = {
+    startToRegistered: stats(ready),
+    startToFirstAction: stats(first),
+    samplesMs: first.map((x) => +x.toFixed(1)),
+  };
 }
 
 // ── runner floor: `systemctl start` and the socket, with no engine around it ──
