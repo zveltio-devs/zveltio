@@ -122,9 +122,14 @@ d('the worker and flow-reader roles are retired', () => {
     await sql`DELETE FROM zv_extension_registry WHERE name = ${EXT}`.execute(db);
     // A run whose migration left the role (the case this file guards) must not leak it.
     const own = workerRoleName(dbName, EXT);
+    // As the migration takes them back: DROP OWNED BY needs the role's
+    // privileges, which a non-superuser owner that created it does not hold.
     await sql
-      .raw(`DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${own}')
-                   THEN DROP OWNED BY ${own}; DROP ROLE ${own}; END IF; END $$`)
+      .raw(`DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${own}') THEN
+              REVOKE ALL ON ALL TABLES IN SCHEMA public FROM ${own};
+              REVOKE ALL ON ALL ROUTINES IN SCHEMA public FROM ${own};
+              REVOKE ALL ON SCHEMA public FROM ${own};
+              DROP ROLE ${own}; END IF; END $$`)
       .execute(db);
     await DDLManager.dropCollection(db, COLL).catch(() => undefined);
   });
@@ -161,7 +166,20 @@ d('the worker and flow-reader roles are retired', () => {
       await sql.raw(`GRANT SELECT ON ${TABLE} TO ${role}`).execute(db);
       await sql.raw(`GRANT EXECUTE ON FUNCTION ${MARKER} TO ${role}`).execute(db);
     }
-    await sql.raw(`GRANT zveltio_worker TO ${own}`).execute(db);
+    // An older engine made each worker role a member of zveltio_worker. Granting
+    // that needs ADMIN on zveltio_worker, which a non-superuser owner has only
+    // when it created the role (`run('down')` above, on a cluster without it).
+    // One another database left — made by a superuser, as the beta chain's 001
+    // does in baseline-equivalence.test.ts — is not this owner's to grant, and
+    // the migration finds and drops the worker role by name, not by membership:
+    // the membership is left out then, and every assertion below still holds.
+    const mayGrant = (
+      await sql<{ ok: boolean }>`
+        SELECT pg_has_role(current_user, 'zveltio_worker', 'MEMBER WITH ADMIN OPTION') AS ok`.execute(
+        db,
+      )
+    ).rows[0]!.ok;
+    if (mayGrant) await sql.raw(`GRANT zveltio_worker TO ${own}`).execute(db);
     await sql
       .raw(
         `COMMENT ON FUNCTION ${MARKER} IS '${['zveltio_audit_purge', 'zveltio_flow_reader', 'zveltio_rls', 'zveltio_worker'].join(',')}'`,

@@ -83,7 +83,7 @@ grep -q "\"transport\":\"runner\"" <<<"$out" || { echo "FAIL: runner probe gave 
 grep -q "\"$ZVELTIO_EXT_RUNNER_SOCKET\":\"DENIED EACCES\"" <<<"$out" \
   || { echo "FAIL: the extension opened an AF_UNIX socket (no socket ban)"; fail=1; }
 grep -q hunter2 <<<"$out" && { echo "FAIL: runner transport read an engine secret"; fail=1; }
-# Native sockets through FFI, a child's socket, another extension's files.
+# Native sockets through FFI, and the files of another extension.
 grep -qE "\"ffi( socket AF_UNIX)?\":\"DENIED" <<<"$out" || { echo "FAIL: native code opened a socket"; fail=1; }
 grep -q "\"REACHED" <<<"$out" && { echo "FAIL: the extension reached what it must not (escapes)"; fail=1; }
 

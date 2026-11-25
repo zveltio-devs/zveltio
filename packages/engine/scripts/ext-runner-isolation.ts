@@ -30,6 +30,7 @@
 
 import { lookup } from 'node:dns/promises';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import {
   closeExtensionsDir,
@@ -177,8 +178,16 @@ export default {
 `,
 );
 
-// As the engine does before every spawn on the runner (ADR 0062, F15).
-if (transport !== 'process') closeExtensionsDir(dirname(extDir));
+// As the engine does before every spawn on the runner (ADR 0062, F15). Not a
+// scratch directory under /tmp (the foreign-uid probe's), which is no
+// extensions' directory, and not fatal: the read probe shows what it left open.
+if (transport !== 'process' && dirname(extDir) !== tmpdir()) {
+  try {
+    closeExtensionsDir(dirname(extDir));
+  } catch (e) {
+    console.error(`probe: ${(e as Error).message}`);
+  }
+}
 
 const channel =
   transport === 'process'
