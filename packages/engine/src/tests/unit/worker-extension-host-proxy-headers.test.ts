@@ -42,6 +42,7 @@ async function headersSeen(
       { method: 'POST', path: '/private' },
     ],
     pendingInvokes: new Map(),
+    pendingPings: new Map(),
     invokeTenants: new Map(),
     source,
   };
