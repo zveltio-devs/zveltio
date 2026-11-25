@@ -348,6 +348,14 @@ const EXT_MAX_TASKS = 64;
  * value edge functions already use (EDGE_MEMORY_LIMIT_MB's floor).
  */
 const EXT_ADDRESS_SPACE_MB = 1024;
+/**
+ * Container mode (ADR 0062, F20): no cgroup per process, so a priority instead —
+ * a tenth of the engine's share when both want the CPU (nice 10 weighs 110
+ * against nice 0's 1024), as the unit's CPUWeight=10 is on bare metal. Measured
+ * on 2 vCPUs, a priority does not stop a loop's cost to the engine (even
+ * SCHED_IDLE: +77% p95); the container's CPU limit and the deadline kill bound it.
+ */
+const EXT_NICE = 10;
 
 /**
  * Container mode: a container gives no cgroup per extension (a PaaS gives one
@@ -357,6 +365,9 @@ const EXT_ADDRESS_SPACE_MB = 1024;
  * prlimit(1), as root, before setpriv drops the uid, so the extension cannot
  * raise them. Not a shell's `ulimit`: dash spells the task limit `-p`, busybox
  * and bash `-u`.
+ * The CPU: `EXT_NICE`, with RLIMIT_NICE 0 so the extension's uid cannot take
+ * it back (an unprivileged process may lower its nice only down to 20 minus
+ * that limit).
  * ponytail: RLIMIT_AS bounds virtual memory, not RSS, and the container's
  * memory is still shared; a cgroup per extension (systemd mode) is the limit.
  * Without `addressSpace` (Deno): its RSS watchdog and the container's limit.
@@ -366,7 +377,11 @@ export function limitArgv(argv: string[], addressSpace = true): string[] {
     'prlimit',
     `--nproc=${EXT_MAX_TASKS}`,
     ...(addressSpace ? [`--as=${EXT_ADDRESS_SPACE_MB * 1024 * 1024}`] : []),
+    '--nice=0',
     '--',
+    'nice',
+    '-n',
+    String(EXT_NICE),
     ...argv,
   ];
 }
@@ -666,6 +681,13 @@ SystemCallErrorNumber=EPERM
 MemoryMax=1G
 MemorySwapMax=0
 TasksMax=64
+# CPU (ADR 0062, F20): a loop in an extension spun a whole core and cost the
+# engine +36-78% on its p95 on 2 vCPUs. A low weight alone did not help (+55%,
+# measured: even SCHED_IDLE), the cap does: 20% of one core cost +11-13%, 10%
+# nothing. The weight gives the engine the CPU first on a saturated host. The
+# engine kills a process that spins past a call's deadline (30 s).
+CPUWeight=10
+CPUQuota=20%
 
 [Install]
 WantedBy=multi-user.target
@@ -681,6 +703,8 @@ WantedBy=multi-user.target
 # read or kill another tenant's invocation while it runs.
 [Service]
 TasksMax=512
+# One core for every invocation together; each ends at its own timeout.
+CPUQuota=100%
 DynamicUser=no
 User=root
 CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_KILL

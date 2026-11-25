@@ -48,6 +48,11 @@ EXT_RUNNER_SERVICE="  ext-runner:
     tmpfs: ['/tmp']
     mem_limit: 1g
     pids_limit: 256
+    # Every extension together: one core at most, a quarter of the engine's
+    # share when both want it (the chart's 1000m limit, 50m request). Within
+    # it each process runs at nice 10 (ADR 0062, F20).
+    cpus: 1.0
+    cpu_shares: 256
     healthcheck:
       test: ['CMD', 'test', '-S', '/run/zveltio-ext/runner.sock']
       interval: 2s

@@ -150,6 +150,9 @@ describe('release compose assets', () => {
       expect(runner!.cap_add).toEqual(['SETUID', 'SETGID', 'KILL']);
       expect(runner!.security_opt).toEqual(['no-new-privileges:true']);
       expect(runner!.env_file).toBeUndefined();
+      // ADR 0062 F20: every extension together is bounded below the engine.
+      expect(runner!.cpus).toBe(1);
+      expect(runner!.cpu_shares).toBe(256);
       expect(Object.keys(runner!.environment).sort()).toEqual([
         'NODE_ENV',
         'ZVELTIO_ENGINE_UID',
