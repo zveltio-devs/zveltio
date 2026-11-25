@@ -642,11 +642,14 @@ jobs:
         # and a uid other than the engine's is refused.
         run: bash packages/engine/scripts/ext-runner-isolation.sh
       - name: Container runner keeps them out of reach on the compose network
+        # Each topology reports on its own: one red step does not hide the next.
+        if: ${{ !cancelled() }}
         # RFC steps 4 and 9, against the runner the release compose ships
         # (scripts/generate-compose.sh): no secret, no egress, a uid per
         # extension, a socket no extension can replace.
         run: bash packages/engine/scripts/ext-runner-compose.sh
       - name: Runner in one container keeps them out of reach (Fly.io, Railway, Render)
+        if: ${{ !cancelled() }}
         # The Dockerfile's default target, started as root through its real
         # entrypoint: the engine dropped to 100, the runner root with three
         # capabilities, a uid per extension, /data and TMPDIR closed to them.
