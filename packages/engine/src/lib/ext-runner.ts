@@ -695,7 +695,8 @@ async function systemctl(verb: string, ...args: string[]): Promise<string> {
     new Response(proc.stderr).text(),
     proc.exited,
   ]);
-  if (code !== 0) throw new Error(`systemctl ${verb} ${args.join(' ')}: ${err.trim() || `exit ${code}`}`);
+  if (code !== 0)
+    throw new Error(`systemctl ${verb} ${args.join(' ')}: ${err.trim() || `exit ${code}`}`);
   return out;
 }
 
@@ -744,11 +745,19 @@ export async function startUnit(unit: string, burstMs = START_BURST_MS): Promise
   // Down: nothing of the extension runs in it, so the burst covers only this
   // start. Sent beside the start, not before it: the first 20 ms of CPU are
   // under the cap either way.
-  const lifted = systemctl('set-property', '--runtime', unit, `CPUQuotaPeriodSec=${BURST_PERIOD}`).then(
+  const lifted = systemctl(
+    'set-property',
+    '--runtime',
+    unit,
+    `CPUQuotaPeriodSec=${BURST_PERIOD}`,
+  ).then(
     () => true,
     (err: Error) => {
       // A polkit rule written before the burst: starts stay capped, and slow.
-      if (!burstRefused) console.warn(`[ext-runner] no start burst (re-run \`zveltio ext-runner setup\`): ${err.message}`);
+      if (!burstRefused)
+        console.warn(
+          `[ext-runner] no start burst (re-run \`zveltio ext-runner setup\`): ${err.message}`,
+        );
       burstRefused = true;
       return false;
     },
