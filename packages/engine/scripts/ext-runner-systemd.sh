@@ -51,7 +51,7 @@ check() { if eval "$2"; then echo "ok: $1"; else echo "FAIL: $1"; fail=1; fi; }
 # ── install, as install.sh does ───────────────────────────────────────────────
 command -v pkaction >/dev/null || sudo apt-get install -y -qq polkitd >/dev/null
 id -u zveltio &>/dev/null || sudo useradd -r -M -s /bin/false zveltio
-bun build --compile "${E}/src/binary-entry.ts" --outfile /tmp/zveltio-ci-bin >/dev/null
+bun build --compile --splitting "${E}/src/binary-entry.ts" --outfile /tmp/zveltio-ci-bin >/dev/null
 bun build --target bun "${E}/scripts/ext-runner-isolation.ts" --outfile /tmp/zveltio-ci-probe.mjs >/dev/null
 bun build --target bun "${E}/scripts/edge-runner-isolation.ts" --outfile /tmp/zveltio-ci-edge-probe.mjs >/dev/null
 bun build --target bun "${E}/scripts/job-runner-isolation.ts" --outfile /tmp/zveltio-ci-job-probe.mjs >/dev/null

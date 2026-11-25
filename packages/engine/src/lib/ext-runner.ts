@@ -75,8 +75,8 @@ export function ensureWorkerRuntimeOnDisk(): string {
 /**
  * The uid of the process at the other end of a unix socket, from the kernel
  * (SO_PEERCRED), or null when it cannot be read — which the caller treats as
- * a refusal. Bun exposes neither the option nor a way to listen on a socket
- * systemd created, so it is one libc call through `bun:ffi`.
+ * a refusal. Bun does not expose the option, so it is one libc call through
+ * `bun:ffi`.
  */
 type Getsockopt = (fd: number, level: number, name: number, val: unknown, len: unknown) => number;
 let getsockopt: Getsockopt | null = null;
@@ -212,6 +212,12 @@ export async function runExtRunner(): Promise<never> {
   chmodSync(staging, 0o666);
   renameSync(staging, path);
   console.log(`[ext-runner] listening on ${path} for uid ${engineUid}`);
+  try {
+    await notifyReady();
+  } catch (err) {
+    console.error(`[ext-runner] ${(err as Error).message}`);
+    process.exit(1);
+  }
 
   const stop = () => {
     server.close();
@@ -220,6 +226,45 @@ export async function runExtRunner(): Promise<never> {
   process.on('SIGTERM', stop);
   process.on('SIGINT', stop);
   return new Promise<never>(() => {});
+}
+
+/**
+ * Tell systemd the runner listens (`Type=notify`, sd_notify(3)): `systemctl
+ * start` then returns with the socket in place, and the engine connects at once
+ * instead of polling for it (ADR 0062 step 2b: the poll cost up to 100 ms of
+ * every cold start). No NOTIFY_SOCKET (containers, a unit written before this):
+ * nothing to tell. A datagram through libc: Bun has no AF_UNIX datagram socket.
+ * Throws when it cannot be sent: the unit would wait for it until its start
+ * timeout, so the runner exits instead and the start fails at once.
+ */
+export async function notifyReady(target = process.env.NOTIFY_SOCKET): Promise<void> {
+  if (!target) return;
+  // struct sockaddr_un { sa_family_t sun_family; char sun_path[108]; }; '@' is
+  // the abstract namespace, spelled with a leading NUL and no trailing one.
+  const name = Buffer.from(target.startsWith('@') ? `\0${target.slice(1)}` : `${target}\0`);
+  if (name.length > 108) throw new Error(`NOTIFY_SOCKET is too long: ${target}`);
+  const addr = Buffer.alloc(2 + name.length);
+  addr.writeUInt16LE(1, 0); // AF_UNIX
+  name.copy(addr, 2);
+  const msg = Buffer.from('READY=1');
+  const { dlopen, FFIType: T, ptr, read } = await import('bun:ffi');
+  const libc = dlopen('libc.so.6', {
+    socket: { args: [T.i32, T.i32, T.i32], returns: T.i32 },
+    sendto: { args: [T.i32, T.ptr, T.u64, T.i32, T.ptr, T.u32], returns: T.i64 },
+    close: { args: [T.i32], returns: T.i32 },
+    __errno_location: { returns: T.ptr },
+  });
+  const c = libc.symbols;
+  try {
+    const SOCK_DGRAM_CLOEXEC = 2 | 0o2000000;
+    const fd = c.socket(1, SOCK_DGRAM_CLOEXEC, 0);
+    const sent = fd < 0 ? -1 : Number(c.sendto(fd, ptr(msg), msg.length, 0, ptr(addr), addr.length));
+    const errno = sent < 0 ? read.i32(c.__errno_location()!, 0) : 0;
+    if (fd >= 0) c.close(fd);
+    if (sent !== msg.length) throw new Error(`could not tell systemd it is ready (errno ${errno})`);
+  } finally {
+    libc.close();
+  }
 }
 
 /**
@@ -650,8 +695,9 @@ async function systemctl(verb: 'start' | 'stop', unit: string): Promise<void> {
 
 /**
  * Start the extension's runner and return its socket once it listens. The
- * unit is `Type=simple`, so `systemctl start` returns before the socket
- * exists; the socket appears when the runner listens.
+ * unit is `Type=notify` (`notifyReady`), so `systemctl start` returns with the
+ * socket in place and the loop below ends at its first look; it waits only on a
+ * `Type=simple` unit an older `setup` wrote.
  */
 export function startRunner(extName: string): Promise<string> {
   return startInstance(runnerInstance(extName));
@@ -720,7 +766,12 @@ PartOf=zveltio.service
 After=network.target
 
 [Service]
-Type=simple
+# The runner says when it listens (sd_notify): \`systemctl start\` returns with
+# the socket in place, and a runner that refuses to start fails the start at
+# once (ADR 0062 step 2b). Only the runner itself may say so, not what it starts.
+Type=notify
+NotifyAccess=main
+TimeoutStartSec=10
 DynamicUser=yes
 # Named per instance. Left to systemd, the name derives from the unit name, and
 # two instances ended up as ONE uid — measured in CI: both runners ran as 63550
