@@ -10,6 +10,7 @@ import type { Hono } from 'hono';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import {
+  asAuditOwner,
   asEveryTenant,
   createMemberSession,
   createSteppedUpGod,
@@ -46,6 +47,7 @@ d('extension runtime setting (ADR 0062 d3)', () => {
   afterAll(async () => {
     await sql`DELETE FROM zv_extension_registry WHERE name = ${EXT}`.execute(db);
     await forgetRuntimeSettings(db, EXT);
+    await asAuditOwner(db, sql`DELETE FROM zv_audit_log WHERE resource_id = ${EXT}`);
   });
 
   it('defaults: idle after 5 minutes; pos and invoicing always on', async () => {
