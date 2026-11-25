@@ -68,8 +68,8 @@ const stats = (xs: number[]) => ({
   max: +Math.max(...xs).toFixed(2),
 });
 
-// ── memory: read here, or hand the pids to the root sampler (mem-sample.sh) ──
-const MEM_DIR = '/run/bench-mem';
+// ── memory: read here; a runner's processes run under another uid, so the driver
+// (ext-perf.sh, run by the operator, with sudo) samples them when told to ──────
 function smaps(pid: number) {
   try {
     const t = readFileSync(`/proc/${pid}/smaps_rollup`, 'utf8');
@@ -79,31 +79,16 @@ function smaps(pid: number) {
     return null;
   }
 }
-function workerPids(): number[] {
-  if (mode === 'inline') return [process.pid];
-  if (mode === 'process') {
-    const r = Bun.spawnSync(['pgrep', '-P', String(process.pid)]);
-    return r.stdout.toString().split('\n').filter(Boolean).map(Number);
-  }
-  const cg = Bun.spawnSync(['systemctl', 'show', '-p', 'ControlGroup', '--value', runnerUnit(EXT)]).stdout.toString().trim();
-  try {
-    return readFileSync(`/sys/fs/cgroup${cg}/cgroup.procs`, 'utf8').split('\n').filter(Boolean).map(Number);
-  } catch {
-    return [];
-  }
-}
 async function memory(label: string) {
-  const pids = workerPids();
-  const direct = pids.map(smaps);
-  if (direct.length && direct.every(Boolean)) return direct;
-  // Another uid's process: the root sampler reads it (a handshake on files).
-  const req = join(MEM_DIR, `${process.pid}-${label}`);
-  writeFileSync(`${req}.req`, `${pids.join('\n')}\n`);
-  for (let i = 0; i < 200; i++) {
-    if (existsSync(`${req}.ack`)) return JSON.parse(readFileSync(`${req}.ack`, 'utf8'));
-    await Bun.sleep(100);
+  if (mode === 'runner') {
+    // The driver reads this line and writes <run>.mem; no file crosses the uids.
+    console.log(`@@CHECKPOINT ${label}`);
+    await Bun.sleep(4000);
+    return 'sampled by ext-perf.sh into <run>.mem';
   }
-  return { error: 'no sampler answered (run mem-sample.sh as root)', pids };
+  if (mode === 'inline') return [smaps(process.pid)];
+  const kids = Bun.spawnSync(['pgrep', '-P', String(process.pid)]).stdout.toString().split('\n').filter(Boolean).map(Number);
+  return kids.map(smaps);
 }
 
 // ── set-up: the engine, the extension, a member with grants ──────────────────
