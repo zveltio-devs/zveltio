@@ -72,6 +72,10 @@ interface Extension {
   is_installed: boolean;
   is_enabled: boolean;
   is_running: boolean;
+  /** ADR 0062 d3: a worker's process; `idle` = stopped by the engine, its next call starts it. */
+  worker_status?: 'running' | 'idle' | 'starting' | 'crashed' | 'disabled' | null;
+  /** The operator's runtime setting (PUT …/runtime). */
+  runtime?: { always_on: boolean; idle_timeout_seconds: number };
   needs_restart: boolean;
   files_on_disk: boolean;
   /** The manifest on disk; null when no files. `version` is the catalog's. */
@@ -157,6 +161,8 @@ let confirmState = $state<{
   onconfirm: () => void;
 }>({ open: false, title: '', message: '', onconfirm: () => {} });
 let configJson = $state('{}');
+let runtimeAlwaysOn = $state(false);
+let runtimeIdleSeconds = $state(300);
 let configError = $state('');
 
 let cat = $state('all');
@@ -562,6 +568,28 @@ function openConfig(ext: Extension) {
   configuringExt = ext;
   configJson = JSON.stringify(ext.config || {}, null, 2);
   configError = '';
+  runtimeAlwaysOn = ext.runtime?.always_on ?? false;
+  runtimeIdleSeconds = ext.runtime?.idle_timeout_seconds ?? 300;
+}
+
+async function saveRuntime() {
+  if (!configuringExt) return;
+  configError = '';
+  try {
+    await api(
+      `/api/marketplace/${encodeURIComponent(configuringExt.name)}/runtime`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ alwaysOn: runtimeAlwaysOn, idleTimeoutSeconds: runtimeIdleSeconds }),
+      },
+      `extension.runtime:${configuringExt.name}`,
+    );
+    configuringExt = null;
+    await loadCatalog();
+  } catch (e) {
+    if (stepUpAborted(e)) return;
+    configError = (e as Error).message;
+  }
 }
 
 async function saveConfig() {
@@ -681,7 +709,7 @@ onMount(loadCatalog);
                     <!-- Status badge -->
                     {#if ext.is_running}
                       <span class="badge badge-success badge-sm shrink-0 gap-1">
-                        <CheckCircle size={10} /> {m['mkt.running']()}
+                        <CheckCircle size={10} /> {ext.worker_status === 'idle' ? m['mkt.statusIdle']() : m['mkt.running']()}
                       </span>
                     {:else if ext.is_enabled && !ext.files_on_disk}
                       <span class="badge badge-error badge-sm shrink-0 gap-1" title={m['mkt.filesMissingTitle']()}>
@@ -981,6 +1009,29 @@ onMount(loadCatalog);
 
       {#if configError}
         <p class="text-error text-sm mt-1">{configError}</p>
+      {/if}
+
+      {#if configuringExt.worker_status}
+        <div class="divider my-2"></div>
+        <h4 class="font-semibold text-sm mb-1">{m['mkt.runtimeTitle']()}</h4>
+        <p class="text-xs opacity-60 mb-2">{m['mkt.runtimeDesc']()}</p>
+        <label class="label cursor-pointer justify-start gap-3">
+          <input type="checkbox" class="toggle toggle-sm" bind:checked={runtimeAlwaysOn} />
+          <span class="label-text">{m['mkt.alwaysOn']()}</span>
+        </label>
+        <label class="label justify-start gap-3">
+          <span class="label-text">{m['mkt.idleTimeout']()}</span>
+          <input
+            type="number"
+            min="1"
+            class="input input-bordered input-sm w-28"
+            bind:value={runtimeIdleSeconds}
+            disabled={runtimeAlwaysOn}
+          />
+        </label>
+        <div class="flex justify-end">
+          <button class="btn btn-sm" onclick={saveRuntime}>{m['mkt.saveRuntime']()}</button>
+        </div>
       {/if}
 
       <div class="modal-action">
