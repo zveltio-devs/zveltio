@@ -53,6 +53,13 @@ import { DownMissingError, OwnedCollectionsReferencedError } from './extension-e
 import { revokeExtensionDbRoles } from './ext-db-role.js';
 import { auditLog } from '../audit.js';
 import { toJsonb } from '../jsonb.js';
+import {
+  parseRuntimeBody,
+  readRuntimePolicy,
+  runtimePolicyOf,
+  runtimeSettingKey,
+  workerRuntime,
+} from './runtime-policy.js';
 import { parseEgress } from '../edge-functions/egress.js';
 import { requireStepUp } from '../step-up.js';
 import { guardAdmin } from '../admin-guard.js';
@@ -422,12 +429,18 @@ export function registerMarketplaceRoutes(
     //
     // `fetchCatalog()` handles its own registry-unreachable fallback; that is a
     // different failure with a real local answer.
-    const [catalog, rows, licenseRows, forwardRows] = await Promise.all([
+    const [catalog, rows, licenseRows, forwardRows, runtimeRows] = await Promise.all([
       fetchCatalog(),
       db.selectFrom('zv_extension_registry').selectAll().execute(),
       db.selectFrom('zv_settings').select(['key']).where('key', 'like', 'ext_license:%').execute(),
       db.selectFrom('zv_extension_forward_approvals').select(['name', 'approved']).execute(),
+      db
+        .selectFrom('zv_settings')
+        .select(['key', 'value'])
+        .where('key', 'like', 'ext_runtime:%')
+        .execute(),
     ]);
+    const runtimeSet = new Map(runtimeRows.map((r) => [r.key, r.value]));
     const forwardApprovals = new Map(forwardRows.map((r) => [r.name, r.approved]));
 
     // This listing reports what the RUNTIME will do, not what the schema allows.
@@ -519,11 +532,13 @@ export function registerMarketplaceRoutes(
 
     // ADR 0056: a worker its crashes disabled is loaded but serves nothing; the list says why.
     const { getWorkerHostIfInitialized } = await import('../worker-extension-host.js');
+    const workerHealth = getWorkerHostIfInitialized()?.getHealth() ?? [];
     const crashDisabled = new Map(
-      (getWorkerHostIfInitialized()?.getHealth() ?? [])
+      workerHealth
         .filter((h) => h.status === 'disabled')
         .map((h) => [h.name, h.disabledReason ?? 'disabled after repeated crashes']),
     );
+    const workerStatus = new Map(workerHealth.map((h) => [h.name, h.status]));
 
     // `fixture` entries are the release job's smoke extensions: listed once
     // installed, never offered to an operator browsing the catalog.
@@ -596,6 +611,14 @@ export function registerMarketplaceRoutes(
           ((dbEntry?.is_enabled && !runtimeActive) ||
             (!dbEntry?.is_enabled && runtimeActive && dbEntry !== undefined)),
         config: dbEntry?.config ?? {},
+        // ADR 0062 d3: a worker's process — `idle` (stopped by the host, started
+        // by its next call), `running`, `starting`, `crashed`, `disabled`; null inline.
+        worker_status: workerStatus.get(entry.name) ?? null,
+        // The operator's runtime setting over its defaults (PUT …/runtime).
+        runtime: (() => {
+          const p = runtimePolicyOf(entry.name, runtimeSet.get(runtimeSettingKey(entry.name)));
+          return { always_on: p.alwaysOn, idle_timeout_seconds: p.idleTimeoutSeconds };
+        })(),
         installed_at: dbEntry?.installed_at ?? null,
         enabled_at: dbEntry?.enabled_at ?? null,
         // Persisted load failure (null = clean). Lets the marketplace show a
@@ -1374,6 +1397,44 @@ export function registerMarketplaceRoutes(
     return c.json({ success: true });
   };
 
+  // PUT /api/marketplace/:name/runtime (registered via the dispatcher below).
+  // ADR 0062 d3: whether its worker stays always on, or how long it may go
+  // unused before the host stops it. The operator's choice, never the manifest's;
+  // applied here at once, and on other replicas at their next idle check.
+  const setRuntime = async (c: Context, name: string) => {
+    const gate = await requireGodStepUp(c, `extension.runtime:${name}`);
+    if (gate instanceof Response) return gate;
+    const body = parseRuntimeBody(await c.req.json().catch(() => null));
+    if (typeof body === 'string') return c.json({ error: body }, 400);
+    const installed = await db
+      .selectFrom('zv_extension_registry')
+      .select('name')
+      .where('name', '=', name)
+      .where('tenant_id', 'is', null)
+      .executeTakeFirst();
+    if (!installed) {
+      return c.json({ error: 'Not found', detail: `"${name}" is not installed.` }, 404);
+    }
+    const previous = await readRuntimePolicy(db, name);
+    const runtime = { ...previous, ...body };
+    await db
+      .insertInto('zv_settings')
+      .values({ key: runtimeSettingKey(name), value: toJsonb(runtime), is_public: false })
+      .onConflict((oc) => oc.column('key').doUpdateSet({ value: toJsonb(runtime) }))
+      .execute();
+    await auditLog(db, {
+      type: 'extension.runtime_set',
+      tenantId: null,
+      userId: gate.id ?? undefined,
+      resourceId: name,
+      resourceType: 'extension',
+      metadata: { previous, runtime },
+    }).catch(() => undefined);
+    const { getWorkerHostIfInitialized } = await import('../worker-extension-host.js');
+    getWorkerHostIfInitialized()?.setRuntime(name, workerRuntime(runtime));
+    return c.json({ success: true, runtime });
+  };
+
   // POST /api/marketplace/:name/uninstall[?purgeData=true]
   //
   // Default (purgeData=false or omitted): soft uninstall — mark
@@ -1965,7 +2026,11 @@ export function registerMarketplaceRoutes(
   app.put('/api/marketplace/*', (c) => {
     const rest = c.req.path.slice('/api/marketplace/'.length);
     const i = rest.lastIndexOf('/');
-    if (i <= 0 || rest.slice(i + 1) !== 'config') return c.json({ error: 'Not found' }, 404);
-    return configExtension(c, decodeName(rest.slice(0, i)));
+    const what = rest.slice(i + 1);
+    if (i <= 0 || (what !== 'config' && what !== 'runtime')) {
+      return c.json({ error: 'Not found' }, 404);
+    }
+    const name = decodeName(rest.slice(0, i));
+    return what === 'runtime' ? setRuntime(c, name) : configExtension(c, name);
   });
 }
