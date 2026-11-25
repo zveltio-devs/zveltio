@@ -328,7 +328,16 @@ export function healthRoutes(db: Database, auth?: any): Hono {
           for (const w of getWorkerHostIfInitialized()?.getHealth() ?? []) {
             if (w.disabledReason) failed.push({ name: w.name, error: w.disabledReason });
           }
-          return { ok: failed.length === 0, detail: { active: active.length, failed } };
+          // Worker extensions are refused (not run weaker) where no runner can
+          // exist: a non-root container without the runner socket (ADR 0062 F22).
+          const { extensionTransport } = await import('../lib/worker-extension-transport.js');
+          const { runnerMissing } = await import('../lib/ext-runner.js');
+          const workersRefused =
+            extensionTransport() === 'runner' ? (runnerMissing() ?? undefined) : undefined;
+          return {
+            ok: failed.length === 0, // refused workers are in `failed`; this is the standing reason
+            detail: { active: active.length, failed, workersRefused },
+          };
         },
       },
       {

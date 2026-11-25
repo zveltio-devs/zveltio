@@ -10,6 +10,23 @@ set -eu
 BIN=/usr/local/bin/zveltio
 if [ "$(id -u)" != 0 ] || [ "${1:-start}" != start ]; then exec "$BIN" "$@"; fi
 
+# What this setup needs: CHOWN, DAC_OVERRIDE and FOWNER for /data, SETPCAP for
+# the bounding set, and SETUID, SETGID and KILL for the runner and the drop to
+# 100:101 (bits 0, 1, 3, 8, 7, 6, 5). A platform that drops them (`docker run
+# --cap-drop ALL`, a PaaS with a locked-down profile) fails at the first chown
+# with no word about extensions. Exit with the cause instead of running on: the
+# engine cannot drop to 100 without SETUID/SETGID, and as root with nothing it
+# would run a worker extension in no isolation at all (ADR 0062, F21). The way
+# through on such a platform is the image's own user (`--user 100:101`, the
+# release compose, Helm): no runner, worker extensions refused, first-party
+# inline extensions unaffected.
+need=$((0x1eb))
+eff=$(awk '/^CapEff:/{print $2}' /proc/self/status 2>/dev/null || true)
+if [ -n "$eff" ] && [ $((0x$eff & need)) -ne $need ]; then
+  echo "[entrypoint] started as root without the capabilities the extension runner needs (CapEff $eff; required: CHOWN, DAC_OVERRIDE, FOWNER, KILL, SETGID, SETUID, SETPCAP). Grant them (docker: --cap-add for each; compose: cap_add) or start the image as its own user (--user 100:101): then no worker extension runs (they are refused, never run unisolated) and inline first-party extensions work." >&2
+  exit 1
+fi
+
 # The extensions' uids share this filesystem. /data is the engine's (a PaaS
 # volume arrives root's; a container that ran as root left root's files): they
 # may traverse it to reach the Deno in /data/extensions/.deno and nothing else

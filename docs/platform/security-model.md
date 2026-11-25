@@ -238,7 +238,13 @@ the filesystem, and the worker imports the bundle itself. From there:
   directory at all. Production
   refuses a worker-isolated extension when no runner answers, and refuses
   `ZVELTIO_EXT_TRANSPORT=process` — a child under the engine's own uid, which
-  reads what the engine reads and is the development transport.
+  reads what the engine reads and is the development transport. Where no
+  runner can exist (a non-root container without the runner socket, no systemd)
+  the refusal says so (`no extension runner in this container`) and
+  `/api/health/deep` shows `workersRefused`; the one-container entrypoint, started
+  as root without the capabilities it needs, exits naming them rather than run
+  the engine as root without a drop (ADR 0062, F21-F22). A kernel OOM kill of an
+  extension's process is logged as such with the extension and key (F23).
 - Its CPU is bounded (ADR 0062, F20). On systemd each extension's unit has
   `CPUQuota=20%` (of one core) and `CPUWeight=10`; in compose and Helm the
   runner container shares one core among every extension (`cpus: 1.0`, the

@@ -549,6 +549,54 @@ export function runnerSocketFor(extName: string): string {
   return process.env.ZVELTIO_EXT_RUNNER_SOCKET || runnerSocketPath(extName);
 }
 
+/**
+ * Why no runner can be started from this engine, or null. The shared-socket
+ * container mode needs ZVELTIO_EXT_RUNNER_SOCKET; bare metal needs systemd.
+ * Neither means the engine runs as a non-root user in a container without a
+ * runner (`--user 100:101`, a PaaS that forces the image's user): third-party
+ * extensions are refused, and the message says so instead of "systemctl".
+ */
+export function runnerMissing(
+  env: Record<string, string | undefined> = process.env,
+  which: (bin: string) => string | null = (bin) => Bun.which(bin, { PATH: process.env.PATH ?? '' }),
+): string | null {
+  if (env.ZVELTIO_EXT_RUNNER_SOCKET || which('systemctl')) return null;
+  return (
+    'no extension runner in this container: ZVELTIO_EXT_RUNNER_SOCKET is not set and ' +
+    'there is no systemd to start one, so third-party (worker) extensions are refused; ' +
+    'first-party inline extensions are unaffected'
+  );
+}
+
+/** The `oom_kill` counter of a cgroup's `memory.events`, or null if unreadable. */
+export function readOomKills(eventsFile: string): number | null {
+  try {
+    const n = /^oom_kill\s+(\d+)$/m.exec(readFileSync(eventsFile, 'utf8'))?.[1];
+    return n === undefined ? null : Number(n);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Kernel OOM kills so far in the cgroup the extension's process lives in: the
+ * container's (shared-socket mode) or the extension's unit's. null where the
+ * cgroup cannot be read; the caller compares two readings.
+ */
+export async function oomKills(extName: string): Promise<number | null> {
+  if (process.env.ZVELTIO_EXT_RUNNER_SOCKET) return readOomKills('/sys/fs/cgroup/memory.events');
+  try {
+    const proc = Bun.spawn(
+      ['systemctl', 'show', '-p', 'ControlGroup', '--value', runnerUnit(extName)],
+      { stdout: 'pipe', stderr: 'ignore' },
+    );
+    const cg = (await new Response(proc.stdout).text()).trim();
+    return cg ? readOomKills(join('/sys/fs/cgroup', cg, 'memory.events')) : null;
+  } catch {
+    return null;
+  }
+}
+
 async function systemctl(verb: 'start' | 'stop', unit: string): Promise<void> {
   const proc = Bun.spawn(['systemctl', verb, '--no-ask-password', unit], {
     stdout: 'ignore',
@@ -574,6 +622,8 @@ async function startInstance(instance: string): Promise<string> {
   // with the engine; there is no systemd to start an instance.
   const shared = process.env.ZVELTIO_EXT_RUNNER_SOCKET;
   if (shared) return shared;
+  const missing = runnerMissing();
+  if (missing) throw new Error(missing);
   const unit = `zveltio-ext-runner@${instance}.service`;
   await systemctl('start', unit);
   const path = join(RUNNER_DIR, instance, 'runner.sock');

@@ -43,6 +43,7 @@ import {
   closeExtensionsDir,
   ensureWorkerRuntimeOnDisk,
   extensionsBaseOf,
+  oomKills,
   startRunner,
   stopRunner,
 } from './ext-runner.js';
@@ -432,7 +433,27 @@ export class WorkerExtensionHost {
     private app: Hono,
     /** Opens a new extension process's channel; tests pass a fake one. */
     private readonly open: (extName: string) => Promise<ExtensionChannel> = openExtensionChannel,
+    /** Kernel OOM kills so far where the extension's process lives; tests pass a fake. */
+    private readonly oomKillCount: (extName: string) => Promise<number | null> = (n) =>
+      extensionTransport() === 'runner' ? oomKills(n) : Promise.resolve(null),
   ) {}
+  /** The OOM-kill count when each extension's process was opened (F23). */
+  private oomBaseline = new Map<string, number>();
+
+  /**
+   * A crash the kernel's OOM killer caused is logged as that: the channel only
+   * ever says "runner closed the connection" (ADR 0062 F23).
+   */
+  private async noteOomKill(managed: ManagedWorker): Promise<void> {
+    const before = this.oomBaseline.get(managed.name);
+    const now = await this.oomKillCount(managed.name).catch(() => null);
+    if (before === undefined || now === null || now <= before) return;
+    this.oomBaseline.set(managed.name, now);
+    console.error(
+      `${boxTag(managed.name, managed.source)} killed by the kernel: out of memory ` +
+        `(oom_kill ${before} -> ${now} in its cgroup; raise MemoryMax / the container's memory limit)`,
+    );
+  }
 
   /**
    * Point the host at the CURRENT Hono app.
@@ -629,6 +650,8 @@ export class WorkerExtensionHost {
     // On the runner, beside other extensions' uids: their directory is closed
     // to all of them, at every spawn.
     if (transport === 'runner') closeExtensionsDir(extensionsBaseOf(extDir, extName));
+    const baseline = await this.oomKillCount(extName).catch(() => null);
+    if (baseline !== null) this.oomBaseline.set(extName, baseline);
     const worker = await this.open(extName);
     const managed: ManagedWorker = {
       name: extName,
@@ -718,6 +741,7 @@ export class WorkerExtensionHost {
     ];
     this.crashTimes.set(managed.name, crashes);
     const tag = boxTag(managed.name, managed.source);
+    void this.noteOomKill(managed);
     if (crashes.length >= CRASH_LIMIT) {
       // Not respawned: a crash loop takes a connection, a runner process and the
       // logs with it on every turn. Its routes and actions answer this until an
