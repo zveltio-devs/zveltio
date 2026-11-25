@@ -1,0 +1,14 @@
+{
+  "name": "probe/loop",
+  "displayName": "Probe loop",
+  "category": "probe",
+  "description": "ADR 0062 fail-alone probe: loop (test extension, declared model only)",
+  "version": "1.0.0",
+  "zveltioMinVersion": "3.0.0-beta.111",
+  "zveltioMaxVersion": "4.0.0",
+  "package": "@zveltio/ext-probe-loop",
+  "contributes": { "engine": true, "studio": false, "fieldTypes": [] },
+  "engine": { "entry": "engine/index.js", "format": "esm", "target": "bun", "bundled": true, "bundlePeers": false },
+  "collections": ["probe_loop_log"],
+  "actions": [{ "name": "misbehave", "permission": { "resource": "probe_loop_log", "action": "execute" }, "input": { "type": "object", "additionalProperties": false, "properties": {} }, "reads": ["probe_loop_log"], "writes": [] }]
+}
