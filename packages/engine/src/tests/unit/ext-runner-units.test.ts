@@ -140,6 +140,8 @@ describe('runnerSetupFiles', () => {
     expect(rule).toContain('subject.user === "zveltio"');
     expect(rule).toContain('unit.indexOf("zveltio-ext-runner@") === 0');
     expect(rule).not.toContain('"enable"');
+    // ADR 0062 step 2b: the start burst is a runtime property the engine sets.
+    expect(rule).toContain('verb === "set-property"');
   });
 });
 
