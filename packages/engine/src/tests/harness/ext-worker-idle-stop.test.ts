@@ -156,7 +156,7 @@ d('a worker extension starts on use and stops when idle (ADR 0062 d3)', () => {
     return done();
   }
   /** Started by `call`: the one process that appeared while it ran. */
-  async function startedBy(call: () => Promise<Response>) {
+  async function startedBy(call: () => Response | Promise<Response>) {
     expect(health(EXT).status).toBe('idle');
     const before = children();
     const gen = health(EXT).workerGeneration;
