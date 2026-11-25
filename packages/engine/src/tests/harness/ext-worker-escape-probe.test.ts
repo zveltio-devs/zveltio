@@ -291,7 +291,9 @@ d('an extension worker cannot escape (ADR 0062 probe "security")', () => {
   };
   const route = async (member_: string, args: unknown[]) => {
     const q = encodeURIComponent(JSON.stringify({ member: member_, args }));
-    const res = await app.request(`/ext/${EXT}/probe?q=${q}`, { headers: { cookie: member.cookie } });
+    const res = await app.request(`/ext/${EXT}/probe?q=${q}`, {
+      headers: { cookie: member.cookie },
+    });
     const text = await res.text();
     let p: Probe = {};
     try {
@@ -474,7 +476,9 @@ d('an extension worker cannot escape (ADR 0062 probe "security")', () => {
   }, 120_000);
 
   afterAll(async () => {
-    console.log(`\n[psec] probe | transport | result\n${table.map((r) => `[psec] ${r.probe} | ${r.transport} | ${r.result}`).join('\n')}`);
+    console.log(
+      `\n[psec] probe | transport | result\n${table.map((r) => `[psec] ${r.probe} | ${r.transport} | ${r.result}`).join('\n')}`,
+    );
     _setInlineForTests(saved.inline);
     if (saved.transport === undefined) delete process.env.ZVELTIO_EXT_TRANSPORT;
     else process.env.ZVELTIO_EXT_TRANSPORT = saved.transport;
@@ -544,7 +548,11 @@ d('an extension worker cannot escape (ADR 0062 probe "security")', () => {
     record('collections.list own', 'process', ownList.reached ? 'REACHED (control)' : ownList.text);
     expect(ownList.reached).toBe(true);
     const ownRoute = await route('read', [OWN, ownRow]);
-    record('route collections.read own', 'process', ownRoute.reached ? 'REACHED (control)' : ownRoute.text);
+    record(
+      'route collections.read own',
+      'process',
+      ownRoute.reached ? 'REACHED (control)' : ownRoute.text,
+    );
     expect(ownRoute.reached).toBe(true);
 
     const targets: [string, string][] = [
@@ -565,12 +573,24 @@ d('an extension worker cannot escape (ADR 0062 probe "security")', () => {
         ['collections.list', [c, {}]],
         ['collections.insert', [c, { label: `sneak-${STAMP}` }]],
       ] as const) {
-        const r = await probe(m, args as unknown[]);
-        record(`${m} ${what}`, 'process', r.reached ? `ESCAPE ${r.text}` : `refused ${r.status} ${r.p.refused ?? r.text}`.slice(0, 160));
+        const r = await probe(m, [...args]);
+        record(
+          `${m} ${what}`,
+          'process',
+          r.reached
+            ? `ESCAPE ${r.text}`
+            : `refused ${r.status} ${r.p.refused ?? r.text}`.slice(0, 160),
+        );
         expect(r.reached).toBe(false);
       }
       const rr = await route('list', [c, {}]);
-      record(`route collections.list ${what}`, 'process', rr.reached ? `ESCAPE ${rr.text}` : `refused ${rr.status} ${rr.p.refused ?? ''}`.slice(0, 160));
+      record(
+        `route collections.list ${what}`,
+        'process',
+        rr.reached
+          ? `ESCAPE ${rr.text}`
+          : `refused ${rr.status} ${rr.p.refused ?? ''}`.slice(0, 160),
+      );
       expect(rr.reached).toBe(false);
     }
     expect(await rows(UNDECL, `sneak-${STAMP}`)).toEqual([]);
@@ -581,16 +601,31 @@ d('an extension worker cannot escape (ADR 0062 probe "security")', () => {
     record('foreign collection written by its own extension', 'process', `${put.status} (control)`);
     expect(await rows(FOREIGN, `put-${STAMP}`)).toHaveLength(1);
     // Declared in `writes`, and still another extension's: refused.
-    const fw = await probe('collections.insert', [FOREIGN, { label: `fw-${STAMP}` }], 'callForeign');
-    record('collections.insert foreign, declared in writes', 'process', fw.reached ? `ESCAPE ${fw.text}` : `refused ${fw.status} ${fw.p.refused}`.slice(0, 160));
+    const fw = await probe(
+      'collections.insert',
+      [FOREIGN, { label: `fw-${STAMP}` }],
+      'callForeign',
+    );
+    record(
+      'collections.insert foreign, declared in writes',
+      'process',
+      fw.reached ? `ESCAPE ${fw.text}` : `refused ${fw.status} ${fw.p.refused}`.slice(0, 160),
+    );
     expect(await rows(FOREIGN, `fw-${STAMP}`)).toEqual([]);
     expect(fw.reached).toBe(false);
   }, 120_000);
 
   it('tenancy: forged tenant ids and another tenant’s rows, read and written', async () => {
-    const forged = await probe('collections.insert', [OWN, { label: `forged-${STAMP}`, tenant_id: B }]);
+    const forged = await probe('collections.insert', [
+      OWN,
+      { label: `forged-${STAMP}`, tenant_id: B },
+    ]);
     const landed = await rows(OWN, `forged-${STAMP}`);
-    record('insert with tenant_id = B', 'process', `${forged.reached ? 'accepted' : 'refused'}; rows in B: ${landed.filter((r) => r.tenant_id === B).length}`);
+    record(
+      'insert with tenant_id = B',
+      'process',
+      `${forged.reached ? 'accepted' : 'refused'}; rows in B: ${landed.filter((r) => r.tenant_id === B).length}`,
+    );
     expect(landed.filter((r) => r.tenant_id === B)).toEqual([]);
 
     const filt = await probe('collections.list', [OWN, { filter: { tenant_id: { eq: B } } }]);
@@ -608,7 +643,13 @@ d('an extension worker cannot escape (ADR 0062 probe "security")', () => {
       ['route read B row by id', rRead],
     ] as const) {
       const leaked = r.text.includes(B_MARK);
-      record(`tenancy ${what}`, 'process', leaked ? `ESCAPE ${r.text.slice(0, 120)}` : `no B data (${r.status} ${r.reached ? 'empty' : r.p.refused ?? ''})`.slice(0, 160));
+      record(
+        `tenancy ${what}`,
+        'process',
+        leaked
+          ? `ESCAPE ${r.text.slice(0, 120)}`
+          : `no B data (${r.status} ${r.reached ? 'empty' : (r.p.refused ?? '')})`.slice(0, 160),
+      );
       expect(leaked).toBe(false);
     }
     // A read of B's id answers like a missing row: nothing of it comes back.
@@ -628,15 +669,29 @@ d('an extension worker cannot escape (ADR 0062 probe "security")', () => {
       ['unknown extension', ['engine', 'anything', {}]],
     ] as const) {
       const r = await probe('actions.run', args as unknown as unknown[]);
-      record(`actions.run ${what}`, 'process', r.reached || r.text.includes(SECRET) ? `ESCAPE ${r.text}` : `refused ${r.status} ${r.p.refused}`.slice(0, 160));
+      record(
+        `actions.run ${what}`,
+        'process',
+        r.reached || r.text.includes(SECRET)
+          ? `ESCAPE ${r.text}`
+          : `refused ${r.status} ${r.p.refused}`.slice(0, 160),
+      );
       expect(r.reached).toBe(false);
       expect(r.text).not.toContain(SECRET);
     }
     const q = await probe('enqueue', ['undeclaredJob', {}]);
-    record('enqueue undeclared job', 'process', q.reached ? `ESCAPE ${q.text}` : `refused ${q.p.refused}`.slice(0, 160));
+    record(
+      'enqueue undeclared job',
+      'process',
+      q.reached ? `ESCAPE ${q.text}` : `refused ${q.p.refused}`.slice(0, 160),
+    );
     expect(q.reached).toBe(false);
     const f = await probe('files.read', [crypto.randomUUID()]);
-    record('files.read unknown id', 'process', f.reached ? `ESCAPE ${f.text}` : `refused ${f.p.refused}`.slice(0, 160));
+    record(
+      'files.read unknown id',
+      'process',
+      f.reached ? `ESCAPE ${f.text}` : `refused ${f.p.refused}`.slice(0, 160),
+    );
     expect(f.reached).toBe(false);
   }, 60_000);
 
@@ -655,19 +710,51 @@ d('an extension worker cannot escape (ADR 0062 probe "security")', () => {
       });
       expect(ctl.status).toBe(200);
       expect((ctl.json as { requestId: string }).requestId).toBe('stolen');
-      record('frame host:call with its own live request id', 'process', `${(await rows(OWN, mark(0))).length} row (control: frames are read)`);
+      record(
+        'frame host:call with its own live request id',
+        'process',
+        `${(await rows(OWN, mark(0))).length} row (control: frames are read)`,
+      );
       expect(await rows(OWN, mark(0))).toHaveLength(1);
 
       const forged = [
-        { type: 'host:call', id: 'f1', op: 'action', args: ins(1), requestId: `inv-act-${crypto.randomUUID()}` },
+        {
+          type: 'host:call',
+          id: 'f1',
+          op: 'action',
+          args: ins(1),
+          requestId: `inv-act-${crypto.randomUUID()}`,
+        },
         { type: 'host:call', id: 'f2', op: 'action', args: ins(2) },
-        { type: 'host:call', id: 'f3', op: 'collections', args: ins(3), requestId: `route-${crypto.randomUUID()}` },
-        { type: 'host:call', id: 'f4', op: 'db:query', args: [`INSERT INTO zvd_${OWN} (label) VALUES ('${mark(4)}')`] },
+        {
+          type: 'host:call',
+          id: 'f3',
+          op: 'collections',
+          args: ins(3),
+          requestId: `route-${crypto.randomUUID()}`,
+        },
+        {
+          type: 'host:call',
+          id: 'f4',
+          op: 'db:query',
+          args: [`INSERT INTO zvd_${OWN} (label) VALUES ('${mark(4)}')`],
+        },
         { type: 'host:call', id: 'f5', op: 'services', args: ['db', 'query'] },
-        { type: 'db:query', id: 'f6', sql: `INSERT INTO zvd_${OWN} (label) VALUES ('${mark(6)}')`, params: [] },
+        {
+          type: 'db:query',
+          id: 'f6',
+          sql: `INSERT INTO zvd_${OWN} (label) VALUES ('${mark(6)}')`,
+          params: [],
+        },
         { type: 'sql', id: 'f7', sql: `DROP TABLE ${CANARY}` },
         { type: 'action:ok', id: `inv-act-${crypto.randomUUID()}`, result: { forged: true } },
-        { type: 'route:ok', id: `route-${crypto.randomUUID()}`, status: 200, headers: {}, body: [] },
+        {
+          type: 'route:ok',
+          id: `route-${crypto.randomUUID()}`,
+          status: 200,
+          headers: {},
+          body: [],
+        },
         { type: 'init:ok', id: 'init-forged' },
         { type: 'pong', id: 'ping-forged' },
       ];
@@ -675,12 +762,19 @@ d('an extension worker cannot escape (ADR 0062 probe "security")', () => {
       expect(r.status).toBe(200);
       for (const n of [1, 2, 3, 4, 6]) {
         const got = await rows(OWN, mark(n));
-        record(`frame ${forged.find((f) => JSON.stringify(f).includes(mark(n)))?.type} #${n}`, 'process', got.length ? 'ESCAPE row written' : 'no effect');
+        record(
+          `frame ${forged.find((f) => JSON.stringify(f).includes(mark(n)))?.type} #${n}`,
+          'process',
+          got.length ? 'ESCAPE row written' : 'no effect',
+        );
         expect(got).toEqual([]);
       }
       expect(errors.some((e) => /refused a "db:query" frame/.test(e))).toBe(true);
       record('frame type outside the protocol', 'process', 'refused, logged once by name and key');
-      expect((await sql<{ t: string | null }>`SELECT to_regclass(${CANARY})::text AS t`.execute(db)).rows[0]!.t).toBe(CANARY);
+      expect(
+        (await sql<{ t: string | null }>`SELECT to_regclass(${CANARY})::text AS t`.execute(db))
+          .rows[0]!.t,
+      ).toBe(CANARY);
       // Still serving after all of it.
       expect((await probe('collections.list', [OWN, { limit: 1 }])).reached).toBe(true);
 
@@ -692,7 +786,11 @@ d('an extension worker cannot escape (ADR 0062 probe "security")', () => {
         await Bun.sleep(200);
         back = (await probe('collections.list', [OWN, { limit: 1 }])).reached;
       }
-      record('oversized frame (2 GiB header)', 'process', `its action answered ${big.status}; the other extension answered ${other.status}; it respawned: ${back}`);
+      record(
+        'oversized frame (2 GiB header)',
+        'process',
+        `its action answered ${big.status}; the other extension answered ${other.status}; it respawned: ${back}`,
+      );
       expect(big.status).toBe(503);
       expect(other.status).toBe(200);
       expect(back).toBe(true);
@@ -702,8 +800,10 @@ d('an extension worker cannot escape (ADR 0062 probe "security")', () => {
   }, 60_000);
 
   it('the 32 SQL attack strings, through every host path a worker has', async () => {
-    const paths: [string, (s: string) => Promise<{ reached: boolean; text: string; ms: number }>][] =
-      [];
+    const paths: [
+      string,
+      (s: string) => Promise<{ reached: boolean; text: string; ms: number }>,
+    ][] = [];
     const timed =
       (fn: (s: string) => Promise<{ reached: boolean; text: string }>) => async (s: string) => {
         const t0 = performance.now();
@@ -714,15 +814,27 @@ d('an extension worker cannot escape (ADR 0062 probe "security")', () => {
     paths.push(['record id', timed((s) => probe('collections.read', [OWN, s]))]);
     paths.push(['update id', timed((s) => probe('collections.update', [OWN, s, { label: 'x' }]))]);
     paths.push(['delete id', timed((s) => probe('collections.delete', [OWN, s]))]);
-    paths.push(['filter field', timed((s) => probe('collections.list', [OWN, { filter: { [s]: { eq: 1 } } }]))]);
-    paths.push(['filter operator', timed((s) => probe('collections.list', [OWN, { filter: { label: { [s]: 1 } } }]))]);
-    paths.push(['filter value', timed((s) => probe('collections.list', [OWN, { filter: { label: { eq: s } } }]))]);
+    paths.push([
+      'filter field',
+      timed((s) => probe('collections.list', [OWN, { filter: { [s]: { eq: 1 } } }])),
+    ]);
+    paths.push([
+      'filter operator',
+      timed((s) => probe('collections.list', [OWN, { filter: { label: { [s]: 1 } } }])),
+    ]);
+    paths.push([
+      'filter value',
+      timed((s) => probe('collections.list', [OWN, { filter: { label: { eq: s } } }])),
+    ]);
     paths.push(['filter as string', timed((s) => probe('collections.list', [OWN, { filter: s }]))]);
     paths.push(['sort', timed((s) => probe('collections.list', [OWN, { sort: s }]))]);
     paths.push(['search', timed((s) => probe('collections.list', [OWN, { search: s }]))]);
     paths.push(['expand', timed((s) => probe('collections.list', [OWN, { expand: s }]))]);
     paths.push(['cursor', timed((s) => probe('collections.list', [OWN, { cursor: s }]))]);
-    paths.push(['insert field name', timed((s) => probe('collections.insert', [OWN, { [s]: 'x' }]))]);
+    paths.push([
+      'insert field name',
+      timed((s) => probe('collections.insert', [OWN, { [s]: 'x' }])),
+    ]);
     paths.push(['insert value', timed((s) => probe('collections.insert', [OWN, { label: s }]))]);
     paths.push(['actions.run extension', timed((s) => probe('actions.run', [s, 'echo', {}]))]);
     paths.push(['actions.run action', timed((s) => probe('actions.run', [FOR, s, {}]))]);
@@ -738,7 +850,8 @@ d('an extension worker cannot escape (ADR 0062 probe "security")', () => {
       for (const s of ATTACKS) {
         const r = await run(s);
         n++;
-        if (r.text.includes(SECRET) || r.text.includes(B_MARK)) escapes.push(`${where}: ${s} leaked`);
+        if (r.text.includes(SECRET) || r.text.includes(B_MARK))
+          escapes.push(`${where}: ${s} leaked`);
         if (r.ms > 2500) escapes.push(`${where}: ${s} took ${Math.round(r.ms)} ms (pg_sleep ran?)`);
         if (r.reached) reachedCount++;
       }
@@ -747,10 +860,17 @@ d('an extension worker cannot escape (ADR 0062 probe "security")', () => {
     // The strings that went in as data are stored as written, nothing more.
     const stored = await rows(OWN, ATTACKS[2]!);
     expect(stored.length).toBeLessThanOrEqual(1);
-    const canary = await sql<{ secret: string }>`SELECT secret FROM ${sql.table(CANARY)}`.execute(db);
+    const canary = await sql<{ secret: string }>`SELECT secret FROM ${sql.table(CANARY)}`.execute(
+      db,
+    );
     expect(canary.rows).toEqual([{ secret: SECRET }]);
     expect(await rows(OWN, B_MARK)).toHaveLength(1);
-    const b = await asEveryTenant(db, sql<{ n: number }>`SELECT count(*)::int AS n FROM ${sql.table(`zvd_${OWN}`)} WHERE tenant_id = ${B}`);
+    const b = await asEveryTenant(
+      db,
+      sql<{
+        n: number;
+      }>`SELECT count(*)::int AS n FROM ${sql.table(`zvd_${OWN}`)} WHERE tenant_id = ${B}`,
+    );
     expect(b.rows[0]!.n).toBe(1);
     record('sql attacks total', 'process', `${n} requests, ${escapes.length} escapes`);
     expect(escapes).toEqual([]);
@@ -760,8 +880,10 @@ d('an extension worker cannot escape (ADR 0062 probe "security")', () => {
   it('baseline: the same bundle inline reaches what the worker cannot (ctx.db)', async () => {
     const w = await act(EXT, 'db', { table: `zvd_${OWN}` });
     const i = await act(INL, 'db', { table: `zvd_${OWN}` });
-    for (const [k, v] of Object.entries(w.json ?? {})) record(`ctx.db ${k}`, 'process', String(v).slice(0, 140));
-    for (const [k, v] of Object.entries(i.json ?? {})) record(`ctx.db ${k}`, 'inline', String(v).slice(0, 140));
+    for (const [k, v] of Object.entries(w.json ?? {}))
+      record(`ctx.db ${k}`, 'process', String(v).slice(0, 140));
+    for (const [k, v] of Object.entries(i.json ?? {}))
+      record(`ctx.db ${k}`, 'inline', String(v).slice(0, 140));
     // A worker's ctx refuses every member.
     for (const v of Object.values(w.json ?? {})) expect(String(v)).toContain('declared model only');
     expect(Object.keys(w.json ?? {})).toHaveLength(4);

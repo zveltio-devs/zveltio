@@ -20,7 +20,12 @@ import { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
 import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extension-host.js';
-import { forgetInstalled, getTestApp, harnessAvailable, markInstalled } from '../../testing/app-harness.js';
+import {
+  forgetInstalled,
+  getTestApp,
+  harnessAvailable,
+  markInstalled,
+} from '../../testing/app-harness.js';
 import { signAsOperator } from '../../testing/operator-signed.js';
 
 const SIBLING = join(import.meta.dir, '../../../../../../zveltio-extensions');
@@ -75,14 +80,20 @@ const LOADS = [
 const LOADS_NOT_READY = ['auth/saml'];
 
 /** `"*"` in an action: first-party only, and a worker's tier never is (ADR 0053 d5, ADR 0062 F11). */
-const REFUSED_STAR = ['analytics/quality', 'content/drafts', 'data/import', 'integrations/migrators'];
+const REFUSED_STAR = [
+  'analytics/quality',
+  'content/drafts',
+  'data/import',
+  'integrations/migrators',
+];
 
 /**
  * Reach past the declared model (ADR 0062 porting list, less saml), each with
  * the refusal it gets today: `register()` touching the refusing app or ctx, a
  * job body that is not a Deno bundle, or a dependency that was refused.
  */
-const PAST_MODEL = (what: string) => new RegExp(`register\\(\\) used ${what}: .*declared model only`);
+const PAST_MODEL = (what: string) =>
+  new RegExp(`register\\(\\) used ${what}: .*declared model only`);
 const REFUSED_PAST_MODEL: Record<string, RegExp> = {
   'analytics/dashboard': PAST_MODEL('app.route'),
   'auth/ldap': PAST_MODEL('app.route'),
@@ -164,7 +175,8 @@ d('every first-party extension, loaded as a signed worker (ADR 0062 step 2)', ()
     console.log(
       `[fp-worker] ${[...outcome.values()].filter((v) => v === 'loaded').length} loaded of ${names.length}`,
     );
-    for (const [n, v] of outcome) if (v !== 'loaded') console.log(`[fp-worker] ${n}: ${v.slice(0, 220)}`);
+    for (const [n, v] of outcome)
+      if (v !== 'loaded') console.log(`[fp-worker] ${n}: ${v.slice(0, 220)}`);
   }, 600_000);
 
   afterAll(async () => {
@@ -177,7 +189,13 @@ d('every first-party extension, loaded as a signed worker (ADR 0062 step 2)', ()
 
   it('finds the 56 first-party extensions', () => {
     expect(names).toEqual(
-      [...LOADS, ...LOADS_NOT_READY, ...REFUSED_STAR, ...Object.keys(REFUSED_PAST_MODEL), ...NO_ENGINE].sort(),
+      [
+        ...LOADS,
+        ...LOADS_NOT_READY,
+        ...REFUSED_STAR,
+        ...Object.keys(REFUSED_PAST_MODEL),
+        ...NO_ENGINE,
+      ].sort(),
     );
   });
 
