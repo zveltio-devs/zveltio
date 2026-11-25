@@ -32,6 +32,7 @@ import { getAuth } from '../../lib/auth.js';
 import { DDLManager } from '../../lib/data/index.js';
 import { invalidateActivationCache } from '../../lib/extensions/activation.js';
 import { schemaDigest } from '../../lib/extensions/declared-collections.js';
+import { revokeExtensionDbRoles } from '../../lib/extensions/ext-db-role.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import { engineEvents } from '../../lib/runtime/index.js';
@@ -487,6 +488,9 @@ d('an extension worker cannot escape (ADR 0062 probe "security")', () => {
     for (const name of [EXT, INL, FOR]) await extensionLoader.unload(name).catch(() => {});
     if (!db) return;
     await forgetInstalled(db, EXT, INL, FOR);
+    // The inline load made its database roles; they are cluster-wide.
+    for (const name of [EXT, INL, FOR])
+      await revokeExtensionDbRoles(db, name, true).catch(() => {});
     for (const c of [OWN, OWNI, FOREIGN, UNDECL]) await dropTestCollection(db, c).catch(() => {});
     await sql`DROP TABLE IF EXISTS ${sql.table(CANARY)}`.execute(db);
     await sql`DELETE FROM zv_tenants WHERE id = ${B}`.execute(db).catch(() => {});
