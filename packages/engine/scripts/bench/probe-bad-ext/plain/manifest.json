@@ -1,0 +1,14 @@
+{
+  "name": "probe/plain",
+  "displayName": "Probe plain",
+  "category": "probe",
+  "description": "ADR 0062 fail-alone probe: plain (test extension, declared model only)",
+  "version": "1.0.0",
+  "zveltioMinVersion": "3.0.0-beta.111",
+  "zveltioMaxVersion": "4.0.0",
+  "package": "@zveltio/ext-probe-plain",
+  "contributes": { "engine": true, "studio": false, "fieldTypes": [] },
+  "engine": { "entry": "engine/index.js", "format": "esm", "target": "bun", "bundled": true, "bundlePeers": false },
+  "collections": ["probe_notes"],
+  "actions": []
+}
