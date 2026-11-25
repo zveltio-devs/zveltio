@@ -26,6 +26,10 @@
 #     read the engine's .env (measured from outside while the invocation lives);
 #   - its egress goes through the engine: a listed host answers, an unlisted
 #     host and a private address are refused;
+#   - idle stop (ADR 0062 d3, F17): a worker the engine loads is not left
+#     running (its unit is down after load), a call starts its unit, its idle
+#     timeout stops the unit again with no crash counted, the next call starts it,
+#     and a `systemctl stop` the engine did not order is a crash, respawned;
 #   - a Deno job (ADR 0023 decision 2) runs in its extension's instance, under
 #     the unit's uid and seccomp (read from outside while it is held), finds
 #     the Deno the engine downloaded through the unit's EXTENSIONS_DIR, reaches
@@ -51,6 +55,7 @@ bun build --compile "${E}/src/binary-entry.ts" --outfile /tmp/zveltio-ci-bin >/d
 bun build --target bun "${E}/scripts/ext-runner-isolation.ts" --outfile /tmp/zveltio-ci-probe.mjs >/dev/null
 bun build --target bun "${E}/scripts/edge-runner-isolation.ts" --outfile /tmp/zveltio-ci-edge-probe.mjs >/dev/null
 bun build --target bun "${E}/scripts/job-runner-isolation.ts" --outfile /tmp/zveltio-ci-job-probe.mjs >/dev/null
+bun build --target bun "${E}/scripts/ext-idle-stop-probe.ts" --outfile /tmp/zveltio-ci-idle-probe.mjs >/dev/null
 # Explicit mode: the engine refuses a Deno under a directory others can write,
 # and this runner's sudo leaves mkdir at 777.
 sudo install -d -m 755 "${DIR}" "${DIR}/extensions"
@@ -58,6 +63,7 @@ sudo install -m 755 /tmp/zveltio-ci-bin "${DIR}/zveltio"
 sudo install -m 644 /tmp/zveltio-ci-probe.mjs "${DIR}/probe.mjs"
 sudo install -m 644 /tmp/zveltio-ci-edge-probe.mjs "${DIR}/edge-probe.mjs"
 sudo install -m 644 /tmp/zveltio-ci-job-probe.mjs "${DIR}/job-probe.mjs"
+sudo install -m 644 /tmp/zveltio-ci-idle-probe.mjs "${DIR}/idle-probe.mjs"
 echo "SECRET=hunter2-env-file" | sudo tee "${DIR}/.env" >/dev/null
 sudo chown -R zveltio:zveltio "${DIR}"
 sudo chmod 600 "${DIR}/.env"
@@ -257,6 +263,21 @@ out=$(PROBE_JOB=alloc job)
 echo "job mem: ${out: -400}"
 check "Deno job past its memoryMb is killed by the runner's watchdog" \
   'grep -q "exceeded the memory limit of 64 MB" <<<"$out"'
+
+# ── idle stop: the whole unit, as a state the engine knows (ADR 0062 d3) ──────
+out=$(sudo -u zveltio env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/tmp BUN_BE_BUN=1 \
+  EXTENSIONS_DIR="${DIR}/extensions" NODE_ENV=production \
+  "${DIR}/zveltio" "${DIR}/idle-probe.mjs" "${DIR}/extensions/acme/idle-probe" acme/idle-probe 2>&1 | tail -1 || true)
+echo "idle stop: $out"
+check "a loaded worker leaves no unit running" 'grep -q "\"afterLoad\":\"inactive\"" <<<"$out"'
+check "a call starts its unit and is answered" \
+  'grep -q "\"call\":\"200 pong\"" <<<"$out" && grep -q "\"afterCall\":\"active\"" <<<"$out"'
+check "idle stop stops the whole unit, with no crash" \
+  'grep -q "\"idle\":\"idle\"" <<<"$out" && grep -q "\"afterIdle\":\"inactive\"" <<<"$out" && grep -q "\"idleCrashes\":0" <<<"$out"'
+check "the next call starts it again" \
+  'grep -q "\"wake\":\"200 pong\"" <<<"$out" && grep -q "\"afterWake\":\"active\"" <<<"$out"'
+check "a stop the engine did not order is a crash, respawned" \
+  'grep -q "\"external\":\"crash\"" <<<"$out" && grep -q "\"respawned\":\"active\"" <<<"$out"'
 
 sudo systemctl stop 'zveltio-ext-runner@*' 2>/dev/null || true
 [ "$fail" = 0 ] && echo "PASS: ext-runner on systemd"
