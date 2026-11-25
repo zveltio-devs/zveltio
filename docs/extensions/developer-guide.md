@@ -1556,6 +1556,29 @@ host forwards each declared route and action over a channel and answers the
     the marketplace list (`GET /api/marketplace`, `zveltio extensions list`)
     shows it not running, with the reason as its `last_load_error`. It is not
     kept as disabled: a restart starts it again.
+- **Started on use, stopped when idle** (ADR 0062 d3): the engine verifies a
+  worker at load — its signature, its bundle, a runner that can serve it, and
+  its `init` (actions and routes pair, `register()` stays in the declared
+  model), run once per signed bundle and engine runtime, so a broken extension
+  is still refused at load — mounts its routes and actions, and starts no
+  process. Its first call starts it and waits for it (one start for every
+  caller arriving meanwhile): an action over HTTP or from another extension's
+  `host.actions.run`, a declared route, public (webhook) routes included, and on
+  the runner a job, whose queue wakes its unit only when a job waits. A request
+  the engine refuses (no session, no permission, switched off for the firm)
+  starts nothing. Measured cold on a 2 vCPU systemd host: ~370-500 ms per
+  extension, most of it the runner unit's boot (ADR 0062 step 2b brings it
+  down). After its idle timeout (5 minutes; the operator's setting) with no
+  call, route request or job run in it, the engine stops it — the whole runner
+  unit on systemd — as the state `idle`: no crash is counted, nothing is
+  respawned, its crash history is kept, and health and the marketplace list
+  show `idle`. A stop the engine did not order (an OOM kill, `systemctl stop`)
+  is still a crash. Heartbeats run only while it runs. An operator keeps an
+  extension **always on** (started at load, never idle-stopped) or changes its
+  idle timeout with `PUT /api/marketplace/<name>/runtime` or the Studio's
+  Configure dialog; the manifest has no say. `finance/invoicing` and
+  `operations/pos` default to always on. Correctness never depends on it: every
+  call reaches the extension through the engine, which starts it first.
 - **Limitations:** no streaming responses (body buffered); no services or
   event listeners (a change event is a job, ADR 0035)
 - **Declared model only** (ADR 0056 d1, amendment 2026-11-21; RFC

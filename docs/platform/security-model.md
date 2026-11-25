@@ -258,6 +258,14 @@ the filesystem, and the worker imports the bundle itself. From there:
   can take the container's core until the deadline kills it.
 - The isolation decision survives a hot-reload: a re-register restarts the
   worker rather than quietly re-registering the extension in the main thread.
+- A worker runs only while it is used (ADR 0062 d3): it is verified at load and
+  started by its first call, and stopped — with its whole runner unit on
+  systemd — after an idle timeout. Every start verifies its signature again, so
+  a file changed on disk after load is refused at the next start (answered
+  `503 extension.unavailable`, counted as a crash) rather than run. An idle stop
+  is the engine's own and never a crash; any stop the engine did not order still
+  is, so idle cycles cannot hide a crash loop from the disable. Always on is an
+  operator's latency setting, never the extension's.
 
 What it costs, and what it still does not give:
 

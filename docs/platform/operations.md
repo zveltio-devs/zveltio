@@ -68,6 +68,28 @@ time from its cause.
 Scaling out: [horizontal-scaling.md](horizontal-scaling.md). Measured
 throughput: [benchmarks.md](benchmarks.md).
 
+**Worker extensions start on use and stop when idle** (ADR 0062 d3). An idle
+one holds no memory: on a 1 vCPU / 1 GB scope with 37 worker extensions the
+engine booted with no runner unit up (~150 MB PSS in all, against ~1 GB with
+every unit running), each called extension added ~25-55 MB PSS while it ran,
+and its idle timeout returned it to zero. Its first call after idle waits for
+it (~0.4-0.5 s on systemd). Per extension, an administrator chooses:
+
+```sh
+# Always on: started at boot, never stopped for idleness (latency only).
+curl -X PUT https://<host>/api/marketplace/<name>/runtime \
+  -H 'content-type: application/json' -d '{"alwaysOn": true}'
+# Or stopped after N seconds unused (default 300).
+curl -X PUT https://<host>/api/marketplace/<name>/runtime \
+  -H 'content-type: application/json' -d '{"alwaysOn": false, "idleTimeoutSeconds": 900}'
+```
+
+It needs a god session stepped up for `extension.runtime:<name>` (the Studio's
+marketplace Configure dialog does both), is written to `zv_settings` as
+`ext_runtime:<name>`, audited as `extension.runtime_set`, and applied at once on
+the replica that took it and at the next idle check on the others.
+`finance/invoicing` and `operations/pos` default to always on.
+
 ---
 
 ## 4. Observability
