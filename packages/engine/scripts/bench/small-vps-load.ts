@@ -18,7 +18,11 @@ const post = (path: string, body: unknown, cookie = '') =>
   });
 
 if (cmd === 'setup') {
-  const res = await post('/api/auth/sign-up/email', { email: a, password: PASSWORD, name: 'Bench' });
+  const res = await post('/api/auth/sign-up/email', {
+    email: a,
+    password: PASSWORD,
+    name: 'Bench',
+  });
   if (!res.ok) throw new Error(`sign-up ${res.status} ${await res.text()}`);
   console.log(((await res.json()) as { user: { id: string } }).user.id);
   process.exit(0);
@@ -34,7 +38,12 @@ const cookie = signIn.headers
   .join('; ');
 const body = {
   client_name: 'Bench Client SRL',
-  lines: [0, 1, 2].map((i) => ({ description: `line ${i}`, quantity: 2, unit_price: 10 + i, tax_rate: 19 })),
+  lines: [0, 1, 2].map((i) => ({
+    description: `line ${i}`,
+    quantity: 2,
+    unit_price: 10 + i,
+    tax_rate: 19,
+  })),
 };
 const call = () => post('/ext/finance/invoicing/actions/createInvoice', body, cookie);
 
@@ -63,7 +72,10 @@ await Promise.all(
   }),
 );
 const wall = performance.now() - t0;
-const ok = out.filter((o) => o.status === 200).map((o) => o.ms).sort((x, y) => x - y);
+const ok = out
+  .filter((o) => o.status === 200)
+  .map((o) => o.ms)
+  .sort((x, y) => x - y);
 const pct = (p: number) => ok[Math.min(ok.length - 1, Math.ceil((p / 100) * ok.length) - 1)];
 console.log(
   JSON.stringify({

@@ -11,7 +11,10 @@ import { DIR_SIGNATURE_FILE, extensionDirListing } from '../../src/lib/security/
 const [keyFile, base, ...names] = process.argv.slice(2);
 const KEY_ID = 'bench-operator';
 if (!existsSync(keyFile!)) {
-  const kp = (await crypto.subtle.generateKey('Ed25519', true, ['sign', 'verify'])) as CryptoKeyPair;
+  const kp = (await crypto.subtle.generateKey('Ed25519', true, [
+    'sign',
+    'verify',
+  ])) as CryptoKeyPair;
   writeFileSync(
     keyFile!,
     JSON.stringify({
@@ -31,7 +34,15 @@ for (const name of names) {
   ).toString('base64');
   writeFileSync(
     join(dir, DIR_SIGNATURE_FILE),
-    JSON.stringify({ algorithm: 'ed25519', signature, bundleSha256, keyId: KEY_ID, tier: 'private' }),
+    JSON.stringify({
+      algorithm: 'ed25519',
+      signature,
+      bundleSha256,
+      keyId: KEY_ID,
+      tier: 'private',
+    }),
   );
 }
-console.log(`OPERATOR_PUBLIC_KEYS_JSON=${JSON.stringify([{ keyId: KEY_ID, publicKeyHex: key.pub }])}`);
+console.log(
+  `OPERATOR_PUBLIC_KEYS_JSON=${JSON.stringify([{ keyId: KEY_ID, publicKeyHex: key.pub }])}`,
+);

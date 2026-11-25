@@ -1,0 +1,231 @@
+{"phase":"boot","state":"runner-load","boot_ms":26032,"extensions_line":"✅ Extensions loaded: ai, auth/scim, communications/mail, compliance/ro/documents, finance/invoicing, compliance/ro/efact"}
+{"phase":"running","group":"engine","pid":121887,"rss_kb":142680,"pss_kb":109063}
+{"phase":"running","cgroup":"engine","current":195596288,"peak":303489024,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@ai_32e83e92.service","pid":121997,"rss_kb":58052,"pss_kb":21415}
+{"phase":"running","group":"zveltio-ext-runner@ai_32e83e92.service","pid":122016,"rss_kb":26248,"pss_kb":4258}
+{"phase":"running","cgroup":"zveltio-ext-runner@ai_32e83e92.service","current":26656768,"peak":28459008,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@auth_scim_160ba664.service","pid":122026,"rss_kb":57080,"pss_kb":20467}
+{"phase":"running","group":"zveltio-ext-runner@auth_scim_160ba664.service","pid":122045,"rss_kb":26500,"pss_kb":4331}
+{"phase":"running","cgroup":"zveltio-ext-runner@auth_scim_160ba664.service","current":25673728,"peak":28454912,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@communications_m_47169cbd.service","pid":122060,"rss_kb":58044,"pss_kb":21411}
+{"phase":"running","group":"zveltio-ext-runner@communications_m_47169cbd.service","pid":122078,"rss_kb":26304,"pss_kb":4314}
+{"phase":"running","cgroup":"zveltio-ext-runner@communications_m_47169cbd.service","current":26710016,"peak":28459008,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@compliance_ro_do_477becf5.service","pid":122090,"rss_kb":57108,"pss_kb":20495}
+{"phase":"running","group":"zveltio-ext-runner@compliance_ro_do_477becf5.service","pid":122109,"rss_kb":26264,"pss_kb":4274}
+{"phase":"running","cgroup":"zveltio-ext-runner@compliance_ro_do_477becf5.service","current":25649152,"peak":28475392,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@compliance_ro_ef_c5ed4354.service","pid":122153,"rss_kb":58072,"pss_kb":21435}
+{"phase":"running","group":"zveltio-ext-runner@compliance_ro_ef_c5ed4354.service","pid":122171,"rss_kb":26824,"pss_kb":4466}
+{"phase":"running","cgroup":"zveltio-ext-runner@compliance_ro_ef_c5ed4354.service","current":26886144,"peak":28856320,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@compliance_ro_et_a3312401.service","pid":122181,"rss_kb":57004,"pss_kb":20521}
+{"phase":"running","group":"zveltio-ext-runner@compliance_ro_et_a3312401.service","pid":122199,"rss_kb":26376,"pss_kb":4260}
+{"phase":"running","cgroup":"zveltio-ext-runner@compliance_ro_et_a3312401.service","current":25657344,"peak":28844032,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@compliance_ro_pr_85b3355a.service","pid":122212,"rss_kb":57136,"pss_kb":20460}
+{"phase":"running","group":"zveltio-ext-runner@compliance_ro_pr_85b3355a.service","pid":122231,"rss_kb":26432,"pss_kb":4320}
+{"phase":"running","cgroup":"zveltio-ext-runner@compliance_ro_pr_85b3355a.service","current":25657344,"peak":28434432,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@compliance_ro_sa_6b4221d2.service","pid":122272,"rss_kb":57104,"pss_kb":20499}
+{"phase":"running","group":"zveltio-ext-runner@compliance_ro_sa_6b4221d2.service","pid":122290,"rss_kb":26104,"pss_kb":4294}
+{"phase":"running","cgroup":"zveltio-ext-runner@compliance_ro_sa_6b4221d2.service","current":25673728,"peak":28520448,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@content_media_ae235fd8.service","pid":122301,"rss_kb":57132,"pss_kb":20519}
+{"phase":"running","group":"zveltio-ext-runner@content_media_ae235fd8.service","pid":122320,"rss_kb":26172,"pss_kb":4245}
+{"phase":"running","cgroup":"zveltio-ext-runner@content_media_ae235fd8.service","current":25640960,"peak":28729344,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@crm_9261ceef.service","pid":122330,"rss_kb":57136,"pss_kb":20523}
+{"phase":"running","group":"zveltio-ext-runner@crm_9261ceef.service","pid":122348,"rss_kb":26216,"pss_kb":4297}
+{"phase":"running","cgroup":"zveltio-ext-runner@crm_9261ceef.service","current":25710592,"peak":28753920,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@ecommerce_store_30c827d8.service","pid":122362,"rss_kb":57224,"pss_kb":20611}
+{"phase":"running","group":"zveltio-ext-runner@ecommerce_store_30c827d8.service","pid":122381,"rss_kb":26220,"pss_kb":4301}
+{"phase":"running","cgroup":"zveltio-ext-runner@ecommerce_store_30c827d8.service","current":25800704,"peak":28696576,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@finance_accounti_ee7802ba.service","pid":122243,"rss_kb":57140,"pss_kb":20518}
+{"phase":"running","group":"zveltio-ext-runner@finance_accounti_ee7802ba.service","pid":122261,"rss_kb":26468,"pss_kb":4352}
+{"phase":"running","cgroup":"zveltio-ext-runner@finance_accounti_ee7802ba.service","current":25747456,"peak":28753920,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@finance_banking_1fc14c59.service","pid":122393,"rss_kb":57104,"pss_kb":20500}
+{"phase":"running","group":"zveltio-ext-runner@finance_banking_1fc14c59.service","pid":122411,"rss_kb":26640,"pss_kb":4440}
+{"phase":"running","cgroup":"zveltio-ext-runner@finance_banking_1fc14c59.service","current":25808896,"peak":28745728,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@finance_expenses_6c863b3a.service","pid":122422,"rss_kb":57104,"pss_kb":20491}
+{"phase":"running","group":"zveltio-ext-runner@finance_expenses_6c863b3a.service","pid":122440,"rss_kb":26416,"pss_kb":4300}
+{"phase":"running","cgroup":"zveltio-ext-runner@finance_expenses_6c863b3a.service","current":25665536,"peak":28790784,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@finance_invoicin_deb72a3a.service","pid":122121,"rss_kb":57188,"pss_kb":20579}
+{"phase":"running","group":"zveltio-ext-runner@finance_invoicin_deb72a3a.service","pid":122140,"rss_kb":26512,"pss_kb":4497}
+{"phase":"running","cgroup":"zveltio-ext-runner@finance_invoicin_deb72a3a.service","current":25964544,"peak":29220864,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@finance_quotes_2d56b02d.service","pid":122451,"rss_kb":57108,"pss_kb":20532}
+{"phase":"running","group":"zveltio-ext-runner@finance_quotes_2d56b02d.service","pid":122470,"rss_kb":26212,"pss_kb":4276}
+{"phase":"running","cgroup":"zveltio-ext-runner@finance_quotes_2d56b02d.service","current":25665536,"peak":28528640,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@finance_subscrip_3a78ecb8.service","pid":122484,"rss_kb":57136,"pss_kb":20523}
+{"phase":"running","group":"zveltio-ext-runner@finance_subscrip_3a78ecb8.service","pid":122553,"rss_kb":26364,"pss_kb":4315}
+{"phase":"running","cgroup":"zveltio-ext-runner@finance_subscrip_3a78ecb8.service","current":25722880,"peak":28815360,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@forms_8bec8757.service","pid":122564,"rss_kb":57056,"pss_kb":20443}
+{"phase":"running","group":"zveltio-ext-runner@forms_8bec8757.service","pid":122584,"rss_kb":26444,"pss_kb":4319}
+{"phase":"running","cgroup":"zveltio-ext-runner@forms_8bec8757.service","current":25632768,"peak":28639232,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@geospatial_postg_33da368c.service","pid":122593,"rss_kb":57024,"pss_kb":20411}
+{"phase":"running","group":"zveltio-ext-runner@geospatial_postg_33da368c.service","pid":122611,"rss_kb":26168,"pss_kb":4245}
+{"phase":"running","cgroup":"zveltio-ext-runner@geospatial_postg_33da368c.service","current":25530368,"peak":28446720,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@hr_employees_4c4db1bd.service","pid":122623,"rss_kb":57052,"pss_kb":20439}
+{"phase":"running","group":"zveltio-ext-runner@hr_employees_4c4db1bd.service","pid":122641,"rss_kb":26328,"pss_kb":4287}
+{"phase":"running","cgroup":"zveltio-ext-runner@hr_employees_4c4db1bd.service","current":25600000,"peak":28467200,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@hr_leave_e6606d48.service","pid":122651,"rss_kb":57076,"pss_kb":20463}
+{"phase":"running","group":"zveltio-ext-runner@hr_leave_e6606d48.service","pid":122670,"rss_kb":26284,"pss_kb":4298}
+{"phase":"running","cgroup":"zveltio-ext-runner@hr_leave_e6606d48.service","current":25636864,"peak":28815360,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@hr_payroll_6ba00ce5.service","pid":122680,"rss_kb":57112,"pss_kb":20440}
+{"phase":"running","group":"zveltio-ext-runner@hr_payroll_6ba00ce5.service","pid":122701,"rss_kb":26132,"pss_kb":4335}
+{"phase":"running","cgroup":"zveltio-ext-runner@hr_payroll_6ba00ce5.service","current":25657344,"peak":28663808,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@hr_time_tracking_a6d06549.service","pid":122712,"rss_kb":57040,"pss_kb":20427}
+{"phase":"running","group":"zveltio-ext-runner@hr_time_tracking_a6d06549.service","pid":122731,"rss_kb":26408,"pss_kb":4292}
+{"phase":"running","cgroup":"zveltio-ext-runner@hr_time_tracking_a6d06549.service","current":25595904,"peak":28524544,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@i18n_translation_8ca1871e.service","pid":122741,"rss_kb":57128,"pss_kb":20519}
+{"phase":"running","group":"zveltio-ext-runner@i18n_translation_8ca1871e.service","pid":122760,"rss_kb":26364,"pss_kb":4248}
+{"phase":"running","cgroup":"zveltio-ext-runner@i18n_translation_8ca1871e.service","current":25645056,"peak":28626944,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@operations_asset_55eda579.service","pid":122772,"rss_kb":56544,"pss_kb":20494}
+{"phase":"running","group":"zveltio-ext-runner@operations_asset_55eda579.service","pid":122844,"rss_kb":26128,"pss_kb":4302}
+{"phase":"running","cgroup":"zveltio-ext-runner@operations_asset_55eda579.service","current":25698304,"peak":28749824,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@operations_inven_c9b504c1.service","pid":122854,"rss_kb":57056,"pss_kb":20443}
+{"phase":"running","group":"zveltio-ext-runner@operations_inven_c9b504c1.service","pid":122873,"rss_kb":26448,"pss_kb":4332}
+{"phase":"running","cgroup":"zveltio-ext-runner@operations_inven_c9b504c1.service","current":25653248,"peak":28540928,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@operations_pos_c10c4973.service","pid":122883,"rss_kb":57004,"pss_kb":20462}
+{"phase":"running","group":"zveltio-ext-runner@operations_pos_c10c4973.service","pid":122904,"rss_kb":26412,"pss_kb":4304}
+{"phase":"running","cgroup":"zveltio-ext-runner@operations_pos_c10c4973.service","current":25640960,"peak":28614656,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@projects_helpdes_d917dfe6.service","pid":122914,"rss_kb":57112,"pss_kb":20540}
+{"phase":"running","group":"zveltio-ext-runner@projects_helpdes_d917dfe6.service","pid":122934,"rss_kb":26276,"pss_kb":4294}
+{"phase":"running","cgroup":"zveltio-ext-runner@projects_helpdes_d917dfe6.service","current":25714688,"peak":28659712,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@projects_managem_a4b36392.service","pid":122944,"rss_kb":56552,"pss_kb":20502}
+{"phase":"running","group":"zveltio-ext-runner@projects_managem_a4b36392.service","pid":122964,"rss_kb":26288,"pss_kb":4239}
+{"phase":"running","cgroup":"zveltio-ext-runner@projects_managem_a4b36392.service","current":25636864,"peak":28741632,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@storage_cloud_bb37583b.service","pid":122974,"rss_kb":57080,"pss_kb":20467}
+{"phase":"running","group":"zveltio-ext-runner@storage_cloud_bb37583b.service","pid":122995,"rss_kb":26288,"pss_kb":4307}
+{"phase":"running","cgroup":"zveltio-ext-runner@storage_cloud_bb37583b.service","current":25653248,"peak":28540928,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@templates_ansvsa_89473195.service","pid":123005,"rss_kb":56944,"pss_kb":20406}
+{"phase":"running","group":"zveltio-ext-runner@templates_ansvsa_89473195.service","pid":123027,"rss_kb":26292,"pss_kb":4239}
+{"phase":"running","cgroup":"zveltio-ext-runner@templates_ansvsa_89473195.service","current":25518080,"peak":28438528,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@templates_helpde_22d36b32.service","pid":123035,"rss_kb":57136,"pss_kb":20527}
+{"phase":"running","group":"zveltio-ext-runner@templates_helpde_22d36b32.service","pid":123056,"rss_kb":26312,"pss_kb":4250}
+{"phase":"running","cgroup":"zveltio-ext-runner@templates_helpde_22d36b32.service","current":25653248,"peak":28471296,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@templates_invent_6ce7a455.service","pid":123067,"rss_kb":57124,"pss_kb":20520}
+{"phase":"running","group":"zveltio-ext-runner@templates_invent_6ce7a455.service","pid":123086,"rss_kb":26112,"pss_kb":4248}
+{"phase":"running","cgroup":"zveltio-ext-runner@templates_invent_6ce7a455.service","current":25653248,"peak":28565504,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@templates_invoic_71b59f11.service","pid":123098,"rss_kb":57092,"pss_kb":20479}
+{"phase":"running","group":"zveltio-ext-runner@templates_invoic_71b59f11.service","pid":123119,"rss_kb":26232,"pss_kb":4254}
+{"phase":"running","cgroup":"zveltio-ext-runner@templates_invoic_71b59f11.service","current":25870336,"peak":28450816,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@templates_projec_aa52c3b2.service","pid":123128,"rss_kb":57064,"pss_kb":20581}
+{"phase":"running","group":"zveltio-ext-runner@templates_projec_aa52c3b2.service","pid":123149,"rss_kb":26228,"pss_kb":4250}
+{"phase":"running","cgroup":"zveltio-ext-runner@templates_projec_aa52c3b2.service","current":25702400,"peak":28581888,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@workflow_approva_ff0a8d56.service","pid":123159,"rss_kb":57044,"pss_kb":20506}
+{"phase":"running","group":"zveltio-ext-runner@workflow_approva_ff0a8d56.service","pid":123179,"rss_kb":26204,"pss_kb":4277}
+{"phase":"running","cgroup":"zveltio-ext-runner@workflow_approva_ff0a8d56.service","current":25874432,"peak":28594176,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@workflow_checkli_edc6ef91.service","pid":123191,"rss_kb":57124,"pss_kb":20511}
+{"phase":"running","group":"zveltio-ext-runner@workflow_checkli_edc6ef91.service","pid":123210,"rss_kb":26416,"pss_kb":4291}
+{"phase":"running","cgroup":"zveltio-ext-runner@workflow_checkli_edc6ef91.service","current":25927680,"peak":28745728,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","system":{"mem_used_kb":2090228,"swap_used_kb":324816,"units":37}}
+{"phase":"after-load","group":"engine","pid":121887,"rss_kb":374064,"pss_kb":331771}
+{"phase":"after-load","cgroup":"engine","current":332500992,"peak":362926080,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@ai_32e83e92.service","pid":121997,"rss_kb":56236,"pss_kb":18807}
+{"phase":"after-load","group":"zveltio-ext-runner@ai_32e83e92.service","pid":122016,"rss_kb":26276,"pss_kb":4051}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@ai_32e83e92.service","current":23674880,"peak":28459008,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@auth_scim_160ba664.service","pid":122026,"rss_kb":55300,"pss_kb":18504}
+{"phase":"after-load","group":"zveltio-ext-runner@auth_scim_160ba664.service","pid":122045,"rss_kb":26496,"pss_kb":4154}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@auth_scim_160ba664.service","current":23494656,"peak":28454912,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@communications_m_47169cbd.service","pid":122060,"rss_kb":55820,"pss_kb":18395}
+{"phase":"after-load","group":"zveltio-ext-runner@communications_m_47169cbd.service","pid":122078,"rss_kb":26708,"pss_kb":4177}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@communications_m_47169cbd.service","current":23318528,"peak":28459008,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@compliance_ro_do_477becf5.service","pid":122090,"rss_kb":55316,"pss_kb":18521}
+{"phase":"after-load","group":"zveltio-ext-runner@compliance_ro_do_477becf5.service","pid":122109,"rss_kb":26300,"pss_kb":4075}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@compliance_ro_do_477becf5.service","current":23433216,"peak":28475392,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@compliance_ro_ef_c5ed4354.service","pid":122153,"rss_kb":56184,"pss_kb":18755}
+{"phase":"after-load","group":"zveltio-ext-runner@compliance_ro_ef_c5ed4354.service","pid":122171,"rss_kb":26832,"pss_kb":4301}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@compliance_ro_ef_c5ed4354.service","current":23875584,"peak":28856320,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@compliance_ro_et_a3312401.service","pid":122181,"rss_kb":55204,"pss_kb":18538}
+{"phase":"after-load","group":"zveltio-ext-runner@compliance_ro_et_a3312401.service","pid":122199,"rss_kb":26412,"pss_kb":4061}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@compliance_ro_et_a3312401.service","current":23433216,"peak":28844032,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@compliance_ro_pr_85b3355a.service","pid":122212,"rss_kb":55364,"pss_kb":18506}
+{"phase":"after-load","group":"zveltio-ext-runner@compliance_ro_pr_85b3355a.service","pid":122231,"rss_kb":26700,"pss_kb":4173}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@compliance_ro_pr_85b3355a.service","current":23511040,"peak":28434432,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@compliance_ro_sa_6b4221d2.service","pid":122272,"rss_kb":55300,"pss_kb":18512}
+{"phase":"after-load","group":"zveltio-ext-runner@compliance_ro_sa_6b4221d2.service","pid":122290,"rss_kb":26164,"pss_kb":4119}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@compliance_ro_sa_6b4221d2.service","current":23470080,"peak":28520448,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@content_media_ae235fd8.service","pid":122301,"rss_kb":55296,"pss_kb":18500}
+{"phase":"after-load","group":"zveltio-ext-runner@content_media_ae235fd8.service","pid":122320,"rss_kb":26212,"pss_kb":4050}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@content_media_ae235fd8.service","current":23384064,"peak":28729344,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@crm_9261ceef.service","pid":122330,"rss_kb":55328,"pss_kb":18532}
+{"phase":"after-load","group":"zveltio-ext-runner@crm_9261ceef.service","pid":122348,"rss_kb":26272,"pss_kb":4118}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@crm_9261ceef.service","current":23498752,"peak":28753920,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@ecommerce_store_30c827d8.service","pid":122362,"rss_kb":55356,"pss_kb":18560}
+{"phase":"after-load","group":"zveltio-ext-runner@ecommerce_store_30c827d8.service","pid":122381,"rss_kb":26280,"pss_kb":4126}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@ecommerce_store_30c827d8.service","current":23531520,"peak":28696576,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@finance_accounti_ee7802ba.service","pid":122243,"rss_kb":55336,"pss_kb":18531}
+{"phase":"after-load","group":"zveltio-ext-runner@finance_accounti_ee7802ba.service","pid":122261,"rss_kb":26732,"pss_kb":4201}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@finance_accounti_ee7802ba.service","current":23564288,"peak":28753920,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@finance_banking_1fc14c59.service","pid":122393,"rss_kb":55320,"pss_kb":18534}
+{"phase":"after-load","group":"zveltio-ext-runner@finance_banking_1fc14c59.service","pid":122411,"rss_kb":26892,"pss_kb":4277}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@finance_banking_1fc14c59.service","current":23633920,"peak":28745728,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@finance_expenses_6c863b3a.service","pid":122422,"rss_kb":55328,"pss_kb":18532}
+{"phase":"after-load","group":"zveltio-ext-runner@finance_expenses_6c863b3a.service","pid":122440,"rss_kb":26680,"pss_kb":4149}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@finance_expenses_6c863b3a.service","current":23511040,"peak":28790784,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@finance_invoicin_deb72a3a.service","pid":122121,"rss_kb":62120,"pss_kb":23010}
+{"phase":"after-load","group":"zveltio-ext-runner@finance_invoicin_deb72a3a.service","pid":122140,"rss_kb":43728,"pss_kb":14285}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@finance_invoicin_deb72a3a.service","current":35172352,"peak":46202880,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@finance_quotes_2d56b02d.service","pid":122451,"rss_kb":55312,"pss_kb":18553}
+{"phase":"after-load","group":"zveltio-ext-runner@finance_quotes_2d56b02d.service","pid":122470,"rss_kb":26268,"pss_kb":4097}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@finance_quotes_2d56b02d.service","current":23465984,"peak":28528640,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@finance_subscrip_3a78ecb8.service","pid":122484,"rss_kb":55320,"pss_kb":18524}
+{"phase":"after-load","group":"zveltio-ext-runner@finance_subscrip_3a78ecb8.service","pid":122553,"rss_kb":26628,"pss_kb":4164}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@finance_subscrip_3a78ecb8.service","current":23556096,"peak":28815360,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@forms_8bec8757.service","pid":122564,"rss_kb":55272,"pss_kb":18476}
+{"phase":"after-load","group":"zveltio-ext-runner@forms_8bec8757.service","pid":122584,"rss_kb":26480,"pss_kb":4120}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@forms_8bec8757.service","current":23425024,"peak":28639232,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@geospatial_postg_33da368c.service","pid":122593,"rss_kb":55248,"pss_kb":18452}
+{"phase":"after-load","group":"zveltio-ext-runner@geospatial_postg_33da368c.service","pid":122611,"rss_kb":26200,"pss_kb":4042}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@geospatial_postg_33da368c.service","current":23326720,"peak":28446720,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@hr_employees_4c4db1bd.service","pid":122623,"rss_kb":55276,"pss_kb":18480}
+{"phase":"after-load","group":"zveltio-ext-runner@hr_employees_4c4db1bd.service","pid":122641,"rss_kb":26596,"pss_kb":4140}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@hr_employees_4c4db1bd.service","current":23449600,"peak":28467200,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@hr_leave_e6606d48.service","pid":122651,"rss_kb":55292,"pss_kb":18496}
+{"phase":"after-load","group":"zveltio-ext-runner@hr_leave_e6606d48.service","pid":122670,"rss_kb":26316,"pss_kb":4095}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@hr_leave_e6606d48.service","current":23425024,"peak":28815360,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@hr_payroll_6ba00ce5.service","pid":122680,"rss_kb":55352,"pss_kb":18498}
+{"phase":"after-load","group":"zveltio-ext-runner@hr_payroll_6ba00ce5.service","pid":122701,"rss_kb":26396,"pss_kb":4184}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@hr_payroll_6ba00ce5.service","current":23552000,"peak":28663808,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@hr_time_tracking_a6d06549.service","pid":122712,"rss_kb":55244,"pss_kb":18448}
+{"phase":"after-load","group":"zveltio-ext-runner@hr_time_tracking_a6d06549.service","pid":122731,"rss_kb":26440,"pss_kb":4089}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@hr_time_tracking_a6d06549.service","current":23371776,"peak":28524544,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@i18n_translation_8ca1871e.service","pid":122741,"rss_kb":55328,"pss_kb":18536}
+{"phase":"after-load","group":"zveltio-ext-runner@i18n_translation_8ca1871e.service","pid":122760,"rss_kb":26388,"pss_kb":4037}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@i18n_translation_8ca1871e.service","current":23408640,"peak":28626944,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@operations_asset_55eda579.service","pid":122772,"rss_kb":54880,"pss_kb":18527}
+{"phase":"after-load","group":"zveltio-ext-runner@operations_asset_55eda579.service","pid":122844,"rss_kb":26188,"pss_kb":4127}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@operations_asset_55eda579.service","current":23511040,"peak":28749824,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@operations_inven_c9b504c1.service","pid":122854,"rss_kb":55268,"pss_kb":18472}
+{"phase":"after-load","group":"zveltio-ext-runner@operations_inven_c9b504c1.service","pid":122873,"rss_kb":26712,"pss_kb":4181}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@operations_inven_c9b504c1.service","current":23519232,"peak":28540928,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@operations_pos_c10c4973.service","pid":122883,"rss_kb":55216,"pss_kb":18492}
+{"phase":"after-load","group":"zveltio-ext-runner@operations_pos_c10c4973.service","pid":122904,"rss_kb":26444,"pss_kb":4101}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@operations_pos_c10c4973.service","current":23425024,"peak":28614656,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@projects_helpdes_d917dfe6.service","pid":122914,"rss_kb":55276,"pss_kb":18521}
+{"phase":"after-load","group":"zveltio-ext-runner@projects_helpdes_d917dfe6.service","pid":122934,"rss_kb":26312,"pss_kb":4095}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@projects_helpdes_d917dfe6.service","current":23453696,"peak":28659712,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@projects_managem_a4b36392.service","pid":122944,"rss_kb":54892,"pss_kb":18539}
+{"phase":"after-load","group":"zveltio-ext-runner@projects_managem_a4b36392.service","pid":122964,"rss_kb":26328,"pss_kb":4044}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@projects_managem_a4b36392.service","current":23433216,"peak":28741632,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@storage_cloud_bb37583b.service","pid":122974,"rss_kb":55292,"pss_kb":18496}
+{"phase":"after-load","group":"zveltio-ext-runner@storage_cloud_bb37583b.service","pid":122995,"rss_kb":26320,"pss_kb":4105}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@storage_cloud_bb37583b.service","current":23437312,"peak":28540928,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@templates_ansvsa_89473195.service","pid":123005,"rss_kb":55148,"pss_kb":18428}
+{"phase":"after-load","group":"zveltio-ext-runner@templates_ansvsa_89473195.service","pid":123027,"rss_kb":26324,"pss_kb":4036}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@templates_ansvsa_89473195.service","current":23293952,"peak":28438528,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@templates_helpde_22d36b32.service","pid":123035,"rss_kb":55336,"pss_kb":18544}
+{"phase":"after-load","group":"zveltio-ext-runner@templates_helpde_22d36b32.service","pid":123056,"rss_kb":26352,"pss_kb":4055}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@templates_helpde_22d36b32.service","current":23433216,"peak":28471296,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@templates_invent_6ce7a455.service","pid":123067,"rss_kb":55332,"pss_kb":18546}
+{"phase":"after-load","group":"zveltio-ext-runner@templates_invent_6ce7a455.service","pid":123086,"rss_kb":26180,"pss_kb":4081}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@templates_invent_6ce7a455.service","current":23470080,"peak":28565504,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@templates_invoic_71b59f11.service","pid":123098,"rss_kb":55300,"pss_kb":18504}
+{"phase":"after-load","group":"zveltio-ext-runner@templates_invoic_71b59f11.service","pid":123119,"rss_kb":26260,"pss_kb":4047}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@templates_invoic_71b59f11.service","current":23384064,"peak":28450816,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@templates_projec_aa52c3b2.service","pid":123128,"rss_kb":55216,"pss_kb":18550}
+{"phase":"after-load","group":"zveltio-ext-runner@templates_projec_aa52c3b2.service","pid":123149,"rss_kb":26264,"pss_kb":4051}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@templates_projec_aa52c3b2.service","current":23429120,"peak":28581888,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@workflow_approva_ff0a8d56.service","pid":123159,"rss_kb":55252,"pss_kb":18532}
+{"phase":"after-load","group":"zveltio-ext-runner@workflow_approva_ff0a8d56.service","pid":123179,"rss_kb":26256,"pss_kb":4094}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@workflow_approva_ff0a8d56.service","current":23453696,"peak":28594176,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","group":"zveltio-ext-runner@workflow_checkli_edc6ef91.service","pid":123191,"rss_kb":55332,"pss_kb":18536}
+{"phase":"after-load","group":"zveltio-ext-runner@workflow_checkli_edc6ef91.service","pid":123210,"rss_kb":26472,"pss_kb":4112}
+{"phase":"after-load","cgroup":"zveltio-ext-runner@workflow_checkli_edc6ef91.service","current":23470080,"peak":28745728,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"after-load","system":{"mem_used_kb":2349300,"swap_used_kb":324844,"units":37}}
+{"phase":"after-load","health":"200"}
+{"phase":"end","kernel_oom":0}
