@@ -1,1 +1,51 @@
-{"summary":{"data-list/before":{"n":4118,"ok":4117,"p50":14.9,"p95":24.6,"codes":{"200":4117,"-1":1}},"data-list/during":{"n":961257,"ok":0,"p50":null,"p95":null,"codes":{"-1":961257}},"data-post/before":{"n":4117,"ok":4117,"p50":19.2,"p95":31.3,"codes":{"201":4117}},"data-post/during":{"n":961259,"ok":0,"p50":null,"p95":null,"codes":{"-1":961259}},"invoice/before":{"n":103,"ok":103,"p50":85.9,"p95":118.6,"codes":{"200":103}},"invoice/during":{"n":299,"ok":0,"p50":null,"p95":null,"codes":{"-1":299}},"bad/before":{"n":0,"ok":0,"p50":null,"p95":null,"codes":{}},"bad/during":{"n":60,"ok":0,"p50":null,"p95":null,"codes":{"-1":60}}},"bad_calls":["30000 bad -1 30.2ms","31030 bad -1 0.4ms","32031 bad -1 0.2ms","33031 bad -1 0.2ms","34032 bad -1 0.1ms","35032 bad -1 0.2ms","36033 bad -1 0.4ms","37033 bad -1 0.3ms","38034 bad -1 0.3ms","39035 bad -1 0.3ms","40036 bad -1 0.3ms","41037 bad -1 0.2ms"],"bad_bodies":[]}
+{
+  "summary": {
+    "data-list/before": {
+      "n": 4118,
+      "ok": 4117,
+      "p50": 14.9,
+      "p95": 24.6,
+      "codes": { "200": 4117, "-1": 1 }
+    },
+    "data-list/during": {
+      "n": 961257,
+      "ok": 0,
+      "p50": null,
+      "p95": null,
+      "codes": { "-1": 961257 }
+    },
+    "data-post/before": {
+      "n": 4117,
+      "ok": 4117,
+      "p50": 19.2,
+      "p95": 31.3,
+      "codes": { "201": 4117 }
+    },
+    "data-post/during": {
+      "n": 961259,
+      "ok": 0,
+      "p50": null,
+      "p95": null,
+      "codes": { "-1": 961259 }
+    },
+    "invoice/before": { "n": 103, "ok": 103, "p50": 85.9, "p95": 118.6, "codes": { "200": 103 } },
+    "invoice/during": { "n": 299, "ok": 0, "p50": null, "p95": null, "codes": { "-1": 299 } },
+    "bad/before": { "n": 0, "ok": 0, "p50": null, "p95": null, "codes": {} },
+    "bad/during": { "n": 60, "ok": 0, "p50": null, "p95": null, "codes": { "-1": 60 } }
+  },
+  "bad_calls": [
+    "30000 bad -1 30.2ms",
+    "31030 bad -1 0.4ms",
+    "32031 bad -1 0.2ms",
+    "33031 bad -1 0.2ms",
+    "34032 bad -1 0.1ms",
+    "35032 bad -1 0.2ms",
+    "36033 bad -1 0.4ms",
+    "37033 bad -1 0.3ms",
+    "38034 bad -1 0.3ms",
+    "39035 bad -1 0.3ms",
+    "40036 bad -1 0.3ms",
+    "41037 bad -1 0.2ms"
+  ],
+  "bad_bodies": []
+}

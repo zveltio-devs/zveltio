@@ -8,7 +8,21 @@
   "zveltioMaxVersion": "4.0.0",
   "package": "@zveltio/ext-probe-leak",
   "contributes": { "engine": true, "studio": false, "fieldTypes": [] },
-  "engine": { "entry": "engine/index.js", "format": "esm", "target": "bun", "bundled": true, "bundlePeers": false },
+  "engine": {
+    "entry": "engine/index.js",
+    "format": "esm",
+    "target": "bun",
+    "bundled": true,
+    "bundlePeers": false
+  },
   "collections": ["probe_leak_log"],
-  "actions": [{ "name": "misbehave", "permission": { "resource": "probe_leak_log", "action": "execute" }, "input": { "type": "object", "additionalProperties": false, "properties": {} }, "reads": ["probe_leak_log"], "writes": [] }]
+  "actions": [
+    {
+      "name": "misbehave",
+      "permission": { "resource": "probe_leak_log", "action": "execute" },
+      "input": { "type": "object", "additionalProperties": false, "properties": {} },
+      "reads": ["probe_leak_log"],
+      "writes": []
+    }
+  ]
 }

@@ -1,1 +1,53 @@
-{"summary":{"data-list/before":{"n":3589,"ok":3589,"p50":17.8,"p95":29.1,"codes":{"200":3589}},"data-list/during":{"n":10472,"ok":10472,"p50":16.7,"p95":26.7,"codes":{"200":10472}},"data-post/before":{"n":3590,"ok":3590,"p50":20.9,"p95":35.8,"codes":{"201":3590}},"data-post/during":{"n":10470,"ok":10470,"p50":18.7,"p95":33.4,"codes":{"201":10470}},"invoice/before":{"n":97,"ok":97,"p50":102.3,"p95":162.7,"codes":{"200":97}},"invoice/during":{"n":269,"ok":269,"p50":87.7,"p95":160.2,"codes":{"200":269}},"bad/before":{"n":0,"ok":0,"p50":null,"p95":null,"codes":{}},"bad/during":{"n":75,"ok":0,"p50":null,"p95":null,"codes":{"503":75}}},"bad_calls":["30000 bad 503 1510.4ms","32510 bad 503 39.5ms","33550 bad 503 1525.5ms","36076 bad 503 32.2ms","37108 bad 503 1345.5ms","39454 bad 503 23.2ms","40477 bad 503 22.7ms","41500 bad 503 25.8ms","42526 bad 503 16.5ms","43542 bad 503 26.3ms","44569 bad 503 17.6ms","45586 bad 503 103.3ms"],"bad_bodies":["503 {\"type\":\"about:blank\",\"title\":\"Service Unavailable\",\"status\":503,\"code\":\"extension.unavailable\",\"detail\":\"extension \\\"probe/leak\\\" stopped while running action "]}
+{
+  "summary": {
+    "data-list/before": {
+      "n": 3589,
+      "ok": 3589,
+      "p50": 17.8,
+      "p95": 29.1,
+      "codes": { "200": 3589 }
+    },
+    "data-list/during": {
+      "n": 10472,
+      "ok": 10472,
+      "p50": 16.7,
+      "p95": 26.7,
+      "codes": { "200": 10472 }
+    },
+    "data-post/before": {
+      "n": 3590,
+      "ok": 3590,
+      "p50": 20.9,
+      "p95": 35.8,
+      "codes": { "201": 3590 }
+    },
+    "data-post/during": {
+      "n": 10470,
+      "ok": 10470,
+      "p50": 18.7,
+      "p95": 33.4,
+      "codes": { "201": 10470 }
+    },
+    "invoice/before": { "n": 97, "ok": 97, "p50": 102.3, "p95": 162.7, "codes": { "200": 97 } },
+    "invoice/during": { "n": 269, "ok": 269, "p50": 87.7, "p95": 160.2, "codes": { "200": 269 } },
+    "bad/before": { "n": 0, "ok": 0, "p50": null, "p95": null, "codes": {} },
+    "bad/during": { "n": 75, "ok": 0, "p50": null, "p95": null, "codes": { "503": 75 } }
+  },
+  "bad_calls": [
+    "30000 bad 503 1510.4ms",
+    "32510 bad 503 39.5ms",
+    "33550 bad 503 1525.5ms",
+    "36076 bad 503 32.2ms",
+    "37108 bad 503 1345.5ms",
+    "39454 bad 503 23.2ms",
+    "40477 bad 503 22.7ms",
+    "41500 bad 503 25.8ms",
+    "42526 bad 503 16.5ms",
+    "43542 bad 503 26.3ms",
+    "44569 bad 503 17.6ms",
+    "45586 bad 503 103.3ms"
+  ],
+  "bad_bodies": [
+    "503 {\"type\":\"about:blank\",\"title\":\"Service Unavailable\",\"status\":503,\"code\":\"extension.unavailable\",\"detail\":\"extension \\\"probe/leak\\\" stopped while running action "
+  ]
+}

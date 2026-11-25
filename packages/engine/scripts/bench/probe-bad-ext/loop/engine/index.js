@@ -5,9 +5,9 @@ const misbehave = async () => {
   while (true) {}
 };
 export default {
-  name: "probe/loop",
-  category: "probe",
-  mountStrategy: "subapp",
+  name: 'probe/loop',
+  category: 'probe',
+  mountStrategy: 'subapp',
   actions: { misbehave },
   async register() {},
 };

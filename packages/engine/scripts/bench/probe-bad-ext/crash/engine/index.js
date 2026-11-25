@@ -5,9 +5,9 @@ const misbehave = async () => {
   process.exit(1);
 };
 export default {
-  name: "probe/crash",
-  category: "probe",
-  mountStrategy: "subapp",
+  name: 'probe/crash',
+  category: 'probe',
+  mountStrategy: 'subapp',
   actions: { misbehave },
   async register() {},
 };
