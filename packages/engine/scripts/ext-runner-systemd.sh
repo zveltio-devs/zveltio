@@ -149,7 +149,6 @@ check "runner unit bans sockets but AF_UNIX, under seccomp" \
    sudo grep -q "^Seccomp:[[:space:]]*2" "/proc/$(systemctl show -p MainPID --value "$UNIT_A")/status"'
 # ADR 0062 F20: read from the unit's live cgroup, what the kernel enforces.
 CG_A="/sys/fs/cgroup$(systemctl show -p ControlGroup --value "$UNIT_A")"
-sleep 0.5 # past the start burst (ADR 0062 step 2b): the cap the unit keeps
 check "runner unit caps its CPU at 20% of a core, weight 10 (ADR 0062 F20)" \
   '[ "$(cat "$CG_A/cpu.max")" = "20000 100000" ] && [ "$(cat "$CG_A/cpu.weight")" = 10 ]'
 
@@ -307,7 +306,7 @@ check "a start spinning in init is capped after the burst" \
   'grep -q "\"afterBurst\":\"20000 100000\"" <<<"$out" &&
    [ "$(grep -o "\"cpuMsPerSec\":[0-9]*" <<<"$out" | cut -d: -f2)" -le 250 ]'
 check "a start spinning in init is killed by the init timeout" \
-  'grep -q "\"load\":\"[^\"]*did not init within" <<<"$out"'
+  'grep -qE "\"load\":\"worker .*did not init within" <<<"$out"'
 
 sudo systemctl stop 'zveltio-ext-runner@*' 2>/dev/null || true
 [ "$fail" = 0 ] && echo "PASS: ext-runner on systemd"
