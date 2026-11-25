@@ -18,7 +18,11 @@
  * `managed` starts the extension's `zveltio-ext-runner@` unit through systemd,
  * as the engine does. Optional env: PROBE_URL (fetched, and connected to), PROBE_WRITE (a file
  * the extension tries to create), PROBE_UNIX (unix socket paths, `@name` for
- * an abstract one, it tries to connect to). Run by ext-runner-isolation.sh (container),
+ * an abstract one, it tries to connect to), PROBE_TCP (`host:port` pairs, a
+ * Postgres among them), PROBE_READ (paths it must not read: another
+ * extension's files). `escapes` (ADR 0062 probe "security") holds only
+ * `REACHED ...` or `DENIED ...`: native sockets through FFI, a child's raw
+ * socket, /etc/shadow, PROBE_TCP and PROBE_READ. A runner reaches none. Run by ext-runner-isolation.sh (container),
  * ext-runner-systemd.sh (real systemd), ext-runner-compose.sh (the release
  * compose) and ext-runner-standalone.sh (one container); on its own it proves
  * nothing.
@@ -93,6 +97,49 @@ export default {
         s.once('error', (e) => done(denied(e)));
       });
     }
+    // ADR 0062 probe "security": what native code, a child or a plain read reach.
+    const escapes = {};
+    const reach = (r) => (r === 'CONNECTED' || r.startsWith('READ') ? 'REACHED ' + r : r);
+    escapes.shadow = await Bun.file('/etc/shadow').text().then((t) => 'REACHED ' + t.length + 'B', denied);
+    for (const p of ${JSON.stringify((process.env.PROBE_READ ?? '').split(/\s+/).filter(Boolean))}) {
+      escapes['read ' + p] = await Bun.file(p).text().then((t) => 'REACHED ' + t.length + 'B', denied);
+    }
+    for (const hp of ${JSON.stringify((process.env.PROBE_TCP ?? '').split(/\s+/).filter(Boolean))}) {
+      const [host, port] = hp.split(':');
+      escapes['tcp ' + hp] = reach(await new Promise((resolve) => {
+        const s = connect({ host, port: Number(port) });
+        const done = (r) => { s.destroy(); resolve(r); };
+        s.setTimeout(3000, () => done('DENIED timeout'));
+        s.once('connect', () => done('CONNECTED'));
+        s.once('error', (e) => done(denied(e)));
+      }));
+    }
+    // Native code: socket(2) through libc, past every JS-level refusal.
+    try {
+      const { dlopen } = await import('bun:ffi');
+      let libc;
+      for (const name of ['libc.so.6', 'libc.musl-x86_64.so.1', 'libc.musl-aarch64.so.1']) {
+        try { libc = dlopen(name, { socket: { args: ['i32', 'i32', 'i32'], returns: 'i32' }, close: { args: ['i32'], returns: 'i32' } }); break; } catch {}
+      }
+      if (!libc) throw Object.assign(new Error('no libc'), { code: 'NOLIB' });
+      for (const [k, fam] of [['ffi socket AF_INET', 2], ['ffi socket AF_UNIX', 1]]) {
+        const fd = libc.symbols.socket(fam, 1, 0);
+        escapes[k] = fd >= 0 ? 'REACHED fd ' + fd : 'DENIED ' + fd;
+        if (fd >= 0) libc.symbols.close(fd);
+      }
+    } catch (e) { escapes['ffi'] = e.code === 'NOLIB' ? 'NOLIB' : denied(e); }
+    // A child: does the ban hold for what it starts? (Its stdio is a file:
+    // a pipe is a socketpair, which the ban refuses.)
+    if (${JSON.stringify(probeAddr)}) {
+      const outFile = '/tmp/zveltio-probe-child-' + Math.random().toString(36).slice(2);
+      const code = 'const s=require("node:net").connect(' + JSON.stringify(${JSON.stringify(probeAddr)}) + ');' +
+        'const w=(r)=>{require("node:fs").writeFileSync(' + JSON.stringify(outFile) + ',r);process.exit(0)};' +
+        's.setTimeout(3000,()=>w("DENIED timeout"));s.on("connect",()=>w("CONNECTED"));s.on("error",(e)=>w("DENIED "+e.code))';
+      try {
+        const r = Bun.spawnSync([process.execPath, '-e', code], { env: { ...process.env, BUN_BE_BUN: '1' }, stdin: 'ignore', stdout: 'ignore', stderr: 'ignore' });
+        escapes['child net'] = reach(await Bun.file(outFile).text().catch(() => 'DENIED child exit ' + r.exitCode));
+      } catch (e) { escapes['child net'] = denied(e); }
+    }
     let forks = 'skipped';
     if (${JSON.stringify(process.env.PROBE_FORKS ?? '')}) {
       // A shell's fork loop: Bun.spawn past the limit hangs instead of throwing.
@@ -114,6 +161,7 @@ export default {
       net,
       write: wrote,
       unix,
+      escapes,
       forks,
       addressSpace: (await read('/proc/self/limits')).match(/Max address space\\s+(\\S+)/)?.[1],
       threads: Number.parseInt((await read('/proc/self/status')).split('Threads:')[1] ?? ''),
