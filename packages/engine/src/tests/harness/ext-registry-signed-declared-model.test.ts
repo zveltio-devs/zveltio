@@ -35,6 +35,8 @@ import { REGISTRY_SIGNED_DIR } from '../../lib/security/index.js';
 import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extension-host.js';
 import {
   forgetInstalled,
+  forgetRuntimeSettings,
+  setRuntimeSetting,
   getTestApp,
   harnessAvailable,
   markInstalled,
@@ -93,6 +95,8 @@ d('a registry-signed worker extension is declared model only (level 2)', () => {
   const ctx = () => extensionLoader.ctx ?? ({ db, fieldTypeRegistry: { register() {} } } as never);
   async function load(name: string): Promise<string | undefined> {
     await markInstalled(db, name);
+    // Running from load (ADR 0062 d3): these probe a live process's frames and respawns.
+    await setRuntimeSetting(db, { alwaysOn: true }, name);
     await extensionLoader.loadExtension(name, app, ctx(), base);
     return extensionLoader.getLastLoadError(name);
   }
@@ -118,6 +122,7 @@ d('a registry-signed worker extension is declared model only (level 2)', () => {
     for (const name of names) {
       await extensionLoader.unload(name).catch(() => {});
       await forgetInstalled(db, name);
+      await forgetRuntimeSettings(db, name);
     }
     for (const [k, v] of Object.entries({
       ZVELTIO_EXT_TRANSPORT: saved.transport,
