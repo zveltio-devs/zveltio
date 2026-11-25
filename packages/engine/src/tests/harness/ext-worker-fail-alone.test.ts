@@ -7,7 +7,9 @@
  *  - calls into one extension beyond its concurrency limit are refused at once,
  *    holding no connection, rather than queue on the pool;
  *  - after repeated crashes the extension is disabled, with a message, and
- *    health says so.
+ *    health says so;
+ *  - a process that spins past an action's deadline is killed then, as a
+ *    crash, not left spinning until the heartbeat (ADR 0062 F20).
  *
  * Driven as s1's test is: the engine's own `finalizeExtensionLoad` behind the
  * engine's own `/ext/*` chain, over the `process` transport.
@@ -58,6 +60,7 @@ const C = `wfa_${STAMP}`;
 const RES = `wfa_res_${STAMP}`;
 const EXT = `wfa${STAMP}`;
 const CRASHY = `wfac${STAMP}`;
+const LOOPY = `wfal${STAMP}`;
 const TIMEOUT_MS = 2_000;
 
 const crashy = `
@@ -67,6 +70,19 @@ export default {
     crash: async () => {
       setTimeout(() => { throw new Error('the extension dies'); }, 20);
       await new Promise(() => {});
+    },
+    quick: async () => 'ok',
+  },
+  async register() {},
+};
+`;
+
+const loopy = `
+export default {
+  name: '${LOOPY}',
+  actions: {
+    spin: async () => {
+      for (;;) {}
     },
     quick: async () => 'ok',
   },
@@ -208,6 +224,10 @@ d('a worker-isolated extension fails alone (ADR 0056 s2)', () => {
       resources: [RES],
       actions: [declare('crash'), declare('quick')],
     });
+    await load(LOOPY, loopy, {
+      resources: [RES],
+      actions: [declare('spin'), declare('quick')],
+    });
     invalidateActivationCache();
   }, 60_000);
 
@@ -216,7 +236,7 @@ d('a worker-isolated extension fails alone (ADR 0056 s2)', () => {
     invalidateActivationCache();
     if (saved.transport === undefined) delete process.env.ZVELTIO_EXT_TRANSPORT;
     else process.env.ZVELTIO_EXT_TRANSPORT = saved.transport;
-    for (const n of [EXT, CRASHY]) {
+    for (const n of [EXT, CRASHY, LOOPY]) {
       forgetActions(n);
       await getWorkerHost(app)
         .stop(n)
@@ -226,7 +246,7 @@ d('a worker-isolated extension fails alone (ADR 0056 s2)', () => {
     if (base) rmSync(base, { recursive: true, force: true });
     if (!db) return;
     await forgetRuleObjects(db, RES);
-    await sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${CRASHY})`.execute(db);
+    await sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${CRASHY}, ${LOOPY})`.execute(db);
     await sql`DELETE FROM zvd_permissions WHERE v2 = ${RES}`.execute(db);
     await asAuditOwner(db, sql`DELETE FROM zv_audit_log WHERE resource_id LIKE ${`${EXT}:%`}`);
     await asAuditOwner(db, sql`DELETE FROM zv_audit_log WHERE resource_id = ${CRASHY}`);
@@ -351,6 +371,50 @@ d('a worker-isolated extension fails alone (ADR 0056 s2)', () => {
     expect((await act('quick', {})).status).toBe(200);
     // Each action run is counted; the refused one is not.
     expect(health(EXT).totalRequests - before).toBe(limit + 1);
+  }, 30_000);
+
+  it('kills a process spinning past an action deadline, as a crash named with its key', async () => {
+    // The extension processes this test runs (`process` transport): its children.
+    const children = () =>
+      new Set(
+        Bun.spawnSync(['pgrep', '-P', String(process.pid)])
+          .stdout.toString()
+          .split('\n')
+          .filter(Boolean)
+          .map(Number),
+      );
+    for (let i = 0; i < 400 && health(LOOPY).status !== 'running'; i++) await Bun.sleep(50);
+    const before = children();
+    const warns = spyOn(console, 'warn');
+    _internalForTests.setRequestTxnTimeoutMs(TIMEOUT_MS);
+    try {
+      const res = await act('spin', {}, LOOPY);
+      expect(res.status).toBe(504);
+      // Killed shortly after its deadline, not 60-90 s later by the heartbeat.
+      for (let i = 0; i < 100 && health(LOOPY).recentCrashes === 0; i++) await Bun.sleep(50);
+      const h = health(LOOPY);
+      expect(h.recentCrashes).toBe(1);
+      expect(h.lastHangAt).toBeDefined();
+      expect(
+        warns.mock.calls.some(
+          (c) =>
+            String(c[0]).startsWith(`[ext:${LOOPY} key=test-operator] crash 1/5: hang: action "spin"`) &&
+            String(c[0]).includes('killed'),
+        ),
+      ).toBe(true);
+      // The spinning process is gone, not only answered for.
+      const gone = [...before].filter((pid) => !children().has(pid));
+      expect(gone.length).toBe(1);
+      expect(() => process.kill(gone[0]!, 0)).toThrow();
+      // A fresh one serves it.
+      for (let i = 0; i < 400 && health(LOOPY).status !== 'running'; i++) await Bun.sleep(50);
+      expect((await act('quick', {}, LOOPY)).status).toBe(200);
+      // A process that waited past its deadline answered the probe and was kept.
+      expect(health(EXT).recentCrashes).toBe(0);
+    } finally {
+      _internalForTests.setRequestTxnTimeoutMs();
+      warns.mockRestore();
+    }
   }, 30_000);
 
   it('is disabled after repeated crashes, with a message, and health says so', async () => {
