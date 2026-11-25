@@ -226,6 +226,26 @@ docker compose restart nginx
 3. Check that the webhook secret matches on both sides
 4. Review the webhook's `retry_attempts` (default 3, at most 10): a failed delivery retries with exponential backoff, then is listed in `GET /api/webhooks/dlq`; `POST /api/webhooks/dlq/replay` queues it again
 
+### Worker extensions refused on a restricted platform
+
+Worker (third-party) extensions run only on the extension runner, which in one
+container needs the image started as root with `CHOWN`, `DAC_OVERRIDE`,
+`FOWNER`, `SETPCAP`, `SETUID`, `SETGID` and `KILL`. Without them nothing runs
+weaker; you read one of:
+
+- **At start**, `[entrypoint] started as root without the capabilities the
+  extension runner needs (…)` and the container exits (`docker run --cap-drop
+  ALL …`). Add the capabilities (`--cap-add`, compose `cap_add`), or start the
+  image as its own user (`--user 100:101`).
+- **As `100:101` or any non-root user**, a worker extension's `loadError` reads
+  `extension runner unreachable (no extension runner in this container: …)` and
+  `/api/health/deep` reports `checks.extensions.detail.workersRefused`. Inline
+  first-party extensions are unaffected. Give the engine a runner (compose
+  `ext-runner`, Helm `extRunner.enabled`, or the root image above) to run them.
+- **After a crash**, `[ext:<name> key=<key>] killed by the kernel: out of memory
+  (oom_kill n -> m …)`: the extension's process hit the unit's `MemoryMax` or
+  the container's memory limit; raise it.
+
 ## Getting Help
 
 If you're still experiencing issues:

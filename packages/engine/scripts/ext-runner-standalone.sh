@@ -183,5 +183,13 @@ docker exec "$C-user" sh -c 'cat /proc/[0-9]*/cmdline 2>/dev/null | tr "\0" " "'
 [ "$(docker exec "$C-user" cat /proc/1/cmdline | tr '\0' ' ')" = "sleep infinity " ] \
   || { echo "FAIL: started as uid 100, PID 1 is not the binary"; fail=1; }
 
+# ADR 0062 F21: a platform that drops capabilities gets one line naming them and
+# the way through, not a bare `chown: Operation not permitted`.
+out=$(docker run --rm --cap-drop ALL --security-opt no-new-privileges "$IMG" 2>&1) && rc=0 || rc=$?
+echo "no caps: ${out:0:160}"
+[ "$rc" != 0 ] && grep -q 'without the capabilities the extension runner needs' <<<"$out" \
+  && grep -q -- '--user 100:101' <<<"$out" && ! grep -q 'chown:' <<<"$out" \
+  || { echo "FAIL: under --cap-drop ALL the entrypoint did not stop with a message naming the capabilities"; fail=1; }
+
 [ "$fail" = 0 ] && echo "PASS: ext-runner standalone isolation"
 exit "$fail"
