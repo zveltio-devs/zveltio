@@ -1,0 +1,1 @@
+{"concurrency":5,"seconds":120,"total":74562,"ok":1227,"busy":0,"otherErrors":73335,"firstError":"{\"type\":\"about:blank\",\"title\":\"Too Many Requests\",\"status\":429,\"code\":\"rate_limited\",\"detail\":\"Too Many Requests\",\"instance\":\"/ext/finance/invoicing/actions/createInvoice\",\"traceId\":\"0cb61117-0666-45e","p50":63.6,"p95":111,"max":206.1,"perSec":10.2}

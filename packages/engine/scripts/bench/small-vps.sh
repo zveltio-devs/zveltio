@@ -5,9 +5,13 @@
 #   setup        boot on the runner once (migrations, units), make the member, grant it, stop
 #   warm-inline  boot inline once (core packages into the tree), stop
 #   alone        engine with no extension
-#   inline       37 first-party extensions inside the engine (registry-signed tree)
+#   inline       the 37 inside the engine (registry-signed tree). Three of them (ai,
+#                communications/mail, compliance/ro/efactura) declare jobs, which run in a
+#                runner unit of their own even then: those 3 units are counted
 #   runner       37 on the systemd runner, every unit running; then every unit stopped
-#                (the simulated idle stop: the feature does not exist yet)
+#                (the simulated idle stop: the feature does not exist yet; the engine
+#                respawns a stopped worker, so the units are masked first and the
+#                engine's crash loop ends with the worker disabled)
 #   runner-load  runner again, then createInvoice 3 lines, concurrency 5, 2 minutes
 # The engine runs in `systemd-run --scope -p AllowedCPUs=0 -p MemoryMax=1G` as the
 # `zveltio` user; the runner units get the same CPU pin from a drop-in (installed
@@ -15,6 +19,7 @@
 # scope's processes and of every runner unit is read here, with sudo, by the operator.
 # Needs small-vps-prep.sh done. One JSON object per line goes to <outdir>/<state>.jsonl.
 set -euo pipefail
+trap 'sudo systemctl stop bench-engine.scope 2>/dev/null; sudo systemctl stop "zveltio-ext-runner@*" 2>/dev/null' EXIT
 STATE="${1:?state}"; OUT="${2:-/tmp/small-vps}"
 RUN=/opt/zveltio-run
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -68,6 +73,13 @@ case "$STATE" in
   alone)                    TREE=ext-inline; NAMES=; TRANSPORT= ;;
   *) echo "unknown state $STATE"; exit 2 ;;
 esac
+# A member reaches an extension only when the registry says it is enabled (what
+# `markInstalled` does in the harness); the `alone` state must have none.
+if [ -n "$NAMES" ]; then
+  sudo -u postgres psql -qX zveltio_bench -c "INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled) SELECT n, n, NULL, true, true FROM unnest(string_to_array('$NAMES', ',')) n ON CONFLICT (tenant_id, name) DO UPDATE SET is_installed = true, is_enabled = true"
+else
+  sudo -u postgres psql -qX zveltio_bench -c "DELETE FROM zv_extension_registry WHERE tenant_id IS NULL"
+fi
 sudo install -d -o zveltio -g zveltio /tmp/zv-home /tmp/zv-data
 ENVV=(PATH=/usr/local/bin:/usr/bin:/bin HOME=/tmp/zv-home NODE_ENV=production PORT=3000 HOST=127.0.0.1
   ZVELTIO_SINGLE_INSTANCE=1 ZVELTIO_REGISTRATION_ENABLED=1
@@ -77,6 +89,8 @@ ENVV=(PATH=/usr/local/bin:/usr/bin:/bin HOME=/tmp/zv-home NODE_ENV=production PO
   EXTENSIONS_DIR=$RUN/$TREE ZVELTIO_EXTENSIONS="$NAMES"
   "$(cat $RUN/bench/registry.line)" "$(cat $RUN/bench/operator.line)")
 [ -n "$TRANSPORT" ] && ENVV+=(ZVELTIO_EXT_TRANSPORT=$TRANSPORT)
+# The ext route allows 600 requests a minute per IP; the generator is on loopback.
+[ "$STATE" = runner-load ] && ENVV+=(RATE_LIMIT_ALLOWLIST=127.0.0.0/8)
 
 t0=$(date +%s%N)
 sudo systemd-run --quiet --scope --unit="$SCOPE" -p AllowedCPUs=0 -p MemoryMax=1G -- \
@@ -104,12 +118,18 @@ case "$STATE" in
   alone|inline) sample up ;;
   runner)
     sample running
-    sudo systemctl stop 'zveltio-ext-runner@*'
-    sleep "$SETTLE"
+    UNITS=$(systemctl list-units --plain --no-legend 'zveltio-ext-runner@*' | awk '{print $1}')
+    # shellcheck disable=SC2086
+    sudo systemctl mask --runtime $UNITS 2>/dev/null; sudo systemctl stop $UNITS
+    sleep $((SETTLE * 2)) # the engine's 5 respawns, 1 s apart, all refused
     emit "$(printf '{"phase":"idle-stopped","health":"%s","units_back":%s}' \
       "$(curl -s -m3 -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/health)" \
       "$(systemctl list-units --plain --no-legend 'zveltio-ext-runner@*' | wc -l)")"
-    sample idle-stopped ;;
+    sample idle-stopped
+    emit "$(printf '{"phase":"idle-stopped","engine_log_crash_lines":%s,"disabled_lines":%s}' \
+      "$(grep -c 'crash [0-9]/5' "$LOG" || true)" "$(grep -ci 'disabled' "$LOG" || true)")"
+    # shellcheck disable=SC2086
+    sudo systemctl unmask --runtime $UNITS ;;
   runner-load)
     sample running
     taskset -c 1 bun "$HERE/small-vps-load.ts" run "$LOAD_SECS" "$LOAD_CONC" "$MEMBER" >"$OUT/load.json"

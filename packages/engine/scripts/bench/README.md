@@ -40,3 +40,24 @@ pool/4.
 The engine runs as the `zveltio` user (the runner answers only that uid),
 `NODE_ENV=test` through the harness (`getTestApp`), `ZVELTIO_REGISTRATION_ENABLED=1`
 for the member's sign-up.
+
+## Small VPS probe (`small-vps*.sh|ts`)
+
+The compiled binary on the VM, not the harness: one engine process in
+`systemd-run --scope -p AllowedCPUs=0 -p MemoryMax=1G`, the 37 declared-model
+first-party extensions (`ext-first-party-as-worker.test.ts` `LOADS`; the four `"*"`
+extensions cannot run isolated at all) booted from `ZVELTIO_EXTENSIONS`, registry
+rows enabling them. Runner units get the same CPU pin from a drop-in.
+
+1. `small-vps-prep.sh`: two trees, `ext-inline` (registry-signed) and `ext-worker`
+   (`engine.isolation: worker`, signed by `small-vps-sign.ts`).
+2. `small-vps.sh setup`, then `warm-inline`: first boots (migrations, core packages),
+   the member and its grants.
+3. `small-vps.sh alone|inline|runner|runner-load`, then `small-vps-report.ts <outdir>`.
+
+`runner` samples every unit running, then masks and stops every unit (the idle
+stop does not exist yet; without the mask the engine respawns them in 1 s) and
+samples again. Memory is RSS and PSS from `smaps_rollup`, read with sudo by the
+operator's driver for the scope and every `zveltio-ext-runner@*` unit.
+`runner-load` runs `createInvoice` (3 lines) at concurrency 5 for two minutes from
+CPU 1, over HTTP, and counts `extension.busy`.

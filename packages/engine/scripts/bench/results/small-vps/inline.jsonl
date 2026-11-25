@@ -1,0 +1,11 @@
+{"phase":"boot","state":"inline","boot_ms":12191,"extensions_line":"✅ Extensions loaded: ai, auth/scim, communications/mail, compliance/ro/documents, finance/invoicing, compliance/ro/efact"}
+{"phase":"up","group":"engine","pid":110893,"rss_kb":147596,"pss_kb":123036}
+{"phase":"up","cgroup":"engine","current":104026112,"peak":216158208,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"up","group":"zveltio-ext-runner@ai_32e83e92.service","pid":111610,"rss_kb":58044,"pss_kb":30287}
+{"phase":"up","cgroup":"zveltio-ext-runner@ai_32e83e92.service","current":23044096,"peak":26202112,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"up","group":"zveltio-ext-runner@communications_m_47169cbd.service","pid":111599,"rss_kb":56608,"pss_kb":28733}
+{"phase":"up","cgroup":"zveltio-ext-runner@communications_m_47169cbd.service","current":21151744,"peak":26157056,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"up","group":"zveltio-ext-runner@compliance_ro_ef_c5ed4354.service","pid":111602,"rss_kb":57676,"pss_kb":29993}
+{"phase":"up","cgroup":"zveltio-ext-runner@compliance_ro_ef_c5ed4354.service","current":22577152,"peak":26210304,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"up","system":{"mem_used_kb":1272860,"swap_used_kb":300352,"units":3}}
+{"phase":"end","kernel_oom":0}

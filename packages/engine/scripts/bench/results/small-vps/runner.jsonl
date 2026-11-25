@@ -1,0 +1,121 @@
+{"phase":"boot","state":"runner","boot_ms":25409,"extensions_line":"✅ Extensions loaded: ai, auth/scim, communications/mail, compliance/ro/documents, finance/invoicing, compliance/ro/efact"}
+{"phase":"running","group":"engine","pid":111964,"rss_kb":142552,"pss_kb":108934}
+{"phase":"running","cgroup":"engine","current":98799616,"peak":204435456,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@ai_32e83e92.service","pid":112068,"rss_kb":58052,"pss_kb":21351}
+{"phase":"running","group":"zveltio-ext-runner@ai_32e83e92.service","pid":112090,"rss_kb":26380,"pss_kb":4263}
+{"phase":"running","cgroup":"zveltio-ext-runner@ai_32e83e92.service","current":26595328,"peak":28270592,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@auth_scim_160ba664.service","pid":112098,"rss_kb":57192,"pss_kb":20578}
+{"phase":"running","group":"zveltio-ext-runner@auth_scim_160ba664.service","pid":112117,"rss_kb":26604,"pss_kb":4308}
+{"phase":"running","cgroup":"zveltio-ext-runner@auth_scim_160ba664.service","current":25763840,"peak":28733440,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@communications_m_47169cbd.service","pid":112184,"rss_kb":57976,"pss_kb":21439}
+{"phase":"running","group":"zveltio-ext-runner@communications_m_47169cbd.service","pid":112203,"rss_kb":26432,"pss_kb":4315}
+{"phase":"running","cgroup":"zveltio-ext-runner@communications_m_47169cbd.service","current":26742784,"peak":28438528,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@compliance_ro_do_477becf5.service","pid":112213,"rss_kb":57072,"pss_kb":20458}
+{"phase":"running","group":"zveltio-ext-runner@compliance_ro_do_477becf5.service","pid":112232,"rss_kb":26404,"pss_kb":4287}
+{"phase":"running","cgroup":"zveltio-ext-runner@compliance_ro_do_477becf5.service","current":25628672,"peak":28450816,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@compliance_ro_ef_c5ed4354.service","pid":112277,"rss_kb":58080,"pss_kb":21442}
+{"phase":"running","group":"zveltio-ext-runner@compliance_ro_ef_c5ed4354.service","pid":112295,"rss_kb":26836,"pss_kb":4477}
+{"phase":"running","cgroup":"zveltio-ext-runner@compliance_ro_ef_c5ed4354.service","current":26906624,"peak":29241344,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@compliance_ro_et_a3312401.service","pid":112306,"rss_kb":56560,"pss_kb":20478}
+{"phase":"running","group":"zveltio-ext-runner@compliance_ro_et_a3312401.service","pid":112325,"rss_kb":26184,"pss_kb":4256}
+{"phase":"running","cgroup":"zveltio-ext-runner@compliance_ro_et_a3312401.service","current":25628672,"peak":28626944,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@compliance_ro_pr_85b3355a.service","pid":112337,"rss_kb":57068,"pss_kb":20464}
+{"phase":"running","group":"zveltio-ext-runner@compliance_ro_pr_85b3355a.service","pid":112357,"rss_kb":26132,"pss_kb":4309}
+{"phase":"running","cgroup":"zveltio-ext-runner@compliance_ro_pr_85b3355a.service","current":25661440,"peak":28708864,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@compliance_ro_sa_6b4221d2.service","pid":112397,"rss_kb":57036,"pss_kb":20435}
+{"phase":"running","group":"zveltio-ext-runner@compliance_ro_sa_6b4221d2.service","pid":112417,"rss_kb":26416,"pss_kb":4299}
+{"phase":"running","cgroup":"zveltio-ext-runner@compliance_ro_sa_6b4221d2.service","current":25616384,"peak":28749824,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@content_media_ae235fd8.service","pid":112426,"rss_kb":57056,"pss_kb":20539}
+{"phase":"running","group":"zveltio-ext-runner@content_media_ae235fd8.service","pid":112445,"rss_kb":26304,"pss_kb":4250}
+{"phase":"running","cgroup":"zveltio-ext-runner@content_media_ae235fd8.service","current":25665536,"peak":28819456,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@crm_9261ceef.service","pid":112456,"rss_kb":57120,"pss_kb":20506}
+{"phase":"running","group":"zveltio-ext-runner@crm_9261ceef.service","pid":112476,"rss_kb":26176,"pss_kb":4258}
+{"phase":"running","cgroup":"zveltio-ext-runner@crm_9261ceef.service","current":25649152,"peak":28532736,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@ecommerce_store_30c827d8.service","pid":112487,"rss_kb":57068,"pss_kb":20458}
+{"phase":"running","group":"zveltio-ext-runner@ecommerce_store_30c827d8.service","pid":112510,"rss_kb":26412,"pss_kb":4299}
+{"phase":"running","cgroup":"zveltio-ext-runner@ecommerce_store_30c827d8.service","current":25632768,"peak":27951104,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@finance_accounti_ee7802ba.service","pid":112369,"rss_kb":57064,"pss_kb":20482}
+{"phase":"running","group":"zveltio-ext-runner@finance_accounti_ee7802ba.service","pid":112389,"rss_kb":26336,"pss_kb":4355}
+{"phase":"running","cgroup":"zveltio-ext-runner@finance_accounti_ee7802ba.service","current":25718784,"peak":28700672,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@finance_banking_1fc14c59.service","pid":112522,"rss_kb":57064,"pss_kb":20454}
+{"phase":"running","group":"zveltio-ext-runner@finance_banking_1fc14c59.service","pid":112540,"rss_kb":26700,"pss_kb":4458}
+{"phase":"running","cgroup":"zveltio-ext-runner@finance_banking_1fc14c59.service","current":25792512,"peak":28622848,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@finance_expenses_6c863b3a.service","pid":112551,"rss_kb":57080,"pss_kb":20466}
+{"phase":"running","group":"zveltio-ext-runner@finance_expenses_6c863b3a.service","pid":112571,"rss_kb":26412,"pss_kb":4295}
+{"phase":"running","cgroup":"zveltio-ext-runner@finance_expenses_6c863b3a.service","current":25636864,"peak":28450816,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@finance_invoicin_deb72a3a.service","pid":112246,"rss_kb":57144,"pss_kb":20538}
+{"phase":"running","group":"zveltio-ext-runner@finance_invoicin_deb72a3a.service","pid":112264,"rss_kb":26352,"pss_kb":4424}
+{"phase":"running","cgroup":"zveltio-ext-runner@finance_invoicin_deb72a3a.service","current":25853952,"peak":28958720,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@finance_quotes_2d56b02d.service","pid":112583,"rss_kb":57172,"pss_kb":20499}
+{"phase":"running","group":"zveltio-ext-runner@finance_quotes_2d56b02d.service","pid":112653,"rss_kb":26368,"pss_kb":4287}
+{"phase":"running","cgroup":"zveltio-ext-runner@finance_quotes_2d56b02d.service","current":25665536,"peak":28528640,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@finance_subscrip_3a78ecb8.service","pid":112664,"rss_kb":57032,"pss_kb":20418}
+{"phase":"running","group":"zveltio-ext-runner@finance_subscrip_3a78ecb8.service","pid":112684,"rss_kb":26364,"pss_kb":4323}
+{"phase":"running","cgroup":"zveltio-ext-runner@finance_subscrip_3a78ecb8.service","current":25620480,"peak":28405760,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@forms_8bec8757.service","pid":112694,"rss_kb":57124,"pss_kb":20510}
+{"phase":"running","group":"zveltio-ext-runner@forms_8bec8757.service","pid":112712,"rss_kb":26432,"pss_kb":4315}
+{"phase":"running","cgroup":"zveltio-ext-runner@forms_8bec8757.service","current":25702400,"peak":28835840,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@geospatial_postg_33da368c.service","pid":112723,"rss_kb":57052,"pss_kb":20535}
+{"phase":"running","group":"zveltio-ext-runner@geospatial_postg_33da368c.service","pid":112743,"rss_kb":26296,"pss_kb":4242}
+{"phase":"running","cgroup":"zveltio-ext-runner@geospatial_postg_33da368c.service","current":25661440,"peak":28532736,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@hr_employees_4c4db1bd.service","pid":112754,"rss_kb":57060,"pss_kb":20446}
+{"phase":"running","group":"zveltio-ext-runner@hr_employees_4c4db1bd.service","pid":112775,"rss_kb":26284,"pss_kb":4298}
+{"phase":"running","cgroup":"zveltio-ext-runner@hr_employees_4c4db1bd.service","current":25620480,"peak":28585984,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@hr_leave_e6606d48.service","pid":112784,"rss_kb":57000,"pss_kb":20516}
+{"phase":"running","group":"zveltio-ext-runner@hr_leave_e6606d48.service","pid":112803,"rss_kb":26228,"pss_kb":4300}
+{"phase":"running","cgroup":"zveltio-ext-runner@hr_leave_e6606d48.service","current":25694208,"peak":28610560,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@hr_payroll_6ba00ce5.service","pid":112814,"rss_kb":57052,"pss_kb":20470}
+{"phase":"running","group":"zveltio-ext-runner@hr_payroll_6ba00ce5.service","pid":112834,"rss_kb":26232,"pss_kb":4317}
+{"phase":"running","cgroup":"zveltio-ext-runner@hr_payroll_6ba00ce5.service","current":25677824,"peak":28626944,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@hr_time_tracking_a6d06549.service","pid":112845,"rss_kb":57056,"pss_kb":20442}
+{"phase":"running","group":"zveltio-ext-runner@hr_time_tracking_a6d06549.service","pid":112865,"rss_kb":26184,"pss_kb":4288}
+{"phase":"running","cgroup":"zveltio-ext-runner@hr_time_tracking_a6d06549.service","current":25608192,"peak":28663808,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@i18n_translation_8ca1871e.service","pid":112875,"rss_kb":57136,"pss_kb":20522}
+{"phase":"running","group":"zveltio-ext-runner@i18n_translation_8ca1871e.service","pid":112893,"rss_kb":26156,"pss_kb":4241}
+{"phase":"running","cgroup":"zveltio-ext-runner@i18n_translation_8ca1871e.service","current":25640960,"peak":28483584,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@operations_asset_55eda579.service","pid":112906,"rss_kb":57132,"pss_kb":20518}
+{"phase":"running","group":"zveltio-ext-runner@operations_asset_55eda579.service","pid":112976,"rss_kb":26412,"pss_kb":4295}
+{"phase":"running","cgroup":"zveltio-ext-runner@operations_asset_55eda579.service","current":25690112,"peak":29036544,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@operations_inven_c9b504c1.service","pid":112989,"rss_kb":57128,"pss_kb":20514}
+{"phase":"running","group":"zveltio-ext-runner@operations_inven_c9b504c1.service","pid":113008,"rss_kb":26424,"pss_kb":4339}
+{"phase":"running","cgroup":"zveltio-ext-runner@operations_inven_c9b504c1.service","current":25731072,"peak":28749824,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@operations_pos_c10c4973.service","pid":113020,"rss_kb":57068,"pss_kb":20494}
+{"phase":"running","group":"zveltio-ext-runner@operations_pos_c10c4973.service","pid":113041,"rss_kb":26324,"pss_kb":4312}
+{"phase":"running","cgroup":"zveltio-ext-runner@operations_pos_c10c4973.service","current":25681920,"peak":28688384,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@projects_helpdes_d917dfe6.service","pid":113050,"rss_kb":57112,"pss_kb":20498}
+{"phase":"running","group":"zveltio-ext-runner@projects_helpdes_d917dfe6.service","pid":113072,"rss_kb":25992,"pss_kb":4291}
+{"phase":"running","cgroup":"zveltio-ext-runner@projects_helpdes_d917dfe6.service","current":25677824,"peak":27873280,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@projects_managem_a4b36392.service","pid":113082,"rss_kb":57144,"pss_kb":20530}
+{"phase":"running","group":"zveltio-ext-runner@projects_managem_a4b36392.service","pid":113103,"rss_kb":26148,"pss_kb":4230}
+{"phase":"running","cgroup":"zveltio-ext-runner@projects_managem_a4b36392.service","current":25636864,"peak":28631040,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@storage_cloud_bb37583b.service","pid":113113,"rss_kb":57116,"pss_kb":20502}
+{"phase":"running","group":"zveltio-ext-runner@storage_cloud_bb37583b.service","pid":113133,"rss_kb":26316,"pss_kb":4275}
+{"phase":"running","cgroup":"zveltio-ext-runner@storage_cloud_bb37583b.service","current":25653248,"peak":28467200,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@templates_ansvsa_89473195.service","pid":113148,"rss_kb":57096,"pss_kb":20482}
+{"phase":"running","group":"zveltio-ext-runner@templates_ansvsa_89473195.service","pid":113168,"rss_kb":26292,"pss_kb":4242}
+{"phase":"running","cgroup":"zveltio-ext-runner@templates_ansvsa_89473195.service","current":25608192,"peak":28676096,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@templates_helpde_22d36b32.service","pid":113179,"rss_kb":57028,"pss_kb":20414}
+{"phase":"running","group":"zveltio-ext-runner@templates_helpde_22d36b32.service","pid":113199,"rss_kb":26168,"pss_kb":4240}
+{"phase":"running","cgroup":"zveltio-ext-runner@templates_helpde_22d36b32.service","current":25796608,"peak":28282880,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@templates_invent_6ce7a455.service","pid":113209,"rss_kb":57152,"pss_kb":20546}
+{"phase":"running","group":"zveltio-ext-runner@templates_invent_6ce7a455.service","pid":113228,"rss_kb":26044,"pss_kb":4247}
+{"phase":"running","cgroup":"zveltio-ext-runner@templates_invent_6ce7a455.service","current":25944064,"peak":28897280,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@templates_invoic_71b59f11.service","pid":113239,"rss_kb":56984,"pss_kb":20410}
+{"phase":"running","group":"zveltio-ext-runner@templates_invoic_71b59f11.service","pid":113258,"rss_kb":26372,"pss_kb":4322}
+{"phase":"running","cgroup":"zveltio-ext-runner@templates_invoic_71b59f11.service","current":25612288,"peak":28504064,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@templates_projec_aa52c3b2.service","pid":113272,"rss_kb":57136,"pss_kb":20522}
+{"phase":"running","group":"zveltio-ext-runner@templates_projec_aa52c3b2.service","pid":113292,"rss_kb":26132,"pss_kb":4204}
+{"phase":"running","cgroup":"zveltio-ext-runner@templates_projec_aa52c3b2.service","current":25600000,"peak":28491776,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@workflow_approva_ff0a8d56.service","pid":113303,"rss_kb":56944,"pss_kb":20431}
+{"phase":"running","group":"zveltio-ext-runner@workflow_approva_ff0a8d56.service","pid":113324,"rss_kb":26364,"pss_kb":4247}
+{"phase":"running","cgroup":"zveltio-ext-runner@workflow_approva_ff0a8d56.service","current":25554944,"peak":28377088,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","group":"zveltio-ext-runner@workflow_checkli_edc6ef91.service","pid":113335,"rss_kb":57132,"pss_kb":20518}
+{"phase":"running","group":"zveltio-ext-runner@workflow_checkli_edc6ef91.service","pid":113354,"rss_kb":26412,"pss_kb":4295}
+{"phase":"running","cgroup":"zveltio-ext-runner@workflow_checkli_edc6ef91.service","current":25686016,"peak":28651520,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"running","system":{"mem_used_kb":2105132,"swap_used_kb":300352,"units":37}}
+{"phase":"idle-stopped","health":"200","units_back":0}
+{"phase":"idle-stopped","group":"engine","pid":111964,"rss_kb":145052,"pss_kb":142134}
+{"phase":"idle-stopped","cgroup":"engine","current":101380096,"peak":204435456,"swap":0,"swap_peak":0,"events":"low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 sock_throttled 0 "}
+{"phase":"idle-stopped","system":{"mem_used_kb":1215888,"swap_used_kb":300352,"units":0}}
+{"phase":"idle-stopped","engine_log_crash_lines":148,"disabled_lines":38}
+{"phase":"end","kernel_oom":0}
