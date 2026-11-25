@@ -19,9 +19,13 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Hono } from 'hono';
-import { runnerUnit } from '../src/lib/ext-runner.js';
-import { WorkerExtensionHost } from '../src/lib/worker-extension-host.js';
-import { signAsOperator } from '../src/testing/operator-signed.js';
+
+// The host pulls the engine in, and with it tsyringe: the polyfill first, as
+// `binary-entry.ts` does, and the rest after it (static imports are hoisted).
+await import('reflect-metadata');
+const { runnerUnit } = await import('../src/lib/ext-runner.js');
+const { WorkerExtensionHost } = await import('../src/lib/worker-extension-host.js');
+const { signAsOperator } = await import('../src/testing/operator-signed.js');
 
 const [extDir, name] = process.argv.slice(2);
 if (!extDir || !name) {
