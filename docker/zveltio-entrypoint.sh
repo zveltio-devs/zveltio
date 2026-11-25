@@ -12,13 +12,15 @@ if [ "$(id -u)" != 0 ] || [ "${1:-start}" != start ]; then exec "$BIN" "$@"; fi
 
 # The extensions' uids share this filesystem. /data is the engine's (a PaaS
 # volume arrives root's; a container that ran as root left root's files): they
-# may traverse it to read /data/extensions and nothing else in it.
+# may traverse it to reach the Deno in /data/extensions/.deno and nothing else
+# in it — not each other's files (ADR 0062, F15; the engine closes the
+# directory again before every spawn, closeExtensionsDir).
 [ "$(stat -c %u /data)" = 100 ] || chown -R 100:101 /data
 mkdir -p /data/extensions /data/storage
 chown 100:101 /data/extensions /data/storage
-chmod 0711 /data
-chmod 0755 /data/extensions
+chmod 0711 /data /data/extensions
 find /data -mindepth 1 -maxdepth 1 ! -name extensions ! -type l -exec chmod go-rwx {} +
+find /data/extensions -mindepth 1 -maxdepth 1 ! -name .deno ! -type l -exec chmod go-rwx {} +
 # /tmp is theirs too: the engine's temporary files go where they cannot look.
 rm -rf /tmp/zveltio-*  # a restarted container keeps the last run's
 tmp=$(mktemp -d /tmp/zveltio-engine.XXXXXX)

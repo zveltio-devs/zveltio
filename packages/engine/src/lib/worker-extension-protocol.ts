@@ -19,19 +19,23 @@ export type WorkerMessageId = string;
 export interface InitRequest {
   type: 'init';
   id: WorkerMessageId;
-  bundleUrl: string;
+  /**
+   * The bundle's bytes, read and checked by the engine. The process never reads
+   * extension files: on the runner the extensions' directory is closed to it
+   * (ADR 0062 probe "security", F15).
+   */
+  bundle: Uint8Array;
   /**
    * The bundle's sha256 as its signature lists it — an operator's or the
-   * registry's (ADR 0056 d1): the worker imports the bytes it read only if they
-   * hash to this. Always sent: no worker runs unsigned.
+   * registry's (ADR 0056 d1): the worker imports `bundle` only if it hashes to
+   * this. Always sent: no worker runs unsigned.
    */
   bundleSha256: string;
   extName: string;
-  // Constants the worker needs to render full responses. NEVER include
-  // DATABASE_URL or other credentials here — that's the whole point.
+  // Constants the worker needs. NEVER include DATABASE_URL or other
+  // credentials here — that's the whole point.
   env: {
     NODE_ENV?: string;
-    extensionPath: string;
   };
   /** Its manifest `routes` (ADR 0039), paired with the module's `routes` handlers and served. */
   routes?: { method: string; path: string; handler: string }[];

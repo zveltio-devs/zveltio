@@ -30,9 +30,12 @@
 
 import { lookup } from 'node:dns/promises';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
-import { ensureWorkerRuntimeOnDisk, startRunner } from '../src/lib/ext-runner.js';
+import { dirname, join } from 'node:path';
+import {
+  closeExtensionsDir,
+  ensureWorkerRuntimeOnDisk,
+  startRunner,
+} from '../src/lib/ext-runner.js';
 import { connectRunner, spawnProcessRunner } from '../src/lib/worker-extension-transport.js';
 
 const [transport, envPath, extDir, target] = process.argv.slice(2);
@@ -174,6 +177,9 @@ export default {
 `,
 );
 
+// As the engine does before every spawn on the runner (ADR 0062, F15).
+if (transport !== 'process') closeExtensionsDir(dirname(extDir));
+
 const channel =
   transport === 'process'
     ? spawnProcessRunner(ensureWorkerRuntimeOnDisk(), { NODE_ENV: 'production' })
@@ -202,9 +208,10 @@ channel.onmessage = (e) => {
 channel.postMessage({
   type: 'init',
   id: 'init-1',
-  bundleUrl: pathToFileURL(bundle).href,
+  // The bytes, as the engine sends them: the process reads no extension file.
+  bundle: readFileSync(bundle),
   // The runtime imports only bytes that hash to what the signature lists.
   bundleSha256: new Bun.CryptoHasher('sha256').update(readFileSync(bundle)).digest('hex'),
   extName: 'isolation-probe',
-  env: { NODE_ENV: 'production', extensionPath: extDir },
+  env: { NODE_ENV: 'production' },
 });

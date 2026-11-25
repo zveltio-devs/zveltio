@@ -45,6 +45,7 @@ import {
   mkdtempSync,
   writeFileSync,
   chmodSync,
+  readdirSync,
   rmSync,
   statSync,
 } from 'node:fs';
@@ -446,6 +447,56 @@ export function closeSharedDirs(dirs: ReadonlyArray<readonly [string, number]>):
 
 // ── Engine side: one unit instance per extension ─────────────────────────
 
+/** Where the engine keeps the Deno it downloads for jobs, under the extensions' directory. */
+export const DENO_DIR_NAME = '.deno';
+
+/**
+ * ADR 0062 probe "security" (F15): close the extensions' directory `base` to
+ * every uid but its owner, the engine's. On the runner each extension runs
+ * under a uid of its own beside this directory (a bind on systemd, a shared
+ * volume in compose, Helm and one container), and a 0755 tree let every
+ * extension read every other's files. The runtime needs none of them: the
+ * engine sends the bundle's bytes in `init`, and a Deno job's `jobs.js` crosses
+ * the same way. What stays reachable is the Deno binary: `base` keeps only the
+ * search bit for others (0711: no listing), `.deno` is left as it is, and every
+ * other entry becomes 0700 (0600 for a file). Applied at every spawn, so an
+ * install made before this, or a directory an update added, is closed too. A
+ * symbolic link is left alone (chmod would change its target). Throws when the
+ * engine cannot change the modes: it does not own the directory, and then no
+ * extension runs beside it.
+ */
+export function closeExtensionsDir(base: string): void {
+  try {
+    chmodSync(base, 0o711);
+    for (const entry of readdirSync(base, { withFileTypes: true })) {
+      if (entry.name === DENO_DIR_NAME || entry.isSymbolicLink()) continue;
+      chmodSync(join(base, entry.name), entry.isDirectory() ? 0o700 : 0o600);
+    }
+  } catch (err) {
+    throw new Error(
+      `the extensions' directory ${base} cannot be closed to the extension runner's uids ` +
+        `(${(err as Error).message}): the engine must own it and everything directly in it`,
+    );
+  }
+}
+
+/**
+ * The extensions' directory `extDir` was loaded from, for `closeExtensionsDir`:
+ * `<base>/<name>`, as every load joins them. Anything else is refused rather
+ * than guessed, since closing the wrong parent (a temporary directory) would
+ * close it to everyone.
+ */
+export function extensionsBaseOf(extDir: string, extName: string): string {
+  const suffix = `/${extName}`;
+  const dir = extDir.replace(/\/+$/, '');
+  if (!dir.endsWith(suffix) || dir.length === suffix.length) {
+    throw new Error(
+      `"${extName}" was loaded from ${extDir}, which is not <extensions dir>/${extName}`,
+    );
+  }
+  return dir.slice(0, -suffix.length);
+}
+
 const RUNNER_DIR = '/run/zveltio-ext';
 
 /**
@@ -577,9 +628,11 @@ Restart=on-failure
 RestartSec=2
 SyslogIdentifier=zveltio-ext-runner
 
-# Only the binary and the extensions are visible from the engine's directory.
+# Only the binary and the Deno the engine downloads for jobs are visible from
+# the engine's directory. No extension's files: the engine sends a bundle's
+# bytes over the socket, so an extension cannot read another's (ADR 0062, F15).
 TemporaryFileSystem=${dir}:ro
-BindReadOnlyPaths=${dir}/zveltio ${dir}/extensions
+BindReadOnlyPaths=${dir}/zveltio -${dir}/extensions/${DENO_DIR_NAME}
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
@@ -672,5 +725,12 @@ export function setupRunner(args: string[]): void {
     mkdirSync(join(path, '..'), { recursive: true });
     writeFileSync(path, text, { mode: 0o644 });
     console.log(`[ext-runner] wrote ${path}`);
+  }
+  // The units bind it at start: made now, the engine's, so a Deno it downloads
+  // later shows in units already running.
+  const deno = join(dir, 'extensions', DENO_DIR_NAME);
+  if (!existsSync(deno)) {
+    mkdirSync(deno, { recursive: true, mode: 0o755 });
+    Bun.spawnSync(['chown', `${engineUser}:`, join(dir, 'extensions'), deno]);
   }
 }

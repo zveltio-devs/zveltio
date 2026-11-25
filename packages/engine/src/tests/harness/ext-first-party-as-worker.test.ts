@@ -20,7 +20,9 @@ import { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
 import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extension-host.js';
+import { sql } from 'kysely';
 import {
+  dropTestCollection,
   forgetInstalled,
   getTestApp,
   harnessAvailable,
@@ -128,6 +130,8 @@ d('every first-party extension, loaded as a signed worker (ADR 0062 step 2)', ()
   const app = new Hono();
   const names = existsSync(SIBLING) ? firstParty() : [];
   const outcome = new Map<string, string>();
+  /** Declared collections that did not exist before this file: dropped after it. */
+  const created: string[] = [];
 
   beforeAll(async () => {
     db = (await getTestApp()).db;
@@ -152,6 +156,12 @@ d('every first-party extension, loaded as a signed worker (ADR 0062 step 2)', ()
             .split('/')
             .some((seg) => seg === 'node_modules' || seg === '.zveltio-registry'),
       });
+      for (const c of (manifest.collections ?? []) as string[]) {
+        const t = await sql<{
+          t: string | null;
+        }>`SELECT to_regclass(${`zvd_${c}`})::text AS t`.execute(db);
+        if (t.rows[0]?.t === null) created.push(c);
+      }
       manifest.engine.isolation = 'worker';
       writeFileSync(join(dir, 'manifest.json'), JSON.stringify(manifest));
       await signAsOperator(dir, name);
@@ -184,6 +194,8 @@ d('every first-party extension, loaded as a signed worker (ADR 0062 step 2)', ()
     _resetWorkerHostForTests();
     for (const name of names) await extensionLoader.unload(name).catch(() => {});
     if (db) await forgetInstalled(db, ...names);
+    // What the loads created, so a later file finds the names free.
+    if (db) for (const c of created) await dropTestCollection(db, c).catch(() => {});
     if (base) rmSync(base, { recursive: true, force: true });
   }, 120_000);
 
