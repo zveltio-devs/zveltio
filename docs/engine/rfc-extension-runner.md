@@ -239,7 +239,10 @@ runner.
      engine's uid or as root.
    - Limits: each process gets RLIMIT_AS (`ZVELTIO_EXT_MEMORY_MB`, floor and
      default 1024 — Bun does not start under it); the unit's `MemoryMax` and
-     `TasksMax` bound all of them together.
+     `TasksMax` bound all of them together. CPU (ADR 0062, F20): in container
+     mode each process runs at nice 10 with `RLIMIT_NICE` 0 (set by `prlimit`
+     as root, before the uid drop), and the container's CPU limit bounds them
+     together (compose `cpus: 1.0`, `cpu_shares: 256`; Helm `1000m`).
    - The unit (written by `install/install.sh` for binary installs) shows the
      runner only the binary and the Deno the engine downloads for jobs
      (`extensions/.deno`) of `ZVELTIO_DIR` (`TemporaryFileSystem` +
@@ -263,7 +266,9 @@ runner.
    - `zveltio-ext-runner@<instance>.service`, a template with
      `DynamicUser=yes`: every extension has its own uid, its own cgroup
      (`MemoryMax=1G` by default — decision 3, override with
-     `systemctl edit zveltio-ext-runner@<instance>`) and its own egress rule
+     `systemctl edit zveltio-ext-runner@<instance>`; `CPUQuota=20%` and
+     `CPUWeight=10` since ADR 0062 F20, the `edge` instance `CPUQuota=100%`
+     for all its invocations) and its own egress rule
      (`IPAddressDeny=any`; the per-extension `IPAddressAllow` of decision 2
      was withdrawn by ADR 0022). The instance is the extension name reduced to `[a-z0-9_]`
      plus 8 hex of its SHA-256: an escaped name (`\x2d`) breaks

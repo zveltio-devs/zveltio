@@ -186,13 +186,29 @@ d('the worker and flow-reader roles are retired', () => {
       )
       .execute(db);
 
+    // Dropping a role takes CREATEROLE and ADMIN on it (or a superuser). One a
+    // superuser made — another database's engine, or a test before this one
+    // (baseline-equivalence) — is not this owner's to drop, and 136 keeps it,
+    // holding nothing here.
+    const mayDrop = new Map<string, boolean>();
+    for (const role of RETIRED) {
+      const { rows } = await sql<{ ok: boolean }>`
+        SELECT r.rolsuper OR (r.rolcreaterole
+               AND pg_has_role(current_user, ${role}, 'MEMBER WITH ADMIN OPTION')) AS ok
+          FROM pg_catalog.pg_roles r WHERE r.rolname = current_user`.execute(db);
+      mayDrop.set(role, rows[0]!.ok);
+    }
+
     await run('up');
     for (const role of [...RETIRED, own]) {
       expect({ role, held: await heldHere(role) }).toEqual({ role, held: 0 });
     }
     expect(await exists(own)).toBe(false);
     for (const role of RETIRED) {
-      expect({ role, kept: await exists(role) }).toEqual({ role, kept: await heldElsewhere(role) });
+      expect({ role, kept: await exists(role) }).toEqual({
+        role,
+        kept: (await heldElsewhere(role)) || !mayDrop.get(role),
+      });
     }
     expect(await markerNote()).toBe('zveltio_audit_purge,zveltio_rls');
     // And the engine boots on it: the marker does not read the revoke as a restore.

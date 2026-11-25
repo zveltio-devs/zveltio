@@ -92,6 +92,8 @@ describe('runnerSetupFiles', () => {
       'MemoryMax=1G',
       'MemorySwapMax=0',
       'TasksMax=64',
+      'CPUWeight=10',
+      'CPUQuota=20%',
     ]) {
       expect(unit).toContain(`\n${line}\n`);
     }
@@ -102,6 +104,7 @@ describe('runnerSetupFiles', () => {
       .map((l) => l.split('=')[0]);
     expect([...new Set(keys)].sort()).toEqual([
       'AmbientCapabilities',
+      'CPUQuota',
       'CapabilityBoundingSet',
       'DynamicUser',
       'Environment',
@@ -185,8 +188,33 @@ describe('container runner', () => {
   // root before the drop so the extension's uid cannot raise them.
   it('caps tasks and address space before the drop, through prlimit', () => {
     const argv = limitArgv(setprivArgv(200005, ['/bin/zveltio', 'rt.mjs']));
-    expect(argv.slice(0, 5)).toEqual(['prlimit', '--nproc=64', '--as=1073741824', '--', 'setpriv']);
+    expect(argv.slice(0, 9)).toEqual([
+      'prlimit',
+      '--nproc=64',
+      '--as=1073741824',
+      '--nice=0',
+      '--',
+      'nice',
+      '-n',
+      '10',
+      'setpriv',
+    ]);
     expect(argv.at(-1)).toBe('rt.mjs');
+  });
+
+  // ADR 0062 F20: no cgroup per process in a container, so a lower priority,
+  // set as root before the drop and kept there by RLIMIT_NICE 0.
+  it('lowers the CPU priority of a container-mode process, out of its reach', async () => {
+    const argv = limitArgv([
+      'sh',
+      '-c',
+      'cat /proc/self/stat; renice -n 0 $$ >/dev/null 2>&1; echo r=$?',
+    ]).filter((a) => !a.startsWith('--nproc')); // this uid runs more than 64 tasks
+    const out = Bun.spawnSync(argv).stdout.toString();
+    // Field 19 of /proc/<pid>/stat, after the parenthesised name.
+    expect(out.split(') ')[1]!.split(' ')[16]).toBe('10');
+    // Only an unprivileged uid is refused; root (this test, maybe) is not.
+    if (process.getuid?.() !== 0) expect(out).toContain('r=1');
   });
 
   // A runner that cannot switch uids, or whose range runs past the ids a user

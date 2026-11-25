@@ -138,6 +138,10 @@ UNIT_A="zveltio-ext-runner@${INST_A}.service"
 check "runner unit bans sockets but AF_UNIX, under seccomp" \
   '[ "$(systemctl show -p RestrictAddressFamilies --value "$UNIT_A")" = AF_UNIX ] &&
    sudo grep -q "^Seccomp:[[:space:]]*2" "/proc/$(systemctl show -p MainPID --value "$UNIT_A")/status"'
+# ADR 0062 F20: read from the unit's live cgroup, what the kernel enforces.
+CG_A="/sys/fs/cgroup$(systemctl show -p ControlGroup --value "$UNIT_A")"
+check "runner unit caps its CPU at 20% of a core, weight 10 (ADR 0062 F20)" \
+  '[ "$(cat "$CG_A/cpu.max")" = "20000 100000" ] && [ "$(cat "$CG_A/cpu.weight")" = 10 ]'
 
 # ── extension B: another uid, cannot touch A ──────────────────────────────────
 out=$(PROBE_WRITE="/run/zveltio-ext/${INST_A}/planted.sock" probe managed b acme/probe-b)
@@ -201,6 +205,8 @@ check "edge runner answered" 'grep -q "\"transport\":\"runner\"" <<<"$out" && gr
 check "edge function reaches no address" 'grep -q "\"fetch\":\"DENIED" <<<"$out"'
 check "edge instance has room for concurrent invocations" \
   '[ "$(systemctl show -p TasksMax --value zveltio-ext-runner@edge.service)" = 512 ]'
+check "edge instance shares one core among its invocations" \
+  '[ "$(systemctl show -p CPUQuotaPerSecUSec --value zveltio-ext-runner@edge.service)" = 1s ]'
 
 # ── edge egress: the instance has no address, the engine fetches for it ───────
 # Same three cases as ext-runner-compose.sh, here behind IPAddressDeny: a listed

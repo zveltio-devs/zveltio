@@ -21,7 +21,8 @@
  *     respawn so operators can detect flapping.
  *   - Hang detection: heartbeat ping every 30s, terminate + respawn
  *     after 60s with no pong. Prevents a stuck extension from holding
- *     proxy routes open forever.
+ *     proxy routes open forever. A call past its deadline pings at once,
+ *     and no pong within `DEADLINE_PROBE_MS` is the same hang (ADR 0062 F20).
  *   - The box fails alone (ADR 0056): a call that outlives the request's
  *     hard timeout has its request's statement cancelled (504); requests
  *     past `boxConcurrencyLimit` are refused (503); `CRASH_LIMIT` crashes
@@ -342,6 +343,14 @@ function rpcId(prefix: string): string {
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEARTBEAT_TIMEOUT_MS = 60_000;
+/**
+ * ADR 0062 F20: a call that runs past its deadline is answered (504), and its
+ * process is pinged; this long without a pong and it is killed, as a hang. A
+ * process waiting on the engine or on a timer answers at once; one spinning in
+ * a loop answers nothing, and spinning it held a core until the heartbeat, 60 to
+ * 90 s later, caught it.
+ */
+const DEADLINE_PROBE_MS = 2_000;
 const MAX_RESPAWN_BACKOFF_MS = 30_000;
 
 /**
@@ -813,20 +822,27 @@ export class WorkerExtensionHost {
     return fresh;
   }
 
-  /** Ping/pong heartbeat — fires a hang+respawn if no reply in 60s. */
-  private heartbeat(managed: ManagedWorker): void {
+  /**
+   * Ping/pong heartbeat — a hang (a crash, killed and respawned) when no pong
+   * comes within `timeoutMs`: 60 s on the interval, `DEADLINE_PROBE_MS` after a
+   * call's deadline (`timedOut`).
+   */
+  private heartbeat(
+    managed: ManagedWorker,
+    timeoutMs = HEARTBEAT_TIMEOUT_MS,
+    reason = `hang: no answer to its heartbeat within ${HEARTBEAT_TIMEOUT_MS}ms`,
+  ): void {
     if (managed.stopped) return;
     const id = rpcId('ping');
     const timeout = setTimeout(() => {
       if (managed.pendingPings.has(id)) {
         managed.pendingPings.delete(id);
+        // Already replaced (another probe, an exit): one hang, one crash.
+        if (managed.respawning) return;
         managed.lastHangAt = Date.now();
-        this.scheduleRespawn(
-          managed,
-          `hang: no answer to its heartbeat within ${HEARTBEAT_TIMEOUT_MS}ms`,
-        );
+        this.scheduleRespawn(managed, reason);
       }
-    }, HEARTBEAT_TIMEOUT_MS);
+    }, timeoutMs);
     managed.pendingPings.set(id, () => clearTimeout(timeout));
     this.post(managed, { type: 'ping', id });
   }
@@ -1091,11 +1107,20 @@ export class WorkerExtensionHost {
     };
   }
 
-  /** A call into `managed` that outlived the request's hard timeout: logged, and its 504. */
+  /**
+   * A call into `managed` that outlived the request's hard timeout: logged, its
+   * process probed (killed if it does not answer: ADR 0062 F20), and its 504.
+   */
   private timedOut(managed: ManagedWorker, what: string): ProblemException {
     const ms = requestTxnTimeoutMs;
     console.error(
       `${boxTag(managed.name, managed.source)} timeout: ${what} did not answer within ${ms}ms`,
+    );
+    this.heartbeat(
+      managed,
+      DEADLINE_PROBE_MS,
+      `hang: ${what} ran past its ${ms}ms deadline and the process did not answer ` +
+        `a heartbeat within ${DEADLINE_PROBE_MS}ms; killed`,
     );
     return problem(
       'extension.timeout',

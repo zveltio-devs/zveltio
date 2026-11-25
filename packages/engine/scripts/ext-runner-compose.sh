@@ -96,6 +96,8 @@ for ext in r1 r2; do
   grep -q '"REACHED' <<<"$out" && { echo "FAIL: an extension reached what it must not (escapes)"; fail=1; }
   uid=$(grep -o '"uid":[0-9]*' <<<"$out" | cut -d: -f2 || true)
   [ -n "$uid" ] && [ "$uid" -ge 200000 ] || { echo "FAIL: extension ran as uid ${uid:-?}"; fail=1; }
+  # ADR 0062 F20: no cgroup per process here, so a lower priority it cannot take back.
+  grep -q '"nice":10,"niceLimit":"0"' <<<"$out" || { echo "FAIL: extension not at nice 10 under RLIMIT_NICE 0"; fail=1; }
   uids+=("$uid")
 done
 [ "${uids[0]}" != "${uids[1]}" ] || { echo "FAIL: two extensions got the same uid"; fail=1; }

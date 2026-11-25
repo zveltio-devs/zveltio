@@ -1533,7 +1533,16 @@ host forwards each declared route and action over a channel and answers the
     `503 extension.busy` with `Retry-After: 1` before it reaches the worker. Its
     Deno-runner jobs take every runner slot but one
     (`ZVELTIO_JOB_RUNNER_CONCURRENCY - 1`, at least 1).
-  - *Crashes.* An exit, a missed heartbeat or a failed respawn counts as a
+  - *Hangs.* When a route or action times out, the engine pings its process;
+    no answer within 2 s (a loop holds its event loop) and the process is
+    killed and respawned. The log line names the call, the extension and its
+    key: `crash 1/5: hang: action "x" ran past its 30000ms deadline …; killed`.
+    A process that only waits (on the engine, a timer) answers and is kept.
+  - *CPU.* On bare metal each extension's unit gets 20% of one core
+    (`CPUQuota=20%`, `CPUWeight=10`; an operator raises it with `systemctl edit
+    zveltio-ext-runner@<instance>`). In a container its process runs at nice 10,
+    within the runner container's limit (ADR 0062, F20).
+  - *Crashes.* An exit, a missed heartbeat, a hang or a failed respawn counts as a
     crash. Five within ten minutes and the extension is disabled: not
     respawned, its routes and actions answer `503 extension.disabled` with the
     reason, and health shows it. Disable and enable it again (or restart the

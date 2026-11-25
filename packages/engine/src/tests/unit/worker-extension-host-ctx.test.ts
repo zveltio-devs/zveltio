@@ -28,6 +28,7 @@ function setup(name = 'probe') {
     },
     routes: [] as { method: string; path: string }[],
     pendingInvokes: new Map(),
+    pendingPings: new Map(),
     invokeTenants: new Map<string, unknown>(),
     source: {
       collections: async (...args: unknown[]): Promise<unknown> => {

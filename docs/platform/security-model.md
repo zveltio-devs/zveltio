@@ -239,6 +239,17 @@ the filesystem, and the worker imports the bundle itself. From there:
   refuses a worker-isolated extension when no runner answers, and refuses
   `ZVELTIO_EXT_TRANSPORT=process` — a child under the engine's own uid, which
   reads what the engine reads and is the development transport.
+- Its CPU is bounded (ADR 0062, F20). On systemd each extension's unit has
+  `CPUQuota=20%` (of one core) and `CPUWeight=10`; in compose and Helm the
+  runner container shares one core among every extension (`cpus: 1.0`, the
+  chart's `1000m` limit), and each process in it, and in one container, runs at
+  nice 10 under `RLIMIT_NICE` 0, which its uid cannot undo. A route or action
+  that runs past the request's 30 s deadline is answered `504`, and its process
+  is pinged: no answer within 2 s and it is killed and respawned, counted as a
+  crash (five in ten minutes disable it). Measured on 2 vCPUs, a loop spinning a
+  core costs the engine's p95 +53-77% at any priority, SCHED_IDLE included; at
+  20% of a core +11-13%. The cap holds on systemd only: in a container a loop
+  can take the container's core until the deadline kills it.
 - The isolation decision survives a hot-reload: a re-register restarts the
   worker rather than quietly re-registering the extension in the main thread.
 
