@@ -682,10 +682,10 @@ MemoryMax=1G
 MemorySwapMax=0
 TasksMax=64
 # CPU (ADR 0062, F20): a loop in an extension spun a whole core and cost the
-# engine +36-78% on its p95 on 2 vCPUs. A low weight alone did not help (+55%,
-# measured: even SCHED_IDLE), the cap does: 20% of one core cost +11-13%, 10%
-# nothing. The weight gives the engine the CPU first on a saturated host. The
-# engine kills a process that spins past a call's deadline (30 s).
+# engine +36-78% on its p95 on 2 vCPUs. A priority alone did not help (weight
+# 10, idle, SCHED_IDLE: +53-77%, measured); the cap does: 20% of one core cost
+# +11-13%, 10% nothing. The weight gives the engine the CPU first on a saturated
+# host. The engine kills a process that spins past a call's deadline (30 s).
 CPUWeight=10
 CPUQuota=20%
 

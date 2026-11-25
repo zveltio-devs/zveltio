@@ -247,7 +247,7 @@ the filesystem, and the worker imports the bundle itself. From there:
   that runs past the request's 30 s deadline is answered `504`, and its process
   is pinged: no answer within 2 s and it is killed and respawned, counted as a
   crash (five in ten minutes disable it). Measured on 2 vCPUs, a loop spinning a
-  core costs the engine's p95 +55-77% at any priority, SCHED_IDLE included; at
+  core costs the engine's p95 +53-77% at any priority, SCHED_IDLE included; at
   20% of a core +11-13%. The cap holds on systemd only: in a container a loop
   can take the container's core until the deadline kills it.
 - The isolation decision survives a hot-reload: a re-register restarts the

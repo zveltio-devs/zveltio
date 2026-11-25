@@ -21,7 +21,8 @@
  *     respawn so operators can detect flapping.
  *   - Hang detection: heartbeat ping every 30s, terminate + respawn
  *     after 60s with no pong. Prevents a stuck extension from holding
- *     proxy routes open forever.
+ *     proxy routes open forever. A call past its deadline pings at once,
+ *     and no pong within `DEADLINE_PROBE_MS` is the same hang (ADR 0062 F20).
  *   - The box fails alone (ADR 0056): a call that outlives the request's
  *     hard timeout has its request's statement cancelled (504); requests
  *     past `boxConcurrencyLimit` are refused (503); `CRASH_LIMIT` crashes
