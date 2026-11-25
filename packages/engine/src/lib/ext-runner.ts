@@ -46,6 +46,7 @@ import {
   writeFileSync,
   chmodSync,
   readdirSync,
+  renameSync,
   rmSync,
   statSync,
 } from 'node:fs';
@@ -196,13 +197,20 @@ export async function runExtRunner(): Promise<never> {
     routeConnection(conn, route);
   });
 
+  // Bound and opened under a name no one waits for, then moved into place: the
+  // engine connects as soon as `path` exists (`startInstance`), and a socket
+  // seen there before its chmod refused it with EACCES. Every lazy start
+  // connects at once (ADR 0062 d3), so that window was hit, not hypothetical.
+  const staging = `${path}.${process.pid}.tmp`;
   rmSync(path, { force: true });
+  rmSync(staging, { force: true });
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
-    server.listen(path, resolve);
+    server.listen(staging, resolve);
   });
   // Anyone may reach connect(); SO_PEERCRED decides who is served.
-  chmodSync(path, 0o666);
+  chmodSync(staging, 0o666);
+  renameSync(staging, path);
   console.log(`[ext-runner] listening on ${path} for uid ${engineUid}`);
 
   const stop = () => {
