@@ -808,7 +808,10 @@ export class WorkerExtensionHost {
     // has none before its start, so a count read then was null and no OOM kill
     // was ever named. Not awaited: the read (`systemctl show`, ~10 ms on the
     // probe's VM) stays out of the cold start.
-    this.oomBaseline.set(extName, this.oomKillCount(extName).catch(() => null));
+    this.oomBaseline.set(
+      extName,
+      this.oomKillCount(extName).catch(() => null),
+    );
     const managed = newManaged(extName, extDir, bundleEntry, worker, generation, source);
 
     // A channel that ends before `init` answers fails the load at once, with its

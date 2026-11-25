@@ -258,7 +258,8 @@ export async function notifyReady(target = process.env.NOTIFY_SOCKET): Promise<v
   try {
     const SOCK_DGRAM_CLOEXEC = 2 | 0o2000000;
     const fd = c.socket(1, SOCK_DGRAM_CLOEXEC, 0);
-    const sent = fd < 0 ? -1 : Number(c.sendto(fd, ptr(msg), msg.length, 0, ptr(addr), addr.length));
+    const sent =
+      fd < 0 ? -1 : Number(c.sendto(fd, ptr(msg), msg.length, 0, ptr(addr), addr.length));
     const errno = sent < 0 ? read.i32(c.__errno_location()!, 0) : 0;
     if (fd >= 0) c.close(fd);
     if (sent !== msg.length) throw new Error(`could not tell systemd it is ready (errno ${errno})`);

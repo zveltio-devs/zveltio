@@ -265,7 +265,17 @@ the filesystem, and the worker imports the bundle itself. From there:
   `503 extension.unavailable`, counted as a crash) rather than run. An idle stop
   is the engine's own and never a crash; any stop the engine did not order still
   is, so idle cycles cannot hide a crash loop from the disable. Always on is an
-  operator's latency setting, never the extension's.
+  operator's latency setting, never the extension's. A start on systemd costs
+  two processes in the unit, both under its uid, cgroup, seccomp and socket ban:
+  the runner, which keeps listening for the extension's job connections and
+  starts every process under the ban, and the extension's runtime. The runner
+  loads only its own code (the binary is compiled with `--splitting`), and
+  tells systemd when it listens (`Type=notify`). The unit's CPU cap
+  (`CPUQuota=20%`) also bounds a start: a cold start spends ~110 ms of CPU, which
+  20% of each 100 ms period stretches to ~0.5 s. `CPUQuotaPeriodSec=1s` lets a
+  start through unthrottled (~0.2 s) but lets a loop run in 200 ms bursts, which
+  cost the engine's p95 +19-32% where 100 ms periods cost +2-5% (ADR 0062 step
+  2b, measured); the default keeps the tighter bound.
 
 What it costs, and what it still does not give:
 
