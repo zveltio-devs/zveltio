@@ -462,15 +462,20 @@ export const DENO_DIR_NAME = '.deno';
  * other entry becomes 0700 (0600 for a file). Applied at every spawn, so an
  * install made before this, or a directory an update added, is closed too. A
  * symbolic link is left alone (chmod would change its target). Throws when the
- * engine cannot change the modes: it does not own the directory, and then no
+ * engine cannot close one that is open: it does not own it, and then no
  * extension runs beside it.
  */
 export function closeExtensionsDir(base: string): void {
+  // Changed only when it is not so already: an entry the engine does not own
+  // (a socket directory a runner made root's) passes when it is closed.
+  const close = (path: string, others: number, mode: number) => {
+    if ((statSync(path).mode & 0o077) !== others) chmodSync(path, mode);
+  };
   try {
-    chmodSync(base, 0o711);
+    close(base, 0o011, 0o711);
     for (const entry of readdirSync(base, { withFileTypes: true })) {
       if (entry.name === DENO_DIR_NAME || entry.isSymbolicLink()) continue;
-      chmodSync(join(base, entry.name), entry.isDirectory() ? 0o700 : 0o600);
+      close(join(base, entry.name), 0, entry.isDirectory() ? 0o700 : 0o600);
     }
   } catch (err) {
     throw new Error(
