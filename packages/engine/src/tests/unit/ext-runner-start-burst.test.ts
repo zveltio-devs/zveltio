@@ -79,6 +79,13 @@ describe('startUnit (start burst)', () => {
     expect(calls()).toContain(`stop ${U}`);
   });
 
+  it('ends the burst of a start that failed, and says why it failed', async () => {
+    process.env.FAKE_FAIL = `start ${U}`;
+    await expect(startUnit(U, 30)).rejects.toThrow('refused');
+    await Bun.sleep(80);
+    expect(calls().at(-1)).toBe(END);
+  });
+
   // A polkit rule an older `setup` wrote: the start goes on, capped, and
   // nothing is left to end.
   it('starts without a burst when the burst is refused', async () => {

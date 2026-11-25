@@ -751,7 +751,10 @@ export async function startUnit(unit: string, burstMs = START_BURST_MS): Promise
     unit,
     `CPUQuotaPeriodSec=${BURST_PERIOD}`,
   ).then(
-    () => true,
+    () => {
+      burstsPending.set(unit, (burstsPending.get(unit) ?? 0) + 1);
+      return true;
+    },
     (err: Error) => {
       // A polkit rule written before the burst: starts stay capped, and slow.
       if (!burstRefused)
@@ -762,15 +765,14 @@ export async function startUnit(unit: string, burstMs = START_BURST_MS): Promise
       return false;
     },
   );
-  const started = systemctl('start', unit);
-  if (!(await lifted)) {
-    await started;
-    return;
-  }
-  burstsPending.set(unit, (burstsPending.get(unit) ?? 0) + 1);
-  try {
-    await started;
-  } finally {
+  const [ok, failed] = await Promise.all([
+    lifted,
+    systemctl('start', unit).then(
+      () => null,
+      (err: Error) => err,
+    ),
+  ]);
+  if (ok) {
     setTimeout(() => {
       const left = (burstsPending.get(unit) ?? 1) - 1;
       if (left > 0) burstsPending.set(unit, left);
@@ -778,6 +780,7 @@ export async function startUnit(unit: string, burstMs = START_BURST_MS): Promise
       void endBurst(unit);
     }, burstMs);
   }
+  if (failed) throw failed;
 }
 
 /**
