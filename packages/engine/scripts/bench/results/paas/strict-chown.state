@@ -1,0 +1,2 @@
+running=false exit=127 oom=false restarts=0 caps=[ALL] secopt=[no-new-privileges] mem=1073741824 user=root
+health_up=0 http=000

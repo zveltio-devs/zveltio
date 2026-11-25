@@ -1,0 +1,40 @@
+=== control
+{"signin":200,"inline finance/invoicing createInvoice":{"status":200,"body":"{\"result\":{\"id\":\"6795ca9d-9270-4009-a9bf-f9bd75038a50\",\"created_at\":\"2026-11-25T12:49:24.050Z\",\"updated_at\":\"2026-11-25T12:49:24.050Z\",\"created_by\":\"JOzfFjoF4g9qMd3kPGEYkOFTF17aXlu0\",\"updated_by\":\"JOz"},"worker probe/plain ping":{"status":200,"body":"{\"result\":{\"pong\":true}}"}}
+state: running=true exit=0 oom=false restarts=0 caps=[] secopt=[] mem=1073741824 user=root
+--- log
+[ext-runner] listening on /run/zveltio-ext/runner.sock for uid 100
+🔌 Extension loaded: finance/invoicing
+   🔑 probe/plain: default access granted on 1 permission(s)
+🧵 Extension "probe/plain" loaded in worker (0 routes, gen 1)
+🔌 Extension loaded: probe/plain
+✅ Extensions loaded: finance/invoicing, probe/plain
+🔒 Tenant RLS reconciled on 20 extension table(s)
+✅ Webhook worker started
+✅ Flow trigger worker started
+✅ Extension cron runner started
+=== strict
+state: running=false exit=1 oom=false restarts=0 caps=[ALL] secopt=[no-new-privileges] mem=1073741824 user=root
+--- log
+chown: /data/extensions: Operation not permitted
+=== strict-chown
+state: running=false exit=127 oom=false restarts=0 caps=[ALL] secopt=[no-new-privileges] mem=1073741824 user=root
+--- log
+[ext-runner] started without CAP_KILL, CAP_SETGID, CAP_SETUID: give the runner container cap_add [SETUID, SETGID, KILL] (Helm: securityContext.capabilities.add)
+[ext-runner] started without CAP_KILL, CAP_SETGID, CAP_SETUID: give the runner container cap_add [SETUID, SETGID, KILL] (Helm: securityContext.capabilities.add)
+[entrypoint] the extension runner is not listening; third-party extensions will be refused
+setpriv: setresuid failed: Operation not permitted
+=== strict-user
+{"signin":200,"inline finance/invoicing createInvoice":{"status":200,"body":"{\"result\":{\"id\":\"b741f10c-d6d0-4d8e-9117-0b7a31eba0da\",\"created_at\":\"2026-11-25T12:50:29.822Z\",\"updated_at\":\"2026-11-25T12:50:29.822Z\",\"created_by\":\"JOzfFjoF4g9qMd3kPGEYkOFTF17aXlu0\",\"updated_by\":\"JOz"},"worker probe/plain ping":{"status":404,"body":"{\"type\":\"about:blank\",\"title\":\"Not Found\",\"status\":404,\"code\":\"not_found\",\"detail\":\"Not found\",\"instance\":\"/ext/probe/plain/actions/ping\",\"traceId\":\"bb7ca3c6-b99c-4b31-bb93-0b260069030d\"}"}}
+state: running=true exit=0 oom=false restarts=0 caps=[ALL] secopt=[no-new-privileges] mem=1073741824 user=100:101
+--- log
+🔌 Extension loaded: finance/invoicing
+❌ Failed to load extension "probe/plain": 137962 |       headers[name] = v;
+137966 | function runnerUnreachable(err) {
+137967 |   return new Error(`extension runner unreachable (${why}). Third-party extensions run only on the ` + `runner in production: start it (compose: the ext-runner service; bare metal: ` + `\`zveltio ext-runner setup\`; Helm: extRunner.enabled; one contain
+error: extension runner unreachable (Executable not found in $PATH: "systemctl"). Third-party extensions run only on the runner in production: start it (compose: the ext-runner service; bare metal: `zveltio ext-runner setup`; Helm: extRunner.enabled; one conta
+      at runnerUnreachable (/$bunfs/root/zveltio:137967:10)
+✅ Extensions loaded: finance/invoicing
+🔒 Tenant RLS reconciled on 20 extension table(s)
+✅ Webhook worker started
+✅ Flow trigger worker started
+✅ Extension cron runner started

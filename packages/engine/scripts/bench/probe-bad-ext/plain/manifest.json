@@ -2,13 +2,42 @@
   "name": "probe/plain",
   "displayName": "Probe plain",
   "category": "probe",
-  "description": "ADR 0062 fail-alone probe: plain (test extension, declared model only)",
+  "description": "ADR 0062 probe: a plain collection for the data-API load, and one harmless action (ping) that proves the extension runs",
   "version": "1.0.0",
   "zveltioMinVersion": "3.0.0-beta.111",
   "zveltioMaxVersion": "4.0.0",
   "package": "@zveltio/ext-probe-plain",
-  "contributes": { "engine": true, "studio": false, "fieldTypes": [] },
-  "engine": { "entry": "engine/index.js", "format": "esm", "target": "bun", "bundled": true, "bundlePeers": false },
-  "collections": ["probe_notes"],
-  "actions": []
+  "contributes": {
+    "engine": true,
+    "studio": false,
+    "fieldTypes": []
+  },
+  "engine": {
+    "entry": "engine/index.js",
+    "format": "esm",
+    "target": "bun",
+    "bundled": true,
+    "bundlePeers": false
+  },
+  "collections": [
+    "probe_notes"
+  ],
+  "actions": [
+    {
+      "name": "ping",
+      "permission": {
+        "resource": "probe_notes",
+        "action": "execute"
+      },
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "reads": [
+        "probe_notes"
+      ],
+      "writes": []
+    }
+  ]
 }

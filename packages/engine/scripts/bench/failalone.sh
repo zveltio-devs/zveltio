@@ -15,11 +15,17 @@ SCOPE=bench-engine; MEMBER=bench-member@test.local
 mkdir -p "$OUT"; P="$OUT/$MODE-$EXT"; : >"$P.log"
 trap 'sudo systemctl stop $SCOPE.scope 2>/dev/null; sudo systemctl stop "zveltio-ext-runner@*" 2>/dev/null; sudo -u postgres psql -qX zveltio_bench -c "UPDATE zv_extension_registry SET is_enabled=false WHERE name LIKE '"'"'probe/%'"'"'" >/dev/null' EXIT
 sudo systemctl stop 'zveltio-ext-runner@*' 2>/dev/null || true
-sudo systemctl stop "$SCOPE.scope" 2>/dev/null || true
+sudo systemctl stop "$SCOPE.scope" 2>/dev/null || true; sudo systemctl reset-failed "$SCOPE.scope" 2>/dev/null || true
 sudo rm -f /etc/systemd/system/zveltio-ext-runner@.service.d/bench-cpu.conf; sudo systemctl daemon-reload
 
-if [ $MODE = runner ]; then TREE=ext-bad-worker; KEYLINE=operator-bad.line; else TREE=ext-bad-inline; KEYLINE=registry-bad.line; fi
-NAMES="finance/invoicing,probe/plain,probe/$EXT"
+if [ $MODE = runner ]; then
+  TREE=ext-bad-worker; KEYLINE=operator-bad.line; PLAIN=probe/plain; BAD=probe/$EXT
+else # a name the catalog knows: see failalone-prep.sh
+  TREE=ext-bad-inline; KEYLINE=registry-bad.line; PLAIN=analytics/quality
+  case $EXT in loop) BAD=operations/traceability;; leak) BAD=developer/api-docs;; crash) BAD=integrations/migrators;; esac
+fi
+NAMES="finance/invoicing,$PLAIN,$BAD"
+SFX=; [ $MODE = inline ] && SFX=_i
 # The registry decides what is enabled: only these three; the bad one is fresh (no crash history in the engine, new process).
 sudo -u postgres psql -qX zveltio_bench -c "UPDATE zv_extension_registry SET is_enabled=false WHERE name <> ALL(string_to_array('$NAMES', ','))" >/dev/null
 sudo -u postgres psql -qX zveltio_bench -c "INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled) SELECT n, n, NULL, true, true FROM unnest(string_to_array('$NAMES', ',')) n ON CONFLICT (tenant_id, name) DO UPDATE SET is_installed = true, is_enabled = true" >/dev/null
@@ -43,10 +49,10 @@ for _ in $(seq 1 1800); do curl -sf -m1 http://127.0.0.1:3000/health >/dev/null 
 sleep "$SETTLE"
 # grants for the member (SQL; the member exists from small-vps setup)
 ID=$(sudo -u postgres psql -qXAt zveltio_bench -c "SELECT id FROM \"user\" WHERE email='$MEMBER'")
-for g in probe_notes:read probe_notes:create "$( echo probe_${EXT}_log):execute"; do
+for g in probe_notes$SFX:read probe_notes$SFX:create "probe_${EXT}_log$SFX:execute"; do
   sudo -u postgres psql -qX zveltio_bench -c "INSERT INTO zvd_permissions (ptype,v0,v1,v2,v3) VALUES ('p','$ID','*','${g%%:*}','${g##*:}') ON CONFLICT DO NOTHING" >/dev/null
 done
-sleep 5; curl -s -m3 http://127.0.0.1:3000/health >"$P.health-before"
+sleep "${GRANT_WAIT:-5}"; curl -s -m3 http://127.0.0.1:3000/health >"$P.health-before"
 # a sampler for the engine's own CPU/RSS and the units, once a second
 ( while :; do
     printf '%s engine_rss_kb=%s units=%s\n' "$(date +%s.%N)" \
@@ -55,7 +61,7 @@ sleep 5; curl -s -m3 http://127.0.0.1:3000/health >"$P.health-before"
     sleep 1; done >"$P.samples" ) &
 SAMP=$!
 LOADSTART=$(date +%s.%N)
-taskset -c 1 bun "$HERE/failalone-load.ts" "$EXT" "$BASE" "$TOTAL" "$P.requests.jsonl" >"$P.summary.json" || true
+COLL=probe_notes$SFX taskset -c 1 bun "$HERE/failalone-load.ts" "$BAD" "$BASE" "$TOTAL" "$P.requests.jsonl" >"$P.summary.json" || true
 kill $SAMP 2>/dev/null || true
 echo "load_start=$LOADSTART base_s=$BASE total_s=$TOTAL bad_start=$(echo "$LOADSTART + $BASE" | bc)" >"$P.times"
 curl -s -m3 -o "$P.health-after" -w '%{http_code}\n' http://127.0.0.1:3000/health >>"$P.times" || echo "health-after: unreachable" >>"$P.times"

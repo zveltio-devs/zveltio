@@ -1,13 +1,10 @@
 // @bun
-// ADR 0062 fail-alone probe. One action that misbehaves on purpose.
-const keep = [];
-const misbehave = async () => {
-
-};
+// ADR 0062 probe: the plain collection's extension. `ping` answers, so a call proves it runs.
+const ping = async () => ({ pong: true });
 export default {
   name: "probe/plain",
   category: "probe",
   mountStrategy: "subapp",
-  actions: {},
+  actions: { ping },
   async register() {},
 };
