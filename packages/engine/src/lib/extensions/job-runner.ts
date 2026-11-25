@@ -275,42 +275,43 @@ export function jobPlacement(): 'runner' | 'process' {
   return t;
 }
 
-/** When each extension's runner was last started in the background (`runnerAnswers`). */
+/** When each extension's runner start began, until it succeeds (`runnerAnswers`). */
 const runnerStarts = new Map<string, number>();
 const RUNNER_RESTART_MS = 30_000;
 
 /**
- * Whether `extName`'s runner answers now, or no runner is needed (`process`).
- * The pump asks before claiming from its queues: a run claimed while the runner
- * is down would fail, spend a retry, and after enough of them be dropped
- * (ADR 0022: without a way to run them, jobs wait). Its socket first — a
- * connection opened and closed with no byte sent spawns nothing on the runner;
- * only when nothing listens is the runner started (systemd: `systemctl start`,
- * at most every 30 s), in the background: a dead runner never holds up the
- * claims of another extension, and the next pass sees whether it came up.
+ * Whether `extName`'s runner answers now (`up`; always, when none is needed:
+ * `process`), or why not. The pump asks before claiming from its queues: a run
+ * claimed while the runner is down would fail, spend a retry, and after enough
+ * of them be dropped (ADR 0022: without a way to run them, jobs wait). Its socket
+ * first — a connection opened and closed with no byte sent spawns nothing on the
+ * runner. When nothing listens and `wanted` says a job waits, the runner is
+ * started (systemd: `systemctl start`; again at most every 30 s while one fails),
+ * in the background: a dead runner never holds up the claims of another
+ * extension, and `started` runs once it is up. When no job waits it is left
+ * down (`idle`): an extension's unit stopped for idleness stays stopped until a
+ * job needs it (ADR 0062 d3).
  */
-export async function runnerAnswers(extName: string): Promise<boolean> {
-  if (jobPlacement() !== 'runner') return true;
-  const { runnerSocketFor, startRunner } = await import('../ext-runner.js');
-  const answers = await new Promise<boolean>((resolve) => {
-    const sock = connect(runnerSocketFor(extName));
-    const done = (ok: boolean) => {
-      clearTimeout(timer);
-      sock.destroy();
-      resolve(ok);
-    };
-    const timer = setTimeout(() => done(false), 1000);
-    sock.once('connect', () => done(true));
-    sock.once('error', () => done(false));
-  });
-  if (answers) return true;
+export async function runnerAnswers(
+  extName: string,
+  wanted: () => Promise<boolean> = async () => true,
+  started: () => void = () => {},
+): Promise<'up' | 'idle' | 'down'> {
+  if (jobPlacement() !== 'runner') return 'up';
+  const { runnerSocketFor, socketAnswers, startRunner } = await import('../ext-runner.js');
+  if (await socketAnswers(runnerSocketFor(extName))) return 'up';
+  if (!(await wanted())) return 'idle';
   if (Date.now() - (runnerStarts.get(extName) ?? 0) > RUNNER_RESTART_MS) {
     runnerStarts.set(extName, Date.now());
-    void startRunner(extName).catch((err: Error) =>
-      console.warn(`[ext-jobs] starting ${extName}'s runner: ${err.message}`),
+    void startRunner(extName).then(
+      () => {
+        runnerStarts.delete(extName);
+        started();
+      },
+      (err: Error) => console.warn(`[ext-jobs] starting ${extName}'s runner: ${err.message}`),
     );
   }
-  return false;
+  return 'down';
 }
 
 /** Run one job in Deno. Resolves when it succeeded; rejects, saying why, otherwise. */

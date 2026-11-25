@@ -377,12 +377,34 @@ describe('the runner side', () => {
 
   it('asks the runner without waiting for one that is down', async () => {
     process.env.ZVELTIO_EXT_TRANSPORT = 'runner';
-    expect(await runnerAnswers('acme/jobs')).toBe(true);
+    expect(await runnerAnswers('acme/jobs')).toBe('up');
     process.env.ZVELTIO_EXT_RUNNER_SOCKET = join(sockDir, 'gone.sock');
     try {
       const t0 = performance.now();
-      expect(await runnerAnswers('acme/jobs')).toBe(false);
+      expect(await runnerAnswers('acme/jobs')).toBe('down');
       expect(performance.now() - t0).toBeLessThan(1000);
+    } finally {
+      process.env.ZVELTIO_EXT_RUNNER_SOCKET = sock;
+    }
+  });
+
+  it('starts a runner that does not answer only for a waiting job, every time one waits (ADR 0062 d3)', async () => {
+    process.env.ZVELTIO_EXT_TRANSPORT = 'runner';
+    process.env.ZVELTIO_EXT_RUNNER_SOCKET = join(sockDir, 'idle.sock');
+    let starts = 0;
+    const started = () => starts++;
+    try {
+      // Stopped for idleness, nothing queued: left stopped.
+      expect(await runnerAnswers('acme/idle', async () => false, started)).toBe('idle');
+      await Bun.sleep(20);
+      expect(starts).toBe(0);
+      // A job waits: started, and again for the next one after an idle stop,
+      // not 30 s later (the shared socket's start resolves at once here).
+      for (let i = 1; i <= 2; i++) {
+        expect(await runnerAnswers('acme/idle', async () => true, started)).toBe('down');
+        for (let t = 0; t < 50 && starts < i; t++) await Bun.sleep(10);
+        expect(starts).toBe(i);
+      }
     } finally {
       process.env.ZVELTIO_EXT_RUNNER_SOCKET = sock;
     }

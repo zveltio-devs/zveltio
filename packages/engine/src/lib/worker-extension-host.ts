@@ -14,6 +14,13 @@
  *      phase D slice 4): it serves its declared routes and actions, and reaches
  *      data through their `host` (`host:call`). Nothing else crosses.
  *   4. `stop(name)` ends the process and removes proxy routes.
+ *   5. Started on use, stopped when idle (ADR 0062 d3): unless an operator keeps
+ *      it always on, `start` verifies it and mounts its routes but spawns
+ *      nothing; the first call (an action, from HTTP or another extension, or a
+ *      declared route) starts it and waits, one start shared by concurrent
+ *      callers. After its idle timeout with nothing in it the host stops it — its
+ *      runner unit too — as the known state `idle`: no crash, no respawn, crash
+ *      history kept. A stop the host did not order is still a crash.
  *
  * Reliability (alpha.122):
  *   - Crash auto-recovery: worker.onerror / unexpected exit → respawn
@@ -44,6 +51,7 @@ import {
   ensureWorkerRuntimeOnDisk,
   extensionsBaseOf,
   oomKills,
+  runnerUnavailable,
   startRunner,
   stopRunner,
 } from './ext-runner.js';
@@ -64,6 +72,7 @@ import {
 import { activePoolMax, getDb, type Database } from '../db/index.js';
 import { auditLog } from './audit.js';
 import { verifyExtensionDir } from './security/index.js';
+import { WORKER_RUNTIME_SOURCE } from './worker-extension-runtime-source.generated.js';
 import { CompiledQuery } from 'kysely';
 import { transactionTurns } from '../db/trx-sequencer.js';
 import {
@@ -127,14 +136,20 @@ export interface WorkerHealth {
   /**
    * `crashed`: between a crash and its respawn. `disabled`: it crashed
    * `CRASH_LIMIT` times in `CRASH_WINDOW_MS` and is not respawned (ADR 0056);
-   * `disabledReason` says why.
+   * `disabledReason` says why. `idle`: no process, by the host's choice (ADR
+   * 0062 d3): stopped after its idle timeout, or not used since load; the next
+   * call starts it (`starting`).
    */
-  status: 'running' | 'crashed' | 'starting' | 'disabled';
+  status: 'running' | 'crashed' | 'starting' | 'disabled' | 'idle';
   disabledReason?: string;
   /** Crashes (exits, hangs, failed respawns) in the last `CRASH_WINDOW_MS`. */
   recentCrashes: number;
   /** Requests it may serve at once; one more is refused (ADR 0056). */
   concurrencyLimit: number;
+  /** ADR 0062 d3: never stopped for idleness (an operator's choice, never the manifest's). */
+  alwaysOn: boolean;
+  /** How long it may go unused before it is stopped; null when always on. */
+  idleTimeoutMs: number | null;
   /** The key its signature verified against; null until signatures carry the tier (ADR 0056 s3). */
   keyId: string | null;
   workerGeneration: number;
@@ -216,6 +231,27 @@ export interface WorkerCtxSource {
    * (level 2), named in its log lines when no operator key is.
    */
   registryKeyId?: string;
+  /**
+   * ADR 0062 d3: always on, or stopped after this long unused — the operator's
+   * setting, never the manifest's. Absent: always on, started at `start`, as a
+   * caller that chose nothing expects.
+   */
+  runtime?: WorkerRuntime;
+  /** Reads `runtime` again before each idle stop: an operator may have changed it, on any replica. */
+  readRuntime?: () => Promise<WorkerRuntime>;
+  /**
+   * The init it passed before, by stamp (`initStamp`): loaded idle, its init is
+   * run once per stamp, so a bundle its worker refuses — actions or routes that
+   * do not pair, `register()` past the declared model — is refused at load, as
+   * when every worker started there, without a spawn at every boot.
+   */
+  validated?: { has(stamp: string): Promise<boolean>; record(stamp: string): Promise<void> };
+}
+
+/** What the operator chose for one extension's process (ADR 0062 d3). */
+export interface WorkerRuntime {
+  alwaysOn: boolean;
+  idleTimeoutMs: number;
 }
 
 /**
@@ -293,7 +329,28 @@ interface ManagedWorker {
   // Heartbeat
   heartbeatTimer?: ReturnType<typeof setInterval>;
   stopped: boolean;
+  /**
+   * ADR 0062 d3: no process, by the host's choice — stopped after its idle
+   * timeout, or not started since load. Not a crash: never respawned, and a call
+   * starts it (`live`). Kept in the map, its proxy routes and actions mounted.
+   */
+  idle?: boolean;
+  /** The start a call made from idle, shared by every caller arriving meanwhile. */
+  waking?: Promise<ManagedWorker>;
+  /** An idle stop's stop of the runner unit, which the next start waits for. */
+  stopping?: Promise<void>;
+  idleTimer?: ReturnType<typeof setTimeout>;
 }
+
+/** The channel of an extension with no process (idle): nothing may be sent on it. */
+const NO_PROCESS: ExtensionChannel = {
+  postMessage() {
+    throw new Error('the extension has no process (idle); a call starts it first');
+  },
+  terminate() {},
+  onmessage: null,
+  onerror: null,
+};
 
 /**
  * Correlation id for a host↔worker message.
@@ -423,11 +480,67 @@ async function signedBundleSha256(
   return sha;
 }
 
+/**
+ * Its bundle's bytes, checked against its signature: what goes in `init` (the
+ * extension's process reads no extension file: ADR 0062 probe "security", F15),
+ * so a file swapped after the signature check is refused, not sent.
+ */
+async function verifiedBundle(
+  extName: string,
+  extDir: string,
+  bundleEntry: string,
+  source: WorkerCtxSource,
+): Promise<{ bundle: Uint8Array; bundleSha256: string }> {
+  const bundleSha256 = await signedBundleSha256(extName, extDir, bundleEntry, source);
+  const bundle = await Bun.file(join(extDir, bundleEntry)).bytes();
+  const got = new Bun.CryptoHasher('sha256').update(bundle).digest('hex');
+  if (got !== bundleSha256) {
+    throw new Error(
+      `"${extName}": its bundle changed after its signature was verified; load it again`,
+    );
+  }
+  return { bundle, bundleSha256 };
+}
+
+let runtimeSha: string | undefined;
+
+/** What one init validated: the signed bundle, the runtime that ran it, the model it paired. */
+function initStamp(bundleSha256: string, source: WorkerCtxSource): string {
+  runtimeSha ??= new Bun.CryptoHasher('sha256').update(WORKER_RUNTIME_SOURCE).digest('hex');
+  return new Bun.CryptoHasher('sha256')
+    .update(
+      JSON.stringify([bundleSha256, runtimeSha, source.declaredRoutes ?? [], source.actions ?? []]),
+    )
+    .digest('hex');
+}
+
+/** A caller that chose nothing: started at `start`, never stopped for idleness. */
+const ALWAYS_ON: WorkerRuntime = { alwaysOn: true, idleTimeoutMs: 5 * 60_000 };
+
+/**
+ * Whether its runner is a systemd unit of its own, which an idle stop stops too
+ * (ADR 0062 proof run: the runner process alone holds ~46 MB). The shared
+ * container runner ends the extension's process when its connection closes.
+ */
+function unitRunner(): boolean {
+  return extensionTransport() === 'runner' && !process.env.ZVELTIO_EXT_RUNNER_SOCKET;
+}
+
 export class WorkerExtensionHost {
   private readonly workers = new Map<string, ManagedWorker>();
   private respawnBackoff = new Map<string, number>();
-  /** Each extension's recent crash times, for `CRASH_LIMIT`; a stop forgets them. */
+  /**
+   * Each extension's recent crash times, for `CRASH_LIMIT`. An operator's stop
+   * forgets them; an idle stop does not (ADR 0062 d3), or idle cycles would hide
+   * a crash loop.
+   */
   private crashTimes = new Map<string, number[]>();
+  /**
+   * Uses of each extension under way (`enter`): calls into its process from the
+   * moment they ask for it, and Deno job runs on its runner (`hold`). None is
+   * ever stopped for idleness.
+   */
+  private uses = new Map<string, number>();
 
   constructor(
     private app: Hono,
@@ -483,10 +596,44 @@ export class WorkerExtensionHost {
     if (this.workers.has(extName)) {
       throw new Error(`Worker for "${extName}" is already running`);
     }
+    if (!(source.runtime ?? ALWAYS_ON).alwaysOn) {
+      // ADR 0062 d3: checked now — its signature, its bundle, a runner that can
+      // exist — so a broken extension is refused at load, not at its first call;
+      // spawned on that call (`live`).
+      const { bundleSha256 } = await verifiedBundle(extName, extDir, bundleEntry, source);
+      const missing = extensionTransport() === 'runner' ? await runnerUnavailable(extName) : null;
+      if (missing) throw runnerUnreachable(new Error(missing));
+      const stamp = initStamp(bundleSha256, source);
+      if (!(await source.validated?.has(stamp).catch(() => false))) {
+        // Bytes never run here before: their init, once, and the process ends.
+        const probe = await this.spawn(extName, extDir, bundleEntry, 0, source);
+        probe.worker.terminate();
+        if (unitRunner()) {
+          await stopRunner(extName).catch((err: Error) =>
+            console.error(`${boxTag(extName, source)} stopping its runner: ${err.message}`),
+          );
+        }
+        await source.validated
+          ?.record(stamp)
+          .catch((err: Error) =>
+            console.error(`${boxTag(extName, source)} recording its init: ${err.message}`),
+          );
+      }
+      const managed = newManaged(extName, extDir, bundleEntry, NO_PROCESS, 0, source);
+      managed.idle = true;
+      managed.routes = (source.declaredRoutes ?? []).map(({ method, path }) => ({ method, path }));
+      this.workers.set(extName, managed);
+      managed.proxyUnmount = this.mountProxyRoutes(managed);
+      console.log(
+        `🧵 Extension "${extName}" loaded as a worker (${managed.routes.length} routes); it starts on its first call`,
+      );
+      return;
+    }
     const managed = await this.spawn(extName, extDir, bundleEntry, 1, source);
     this.workers.set(extName, managed);
     managed.proxyUnmount = this.mountProxyRoutes(managed);
     managed.heartbeatTimer = setInterval(() => this.heartbeat(managed), HEARTBEAT_INTERVAL_MS);
+    this.armIdle(managed);
     console.log(
       `🧵 Extension "${extName}" loaded in worker (${managed.routes.length} routes, gen ${managed.workerGeneration})`,
     );
@@ -498,6 +645,8 @@ export class WorkerExtensionHost {
     if (!managed) return;
     managed.stopped = true;
     if (managed.heartbeatTimer) clearInterval(managed.heartbeatTimer);
+    if (managed.idleTimer) clearTimeout(managed.idleTimer);
+    clearPings(managed);
     managed.proxyUnmount();
     failPendingInvokes(extName);
     failPendingRoutes(managed);
@@ -551,12 +700,18 @@ export class WorkerExtensionHost {
       );
       // After the read: a crash respawn may have swapped it, a stop removed it.
       // A disabled one stays down: its enable reads the approval afresh.
-      const managed = this.workers.get(extName);
+      let managed = this.workers.get(extName);
+      // A start in flight spawns with the set it had: the one it starts is restarted.
+      if (managed?.waking) {
+        managed = (await managed.waking.catch(() => undefined)) ?? this.workers.get(extName);
+      }
       if (!managed || managed.disabled) return;
       const source = managed.source ?? {};
       if (JSON.stringify(source.forwardCredentials ?? {}) === JSON.stringify(forward)) return;
       // Set first: should the spawn below fail, crash recovery retries with it.
       managed.source = { ...source, forwardCredentials: forward };
+      // An idle one has no process holding the old set: its next start reads this one.
+      if (managed.idle) return;
       this.retire(managed);
       try {
         const fresh = await this.replace(managed);
@@ -600,13 +755,21 @@ export class WorkerExtensionHost {
       isolation: 'worker' as const,
       status: m.disabled
         ? ('disabled' as const)
-        : m.stopped || m.respawning
-          ? ('crashed' as const)
-          : ('running' as const),
+        : m.idle
+          ? m.waking
+            ? ('starting' as const)
+            : ('idle' as const)
+          : m.stopped || m.respawning
+            ? ('crashed' as const)
+            : ('running' as const),
       disabledReason: m.disabled,
       recentCrashes: (this.crashTimes.get(m.name) ?? []).filter((t) => now - t < CRASH_WINDOW_MS)
         .length,
       concurrencyLimit: limit,
+      alwaysOn: (m.source?.runtime ?? ALWAYS_ON).alwaysOn,
+      idleTimeoutMs: (m.source?.runtime ?? ALWAYS_ON).alwaysOn
+        ? null
+        : (m.source?.runtime?.idleTimeoutMs ?? null),
       keyId: m.source?.keyId ?? null,
       workerGeneration: m.workerGeneration,
       enabledAt: new Date(m.enabledAt).toISOString(),
@@ -635,17 +798,7 @@ export class WorkerExtensionHost {
     generation: number,
     source: WorkerCtxSource,
   ): Promise<ManagedWorker> {
-    const bundleSha256 = await signedBundleSha256(extName, extDir, bundleEntry, source);
-    // The bytes go in `init`: the extension's process reads no extension file
-    // (ADR 0062 probe "security", F15). Checked here against the signature, so
-    // a file swapped after the check above is refused, not sent.
-    const bundle = await Bun.file(join(extDir, bundleEntry)).bytes();
-    const got = new Bun.CryptoHasher('sha256').update(bundle).digest('hex');
-    if (got !== bundleSha256) {
-      throw new Error(
-        `"${extName}": its bundle changed after its signature was verified; load it again`,
-      );
-    }
+    const { bundle, bundleSha256 } = await verifiedBundle(extName, extDir, bundleEntry, source);
     const transport = extensionTransport();
     // On the runner, beside other extensions' uids: their directory is closed
     // to all of them, at every spawn.
@@ -653,24 +806,7 @@ export class WorkerExtensionHost {
     const baseline = await this.oomKillCount(extName).catch(() => null);
     if (baseline !== null) this.oomBaseline.set(extName, baseline);
     const worker = await this.open(extName);
-    const managed: ManagedWorker = {
-      name: extName,
-      extDir,
-      bundleEntry,
-      worker,
-      routes: [],
-      pendingInvokes: new Map(),
-      invokeTenants: new Map(),
-      pendingInits: new Map(),
-      pendingPings: new Map(),
-      source,
-      proxyUnmount: () => {},
-      workerGeneration: generation,
-      enabledAt: Date.now(),
-      inFlightRequests: 0,
-      totalRequests: 0,
-      stopped: false,
-    };
+    const managed = newManaged(extName, extDir, bundleEntry, worker, generation, source);
 
     // A channel that ends before `init` answers fails the load at once, with its
     // reason (an unreachable runner's socket error), not after the 15 s timeout.
@@ -730,11 +866,44 @@ export class WorkerExtensionHost {
    * underneath.
    */
   private scheduleRespawn(managed: ManagedWorker, reason: string): void {
-    if (managed.stopped || managed.disabled) return;
+    // Idle is the host's own stop (ADR 0062 d3, F17): never a crash, never respawned.
+    if (managed.stopped || managed.disabled || managed.idle) return;
     if (this.workers.get(managed.name) !== managed) return;
+    this.retire(managed);
+    const crashes = this.countCrash(managed, reason);
+    if (managed.disabled) return;
+    const tag = boxTag(managed.name, managed.source);
+    const prevBackoff = this.respawnBackoff.get(managed.name) ?? 500;
+    const backoff = Math.min(prevBackoff * 2, MAX_RESPAWN_BACKOFF_MS);
+    this.respawnBackoff.set(managed.name, backoff);
+    console.warn(`${tag} crash ${crashes}/${CRASH_LIMIT}: ${reason} — respawning in ${backoff}ms`);
+    // In the forward queue: a respawn already replacing the worker with the old
+    // source would otherwise reject a forward change's replace and keep its map.
+    setTimeout(() => this.enqueueForward(managed.name, respawn), backoff);
+    const respawn = async () => {
+      if (managed.stopped) return;
+      if (this.workers.get(managed.name) !== managed) return;
+      try {
+        const fresh = await this.replace(managed);
+        // Reset backoff on successful respawn
+        this.respawnBackoff.set(managed.name, 500);
+        console.log(`✓ Worker "${managed.name}" respawned (gen ${fresh.workerGeneration})`);
+      } catch (err) {
+        console.error(`${tag} respawn failed: ${(err as Error).message}`);
+        // Schedule another attempt with further backoff
+        this.scheduleRespawn(managed, `respawn-failed: ${(err as Error).message}`);
+      }
+    };
+  }
+
+  /**
+   * Count one crash of `managed` — an exit, a hang, a failed spawn — and disable
+   * it at `CRASH_LIMIT` in `CRASH_WINDOW_MS` (`managed.disabled`). Returns the
+   * crashes in the window.
+   */
+  private countCrash(managed: ManagedWorker, reason: string): number {
     const now = Date.now();
     managed.lastCrashAt = now;
-    this.retire(managed);
     const crashes = [
       ...(this.crashTimes.get(managed.name) ?? []).filter((t) => now - t < CRASH_WINDOW_MS),
       now,
@@ -749,6 +918,7 @@ export class WorkerExtensionHost {
       managed.disabled =
         `disabled after ${crashes.length} crashes in ${CRASH_WINDOW_MS / 60_000} minutes ` +
         `(last: ${reason}); disable and enable it again once it is fixed`;
+      if (managed.idleTimer) clearTimeout(managed.idleTimer);
       console.error(`${tag} crash: ${reason} — ${managed.disabled}`);
       // Kept, unlike the in-memory disable (amendment 2026-11-16 §1).
       try {
@@ -774,37 +944,17 @@ export class WorkerExtensionHost {
           console.error(`${tag} stopping its runner: ${(err as Error).message}`),
         );
       }
-      return;
     }
-    const prevBackoff = this.respawnBackoff.get(managed.name) ?? 500;
-    const backoff = Math.min(prevBackoff * 2, MAX_RESPAWN_BACKOFF_MS);
-    this.respawnBackoff.set(managed.name, backoff);
-    console.warn(
-      `${tag} crash ${crashes.length}/${CRASH_LIMIT}: ${reason} — respawning in ${backoff}ms`,
-    );
-    // In the forward queue: a respawn already replacing the worker with the old
-    // source would otherwise reject a forward change's replace and keep its map.
-    setTimeout(() => this.enqueueForward(managed.name, respawn), backoff);
-    const respawn = async () => {
-      if (managed.stopped) return;
-      if (this.workers.get(managed.name) !== managed) return;
-      try {
-        const fresh = await this.replace(managed);
-        // Reset backoff on successful respawn
-        this.respawnBackoff.set(managed.name, 500);
-        console.log(`✓ Worker "${managed.name}" respawned (gen ${fresh.workerGeneration})`);
-      } catch (err) {
-        console.error(`${tag} respawn failed: ${(err as Error).message}`);
-        // Schedule another attempt with further backoff
-        this.scheduleRespawn(managed, `respawn-failed: ${(err as Error).message}`);
-      }
-    };
+    return crashes.length;
   }
 
   /** End a worker that is to be replaced: in the map, answering nothing, until it is. */
   private retire(managed: ManagedWorker): void {
     managed.respawning = true;
     if (managed.heartbeatTimer) clearInterval(managed.heartbeatTimer);
+    if (managed.idleTimer) clearTimeout(managed.idleTimer);
+    // A ping of this generation outlives it otherwise, and could count a crash.
+    clearPings(managed);
     try {
       managed.worker.terminate();
     } catch {
@@ -817,9 +967,9 @@ export class WorkerExtensionHost {
   }
 
   /**
-   * Spawn the next generation of a retired worker under the proxy routes it
-   * already has: they cannot be mounted again once the app has served a
-   * request, and they read the running worker on every request.
+   * Spawn the next generation of a retired (or idle) worker under the proxy
+   * routes it already has: they cannot be mounted again once the app has served
+   * a request, and they read the running worker on every request.
    */
   private async replace(managed: ManagedWorker): Promise<ManagedWorker> {
     const fresh = await this.spawn(
@@ -841,9 +991,171 @@ export class WorkerExtensionHost {
     fresh.lastCrashAt = managed.lastCrashAt;
     fresh.lastHangAt = managed.lastHangAt;
     fresh.bundleHashPrefix = managed.bundleHashPrefix;
+    if (managed.idleTimer) clearTimeout(managed.idleTimer);
     this.workers.set(managed.name, fresh);
     fresh.heartbeatTimer = setInterval(() => this.heartbeat(fresh), HEARTBEAT_INTERVAL_MS);
+    this.armIdle(fresh);
     return fresh;
+  }
+
+  /**
+   * The running process of `extName`, started first when it is idle (ADR 0062
+   * d3): the caller waits, bounded by the spawn's own timeouts, and concurrent
+   * callers share one start. Down otherwise — restarting after a crash, disabled,
+   * or not loaded — with the answer a call into a down extension always had.
+   */
+  private async live(extName: string): Promise<ManagedWorker> {
+    const m = this.workers.get(extName);
+    if (!m || m.disabled || m.respawning) throw boxDown(extName, m?.disabled);
+    if (!m.idle) return m;
+    // Outside the caller's context: one start serves every caller, of any request.
+    m.waking ??= runOutsideTenantContext(() => this.wake(m));
+    return m.waking;
+  }
+
+  private async wake(m: ManagedWorker): Promise<ManagedWorker> {
+    await m.stopping;
+    try {
+      const fresh = await this.replace(m);
+      console.log(`🧵 Worker "${m.name}" started on use (gen ${fresh.workerGeneration})`);
+      return fresh;
+    } catch (err) {
+      m.waking = undefined;
+      const why = `start on use failed: ${(err as Error).message}`;
+      // A start that fails is a crash (ADR 0062 d3), counted toward the disable;
+      // it stays idle, and the next call tries again. One stopped meanwhile is not.
+      if (this.workers.get(m.name) === m && !m.stopped) {
+        const crashes = this.countCrash(m, why);
+        if (!m.disabled) {
+          console.warn(`${boxTag(m.name, m.source)} crash ${crashes}/${CRASH_LIMIT}: ${why}`);
+        }
+        this.armIdle(m);
+      }
+      throw boxDown(m.name, m.disabled);
+    }
+  }
+
+  /**
+   * (Re)start `m`'s idle timer: called when it starts and whenever a call or a
+   * job run in it ends. An always-on one is still read again on that clock, so
+   * an operator's change on another replica reaches this one.
+   */
+  private armIdle(m: ManagedWorker): void {
+    if (m.idleTimer) clearTimeout(m.idleTimer);
+    m.idleTimer = undefined;
+    const rt = m.source?.runtime ?? ALWAYS_ON;
+    if (m.stopped || m.disabled || this.workers.get(m.name) !== m) return;
+    if (rt.alwaysOn && !m.source?.readRuntime) return;
+    // An idle one has no process; its unit may still be up, started for a job.
+    if (m.idle && !unitRunner()) return;
+    // Outside any request's context: the check reads the database on its own.
+    m.idleTimer = runOutsideTenantContext(() =>
+      setTimeout(() => void this.idleCheck(m), rt.idleTimeoutMs),
+    );
+    m.idleTimer.unref?.();
+  }
+
+  /** Something is in it: a call, a route request, a job run on its runner. */
+  private busy(m: ManagedWorker): boolean {
+    return (
+      m.invokeTenants.size > 0 || m.pendingInvokes.size > 0 || (this.uses.get(m.name) ?? 0) > 0
+    );
+  }
+
+  private async idleCheck(m: ManagedWorker): Promise<void> {
+    m.idleTimer = undefined;
+    const current = () =>
+      this.workers.get(m.name) === m && !m.stopped && !m.disabled && !m.respawning && !m.waking;
+    // A use still in it re-arms the timer when it ends.
+    if (!current() || this.busy(m)) return;
+    const before = m.source?.runtime ?? ALWAYS_ON;
+    let rt = before;
+    if (m.source?.readRuntime) {
+      const read = await m.source.readRuntime().catch((err: Error) => {
+        console.error(`${boxTag(m.name, m.source)} reading its runtime setting: ${err.message}`);
+        return null;
+      });
+      // Unreadable: kept as it is, and asked again on the next turn.
+      if (read) {
+        rt = read;
+        m.source = { ...m.source, runtime: read };
+      }
+    }
+    if (!current() || this.busy(m)) return;
+    if (rt.alwaysOn || rt.idleTimeoutMs > before.idleTimeoutMs) return this.armIdle(m);
+    this.idleStop(m, rt.idleTimeoutMs);
+  }
+
+  /**
+   * Stop `m` for idleness (ADR 0062 d3, F17): its process and, on systemd, its
+   * runner unit — the runner process alone holds ~46 MB. Marked idle first, so
+   * nothing its channel does from here counts as a crash; the crash history is
+   * kept and nothing is respawned.
+   */
+  private idleStop(m: ManagedWorker, afterMs: number): void {
+    const unit = unitRunner();
+    if (!m.idle) {
+      m.idle = true;
+      if (m.heartbeatTimer) clearInterval(m.heartbeatTimer);
+      clearPings(m);
+      m.worker.terminate();
+      m.worker = NO_PROCESS;
+      console.log(
+        `💤 ${boxTag(m.name, m.source)} idle for ${Math.round(afterMs / 1000)}s: stopped` +
+          `${unit ? ' with its runner unit' : ''}; its next call starts it`,
+      );
+    }
+    if (!unit) return;
+    m.stopping = stopRunner(m.name)
+      .catch((err: Error) =>
+        console.error(`${boxTag(m.name, m.source)} stopping its idle runner: ${err.message}`),
+      )
+      .finally(() => {
+        m.stopping = undefined;
+      });
+  }
+
+  /**
+   * A use of `extName`'s runner that is not a call into its process — a Deno job
+   * run on its unit (`jobs.ts`): the unit is not stopped for idleness until it is
+   * released, and an idle stop already under way is waited for (ADR 0062 d3).
+   */
+  async hold(extName: string): Promise<() => void> {
+    const release = this.enter(extName);
+    await this.workers.get(extName)?.stopping;
+    return release;
+  }
+
+  /**
+   * Count a use of `extName` from now until the returned release, which restarts
+   * its idle timer. Taken before a call asks for its process: from there to the
+   * moment it is in flight there are awaits, and an idle stop between them would
+   * leave it a process that is gone.
+   */
+  private enter(extName: string): () => void {
+    this.uses.set(extName, (this.uses.get(extName) ?? 0) + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const n = (this.uses.get(extName) ?? 1) - 1;
+      if (n > 0) this.uses.set(extName, n);
+      else this.uses.delete(extName);
+      const m = this.workers.get(extName);
+      if (m) this.armIdle(m);
+    };
+  }
+
+  /** An operator changed its runtime setting (ADR 0062 d3): applied on this replica at once. */
+  setRuntime(extName: string, runtime: WorkerRuntime): void {
+    const m = this.workers.get(extName);
+    if (!m) return;
+    m.source = { ...m.source, runtime };
+    if (runtime.alwaysOn && m.idle && !m.disabled) {
+      void this.live(extName).catch(() => undefined);
+    } else {
+      this.armIdle(m);
+    }
   }
 
   /**
@@ -856,7 +1168,8 @@ export class WorkerExtensionHost {
     timeoutMs = HEARTBEAT_TIMEOUT_MS,
     reason = `hang: no answer to its heartbeat within ${HEARTBEAT_TIMEOUT_MS}ms`,
   ): void {
-    if (managed.stopped) return;
+    // Heartbeats only while it runs: an idle one has no process to answer.
+    if (managed.stopped || managed.idle) return;
     const id = rpcId('ping');
     const timeout = setTimeout(() => {
       if (managed.pendingPings.has(id)) {
@@ -1003,8 +1316,17 @@ export class WorkerExtensionHost {
    * are answered by it.
    */
   async runAction(extName: string, name: string, input: unknown, host: ActionHost) {
-    const managed = this.workers.get(extName);
-    if (!managed || managed.respawning) throw boxDown(extName, managed?.disabled);
+    const leave = this.enter(extName);
+    try {
+      return await this.runActionIn(extName, name, input, host);
+    } finally {
+      leave();
+    }
+  }
+
+  private async runActionIn(extName: string, name: string, input: unknown, host: ActionHost) {
+    // From HTTP and from another extension's `host.actions.run` alike: started if idle.
+    const managed = await this.live(extName);
     const scope = callerScope();
     try {
       return await this.invokeAction(managed, name, [input, host.timezone], {
@@ -1202,129 +1524,12 @@ export class WorkerExtensionHost {
           get: (key: string) => unknown;
           error?: Error;
         }) => {
-          const live = this.workers.get(managed.name);
-          if (!live || live.respawning) {
-            return problemOnError(boxDown(managed.name, live?.disabled), c as unknown as Context);
-          }
-          // Bytes, not text: a text decode replaced every invalid UTF-8 sequence,
-          // so an image or PDF upload reached the handler corrupted.
-          const body = await c.req.raw
-            .arrayBuffer()
-            .then((b) => new Uint8Array(b))
-            .catch(() => undefined);
-          // Drop the `/ext/<name>` segments rather than string-replacing the
-          // name: Hono matched a percent-encoded name (`/ext/%70robe/x`), and
-          // a replace left the whole path for the worker to 404 on. As many as
-          // the name has: a fixed three left `/b` of `a/b` in the path, so the
-          // worker served another route than the one the gate decided on.
-          const subPath = `/${new URL(c.req.raw.url).pathname
-            .split('/')
-            .slice(2 + managed.name.split('/').length)
-            .join('/')}`;
-          // Read from the running worker, not closed over at mount: Hono cannot
-          // unmount, so an earlier proxy on the same app answers a restarted
-          // worker's requests and kept forwarding the set approved back then.
-          const headers = workerRequestHeaders(
-            c.req.raw.headers,
-            new Set(
-              Object.entries(live.source?.forwardCredentials ?? {})
-                .filter(([pattern]) => compilePattern(pattern).test(subPath))
-                .flatMap(([, h]) => h),
-            ),
-          );
-          const id = rpcId('inv');
-          const reqTenantId = (c.get('tenant') as { id?: string } | null)?.id ?? null;
-          const scope: InvokeScope = {
-            ...currentScope(reqTenantId),
-            run: AsyncLocalStorage.snapshot(),
-            route: { extName: managed.name, c },
-          };
-          // The request's own tenant transaction, joined: what the route's
-          // `host.collections` calls write is kept or undone with the request.
-          // A request with no tenant transaction still opens its own record.
-          const joined = await joinRequestTxn(scope);
-          const txn = joined.txn ?? newRequestTxn();
-          let leave: () => void;
+          // Every declared route, a public or webhook one too, starts it if idle.
+          const done = this.enter(managed.name);
           try {
-            leave = this.admit(live, txn);
-          } catch (err) {
-            await endRequestTxn(txn, false);
-            return problemOnError(err as Error, c as unknown as Context);
-          }
-          live.invokeTenants.set(id, { ...scope, ...joined, txn });
-          try {
-            const resp = await new Promise<RouteInvokeResponse>((resolve, reject) => {
-              live.pendingInvokes.set(id, resolve);
-              const timer = setTimeout(() => {
-                if (!live.pendingInvokes.has(id)) return;
-                live.pendingInvokes.delete(id);
-                live.invokeTenants.delete(id);
-                const err = this.timedOut(live, `route ${r.method} ${r.path}`);
-                // As an action's (`invokeAction`): its statement first.
-                if (txn.joined) void cancelJoinedStatement(txn).finally(() => reject(err));
-                else reject(err);
-                // The request's hard timeout, the same as its transaction's: a
-                // joined transaction is the tenant's, ended only by the answer.
-              }, requestTxnTimeoutMs);
-              // A post that throws (a body encoding past MAX_FRAME_BYTES) used
-              // to leave the pending entry and its timer behind for 30 s.
-              try {
-                this.post(live, {
-                  type: 'route:invoke',
-                  id,
-                  method: r.method,
-                  path: subPath,
-                  url: c.req.raw.url,
-                  headers,
-                  query: c.req.query(),
-                  body: body?.length ? body : undefined,
-                });
-              } catch (err) {
-                live.pendingInvokes.delete(id);
-                clearTimeout(timer);
-                reject(err);
-              }
-            });
-            // The rule `tenantMiddleware` applies to an inline request: commit
-            // unless the handler threw — whatever status it answered with.
-            // Nor when an `admin` check refused it, even if the worker caught that.
-            const commit = resp.type === 'route:ok' && !resp.threw && !extensionRequestRefused();
-            if (!(await endRequestTxn(txn, commit)) && commit) {
-              return Response.json({ error: NOT_COMMITTED }, { status: 500 });
-            }
-            if (resp.type === 'route:err') {
-              console.error(
-                `${boxTag(live.name, live.source)} route ${r.method} ${r.path} failed: ${resp.error}`,
-              );
-              return new Response(resp.error ?? 'worker error', { status: 500 });
-            }
-            return new Response(resp.body ?? null, {
-              status: resp.status ?? 200,
-              headers: resp.headers,
-            });
-          } catch (err) {
-            // The caller's body is too big to hand over: theirs to fix, not a 500.
-            if (err instanceof FrameTooLargeError) {
-              return Response.json({ error: 'Request body too large' }, { status: 413 });
-            }
-            if (err instanceof ProblemException) {
-              return problemOnError(err, c as unknown as Context);
-            }
-            return new Response((err as Error).message, { status: 500 });
+            return await this.proxyRequest(managed.name, r, c);
           } finally {
-            // Timed out, or the worker died: nothing it wrote is kept. What the
-            // request's tenant transaction holds for it is rolled back, as for an
-            // inline route that threw: `tenantMiddleware` does on `c.error`, and
-            // keeps this answer.
-            if (!(await endRequestTxn(txn, false))) {
-              c.error ??= new Error('the worker request was rolled back');
-            }
-            leave();
-            // The request is over, so the id can no longer name a tenant. Left
-            // behind, this map grows for the lifetime of the process and a
-            // worker could keep quoting a finished request's id to hold on to
-            // its tenant context.
-            live.invokeTenants.delete(id);
+            done();
           }
         },
       );
@@ -1334,6 +1539,146 @@ export class WorkerExtensionHost {
       // Hono v4 doesn't expose unmount; the proxy sub-app stays mounted
       // and returns 503 once `stop()` removes the worker entry.
     };
+  }
+
+  /** One request to a worker's declared route `r`, answered by its process. */
+  private async proxyRequest(
+    extName: string,
+    r: RouteDescriptor,
+    c: {
+      req: { raw: Request; query: () => Record<string, string> };
+      // `tenant` is set by tenantMiddleware; typed narrowly here because the
+      // proxy is registered on an untyped sub-app.
+      get: (key: string) => unknown;
+      error?: Error;
+    },
+  ): Promise<Response> {
+    let live: ManagedWorker;
+    try {
+      live = await this.live(extName);
+    } catch (err) {
+      return problemOnError(err as Error, c as unknown as Context);
+    }
+    // Bytes, not text: a text decode replaced every invalid UTF-8 sequence,
+    // so an image or PDF upload reached the handler corrupted.
+    const body = await c.req.raw
+      .arrayBuffer()
+      .then((b) => new Uint8Array(b))
+      .catch(() => undefined);
+    // Drop the `/ext/<name>` segments rather than string-replacing the
+    // name: Hono matched a percent-encoded name (`/ext/%70robe/x`), and
+    // a replace left the whole path for the worker to 404 on. As many as
+    // the name has: a fixed three left `/b` of `a/b` in the path, so the
+    // worker served another route than the one the gate decided on.
+    const subPath = `/${new URL(c.req.raw.url).pathname
+      .split('/')
+      .slice(2 + extName.split('/').length)
+      .join('/')}`;
+    // Read from the running worker, not closed over at mount: Hono cannot
+    // unmount, so an earlier proxy on the same app answers a restarted
+    // worker's requests and kept forwarding the set approved back then.
+    const headers = workerRequestHeaders(
+      c.req.raw.headers,
+      new Set(
+        Object.entries(live.source?.forwardCredentials ?? {})
+          .filter(([pattern]) => compilePattern(pattern).test(subPath))
+          .flatMap(([, h]) => h),
+      ),
+    );
+    const id = rpcId('inv');
+    const reqTenantId = (c.get('tenant') as { id?: string } | null)?.id ?? null;
+    const scope: InvokeScope = {
+      ...currentScope(reqTenantId),
+      run: AsyncLocalStorage.snapshot(),
+      route: { extName, c },
+    };
+    // The request's own tenant transaction, joined: what the route's
+    // `host.collections` calls write is kept or undone with the request.
+    // A request with no tenant transaction still opens its own record.
+    const joined = await joinRequestTxn(scope);
+    const txn = joined.txn ?? newRequestTxn();
+    let leave: () => void;
+    try {
+      leave = this.admit(live, txn);
+    } catch (err) {
+      await endRequestTxn(txn, false);
+      return problemOnError(err as Error, c as unknown as Context);
+    }
+    live.invokeTenants.set(id, { ...scope, ...joined, txn });
+    try {
+      const resp = await new Promise<RouteInvokeResponse>((resolve, reject) => {
+        live.pendingInvokes.set(id, resolve);
+        const timer = setTimeout(() => {
+          if (!live.pendingInvokes.has(id)) return;
+          live.pendingInvokes.delete(id);
+          live.invokeTenants.delete(id);
+          const err = this.timedOut(live, `route ${r.method} ${r.path}`);
+          // As an action's (`invokeAction`): its statement first.
+          if (txn.joined) void cancelJoinedStatement(txn).finally(() => reject(err));
+          else reject(err);
+          // The request's hard timeout, the same as its transaction's: a
+          // joined transaction is the tenant's, ended only by the answer.
+        }, requestTxnTimeoutMs);
+        // A post that throws (a body encoding past MAX_FRAME_BYTES) used
+        // to leave the pending entry and its timer behind for 30 s.
+        try {
+          this.post(live, {
+            type: 'route:invoke',
+            id,
+            method: r.method,
+            path: subPath,
+            url: c.req.raw.url,
+            headers,
+            query: c.req.query(),
+            body: body?.length ? body : undefined,
+          });
+        } catch (err) {
+          live.pendingInvokes.delete(id);
+          clearTimeout(timer);
+          reject(err);
+        }
+      });
+      // The rule `tenantMiddleware` applies to an inline request: commit
+      // unless the handler threw — whatever status it answered with.
+      // Nor when an `admin` check refused it, even if the worker caught that.
+      const commit = resp.type === 'route:ok' && !resp.threw && !extensionRequestRefused();
+      if (!(await endRequestTxn(txn, commit)) && commit) {
+        return Response.json({ error: NOT_COMMITTED }, { status: 500 });
+      }
+      if (resp.type === 'route:err') {
+        console.error(
+          `${boxTag(live.name, live.source)} route ${r.method} ${r.path} failed: ${resp.error}`,
+        );
+        return new Response(resp.error ?? 'worker error', { status: 500 });
+      }
+      return new Response(resp.body ?? null, {
+        status: resp.status ?? 200,
+        headers: resp.headers,
+      });
+    } catch (err) {
+      // The caller's body is too big to hand over: theirs to fix, not a 500.
+      if (err instanceof FrameTooLargeError) {
+        return Response.json({ error: 'Request body too large' }, { status: 413 });
+      }
+      if (err instanceof ProblemException) {
+        return problemOnError(err, c as unknown as Context);
+      }
+      return new Response((err as Error).message, { status: 500 });
+    } finally {
+      // Timed out, or the worker died: nothing it wrote is kept. What the
+      // request's tenant transaction holds for it is rolled back, as for an
+      // inline route that threw: `tenantMiddleware` does on `c.error`, and
+      // keeps this answer.
+      if (!(await endRequestTxn(txn, false))) {
+        c.error ??= new Error('the worker request was rolled back');
+      }
+      leave();
+      // The request is over, so the id can no longer name a tenant. Left
+      // behind, this map grows for the lifetime of the process and a
+      // worker could keep quoting a finished request's id to hold on to
+      // its tenant context.
+      live.invokeTenants.delete(id);
+    }
   }
 }
 
@@ -1356,6 +1701,10 @@ export const _internalForTests = {
   },
   heartbeat(host: WorkerExtensionHost, managed: ManagedWorker): void {
     (host as unknown as { heartbeat(m: ManagedWorker): void }).heartbeat(managed);
+  },
+  /** The managed record of `extName` as the host holds it now. */
+  managed(host: WorkerExtensionHost, extName: string): ManagedWorker | undefined {
+    return (host as unknown as { workers: Map<string, ManagedWorker> }).workers.get(extName);
   },
   resetInvokeWaiters(): void {
     invokeWaiters.clear();
@@ -1433,6 +1782,43 @@ const invokeWaiters = new Map<
     action: string;
   }
 >();
+
+function newManaged(
+  name: string,
+  extDir: string,
+  bundleEntry: string,
+  worker: ExtensionChannel,
+  generation: number,
+  source: WorkerCtxSource,
+): ManagedWorker {
+  return {
+    name,
+    extDir,
+    bundleEntry,
+    worker,
+    routes: [],
+    pendingInvokes: new Map(),
+    invokeTenants: new Map(),
+    pendingInits: new Map(),
+    pendingPings: new Map(),
+    source,
+    proxyUnmount: () => {},
+    workerGeneration: generation,
+    enabledAt: Date.now(),
+    inFlightRequests: 0,
+    totalRequests: 0,
+    stopped: false,
+  };
+}
+
+/**
+ * Cancel every heartbeat still waiting on `managed`'s process: it is ending, and
+ * a ping's timeout firing later must not count a crash (ledger A02-2026-11-24-d4s2).
+ */
+function clearPings(managed: ManagedWorker): void {
+  for (const cancel of managed.pendingPings.values()) cancel();
+  managed.pendingPings.clear();
+}
 
 /** Settle every call waiting on `extName`'s worker: it will not answer. */
 function failPendingInvokes(extName: string): void {

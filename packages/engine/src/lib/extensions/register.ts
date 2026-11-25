@@ -16,6 +16,13 @@
  * inline code — zero behaviour change.
  */
 
+import {
+  defaultRuntimePolicy,
+  readRuntimePolicy,
+  recordValidatedStamp,
+  validatedStamp,
+  workerRuntime,
+} from './runtime-policy.js';
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { Hono } from 'hono';
@@ -777,6 +784,15 @@ async function registerExtensionRoutes(
           },
           keyId: isolation.keyId,
           registryKeyId: isolation.registryKeyId,
+          // ADR 0062 d3: the operator's choice; unreadable at load is the default.
+          runtime: workerRuntime(
+            await readRuntimePolicy(db, extName).catch(() => defaultRuntimePolicy(extName)),
+          ),
+          readRuntime: async () => workerRuntime(await readRuntimePolicy(db, extName)),
+          validated: {
+            has: async (stamp) => (await validatedStamp(db, extName)) === stamp,
+            record: (stamp) => recordValidatedStamp(db, extName, stamp),
+          },
         },
       );
     } finally {

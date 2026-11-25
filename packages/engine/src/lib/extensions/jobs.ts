@@ -389,15 +389,27 @@ async function pumpRunner(): Promise<void> {
       return;
     }
     // Asked once per extension per pass: a queue whose runner is down is not claimed from.
-    const answers = new Map<string, Promise<boolean>>();
+    const answers = new Map<string, Promise<'up' | 'idle' | 'down'>>();
     let claimed = true;
     while (claimed && runnerBusy < RUNNER_CONCURRENCY) {
       claimed = false;
       for (const [q, { extName, job }] of runnerQueues) {
         if (runnerBusy >= RUNNER_CONCURRENCY) break;
         if ((runnerBusyByExt.get(extName) ?? 0) >= Math.max(1, RUNNER_CONCURRENCY - 1)) continue;
-        if (!answers.has(extName)) answers.set(extName, runnerAnswers(extName));
-        if (!(await answers.get(extName))) {
+        if (!answers.has(extName)) {
+          answers.set(
+            extName,
+            runnerAnswers(
+              extName,
+              () => jobsWaiting(extName),
+              () => void pumpRunner(),
+            ),
+          );
+        }
+        const runner = await answers.get(extName);
+        // Stopped for idleness with nothing queued: left so (ADR 0062 d3).
+        if (runner === 'idle') continue;
+        if (runner === 'down') {
           if (!runnerDownWarned.has(extName)) {
             runnerDownWarned.add(extName);
             console.warn(`[ext-jobs] ${extName}: its runner does not answer; its jobs wait`);
@@ -407,6 +419,9 @@ async function pumpRunner(): Promise<void> {
         runnerDownWarned.delete(extName);
         const [j] = await boss.fetch<JobPayload>(q, { batchSize: 1 });
         if (!j) continue;
+        // Only for a claimed run: a hold resets its idle timer, and this pass
+        // comes every 2 s — held on every pass, an answering runner never idled.
+        const release = await holdRunner(extName);
         claimed = true;
         runnerBusy++;
         runnerBusyByExt.set(extName, (runnerBusyByExt.get(extName) ?? 0) + 1);
@@ -417,6 +432,7 @@ async function pumpRunner(): Promise<void> {
           )
           .catch((err: Error) => warn(extName, err))
           .finally(() => {
+            release();
             runnerBusy--;
             const n = (runnerBusyByExt.get(extName) ?? 1) - 1;
             if (n > 0) runnerBusyByExt.set(extName, n);
@@ -430,6 +446,34 @@ async function pumpRunner(): Promise<void> {
   } finally {
     pumping = false;
   }
+}
+
+/**
+ * Whether a job of `extName` is ready in one of its runner queues: asked only
+ * when its runner does not answer, to start it for that job and for no other
+ * reason (ADR 0062 d3).
+ */
+async function jobsWaiting(extName: string): Promise<boolean> {
+  const queues = [...runnerQueues].filter(([, r]) => r.extName === extName).map(([q]) => q);
+  if (queues.length === 0) return false;
+  const r = await sql<{ ready: boolean }>`
+    SELECT EXISTS (
+      SELECT 1 FROM pgboss.job
+       WHERE name = ANY(${queues}::text[]) AND state IN ('created', 'retry') AND start_after <= now()
+    ) AS ready`.execute(getDb());
+  return r.rows[0]?.ready === true;
+}
+
+let workerHostModule: typeof import('../worker-extension-host.js') | undefined;
+
+/**
+ * ADR 0062 d3: a run holds its extension's runner up — no idle stop under it.
+ * The module is kept once imported, so the hold is taken in the same turn as
+ * the claim it follows, before an idle timer can fire between them.
+ */
+async function holdRunner(extName: string): Promise<() => void> {
+  workerHostModule ??= await import('../worker-extension-host.js');
+  return (await workerHostModule.getWorkerHostIfInitialized()?.hold(extName)) ?? (() => {});
 }
 
 function work(boss: JobQueue, extName: string): void {

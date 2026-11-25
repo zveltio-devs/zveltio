@@ -51,6 +51,8 @@ import {
   getTestApp,
   harnessAvailable,
   ruleObjects,
+  setRuntimeSetting,
+  forgetRuntimeSettings,
 } from '../../testing/app-harness.js';
 import { signAsOperator } from '../../testing/operator-signed.js';
 
@@ -140,6 +142,8 @@ d('a worker-isolated extension fails alone (ADR 0056 s2)', () => {
       INSERT INTO zv_extension_registry (name, display_name, tenant_id, is_installed, is_enabled, manifest)
       VALUES (${name}, ${name}, NULL, true, true, ${toJsonb(parsed)})
     `.execute(db);
+    // Running from load, as these crashes and hangs need (ADR 0062 d3).
+    await setRuntimeSetting(db, { alwaysOn: true }, name);
     const ctx = {
       db,
       auth: getAuth(),
@@ -249,6 +253,7 @@ d('a worker-isolated extension fails alone (ADR 0056 s2)', () => {
     await sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${CRASHY}, ${LOOPY})`.execute(
       db,
     );
+    await forgetRuntimeSettings(db, EXT, CRASHY, LOOPY);
     await sql`DELETE FROM zvd_permissions WHERE v2 = ${RES}`.execute(db);
     await asAuditOwner(db, sql`DELETE FROM zv_audit_log WHERE resource_id LIKE ${`${EXT}:%`}`);
     await asAuditOwner(db, sql`DELETE FROM zv_audit_log WHERE resource_id = ${CRASHY}`);

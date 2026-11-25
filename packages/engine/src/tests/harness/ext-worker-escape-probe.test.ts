@@ -51,6 +51,8 @@ import {
   getTestApp,
   harnessAvailable,
   markInstalled,
+  setRuntimeSetting,
+  forgetRuntimeSettings,
 } from '../../testing/app-harness.js';
 import { signAsOperator } from '../../testing/operator-signed.js';
 
@@ -348,6 +350,9 @@ d('an extension worker cannot escape (ADR 0062 probe "security")', () => {
 
   async function load(name: string): Promise<void> {
     await markInstalled(db, name);
+    // Running from load (ADR 0062 d3): over `process` a probe plants a file in
+    // another extension's directory, and a start after that is refused by its signature.
+    await setRuntimeSetting(db, { alwaysOn: true }, name);
     // Consented at install, as an administrator does.
     await sql`UPDATE zv_extension_registry SET granted_capabilities = ${toJsonb(['data:write'])}
               WHERE name = ${name}`.execute(db);
@@ -488,6 +493,7 @@ d('an extension worker cannot escape (ADR 0062 probe "security")', () => {
     for (const name of [EXT, INL, FOR]) await extensionLoader.unload(name).catch(() => {});
     if (!db) return;
     await forgetInstalled(db, EXT, INL, FOR);
+    await forgetRuntimeSettings(db, EXT, INL, FOR);
     // The inline load made its database roles; they are cluster-wide.
     for (const name of [EXT, INL, FOR])
       await revokeExtensionDbRoles(db, name, true).catch(() => {});

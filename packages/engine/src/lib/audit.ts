@@ -43,6 +43,7 @@ export type AuditEventType =
   | 'extension.capabilities.approved'
   | 'extension.capabilities.pruned'
   | 'extension.egress.slot_bound'
+  | 'extension.runtime_set'
   /** An administrator approved the caller credentials a worker extension's routes receive. */
   | 'extension.forward_credentials.approved'
   /** One run of an extension action (lib/extensions/actions.ts), with its outcome. */

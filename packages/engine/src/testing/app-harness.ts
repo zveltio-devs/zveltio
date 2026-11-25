@@ -673,6 +673,28 @@ export async function markInstalled(db: Database, ...names: string[]): Promise<v
   invalidateActivationCache();
 }
 
+/**
+ * Set `names`' runtime setting (ADR 0062 d3) as an operator does: `{ alwaysOn:
+ * true }` keeps a worker as every worker was before idle stop — started at load,
+ * never stopped for idleness — for a test about something else.
+ * `forgetRuntimeSettings` removes it, with the init stamp the load recorded.
+ */
+export async function setRuntimeSetting(
+  db: Database,
+  value: { alwaysOn?: boolean; idleTimeoutSeconds?: number },
+  ...names: string[]
+): Promise<void> {
+  for (const name of names) {
+    await sql`INSERT INTO zv_settings (key, value) VALUES (${`ext_runtime:${name}`}, ${JSON.stringify(value)}::text::jsonb)
+              ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`.execute(db);
+  }
+}
+
+export async function forgetRuntimeSettings(db: Database, ...names: string[]): Promise<void> {
+  const keys = names.flatMap((n) => [`ext_runtime:${n}`, `ext_validated:${n}`]);
+  await sql`DELETE FROM zv_settings WHERE key = ANY(${keys}::text[])`.execute(db);
+}
+
 /** Undoes `markInstalled`. */
 export async function forgetInstalled(db: Database, ...names: string[]): Promise<void> {
   if (names.length === 0) return;

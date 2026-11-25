@@ -63,7 +63,8 @@ describe('WorkerExtensionHost — invoke timeouts', () => {
       const run = host.runAction('owner-timeout', 'slow', {}, {
         timezone: 'UTC',
       } as unknown as ActionHost);
-      await Promise.resolve();
+      // Until the run is posted: its timer is set then, a few awaits in.
+      for (let i = 0; i < 10; i++) await Promise.resolve();
       jest.advanceTimersByTime(30_001);
       await expect(run).rejects.toMatchObject({
         status: 504,
