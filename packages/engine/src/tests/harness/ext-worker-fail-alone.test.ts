@@ -246,7 +246,9 @@ d('a worker-isolated extension fails alone (ADR 0056 s2)', () => {
     if (base) rmSync(base, { recursive: true, force: true });
     if (!db) return;
     await forgetRuleObjects(db, RES);
-    await sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${CRASHY}, ${LOOPY})`.execute(db);
+    await sql`DELETE FROM zv_extension_registry WHERE name IN (${EXT}, ${CRASHY}, ${LOOPY})`.execute(
+      db,
+    );
     await sql`DELETE FROM zvd_permissions WHERE v2 = ${RES}`.execute(db);
     await asAuditOwner(db, sql`DELETE FROM zv_audit_log WHERE resource_id LIKE ${`${EXT}:%`}`);
     await asAuditOwner(db, sql`DELETE FROM zv_audit_log WHERE resource_id = ${CRASHY}`);
@@ -398,8 +400,9 @@ d('a worker-isolated extension fails alone (ADR 0056 s2)', () => {
       expect(
         warns.mock.calls.some(
           (c) =>
-            String(c[0]).startsWith(`[ext:${LOOPY} key=test-operator] crash 1/5: hang: action "spin"`) &&
-            String(c[0]).includes('killed'),
+            String(c[0]).startsWith(
+              `[ext:${LOOPY} key=test-operator] crash 1/5: hang: action "spin"`,
+            ) && String(c[0]).includes('killed'),
         ),
       ).toBe(true);
       // The spinning process is gone, not only answered for.

@@ -7,7 +7,7 @@
  * outside its own (another extension's runner directory). It reports through
  * `console.log`, which the runtime forwards as `log` frames. Prints one JSON
  * line: { transport, env, environ, fetch, net, write, forks, threads,
- * addressSpace, uid } — each what it got, or `DENIED <code>`. `fetch` is refused
+ * addressSpace, uid, nice, niceLimit } — each what it got, or `DENIED <code>`. `fetch` is refused
  * by the runtime itself (ADR 0022); `net` opens a raw TCP socket to the same
  * host, which only the OS can stop.
  *
@@ -172,6 +172,9 @@ export default {
       threads: Number.parseInt((await read('/proc/self/status')).split('Threads:')[1] ?? ''),
       // process.getuid is not there inside the runtime; the kernel says.
       uid: Number.parseInt((await read('/proc/self/status')).split('Uid:')[1] ?? ''),
+      // Field 19 of stat, after the parenthesised name (ADR 0062 F20).
+      nice: Number((await read('/proc/self/stat')).split(') ')[1]?.split(' ')[16]),
+      niceLimit: (await read('/proc/self/limits')).match(/Max nice priority\\s+(\\S+)/)?.[1],
     }));
   },
 };
