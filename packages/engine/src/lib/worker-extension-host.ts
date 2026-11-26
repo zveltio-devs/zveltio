@@ -215,7 +215,12 @@ export interface WorkerCtxSource {
    * One `host.identity` call of a declared route serving `c`, answered by the
    * inline `host.identity` for that route's manifest `access` (ADR 0039 d7, d9).
    */
-  identity?: (c: unknown, access: string | undefined, call: string, args: unknown[]) => Promise<unknown>;
+  identity?: (
+    c: unknown,
+    access: string | undefined,
+    call: string,
+    args: unknown[],
+  ) => Promise<unknown>;
   /** The manifest's `routes` (ADR 0039): the worker pairs them with its handlers and serves them. */
   declaredRoutes?: { method: string; path: string; access?: string; handler: string }[];
   /** The manifest's actions by name (ADR 0056): the worker pairs them with its implementations. */
@@ -438,7 +443,11 @@ export function boxConcurrencyLimit(poolMax: number): number {
 /** How every log line about an extension names it: its name and its signing key (ADR 0056). */
 /** Its declared routes as the host serves them: the manifest's method, path and access. */
 function declaredDescriptors(source: WorkerCtxSource): RouteDescriptor[] {
-  return (source.declaredRoutes ?? []).map(({ method, path, access }) => ({ method, path, access }));
+  return (source.declaredRoutes ?? []).map(({ method, path, access }) => ({
+    method,
+    path,
+    access,
+  }));
 }
 
 function boxTag(name: string, source?: WorkerCtxSource): string {
