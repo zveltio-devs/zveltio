@@ -1511,7 +1511,10 @@ host forwards each declared route and action over a channel and answers the
 - **No `ctx`:** `register()` is handed an app and a `ctx` that refuse every
   use, so one that registers a route or touches any `ctx` member fails the load,
   naming it. A declared route's `host` is `host.collections`, answered as the
-  caller (no `identity`, `enqueue` or `files`: those are inline only)
+  caller, and `host.identity`, answered by the engine exactly as on an inline
+  route with that manifest `access` (same capability, route and admin checks;
+  `signIn`'s session headers come back as a `Headers`). No `enqueue` or
+  `files`: those are inline only
 - **Actions** (ADR 0056): served as inline. The engine mounts
   `POST /ext/<name>/actions/<action>` ahead of the worker's own routes and
   makes every check there; the worker runs the function, and each `host` call
