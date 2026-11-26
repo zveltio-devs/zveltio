@@ -1417,9 +1417,9 @@ export interface DeclaredRouteHost extends RouteHost {
    * holding `auth:session`; the directory from a declared route of an extension
    * holding `identity:provision` — a `public` one, or a `caller` one whose
    * caller's author administers the tenant (ADR 0045). Anywhere else each call
-   * throws. Inline routes only: absent on a
-   * worker-isolated route. Engines from 3.0.0-beta.113; the directory from
-   * 3.0.0-beta.114.
+   * throws. Engines from 3.0.0-beta.113; the directory from 3.0.0-beta.114;
+   * on a worker-isolated route, with the same checks, from the engine after
+   * 3.0.0-beta.132.
    */
   identity?: RouteIdentity;
 }
