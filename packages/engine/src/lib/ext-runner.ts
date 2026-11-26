@@ -683,15 +683,104 @@ export async function oomKills(extName: string): Promise<number | null> {
   }
 }
 
-async function systemctl(verb: 'start' | 'stop', unit: string): Promise<void> {
-  const proc = Bun.spawn(['systemctl', verb, '--no-ask-password', unit], {
-    stdout: 'ignore',
+async function systemctl(verb: string, ...args: string[]): Promise<string> {
+  // env: the PATH of now, not of the process's start.
+  const proc = Bun.spawn(['systemctl', '--no-ask-password', verb, ...args], {
+    stdout: 'pipe',
     stderr: 'pipe',
+    env: process.env,
   });
-  if ((await proc.exited) !== 0) {
-    const why = (await new Response(proc.stderr).text()).trim();
-    throw new Error(`systemctl ${verb} ${unit}: ${why || `exit ${proc.exitCode}`}`);
+  const [out, err, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  if (code !== 0)
+    throw new Error(`systemctl ${verb} ${args.join(' ')}: ${err.trim() || `exit ${code}`}`);
+  return out;
+}
+
+/**
+ * Start burst (ADR 0062 step 2b). A unit's `CPUQuota=20%` per 100 ms period
+ * stretched a cold start's ~105 ms of CPU to ~0.5 s. A unit started from down
+ * gets a 1 s period for `START_BURST_MS` after its start returns: the same 20%,
+ * but its first 200 ms of CPU run unthrottled. Then the engine puts the 100 ms
+ * period back, so a loop costs the engine what it did (step 1a).
+ *
+ * The engine sets it (`systemctl set-property --runtime`, polkit rule), not
+ * the runner: on a unit the runner and the extension's process share one uid,
+ * so whatever the runner could lower, the extension could raise again.
+ * The period and not the quota: the share never changes, an operator's
+ * `CPUQuota=` stays theirs, and a burst the engine never ends (it died in the
+ * window) is still 20% of a core. A unit found running in its burst with no end
+ * pending here is ended before it is handed a channel; a burst that cannot be
+ * ended stops the unit.
+ */
+export const START_BURST_MS = 250;
+const BURST_PERIOD = '1s';
+const burstsPending = new Map<string, number>();
+let burstRefused = false;
+
+async function endBurst(unit: string): Promise<boolean> {
+  try {
+    await systemctl('set-property', '--runtime', unit, 'CPUQuotaPeriodSec=');
+    return true;
+  } catch (err) {
+    console.error(`[ext-runner] ${(err as Error).message}; stopping ${unit} instead`);
+    await systemctl('stop', unit).catch((e: Error) => console.error(`[ext-runner] ${e.message}`));
+    return false;
   }
+}
+
+/** `systemctl start` a runner unit, with the start burst when it was down. */
+export async function startUnit(unit: string, burstMs = START_BURST_MS): Promise<void> {
+  const shown = await systemctl('show', '-p', 'ActiveState', '-p', 'CPUQuotaPeriodUSec', unit);
+  const prop = (k: string) => new RegExp(`^${k}=(.*)$`, 'm').exec(shown)?.[1];
+  if (prop('ActiveState') === 'active') {
+    if (prop('CPUQuotaPeriodUSec') === BURST_PERIOD && !burstsPending.has(unit)) {
+      if (!(await endBurst(unit))) throw new Error(`${unit} was left in its start burst`);
+    }
+    return;
+  }
+  // Down: nothing of the extension runs in it, so the burst covers only this
+  // start. Sent beside the start, not before it: the first 20 ms of CPU are
+  // under the cap either way.
+  const lifted = systemctl(
+    'set-property',
+    '--runtime',
+    unit,
+    `CPUQuotaPeriodSec=${BURST_PERIOD}`,
+  ).then(
+    () => {
+      burstsPending.set(unit, (burstsPending.get(unit) ?? 0) + 1);
+      return true;
+    },
+    (err: Error) => {
+      // A polkit rule written before the burst: starts stay capped, and slow.
+      if (!burstRefused)
+        console.warn(
+          `[ext-runner] no start burst (re-run \`zveltio ext-runner setup\`): ${err.message}`,
+        );
+      burstRefused = true;
+      return false;
+    },
+  );
+  const [ok, failed] = await Promise.all([
+    lifted,
+    systemctl('start', unit).then(
+      () => null,
+      (err: Error) => err,
+    ),
+  ]);
+  if (ok) {
+    setTimeout(() => {
+      const left = (burstsPending.get(unit) ?? 1) - 1;
+      if (left > 0) burstsPending.set(unit, left);
+      else burstsPending.delete(unit);
+      void endBurst(unit);
+    }, burstMs);
+  }
+  if (failed) throw failed;
 }
 
 /**
@@ -701,10 +790,10 @@ async function systemctl(verb: 'start' | 'stop', unit: string): Promise<void> {
  * `Type=simple` unit an older `setup` wrote.
  */
 export function startRunner(extName: string): Promise<string> {
-  return startInstance(runnerInstance(extName));
+  return startInstance(runnerInstance(extName), true);
 }
 
-async function startInstance(instance: string): Promise<string> {
+async function startInstance(instance: string, burst = false): Promise<string> {
   // Containers (RFC step 4): one runner service listens on a socket shared
   // with the engine; there is no systemd to start an instance.
   const shared = process.env.ZVELTIO_EXT_RUNNER_SOCKET;
@@ -712,7 +801,9 @@ async function startInstance(instance: string): Promise<string> {
   const missing = runnerMissing();
   if (missing) throw new Error(missing);
   const unit = `zveltio-ext-runner@${instance}.service`;
-  await systemctl('start', unit);
+  // The edge instance keeps its own period: one core shared by invocations.
+  if (burst) await startUnit(unit);
+  else await systemctl('start', unit);
   const path = join(RUNNER_DIR, instance, 'runner.sock');
   for (let i = 0; i < 100 && !existsSync(path); i++) await Bun.sleep(100);
   if (!existsSync(path)) throw new Error(`${unit} started but ${path} did not appear in 10s`);
@@ -828,6 +919,8 @@ TasksMax=64
 # 10, idle, SCHED_IDLE: +53-77%, measured); the cap does: 20% of one core cost
 # +11-13%, 10% nothing. The weight gives the engine the CPU first on a saturated
 # host. The engine kills a process that spins past a call's deadline (30 s).
+# A unit the engine starts from down runs its first 250 ms with a 1 s period
+# (the start burst, ADR 0062 step 2b): same 20%, its first 200 ms unthrottled.
 CPUWeight=10
 CPUQuota=20%
 
@@ -859,13 +952,15 @@ Environment=ZVELTIO_EXT_RUNNER_UID_BASE=${EDGE_UID_BASE}
 Environment=ZVELTIO_EXT_TRANSPORT=runner
 `,
     '/etc/polkit-1/rules.d/50-zveltio-ext-runner.rules': `// Written by \`zveltio ext-runner setup\`: the engine user may start, stop
-// and restart its extension runners, and no other unit.
+// and restart its extension runners, and no other unit. set-property: the
+// engine gives a unit started from down its start burst and ends it (ADR 0062
+// step 2b), as a runtime property, never written under /etc.
 polkit.addRule(function (action, subject) {
   if (action.id === "org.freedesktop.systemd1.manage-units" && subject.user === ${JSON.stringify(engineUser)}) {
     var unit = action.lookup("unit") || "";
     var verb = action.lookup("verb");
     if (unit.indexOf("zveltio-ext-runner@") === 0 &&
-        (verb === "start" || verb === "stop" || verb === "restart")) {
+        (verb === "start" || verb === "stop" || verb === "restart" || verb === "set-property")) {
       return polkit.Result.YES;
     }
   }

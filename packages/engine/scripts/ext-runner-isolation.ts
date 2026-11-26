@@ -35,6 +35,7 @@ import { dirname, join } from 'node:path';
 import {
   closeExtensionsDir,
   ensureWorkerRuntimeOnDisk,
+  START_BURST_MS,
   startRunner,
 } from '../src/lib/ext-runner.js';
 import { connectRunner, spawnProcessRunner } from '../src/lib/worker-extension-transport.js';
@@ -214,7 +215,10 @@ channel.onmessage = (e) => {
     if (msg.error) console.error(`probe: ${msg.error}`);
     channel.onerror = null;
     channel.terminate();
-    process.exit(msg.type === 'init:ok' ? 0 : 1);
+    // As an engine that lives on: the unit's start burst ends (ADR 0062 step 2b).
+    const code = msg.type === 'init:ok' ? 0 : 1;
+    if (transport === 'managed') setTimeout(() => process.exit(code), START_BURST_MS + 100);
+    else process.exit(code);
   }
 };
 channel.postMessage({

@@ -30,6 +30,9 @@
 #     running (its unit is down after load), a call starts its unit, its idle
 #     timeout stops the unit again with no crash counted, the next call starts it,
 #     and a `systemctl stop` the engine did not order is a crash, respawned;
+#   - start burst (ADR 0062 step 2b): a cold start runs with a 1 s CPU period,
+#     the 20% cap per 100 ms is back after it, and a register() that spins is
+#     capped after its burst and killed by the init timeout;
 #   - a Deno job (ADR 0023 decision 2) runs in its extension's instance, under
 #     the unit's uid and seccomp (read from outside while it is held), finds
 #     the Deno the engine downloaded through the unit's EXTENSIONS_DIR, reaches
@@ -163,6 +166,12 @@ check "A and B run under different uids, neither the engine's" '[ "$UA" != "$UB"
 err=$(sudo -u zveltio systemctl stop --no-ask-password "$UNIT_A" 2>&1) && echo "engine stopped A" || { echo "$err"; fail=1; }
 err=$(sudo -u zveltio systemctl restart --no-ask-password cron.service 2>&1 || true)
 check "engine user may not manage other units" 'grep -qiE "access denied|authentication" <<<"$err"'
+# The start burst (ADR 0062 step 2b) is a runtime property the engine sets on
+# its runners, and on no other unit.
+err=$(sudo -u zveltio systemctl set-property --no-ask-password --runtime cron.service CPUQuotaPeriodSec=1s 2>&1 || true)
+check "engine user may not set properties of other units" 'grep -qiE "access denied|authentication" <<<"$err"'
+check "engine user may set its runner's CPU period" \
+  'sudo -u zveltio systemctl set-property --no-ask-password --runtime "$UNIT_A" CPUQuotaPeriodSec= '
 # ADR 0062 step 2b: Type=notify. `systemctl start` returns once the runner
 # listens, so the engine connects at once instead of polling for the socket.
 sock_now=no
@@ -286,6 +295,18 @@ check "the next call starts it again" \
   'grep -q "\"wake\":\"200 pong\"" <<<"$out" && grep -q "\"afterWake\":\"active\"" <<<"$out"'
 check "a stop the engine did not order is a crash, respawned" \
   'grep -q "\"external\":\"crash\"" <<<"$out" && grep -q "\"respawned\":\"active\"" <<<"$out"'
+# ADR 0062 step 2b, start burst: a cold start runs with a 1 s period, the cap
+# comes back START_BURST_MS after it, and a register() that spins is capped,
+# then killed by the init timeout.
+check "after a cold start's burst the unit is capped at 20% again" \
+  'grep -q "\"capAfterBurst\":\"20000 100000\"" <<<"$out"'
+check "a start spinning in init runs its burst: 20% over a 1 s period" \
+  'grep -q "\"inBurst\":\"200000 1000000\"" <<<"$out"'
+check "a start spinning in init is capped after the burst" \
+  'grep -q "\"afterBurst\":\"20000 100000\"" <<<"$out" &&
+   [ "$(grep -o "\"cpuMsPerSec\":[0-9]*" <<<"$out" | cut -d: -f2)" -le 250 ]'
+check "a start spinning in init is killed by the init timeout" \
+  'grep -qE "\"load\":\"worker .*did not init within" <<<"$out"'
 
 sudo systemctl stop 'zveltio-ext-runner@*' 2>/dev/null || true
 [ "$fail" = 0 ] && echo "PASS: ext-runner on systemd"
