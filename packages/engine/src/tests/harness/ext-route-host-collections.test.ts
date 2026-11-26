@@ -503,7 +503,8 @@ d('a route reaches its collections through host.collections (ADR 0025)', () => {
 
   it('a worker-isolated route has no asSystem: the read stays the caller’s', async () => {
     const a = await get(WEXT, `/pub/sys/${wrow}`);
-    expect(a.body?.members).toEqual(['collections']);
+    // `identity` as an inline route's (ADR 0039 d7, d9); no internals, so no asSystem.
+    expect(a.body?.members).toEqual(['collections', 'identity']);
     expect(a.body?.read).toBe(403);
   }, 30_000);
 

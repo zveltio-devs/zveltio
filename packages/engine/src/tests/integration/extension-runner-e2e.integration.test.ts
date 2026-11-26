@@ -657,7 +657,7 @@ for (const [driver, transport] of LEGS) {
     it('a declared route is served over the transport (ADR 0039)', () => {
       expect(out.declaredPublic).toMatchObject({
         status: 200,
-        body: { id: '7', body: '{"n":1}', host: ['collections'] },
+        body: { id: '7', body: '{"n":1}', host: ['collections', 'identity'] },
       });
       expect(String(((out.declaredPublic as Res).body as { url: string }).url)).toEndWith(
         `/ext/${main}/declared/7`,
