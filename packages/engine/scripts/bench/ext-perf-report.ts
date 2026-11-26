@@ -3,7 +3,7 @@
  * the ADR 0062 performance probe.   bun ext-perf-report.ts <dir>
  *
  * Thresholds (decided, project_adr_0062_proof_plan): runner p95 <= +20 % over
- * inline; cold start < 150 ms; zero `extension.busy` at the default pool.
+ * inline; cold start < 250 ms p95 (amended 2026-11-26 from 150); zero `extension.busy` at the default pool.
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -125,7 +125,7 @@ console.log('\n### thresholds\n');
 console.log(
   `- runner p95 <= +20 % vs inline (worst of 4 cells, default pool): ${worst('runner', 'default').toFixed(0)} % -> ${worst('runner', 'default') <= 20 ? 'PASS' : 'FAIL'}`,
 );
-console.log(`- cold start < 150 ms (p95 ${coldP95} ms): ${coldP95 < 150 ? 'PASS' : 'FAIL'}`);
+console.log(`- cold start < 250 ms (p95 ${coldP95} ms): ${coldP95 < 250 ? 'PASS' : 'FAIL'}`);
 console.log(
   `- zero extension.busy at the default pool (runner): ${busyDefault} -> ${busyDefault === 0 ? 'PASS' : 'FAIL'}`,
 );

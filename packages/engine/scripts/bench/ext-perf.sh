@@ -30,8 +30,8 @@ sample() { # <label> <file>: one JSON object per process of every runner unit
 }
 
 for round in $(seq 1 "$ROUNDS"); do
-  for pool in default 40 10; do
-    for mode in inline process runner; do
+  for pool in ${POOLS:-default 40 10}; do
+    for mode in ${MODES:-inline process runner}; do
       run="$OUT/r${round}-${mode}-pool${pool}"
       echo "== round $round mode $mode pool $pool"
       : >"$run.mem"

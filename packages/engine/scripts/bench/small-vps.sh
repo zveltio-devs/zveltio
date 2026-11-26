@@ -8,18 +8,26 @@
 #   inline       the 37 inside the engine (registry-signed tree). Three of them (ai,
 #                communications/mail, compliance/ro/efactura) declare jobs, which run in a
 #                runner unit of their own even then: those 3 units are counted
-#   runner       37 on the systemd runner, every unit running; then every unit stopped
-#                (the simulated idle stop: the feature does not exist yet; the engine
-#                respawns a stopped worker, so the units are masked first and the
-#                engine's crash loop ends with the worker disabled)
-#   runner-load  runner again, then createInvoice 3 lines, concurrency 5, 2 minutes
+#   runner       37 on the systemd runner, every unit running (operator setting always on
+#                for all 37); then the setting flips to a 10 s idle timeout and the engine
+#                stops every unit itself (ADR 0062 d3, #1918: no mask, no crash counted)
+#   runner-load  runner at the default runtime settings (only invoicing always on), then
+#                createInvoice 3 lines, concurrency 5, 2 minutes
 # The engine runs in `systemd-run --scope -p AllowedCPUs=0 -p MemoryMax=1G` as the
 # `zveltio` user; the runner units get the same CPU pin from a drop-in (installed
 # here, removed by `small-vps.sh unpin`). Memory (RSS/PSS from smaps_rollup) of the
 # scope's processes and of every runner unit is read here, with sudo, by the operator.
 # Needs small-vps-prep.sh done. One JSON object per line goes to <outdir>/<state>.jsonl.
 set -euo pipefail
-trap 'sudo systemctl stop bench-engine.scope 2>/dev/null; sudo systemctl stop "zveltio-ext-runner@*" 2>/dev/null' EXIT
+# The operator's runtime settings (ADR 0062 d3) for every name: '' deletes them.
+setrt() {
+  if [ -z "$1" ]; then
+    sudo -u postgres psql -qX zveltio_bench -c "DELETE FROM zv_settings WHERE key LIKE 'ext_runtime:%'" >/dev/null
+  else
+    sudo -u postgres psql -qX zveltio_bench -c "INSERT INTO zv_settings (key, value) SELECT 'ext_runtime:' || n, '$1'::jsonb FROM unnest(string_to_array('$(cat /opt/zveltio-run/bench/names)', ',')) n ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value" >/dev/null
+  fi
+}
+trap 'sudo systemctl stop bench-engine.scope 2>/dev/null || true; sudo systemctl stop "zveltio-ext-runner@*" 2>/dev/null || true; setrt ""' EXIT
 STATE="${1:?state}"; OUT="${2:-/tmp/small-vps}"
 RUN=/opt/zveltio-run
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -92,6 +100,8 @@ ENVV=(PATH=/usr/local/bin:/usr/bin:/bin HOME=/tmp/zv-home NODE_ENV=production PO
 # The ext route allows 600 requests a minute per IP; the generator is on loopback.
 [ "$STATE" = runner-load ] && ENVV+=(RATE_LIMIT_ALLOWLIST=127.0.0.0/8)
 
+setrt ""
+[ "$STATE" = runner ] && setrt '{"alwaysOn":true,"idleTimeoutSeconds":10}'
 t0=$(date +%s%N)
 sudo systemd-run --quiet --scope --unit="$SCOPE" -p AllowedCPUs=0 -p MemoryMax=1G -- \
   setpriv --reuid=zveltio --regid=zveltio --clear-groups env -i "${ENVV[@]}" "$RUN/zveltio" >"$LOG" 2>&1 &
@@ -118,18 +128,16 @@ case "$STATE" in
   alone|inline) sample up ;;
   runner)
     sample running
-    UNITS=$(systemctl list-units --plain --no-legend 'zveltio-ext-runner@*' | awk '{print $1}')
-    # shellcheck disable=SC2086
-    sudo systemctl mask --runtime $UNITS 2>/dev/null; sudo systemctl stop $UNITS
-    sleep $((SETTLE * 2)) # the engine's 5 respawns, 1 s apart, all refused
+    curl -s -m5 http://127.0.0.1:3000/health >"$OUT/runner-health-running.json" || true
+    setrt '{"alwaysOn":false,"idleTimeoutSeconds":10}'
+    sleep $((SETTLE * 2)) # each always-on unit re-reads its setting every 10 s, then idles 10 s
     emit "$(printf '{"phase":"idle-stopped","health":"%s","units_back":%s}' \
       "$(curl -s -m3 -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/health)" \
       "$(systemctl list-units --plain --no-legend 'zveltio-ext-runner@*' | wc -l)")"
+    curl -s -m5 http://127.0.0.1:3000/health >"$OUT/runner-health-idle.json" || true
     sample idle-stopped
     emit "$(printf '{"phase":"idle-stopped","engine_log_crash_lines":%s,"disabled_lines":%s}' \
-      "$(grep -c 'crash [0-9]/5' "$LOG" || true)" "$(grep -ci 'disabled' "$LOG" || true)")"
-    # shellcheck disable=SC2086
-    sudo systemctl unmask --runtime $UNITS ;;
+      "$(grep -c 'crash [0-9]/5' "$LOG" || true)" "$(grep -ci 'disabled' "$LOG" || true)")" ;;
   runner-load)
     sample running
     taskset -c 1 bun "$HERE/small-vps-load.ts" run "$LOAD_SECS" "$LOAD_CONC" "$MEMBER" >"$OUT/load.json"
