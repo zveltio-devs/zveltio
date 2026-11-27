@@ -2,9 +2,9 @@
  * Marketplace lifecycle — Integration Tests (alpha.126).
  *
  * Exercises the full install → enable → invoke flow against a
- * running engine + Postgres. Covers BOTH the inline subapp path
- * (hello-ext) and the C-minimal worker isolation path
- * (hello-ext-worker). The release-binary smoke job runs the same
+ * running engine + Postgres, on the worker isolation path
+ * (hello-ext-worker): since ADR 0062 d1 every extension off the engine's
+ * inline list runs as a worker. The release-binary smoke job runs the same
  * shape against the compiled binary; this suite catches regressions
  * earlier — during `bun test`, before the build.
  *
@@ -15,7 +15,7 @@
  *
  *   1. Boot the engine at TEST_PORT (default 3099) with
  *      EXTENSIONS_DIR pointing at a folder containing both
- *      `hello-ext/` and `hello-ext-worker/` fixtures, signed with
+ *      the `hello-ext-worker/` fixture, signed with
  *      `bun scripts/sign-as-registry.ts <dir>` and the line it prints in
  *      the engine's environment (an unsigned directory never runs).
  *   2. Create a god user with TEST_USER_EMAIL / TEST_USER_PASSWORD.
@@ -74,44 +74,6 @@ function authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
   });
 }
 
-describe.skipIf(skipAll)('Marketplace lifecycle — inline (hello-ext)', () => {
-  beforeAll(async () => {
-    await signIn();
-  });
-
-  it('install → success:true, files_on_disk:true', async () => {
-    const res = await authedFetch('/api/marketplace/hello-ext/install', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{}',
-    });
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.success).toBe(true);
-    expect(body.files_on_disk).toBe(true);
-  });
-
-  it('enable → success:true, hot_loaded:true', async () => {
-    const res = await authedFetch('/api/marketplace/hello-ext/enable', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{}',
-    });
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.success).toBe(true);
-    expect(body.hot_loaded).toBe(true);
-  });
-
-  it('GET /ext/hello-ext/health → 200 {ok:true}', async () => {
-    const res = await authedFetch('/ext/hello-ext/health');
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.ok).toBe(true);
-    expect(body.name).toBe('hello-ext');
-  });
-});
-
 describe.skipIf(skipAll)('Marketplace lifecycle — worker isolation (hello-ext-worker)', () => {
   it('install → success:true', async () => {
     const res = await authedFetch('/api/marketplace/hello-ext-worker/install', {
@@ -146,7 +108,7 @@ describe.skipIf(skipAll)('Marketplace lifecycle — worker isolation (hello-ext-
 });
 
 describe.skipIf(skipAll)('Admin extensions health endpoint', () => {
-  it('GET /api/admin/extensions/health lists both fixtures with correct isolation tier', async () => {
+  it('GET /api/admin/extensions/health lists the fixture as a worker', async () => {
     const res = await authedFetch('/api/admin/extensions/health');
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -154,9 +116,7 @@ describe.skipIf(skipAll)('Admin extensions health endpoint', () => {
     const byName = new Map(
       (body.extensions as Array<{ name: string; isolation: string }>).map((e) => [e.name, e]),
     );
-    const helloInline = byName.get('hello-ext');
     const helloWorker = byName.get('hello-ext-worker');
-    expect(helloInline?.isolation).toBe('inline');
     expect(helloWorker?.isolation).toBe('worker');
   });
 });
