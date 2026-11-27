@@ -701,29 +701,49 @@ async function systemctl(verb: string, ...args: string[]): Promise<string> {
 }
 
 /**
- * Start burst (ADR 0062 step 2b). A unit's `CPUQuota=20%` per 100 ms period
- * stretched a cold start's ~105 ms of CPU to ~0.5 s. A unit started from down
- * gets a 1 s period for `START_BURST_MS` after its start returns: the same 20%,
- * but its first 200 ms of CPU run unthrottled. Then the engine puts the 100 ms
- * period back, so a loop costs the engine what it did (step 1a).
+ * Start burst (ADR 0062 step 2b, F26). A unit's `CPUQuota=10%` per 100 ms
+ * period stretched a cold start's ~105 ms of CPU to ~1 s. A unit started from
+ * down gets 20% with a 1 s period for `START_BURST_MS` after its start
+ * returns: its first 200 ms of CPU run unthrottled. Then the engine puts the
+ * unit's own quota and the 100 ms period back, so a loop costs the engine what
+ * it did (step 3: 10% kept a loop under +10% on the engine's p95, 20% did not).
  *
  * The engine sets it (`systemctl set-property --runtime`, polkit rule), not
  * the runner: on a unit the runner and the extension's process share one uid,
  * so whatever the runner could lower, the extension could raise again.
- * The period and not the quota: the share never changes, an operator's
- * `CPUQuota=` stays theirs, and a burst the engine never ends (it died in the
- * window) is still 20% of a core. A unit found running in its burst with no end
- * pending here is ended before it is handed a channel; a burst that cannot be
- * ended stops the unit.
+ * The unit's own quota is read from its files (template and operator drop-ins),
+ * never from the runtime ones the engine writes: a burst never lowers it, and
+ * the end puts it back. `CPUQuota=` (empty) cannot end a burst: it lifts the
+ * cap. A unit found running in its burst with no end pending here is ended
+ * before it is handed a channel; a burst that cannot be ended stops the unit.
  */
 export const START_BURST_MS = 250;
 const BURST_PERIOD = '1s';
+const BURST_QUOTA = 20;
+const RUNTIME_DROPINS = '# /run/systemd/system.control/';
 const burstsPending = new Map<string, number>();
 let burstRefused = false;
 
+/** The unit's `CPUQuota=` in percent from its own files; Infinity when uncapped. */
+async function ownQuota(unit: string): Promise<number> {
+  let quota = Infinity;
+  let runtime = false;
+  for (const line of (await systemctl('cat', unit)).split('\n')) {
+    if (line.startsWith('# /')) runtime = line.startsWith(RUNTIME_DROPINS);
+    const m = !runtime && /^\s*CPUQuota=(.*?)\s*$/.exec(line);
+    if (!m) continue;
+    if (m[1] === '') quota = Infinity;
+    else if (/^\d+(\.\d+)?%$/.test(m[1])) quota = Number.parseFloat(m[1]);
+  }
+  return quota;
+}
+
+const quotaArg = (q: number) => `CPUQuota=${q === Infinity ? '' : `${q}%`}`;
+
 async function endBurst(unit: string): Promise<boolean> {
   try {
-    await systemctl('set-property', '--runtime', unit, 'CPUQuotaPeriodSec=');
+    const quota = await ownQuota(unit);
+    await systemctl('set-property', '--runtime', unit, quotaArg(quota), 'CPUQuotaPeriodSec=');
     return true;
   } catch (err) {
     console.error(`[ext-runner] ${(err as Error).message}; stopping ${unit} instead`);
@@ -734,7 +754,10 @@ async function endBurst(unit: string): Promise<boolean> {
 
 /** `systemctl start` a runner unit, with the start burst when it was down. */
 export async function startUnit(unit: string, burstMs = START_BURST_MS): Promise<void> {
-  const shown = await systemctl('show', '-p', 'ActiveState', '-p', 'CPUQuotaPeriodUSec', unit);
+  const [shown, quota] = await Promise.all([
+    systemctl('show', '-p', 'ActiveState', '-p', 'CPUQuotaPeriodUSec', unit),
+    ownQuota(unit).catch(() => null),
+  ]);
   const prop = (k: string) => new RegExp(`^${k}=(.*)$`, 'm').exec(shown)?.[1];
   if (prop('ActiveState') === 'active') {
     if (prop('CPUQuotaPeriodUSec') === BURST_PERIOD && !burstsPending.has(unit)) {
@@ -743,13 +766,18 @@ export async function startUnit(unit: string, burstMs = START_BURST_MS): Promise
     return;
   }
   // Down: nothing of the extension runs in it, so the burst covers only this
-  // start. Sent beside the start, not before it: the first 20 ms of CPU are
-  // under the cap either way.
-  const lifted = systemctl(
-    'set-property',
-    '--runtime',
-    unit,
-    `CPUQuotaPeriodSec=${BURST_PERIOD}`,
+  // start. Sent beside the start, not before it: the first 10 ms of CPU are
+  // under the cap either way. A quota that cannot be read gets no burst.
+  const lifted = (
+    quota === null
+      ? Promise.reject(new Error(`cannot read the CPUQuota of ${unit}`))
+      : systemctl(
+          'set-property',
+          '--runtime',
+          unit,
+          quotaArg(Math.max(quota, BURST_QUOTA)),
+          `CPUQuotaPeriodSec=${BURST_PERIOD}`,
+        )
   ).then(
     () => {
       burstsPending.set(unit, (burstsPending.get(unit) ?? 0) + 1);
@@ -919,10 +947,12 @@ TasksMax=64
 # 10, idle, SCHED_IDLE: +53-77%, measured); the cap does: 20% of one core cost
 # +11-13%, 10% nothing. The weight gives the engine the CPU first on a saturated
 # host. The engine kills a process that spins past a call's deadline (30 s).
-# A unit the engine starts from down runs its first 250 ms with a 1 s period
-# (the start burst, ADR 0062 step 2b): same 20%, its first 200 ms unthrottled.
+# A unit the engine starts from down runs its first 250 ms at 20% with a 1 s
+# period (the start burst, ADR 0062 step 2b, F26): its first 200 ms unthrottled.
+# 10%, not 20%: at 20% a loop cost the engine +8-14% on its p95, at 10% +3-5%
+# (step 3). Raise it here or in a drop-in; the burst never lowers it.
 CPUWeight=10
-CPUQuota=20%
+CPUQuota=10%
 
 [Install]
 WantedBy=multi-user.target

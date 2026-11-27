@@ -1,6 +1,6 @@
 // ADR 0062 step 2b, start burst: a runner unit started from down runs its first
-// START_BURST_MS with a 1 s CPU period, then the engine puts the 100 ms period
-// back. A fake `systemctl` on PATH records what the engine asks systemd.
+// START_BURST_MS at 20% with a 1 s CPU period, then the engine puts the unit's
+// own quota and the 100 ms period back (F26). A fake `systemctl` on PATH records what the engine asks systemd.
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -11,8 +11,10 @@ const dir = mkdtempSync(join(tmpdir(), 'burst-'));
 const log = join(dir, 'log');
 const path = process.env.PATH;
 const U = 'zveltio-ext-runner@acme_x_1234abcd.service';
-const LIFT = `set-property --runtime ${U} CPUQuotaPeriodSec=1s`;
-const END = `set-property --runtime ${U} CPUQuotaPeriodSec=`;
+const LIFT = `set-property --runtime ${U} CPUQuota=20% CPUQuotaPeriodSec=1s`;
+const END = `set-property --runtime ${U} CPUQuota=10% CPUQuotaPeriodSec=`;
+const TEMPLATE = '# /etc/systemd/system/zveltio-ext-runner@.service\n[Service]\nCPUQuota=10%\n';
+const RUNTIME = `# /run/systemd/system.control/${U}.d/50-CPUQuota.conf\n[Service]\nCPUQuota=20%\n`;
 
 beforeAll(() => {
   writeFileSync(
@@ -21,6 +23,7 @@ beforeAll(() => {
 shift # --no-ask-password
 echo "$*" >> "$FAKE_LOG"
 [ "$*" = "$FAKE_FAIL" ] && { echo refused >&2; exit 1; }
+[ "$1" = cat ] && { printf '%s' "$FAKE_CAT"; exit 0; }
 [ "$1" = show ] && printf 'ActiveState=%s\\nCPUQuotaPeriodUSec=%s\\n' "$FAKE_STATE" "$FAKE_PERIOD"
 exit 0
 `,
@@ -38,8 +41,14 @@ beforeEach(() => {
   process.env.FAKE_STATE = 'inactive';
   process.env.FAKE_PERIOD = 'infinity';
   process.env.FAKE_FAIL = '';
+  process.env.FAKE_CAT = TEMPLATE + RUNTIME;
 });
-const calls = () => readFileSync(log, 'utf8').trim().split('\n').slice(1); // after `show`
+// Without the reads (`show`, `cat`): what the engine asks systemd to do.
+const calls = () =>
+  readFileSync(log, 'utf8')
+    .trim()
+    .split('\n')
+    .filter((l) => l && !/^(show|cat) /.test(l));
 
 describe('startUnit (start burst)', () => {
   it('starts a unit that was down in its burst, and ends the burst after it', async () => {
@@ -84,6 +93,23 @@ describe('startUnit (start burst)', () => {
     await expect(startUnit(U, 30)).rejects.toThrow('refused');
     await Bun.sleep(80);
     expect(calls().at(-1)).toBe(END);
+  });
+
+  // The unit's own quota, never the engine's runtime drop-in, and never lowered.
+  it("puts an operator's quota back and never lowers it", async () => {
+    process.env.FAKE_CAT = `${TEMPLATE}# /etc/systemd/system/${U}.d/cpu.conf\n[Service]\nCPUQuota=50%\n${RUNTIME}`;
+    await startUnit(U, 30);
+    await Bun.sleep(80);
+    expect(calls()).toContain(`set-property --runtime ${U} CPUQuota=50% CPUQuotaPeriodSec=1s`);
+    expect(calls().at(-1)).toBe(`set-property --runtime ${U} CPUQuota=50% CPUQuotaPeriodSec=`);
+  });
+
+  // An empty CPUQuota= in the unit's files is no cap; the end must not invent one.
+  it('keeps an uncapped unit uncapped', async () => {
+    process.env.FAKE_CAT = `${TEMPLATE}# /etc/systemd/system/${U}.d/cpu.conf\n[Service]\nCPUQuota=\n`;
+    await startUnit(U, 30);
+    await Bun.sleep(80);
+    expect(calls().at(-1)).toBe(`set-property --runtime ${U} CPUQuota= CPUQuotaPeriodSec=`);
   });
 
   // A polkit rule an older `setup` wrote: the start goes on, capped, and
