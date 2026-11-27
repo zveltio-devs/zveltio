@@ -219,8 +219,7 @@ Minimal valid manifest (v2 — what `zveltio extension pack` produces):
     "format": "esm",
     "target": "bun",
     "bundled": true,
-    "bundlePeers": false,
-    "isolation": "inline"
+    "bundlePeers": false
   },
   "integrity": {
     "engineSha256": "<filled by pack>"
@@ -272,7 +271,7 @@ computes the SHA-256, and patches these blocks in place.
 | `engine.target` | `"bun" \| "node" \| "*"` | no | Default `"bun"`. |
 | `engine.bundled` | bool | yes (v2) | Always `true` post-alpha.111. Bun compiled binary can't resolve bare specifiers at runtime, so deps must be bundled at pack time. |
 | `engine.bundlePeers` | bool | no | Default `false`. Set `true` to inline the `peerDependencies` into the bundle. Required when the extension uses any peer dep — external peers don't work on the binary install. See alpha.113 in CHANGELOG. |
-| `engine.isolation` | `"inline" \| "worker"` | no | Default `"inline"`. **`"worker"` is REQUIRED for community/third-party submissions** per marketplace-policy.md §2 — the loader hard-fails the enable otherwise. See §13.5 below for the trade-offs. |
+| `engine.isolation` | `"inline" \| "worker"` | no | **Accepted and ignored** (ADR 0062 d1): where an extension runs is the engine's choice. Every extension runs as a worker except the engine's shrinking inline list (`INLINE_EXTENSIONS`). Still parsed for extension-api v1; its removal is `v2-candidates.md` entry 14. See §13.5 below. |
 | `integrity.engineSha256` | hex64 | yes (v2) | SHA-256 of `engine/index.js`. Filled by pack; engine refuses to load a bundle whose bytes don't match. |
 | `integrity.schemaSha256` | hex64 | with `collections` | Digest of every `.json` under `schema/`, sorted by path. Filled by pack; the engine refuses declared collections whose files don't match, or a manifest that declares collections without it. |
 | `integrity.archiveSha256` | hex64 | no | SHA-256 of the `.zvext` archive. Optional; the registry computes and stores this on upload. Engine verifies it against the `X-Archive-Sha256` response header at install time. |
@@ -1467,7 +1466,7 @@ Zveltio offers three runtime tiers for extensions. Pick based on
 **who wrote the code** and **what they're trusted with**, not based on
 performance hopes.
 
-### Tier 1 — `inline` (default)
+### Tier 1 — `inline` (the engine's inline list only)
 
 The extension runs in the same V8 isolate as the engine. Maximum
 speed (zero IPC), full API surface, transactions work naturally.
@@ -1482,14 +1481,17 @@ speed (zero IPC), full API surface, transactions work naturally.
 - **DB credentials:** the extension sees the same `Bun.SQL` pool as
   the engine; nothing prevents it from running arbitrary SQL within
   its declared permissions
-- **Use for:** first-party / audited code (the 54 official
-  extensions), workloads chatty with the DB (RLS-bound multi-tenant
-  queries), anything that needs transactions or streaming
-  responses
+- **Who runs here:** only the first-party extensions on the engine's
+  inline list (`INLINE_EXTENSIONS` in `lib/extensions/load-phases.ts`), the
+  fourteen of ADR 0062's porting list that still reach past the declared model
+  (`register()`, `ctx.db`, `ctx.internals`), and only with the registry's
+  signature and a first-party catalogue tier. The list only shrinks; inline
+  loading is deleted with its last entry.
 
-Set in manifest: omit `engine.isolation` (default is `inline`).
+Not a choice: no manifest field, publisher tier or operator setting puts an
+extension here (ADR 0062 d1).
 
-### Tier 2 — `worker` (opt-in, since alpha.121)
+### Tier 2 — `worker` (every other extension, ADR 0062)
 
 The extension runs in a process of its own — on the extension runner in
 production, a child of the engine elsewhere. It is declared model only: the
@@ -1593,21 +1595,13 @@ host forwards each declared route and action over a channel and answers the
   route's or action's `host` calls; any other frame — SQL, a service, an
   event, forged or not — runs nothing; only the manifest's `routes` are
   served; `engine/migrations/*.sql` refuses the load
-- **Use for:** third-party / community extensions where the
-  publisher isn't audited, code where crash isolation matters more
-  than the latency cost
+- **Who runs here:** every extension, first-party included, except the
+  engine's inline list. Its signed level is 0 (registry signature, first-party
+  catalogue tier: may list `"*"`, ADR 0053 d5, ADR 0062 d2), 2 (registry
+  signature, any other tier) or 3 (operator key)
 
-Set in manifest:
-
-```json
-{
-  "engine": {
-    "entry": "engine/index.js",
-    "bundled": true,
-    "isolation": "worker"
-  }
-}
-```
+Nothing to set: the engine runs it here whatever `engine.isolation` says. It
+must be bundled (`engine.bundled: true`, which `zveltio extension pack` does).
 
 Inspect runtime state at `GET /api/admin/extensions/health`:
 
@@ -1641,6 +1635,12 @@ service calls made in a request. A disabled extension also fails the
 `extensions` check of `GET /api/health/deep`.
 
 ### How the tier is decided — and what the CLI does for you
+
+> Since ADR 0062 d1 the engine ignores `engine.isolation`: every extension
+> runs as a worker except its inline list, whatever the tier. What follows
+> still describes what the CLI and the registry check of the field, which
+> extension-api v1 keeps parsing; the tier now decides what an extension may
+> use (level 0 may list `"*"`), never where it runs.
 
 Your **publisher tier** (not a per-extension setting) determines which
 isolation values you're allowed to ship:

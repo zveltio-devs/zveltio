@@ -73,9 +73,7 @@ describe('a catalogue override cannot make an extension first-party (ADR 0056)',
         );
       const relabelled = await star('acme/relabelled');
       expect(relabelled.ok).toBe(false);
-      expect(relabelled.ok ? '' : relabelled.lastLoadError).toMatch(
-        /no verified first-party tier/,
-      );
+      expect(relabelled.ok ? '' : relabelled.lastLoadError).toMatch(/no verified first-party tier/);
       expect((await star('acme/default-official')).ok).toBe(false);
       const crm = await star('crm');
       expect(crm.ok && crm.value.firstParty).toBe(true);

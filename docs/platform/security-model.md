@@ -204,17 +204,27 @@ under a uid that is not the engine's (ADR 0058, below) — with
 
 ## Extension isolation — what it does and does not guarantee
 
-Community-tier extensions are **review-gated, signed, and worker-isolated**.
+Every extension is **signed and runs as a worker**, first-party included, except
+the engine's shrinking inline list (ADR 0062 d1).
 
-`enforcePublisherTier` requires community (untrusted, third-party) extensions to
-declare `isolation: worker`. Their code is then **never imported into the engine
-process** — the loader builds a metadata-only descriptor from the manifest and
-the filesystem, and the worker imports the bundle itself. From there:
+Where an extension runs is the engine's choice, never its manifest's:
+`engine.isolation` is still accepted and ignored. Only the extensions on
+`INLINE_EXTENSIONS` (`lib/extensions/load-phases.ts`) — the fourteen of ADR
+0062's porting list, which still reach past the declared model (`register()`,
+`ctx.db`, `ctx.internals`) — run inline, and only when the registry's signature
+and a first-party catalogue tier hold for them; the list only shrinks, and inline
+loading goes with its last entry. Every other extension's code is **never
+imported into the engine process** — the loader builds a metadata-only
+descriptor from the manifest and the filesystem, and the worker imports the
+bundle itself. From there:
 
 - Every worker is declared model only (ADR 0056 d1, amendment 2026-11-21; RFC
   extension-model-v3 phase D slice 4): collections, actions, jobs and declared
-  routes — level 2 (registry-signed community) or level 3 (operator key), the
-  only workers that run. Its `register()`
+  routes — level 0 (registry-signed, first-party catalogue tier), level 2
+  (registry-signed, any other tier) or level 3 (operator key, always a worker),
+  the only workers that run. The tier comes from the signature, never the name:
+  only level 0 may list `"*"` in an action's `reads` / `writes` (ADR 0053 d5,
+  ADR 0062 d2). Its `register()`
   may use neither its app nor its `ctx`; the host answers only the `host` calls
   of its declared routes and actions, and any other frame it sends — SQL, a
   service, an event, a `ctx` member, forged or not — runs nothing; it serves

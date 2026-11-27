@@ -14,7 +14,6 @@ import { signAsOperator } from '../../testing/operator-signed.js';
 import { extensionTransport } from '../../lib/worker-extension-transport.js';
 import { _resetWorkerHostForTests } from '../../lib/worker-extension-host.js';
 
-
 const saved = {
   NODE_ENV: process.env.NODE_ENV,
   ZVELTIO_EXT_TRANSPORT: process.env.ZVELTIO_EXT_TRANSPORT,

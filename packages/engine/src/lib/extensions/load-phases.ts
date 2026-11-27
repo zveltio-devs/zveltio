@@ -386,9 +386,11 @@ const fail = (msg: string): PhaseFail => ({
  * extension). `'community'` when a catalogue loaded without it; null when none
  * loaded (`catalogFailed` too when `ZVELTIO_REQUIRE_CATALOG=1` made that fatal).
  */
-async function catalogueTier(
-  extName: string,
-): Promise<{ tier: ReturnType<typeof resolvePublisherTier> | null; entry: boolean; catalogFailed: boolean }> {
+async function catalogueTier(extName: string): Promise<{
+  tier: ReturnType<typeof resolvePublisherTier> | null;
+  entry: boolean;
+  catalogFailed: boolean;
+}> {
   // `requireRemote` makes fetchRegistryCatalog throw instead of silently
   // degrading to the local catalog — without it the fail-closed branch is
   // unreachable, since the fetch swallows every error of its own.
