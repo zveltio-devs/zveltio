@@ -1,7 +1,7 @@
 /**
  * U3 (ADR 0056 amendment 4, ADR 0058 amendment point 3): an unsigned directory
- * never runs inline, whatever its name. A name the catalogue calls first-party
- * proves nothing: inline needs the registry's signature, kept with the files at
+ * never runs inline, whatever its name. A name the catalogue calls first-party,
+ * and on the engine's inline list (ADR 0062 d1), proves nothing: inline needs the registry's signature, kept with the files at
  * download and re-verified against them at every load.
  *
  * Production (the default `NODE_ENV`) through the engine's own loader and
@@ -29,10 +29,14 @@ import {
 
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = String(Date.now()).slice(-7);
-const UNSIGNED = `u3plain${STAMP}`;
-const SIGNED = `u3signed${STAMP}`;
-const TAMPERED = `u3tamper${STAMP}`;
-const BORROWED = `u3borrow${STAMP}`;
+// Names on the engine's inline list: only those run inline at all since ADR 0062
+// d1 (any other name runs as a worker), so only they still ask the inline gate.
+const UNSIGNED = 'content/pages';
+const SIGNED = 'billing';
+const TAMPERED = 'sms';
+const BORROWED = 'auth/ldap';
+const DEV = 'developer/api-docs';
+const UNSIGNED_IN: Record<string, string> = { development: 'data/export', test: 'developer/byod' };
 const ALL = [UNSIGNED, SIGNED, TAMPERED, BORROWED];
 // The CLI from source, as `ext-operator-signed` runs it: CI builds no CLI dist for this lane.
 const CLI = join(import.meta.dir, '../../../../cli/src/index.ts');
@@ -153,7 +157,7 @@ d('an unsigned directory never runs inline, whatever its name (U3)', () => {
   // checkout under `NODE_ENV=development` or `test` is refused like any other.
   for (const mode of ['development', 'test']) {
     it(`refuses it under NODE_ENV=${mode} too: no local-dev exception`, async () => {
-      const name = `${UNSIGNED}${mode[0]}`;
+      const name = UNSIGNED_IN[mode]!;
       ALL.push(name);
       write(join(base, name), name);
       process.env.NODE_ENV = mode;
@@ -169,7 +173,7 @@ d('an unsigned directory never runs inline, whatever its name (U3)', () => {
   }
 
   it('runs a source checkout a developer signed with their own test key (development)', async () => {
-    const name = `u3dev${STAMP}`;
+    const name = DEV;
     ALL.push(name);
     write(join(base, name), name);
     const home = mkdtempSync(join(tmpdir(), 'u3-home-'));
@@ -222,6 +226,7 @@ d('an unsigned directory never runs inline, whatever its name (U3)', () => {
     const other = `u3other${STAMP}`;
     write(join(src, other), other);
     await installSigned(other, join(src, other));
+    mkdirSync(join(base, 'auth'), { recursive: true });
     cpSync(join(base, other), join(base, BORROWED), { recursive: true });
     rmSync(join(base, other), { recursive: true, force: true });
     await load(BORROWED);

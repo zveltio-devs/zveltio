@@ -999,6 +999,10 @@ export async function finalizeExtensionLoad(
 ): Promise<void> {
   // ADR 0062 d1: where it runs is the engine's choice, never its manifest's.
   const worker = runsAsWorker(extName, manifest, keyId);
+  // `enforcePublisherTier` refused it already; never half a worker, half inline.
+  if (worker && manifest?.engine?.bundled !== true) {
+    throw new Error(`Extension "${extName}" runs as a worker, which needs a bundled engine entry`);
+  }
   // First, so a mismatch refuses the load before anything is granted for it. A
   // worker's are paired in the worker, and run there (ADR 0056).
   const actions = compileActions(
