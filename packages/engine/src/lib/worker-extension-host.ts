@@ -152,6 +152,8 @@ export interface WorkerHealth {
   idleTimeoutMs: number | null;
   /** The key its signature verified against; null until signatures carry the tier (ADR 0056 s3). */
   keyId: string | null;
+  /** Its signed trust level: 0 first-party, 2 registry, 3 operator (ADR 0056 d1, ADR 0062 d2). */
+  level: 0 | 2 | 3 | null;
   workerGeneration: number;
   enabledAt: string;
   lastCrashAt?: string;
@@ -241,6 +243,12 @@ export interface WorkerCtxSource {
    * (level 2), named in its log lines when no operator key is.
    */
   registryKeyId?: string;
+  /**
+   * The load verified that registry signature's catalogue tier first-party:
+   * level 0 on the runner (ADR 0062 d2), which may list `"*"` (ADR 0053 d5).
+   * Ignored with an operator key, which is level 3 whatever the name.
+   */
+  firstParty?: boolean;
   /**
    * ADR 0062 d3: always on, or stopped after this long unused — the operator's
    * setting, never the manifest's. Absent: always on, started at `start`, as a
@@ -455,14 +463,16 @@ function boxTag(name: string, source?: WorkerCtxSource): string {
 }
 
 /**
- * Its trust level: 3 for an operator key, 2 for the registry's. Both are
- * declared model only (ADR 0056 d1, amendment 2026-11-21). An unsigned bundle
- * has none and never runs, under the test override either (RFC v3 phase D
- * slice 4, S4): the loader refuses it, and so does the host, at every spawn.
+ * Its trust level: 3 for an operator key; for the registry's, 0 when the load
+ * verified its catalogue tier first-party (ADR 0062 d2), else 2. All are
+ * declared model only (ADR 0056 d1, amendment 2026-11-21; phase D slice 4, S2).
+ * An unsigned bundle has none and never runs, under the test override either
+ * (RFC v3 phase D slice 4, S4): the loader refuses it, and so does the host, at
+ * every spawn.
  */
-function signedLevel(extName: string, source?: WorkerCtxSource): 2 | 3 {
+function signedLevel(extName: string, source?: WorkerCtxSource): 0 | 2 | 3 {
   if (source?.keyId !== undefined) return 3;
-  if (source?.registryKeyId !== undefined) return 2;
+  if (source?.registryKeyId !== undefined) return source.firstParty === true ? 0 : 2;
   throw new Error(`"${extName}" is not signed, and an unsigned extension never runs (ADR 0056)`);
 }
 
@@ -790,6 +800,10 @@ export class WorkerExtensionHost {
         ? null
         : (m.source?.runtime?.idleTimeoutMs ?? null),
       keyId: m.source?.keyId ?? null,
+      level:
+        m.source?.keyId !== undefined || m.source?.registryKeyId !== undefined
+          ? signedLevel(m.name, m.source)
+          : null,
       workerGeneration: m.workerGeneration,
       enabledAt: new Date(m.enabledAt).toISOString(),
       lastCrashAt: m.lastCrashAt ? new Date(m.lastCrashAt).toISOString() : undefined,

@@ -279,7 +279,7 @@ interface LoadedExtension {
   /** Manifest `apiKeyRoutes` — re-registered with the gate alongside `publicRoutes`. */
   apiKeyRoutes?: string[];
   /**
-   * Set when the manifest requires worker isolation. Persisted for the same
+   * Set when it runs as a worker (`runsAsWorker`, ADR 0062 d1). Persisted for the same
    * reason as `permissions` above: hot-reload used to pass `manifest = null`, so
    * the worker branch was never taken and a community extension — which
    * `enforcePublisherTier` puts in a worker precisely *because* it is untrusted
@@ -298,6 +298,8 @@ interface LoadedExtension {
     keyId?: string;
     /** The registry key its kept archive signature verified against (level 2). */
     registryKeyId?: string;
+    /** That registry signature's catalogue tier is first-party: level 0 (ADR 0062 d2). */
+    firstParty?: boolean;
   };
   /**
    * Manifest `dependencies` + `optionalDependencies` as resolved at load — an

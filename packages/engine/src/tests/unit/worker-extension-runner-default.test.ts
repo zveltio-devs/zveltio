@@ -14,8 +14,6 @@ import { signAsOperator } from '../../testing/operator-signed.js';
 import { extensionTransport } from '../../lib/worker-extension-transport.js';
 import { _resetWorkerHostForTests } from '../../lib/worker-extension-host.js';
 
-const workerManifest = { engine: { isolation: 'worker', bundled: true } } as never;
-const inlineManifest = { engine: { bundled: true } } as never;
 
 const saved = {
   NODE_ENV: process.env.NODE_ENV,
@@ -62,7 +60,7 @@ describe('enforceRunnerInProduction', () => {
   it('refuses the local-child transport in production', () => {
     process.env.NODE_ENV = 'production';
     process.env.ZVELTIO_EXT_TRANSPORT = 'process';
-    const r = enforceRunnerInProduction('acme/thing', workerManifest);
+    const r = enforceRunnerInProduction('acme/thing', true);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.lastLoadError).toContain('only on the extension runner');
   });
@@ -70,20 +68,19 @@ describe('enforceRunnerInProduction', () => {
   it('lets production load it on the runner, which is the default', () => {
     process.env.NODE_ENV = 'production';
     delete process.env.ZVELTIO_EXT_TRANSPORT;
-    expect(enforceRunnerInProduction('acme/thing', workerManifest).ok).toBe(true);
+    expect(enforceRunnerInProduction('acme/thing', true).ok).toBe(true);
   });
 
   it('does not gate development or tests', () => {
     process.env.NODE_ENV = 'development';
     process.env.ZVELTIO_EXT_TRANSPORT = 'process';
-    expect(enforceRunnerInProduction('acme/thing', workerManifest).ok).toBe(true);
+    expect(enforceRunnerInProduction('acme/thing', true).ok).toBe(true);
   });
 
-  it('does not touch a first-party (inline) extension', () => {
+  it('does not touch an inline extension', () => {
     process.env.NODE_ENV = 'production';
     process.env.ZVELTIO_EXT_TRANSPORT = 'process';
-    expect(enforceRunnerInProduction('finance/invoicing', inlineManifest).ok).toBe(true);
-    expect(enforceRunnerInProduction('finance/invoicing', null).ok).toBe(true);
+    expect(enforceRunnerInProduction('billing', false).ok).toBe(true);
   });
 });
 
