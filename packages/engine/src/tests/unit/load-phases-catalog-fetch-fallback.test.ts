@@ -22,9 +22,9 @@ describe('enforcePublisherTier — catalog fetch fallback', () => {
     );
     try {
       const r = await enforcePublisherTier(
-        'sideloaded',
+        'billing',
         {
-          name: 'sideloaded',
+          name: 'billing',
           version: '1.0.0',
         } as never,
         null,

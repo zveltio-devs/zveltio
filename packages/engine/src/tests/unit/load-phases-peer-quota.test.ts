@@ -77,9 +77,9 @@ describe('enforcePublisherTier — absent catalog entry', () => {
     ]);
     try {
       const r = await enforcePublisherTier(
-        'sideloaded-ext',
+        'billing',
         {
-          name: 'sideloaded-ext',
+          name: 'billing',
           version: '1.0.0',
         } as never,
         null,
