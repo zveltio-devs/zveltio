@@ -846,9 +846,11 @@ jobs:
         run: |
           test -d ../zveltio-extensions
           cd packages/engine && bun test src/tests/harness/install-template-declared-collections.test.ts
-      - name: Every first-party extension loads as a signed worker, or is refused by name
-        # ADR 0062 order of work step 2. Asserts the exact sets, so an extension
-        # that stops loading as a worker, or starts loading past a refusal, fails.
+      - name: Every first-party extension off the inline list loads as a worker at level 0
+        # ADR 0062 step 2 and d1/d2: the engine, not the manifest, decides; the
+        # listed ones are refused on the runner by name. Asserts the exact sets,
+        # so an extension that stops loading as a worker, or starts loading past
+        # a refusal, fails.
         env:
           PGHOST: localhost
           PGUSER: postgres
