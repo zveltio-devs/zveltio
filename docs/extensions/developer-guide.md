@@ -1541,9 +1541,10 @@ host forwards each declared route and action over a channel and answers the
     killed and respawned. The log line names the call, the extension and its
     key: `crash 1/5: hang: action "x" ran past its 30000ms deadline …; killed`.
     A process that only waits (on the engine, a timer) answers and is kept.
-  - *CPU.* On bare metal each extension's unit gets 20% of one core
-    (`CPUQuota=20%`, `CPUWeight=10`; an operator raises it with `systemctl edit
-    zveltio-ext-runner@<instance>`). In a container its process runs at nice 10,
+  - *CPU.* On bare metal each extension's unit gets 10% of one core
+    (`CPUQuota=10%`, `CPUWeight=10`; an operator raises it with `systemctl edit
+    zveltio-ext-runner@<instance>`), 20% for the first 250 ms after a cold
+    start (ADR 0062 F26). In a container its process runs at nice 10,
     within the runner container's limit (ADR 0062, F20).
   - *Crashes.* An exit, a missed heartbeat, a hang or a failed respawn counts as a
     crash. Five within ten minutes and the extension is disabled: not

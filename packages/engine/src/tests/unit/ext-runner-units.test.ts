@@ -100,7 +100,7 @@ describe('runnerSetupFiles', () => {
       'MemorySwapMax=0',
       'TasksMax=64',
       'CPUWeight=10',
-      'CPUQuota=20%',
+      'CPUQuota=10%',
     ]) {
       expect(unit).toContain(`\n${line}\n`);
     }

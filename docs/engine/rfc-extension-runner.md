@@ -266,8 +266,8 @@ runner.
    - `zveltio-ext-runner@<instance>.service`, a template with
      `DynamicUser=yes`: every extension has its own uid, its own cgroup
      (`MemoryMax=1G` by default — decision 3, override with
-     `systemctl edit zveltio-ext-runner@<instance>`; `CPUQuota=20%` and
-     `CPUWeight=10` since ADR 0062 F20, the `edge` instance `CPUQuota=100%`
+     `systemctl edit zveltio-ext-runner@<instance>`; `CPUQuota=10%` and
+     `CPUWeight=10` since ADR 0062 F20/F26, the `edge` instance `CPUQuota=100%`
      for all its invocations) and its own egress rule
      (`IPAddressDeny=any`; the per-extension `IPAddressAllow` of decision 2
      was withdrawn by ADR 0022). The instance is the extension name reduced to `[a-z0-9_]`

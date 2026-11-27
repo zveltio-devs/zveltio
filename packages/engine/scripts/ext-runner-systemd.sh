@@ -30,8 +30,8 @@
 #     running (its unit is down after load), a call starts its unit, its idle
 #     timeout stops the unit again with no crash counted, the next call starts it,
 #     and a `systemctl stop` the engine did not order is a crash, respawned;
-#   - start burst (ADR 0062 step 2b): a cold start runs with a 1 s CPU period,
-#     the 20% cap per 100 ms is back after it, and a register() that spins is
+#   - start burst (ADR 0062 step 2b): a cold start runs at 20% with a 1 s CPU period,
+#     the 10% cap per 100 ms is back after it, and a register() that spins is
 #     capped after its burst and killed by the init timeout;
 #   - a Deno job (ADR 0023 decision 2) runs in its extension's instance, under
 #     the unit's uid and seccomp (read from outside while it is held), finds
@@ -149,8 +149,8 @@ check "runner unit bans sockets but AF_UNIX, under seccomp" \
    sudo grep -q "^Seccomp:[[:space:]]*2" "/proc/$(systemctl show -p MainPID --value "$UNIT_A")/status"'
 # ADR 0062 F20: read from the unit's live cgroup, what the kernel enforces.
 CG_A="/sys/fs/cgroup$(systemctl show -p ControlGroup --value "$UNIT_A")"
-check "runner unit caps its CPU at 20% of a core, weight 10 (ADR 0062 F20)" \
-  '[ "$(cat "$CG_A/cpu.max")" = "20000 100000" ] && [ "$(cat "$CG_A/cpu.weight")" = 10 ]'
+check "runner unit caps its CPU at 10% of a core, weight 10 (ADR 0062 F20, F26)" \
+  '[ "$(cat "$CG_A/cpu.max")" = "10000 100000" ] && [ "$(cat "$CG_A/cpu.weight")" = 10 ]'
 
 # ── extension B: another uid, cannot touch A ──────────────────────────────────
 out=$(PROBE_WRITE="/run/zveltio-ext/${INST_A}/planted.sock" probe managed b acme/probe-b)
@@ -298,12 +298,12 @@ check "a stop the engine did not order is a crash, respawned" \
 # ADR 0062 step 2b, start burst: a cold start runs with a 1 s period, the cap
 # comes back START_BURST_MS after it, and a register() that spins is capped,
 # then killed by the init timeout.
-check "after a cold start's burst the unit is capped at 20% again" \
-  'grep -q "\"capAfterBurst\":\"20000 100000\"" <<<"$out"'
+check "after a cold start's burst the unit is capped at its 10% again" \
+  'grep -q "\"capAfterBurst\":\"10000 100000\"" <<<"$out"'
 check "a start spinning in init runs its burst: 20% over a 1 s period" \
   'grep -q "\"inBurst\":\"200000 1000000\"" <<<"$out"'
 check "a start spinning in init is capped after the burst" \
-  'grep -q "\"afterBurst\":\"20000 100000\"" <<<"$out" &&
+  'grep -q "\"afterBurst\":\"10000 100000\"" <<<"$out" &&
    [ "$(grep -o "\"cpuMsPerSec\":[0-9]*" <<<"$out" | cut -d: -f2)" -le 250 ]'
 check "a start spinning in init is killed by the init timeout" \
   'grep -qE "\"load\":\"worker .*did not init within" <<<"$out"'

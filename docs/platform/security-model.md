@@ -246,7 +246,7 @@ the filesystem, and the worker imports the bundle itself. From there:
   the engine as root without a drop (ADR 0062, F21-F22). A kernel OOM kill of an
   extension's process is logged as such with the extension and key (F23).
 - Its CPU is bounded (ADR 0062, F20). On systemd each extension's unit has
-  `CPUQuota=20%` (of one core) and `CPUWeight=10`; in compose and Helm the
+  `CPUQuota=10%` (of one core) and `CPUWeight=10`; in compose and Helm the
   runner container shares one core among every extension (`cpus: 1.0`, the
   chart's `1000m` limit), and each process in it, and in one container, runs at
   nice 10 under `RLIMIT_NICE` 0, which its uid cannot undo. A route or action
@@ -254,7 +254,7 @@ the filesystem, and the worker imports the bundle itself. From there:
   is pinged: no answer within 2 s and it is killed and respawned, counted as a
   crash (five in ten minutes disable it). Measured on 2 vCPUs, a loop spinning a
   core costs the engine's p95 +53-77% at any priority, SCHED_IDLE included; at
-  20% of a core +11-13%. The cap holds on systemd only: in a container a loop
+  20% of a core +8-14%, at 10% +3-5% (F26). The cap holds on systemd only: in a container a loop
   can take the container's core until the deadline kills it.
 - The isolation decision survives a hot-reload: a re-register restarts the
   worker rather than quietly re-registering the extension in the main thread.
@@ -271,11 +271,14 @@ the filesystem, and the worker imports the bundle itself. From there:
   starts every process under the ban, and the extension's runtime. The runner
   loads only its own code (the binary is compiled with `--splitting`), and
   tells systemd when it listens (`Type=notify`). The unit's CPU cap
-  (`CPUQuota=20%`) also bounds a start: a cold start spends ~105 ms of CPU, which
-  20% of each 100 ms period stretches to ~0.5 s. `CPUQuotaPeriodSec=1s` lets a
-  start through unthrottled (~0.2 s) but lets a loop run in 200 ms bursts, which
-  cost the engine's p95 +12-32% during the loop where 100 ms periods cost up to
-  +12% (ADR 0062 step 2b, two runs each); the default keeps the tighter bound.
+  (`CPUQuota=10%`) would also bound a start: a cold start spends ~105 ms of CPU,
+  which 10% of each 100 ms period stretches to ~1 s. So the engine gives a unit
+  it starts from down 20% over a 1 s period for 250 ms (`systemctl set-property
+  --runtime`; the runner cannot, since it shares the extension's uid), then puts
+  the unit's own quota and the 100 ms period back. The quota it puts back is read
+  from the unit's files, never its own runtime drop-ins: a burst never lowers an
+  operator's `CPUQuota=`, and `CPUQuota=` (empty) would lift the cap rather than
+  restore it (ADR 0062 step 2b, F26).
 
 What it costs, and what it still does not give:
 
