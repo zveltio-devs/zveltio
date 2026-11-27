@@ -20,7 +20,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { type Context, Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { mountDeclaredRoutes, pairRouteHandlers } from './declared-routes.js';
-import type { DeclaredRouteHost } from '@zveltio/sdk/extension';
+import type { DeclaredRouteHost, SignInResult } from '@zveltio/sdk/extension';
 import type {
   ActionInvokeRequest,
   ActionInvokeResponse,
@@ -94,6 +94,7 @@ function hostCall(op: HostCallOp, args: unknown[]): Promise<unknown> {
         reject(
           Object.assign(new HTTPException(res.status as 503, { message: res.error }), {
             callId: id,
+            ...(res.code ? { code: res.code } : {}),
           }),
         );
       } else {
@@ -120,6 +121,30 @@ function collectionsVia(
     delete: async (collection: string, id: string) => {
       await answer('collections.delete', collection, id);
     },
+  };
+}
+
+/** `host.identity` over `call` (ADR 0039 d7, d9): the host answers each as inline. */
+function identityVia(
+  call: (member: string, ...args: unknown[]) => Promise<unknown>,
+): NonNullable<DeclaredRouteHost['identity']> {
+  const answer = call as (member: string, ...args: unknown[]) => Promise<never>;
+  return {
+    signIn: async (input) => {
+      // Its headers cross as their entries: a `Headers` does not survive the channel.
+      const { user, headers } = (await call('signIn', input)) as {
+        user: SignInResult['user'];
+        headers: [string, string][];
+      };
+      return { user, headers: new Headers(headers) };
+    },
+    signInRefused: (input) => answer('signInRefused', input),
+    provision: (input) => answer('provision', input),
+    update: (subject, patch) => answer('update', subject, patch),
+    setActive: (subject, active) => answer('setActive', subject, active),
+    remove: (subject) => answer('remove', subject),
+    list: (query) => answer('list', ...(query === undefined ? [] : [query])),
+    get: (subject) => answer('get', subject),
   };
 }
 
@@ -219,9 +244,11 @@ async function handleInit(msg: Extract<HostToWorkerMessage, { type: 'init' }>): 
     const declared = pairRouteHandlers(msg.routes ?? [], extension.routes, (why) => {
       throw new Error(why);
     });
-    // `host.collections` as the request's caller; no files, no enqueue (no `ctx.internals`).
+    // `host.collections` as the request's caller, and `host.identity` as an inline
+    // route's; no files, no enqueue (no `ctx.internals`).
     const routeHost = {
       collections: collectionsVia((member, ...args) => hostCall('collections', [member, ...args])),
+      identity: identityVia((member, ...args) => hostCall('identity', [member, ...args])),
     };
     mountDeclaredRoutes(
       app,

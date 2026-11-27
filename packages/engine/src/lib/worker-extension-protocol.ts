@@ -59,6 +59,8 @@ export interface ShutdownRequest {
 export interface RouteDescriptor {
   method: string; // 'GET' | 'POST' | …
   path: string; // Hono pattern e.g. '/contacts/:id'
+  /** The manifest's `access`: what `host.identity` answers on (ADR 0039 d7, d9). */
+  access?: string;
 }
 
 export interface RouteInvokeRequest {
@@ -123,10 +125,12 @@ export interface ActionInvokeResponse {
  * `action`: an action's `host` (ADR 0056), `[member, ...its arguments]`,
  * answered by the `ActionHost` the engine built for the invocation.
  * `collections`: a declared route's `host.collections` (ADR 0025), `[call,
- * ...its arguments]`. Identity is never an argument: the host answers as the
- * invocation `requestId` names, from its own record of it.
+ * ...its arguments]`. `identity`: a declared route's `host.identity` (ADR 0039
+ * decisions 7 and 9), `[member, ...its arguments]`. Identity is never an
+ * argument: the host answers as the invocation `requestId` names, from its own
+ * record of it.
  */
-export type HostCallOp = 'action' | 'collections';
+export type HostCallOp = 'action' | 'collections' | 'identity';
 
 export interface HostCallRequest {
   type: 'host:call';
@@ -143,6 +147,8 @@ export interface HostCallResponse {
   error?: string;
   /** The refusal's HTTP status: what a route answers with if it does not catch. */
   status?: number;
+  /** The refusal's `code` (`no_such_user`, `admin_required`, …), as inline. */
+  code?: string;
 }
 
 // ── Log forwarding (worker → host) ──────────────────────────────────

@@ -782,6 +782,8 @@ async function registerExtensionRoutes(
             if (!restrictedCtx.host) throw new Error(`${extName}: no route host`);
             return hostCall(restrictedCtx.host(c).collections, call as HostCall, args);
           },
+          identity: (c, access, call, args) =>
+            identityCall(c as Context, extName, access, call, args),
           keyId: isolation.keyId,
           registryKeyId: isolation.registryKeyId,
           // ADR 0062 d3: the operator's choice; unreadable at load is the default.
@@ -879,11 +881,51 @@ function declaredRouteHost(
       if (!ctx.internals.enqueue) throw new Error('enqueue is not available to this extension');
       return ctx.internals.enqueue(c, job, input);
     },
-    identity: {
-      ...routeIdentity(c, extName, access ?? 'caller'),
-      ...routeDirectory(c, extName, access ?? 'caller'),
-    },
+    identity: declaredRouteIdentity(c, extName, access),
   };
+}
+
+/** A declared route's `host.identity`, inline or in a worker: its manifest `access` decides. */
+function declaredRouteIdentity(c: Context, extName: string, access: string | undefined) {
+  return {
+    ...routeIdentity(c, extName, access ?? 'caller'),
+    ...routeDirectory(c, extName, access ?? 'caller'),
+  };
+}
+
+/** The `host.identity` members a worker's route may call: the inline route's. */
+const IDENTITY_MEMBERS = new Set([
+  'signIn',
+  'signInRefused',
+  'provision',
+  'update',
+  'setActive',
+  'remove',
+  'list',
+  'get',
+]);
+
+/**
+ * One `host.identity` call of a worker-isolated declared route: answered by the
+ * same `host.identity` an inline route with that manifest `access` gets, with
+ * its checks. `signIn`'s headers cross the channel as their entries.
+ */
+async function identityCall(
+  c: Context,
+  extName: string,
+  access: string | undefined,
+  call: string,
+  args: unknown[],
+): Promise<unknown> {
+  if (!IDENTITY_MEMBERS.has(call)) throw new Error(`unknown host.identity call "${call}"`);
+  const identity = declaredRouteIdentity(c, extName, access) as unknown as Record<
+    string,
+    (...a: unknown[]) => Promise<unknown>
+  >;
+  const result = await identity[call]!(...args);
+  if (call !== 'signIn') return result;
+  const { user, headers } = result as { user: unknown; headers: Headers };
+  return { user, headers: [...headers] };
 }
 
 /**

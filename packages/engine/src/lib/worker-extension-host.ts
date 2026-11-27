@@ -180,7 +180,7 @@ interface InvokeScope {
    * The route request this is, of which extension: what `host.collections`
    * answers for (ADR 0025).
    */
-  route?: { extName: string; c: unknown };
+  route?: { extName: string; c: unknown; access?: string };
   /** The request's database transaction: its own tenant transaction, joined. */
   txn?: RequestTxn;
   /** Where in `txn` this invocation's statements take their turn: its caller's place. */
@@ -211,8 +211,18 @@ export interface WorkerCtxSource {
   declaredForwardCredentials?: Record<string, string[]>;
   /** One `host.collections` call of a route serving `c`, its arguments checked (ADR 0025). */
   collections?: (c: unknown, call: string, args: unknown[]) => Promise<unknown>;
+  /**
+   * One `host.identity` call of a declared route serving `c`, answered by the
+   * inline `host.identity` for that route's manifest `access` (ADR 0039 d7, d9).
+   */
+  identity?: (
+    c: unknown,
+    access: string | undefined,
+    call: string,
+    args: unknown[],
+  ) => Promise<unknown>;
   /** The manifest's `routes` (ADR 0039): the worker pairs them with its handlers and serves them. */
-  declaredRoutes?: { method: string; path: string; handler: string }[];
+  declaredRoutes?: { method: string; path: string; access?: string; handler: string }[];
   /** The manifest's actions by name (ADR 0056): the worker pairs them with its implementations. */
   actions?: string[];
   /**
@@ -431,6 +441,15 @@ export function boxConcurrencyLimit(poolMax: number): number {
 }
 
 /** How every log line about an extension names it: its name and its signing key (ADR 0056). */
+/** Its declared routes as the host serves them: the manifest's method, path and access. */
+function declaredDescriptors(source: WorkerCtxSource): RouteDescriptor[] {
+  return (source.declaredRoutes ?? []).map(({ method, path, access }) => ({
+    method,
+    path,
+    access,
+  }));
+}
+
 function boxTag(name: string, source?: WorkerCtxSource): string {
   return `[ext:${name} key=${source?.keyId ?? source?.registryKeyId ?? 'absent'}]`;
 }
@@ -621,7 +640,7 @@ export class WorkerExtensionHost {
       }
       const managed = newManaged(extName, extDir, bundleEntry, NO_PROCESS, 0, source);
       managed.idle = true;
-      managed.routes = (source.declaredRoutes ?? []).map(({ method, path }) => ({ method, path }));
+      managed.routes = declaredDescriptors(source);
       this.workers.set(extName, managed);
       managed.proxyUnmount = this.mountProxyRoutes(managed);
       console.log(
@@ -861,7 +880,7 @@ export class WorkerExtensionHost {
       throw new Error(`worker "${extName}" init failed: ${init.error}`);
     }
     // Its declared routes, the only ones a worker serves.
-    managed.routes = (source.declaredRoutes ?? []).map(({ method, path }) => ({ method, path }));
+    managed.routes = declaredDescriptors(source);
     return managed;
   }
 
@@ -1291,6 +1310,15 @@ export class WorkerExtensionHost {
           result = await run(() => answer(route.c, String(a), msg.args.slice(1)));
           break;
         }
+        case 'identity': {
+          const route = scope?.route;
+          const answer = managed.source?.identity;
+          if (!answer || route?.extName !== managed.name) {
+            throw new Error('host.identity answers only in a route request of this extension');
+          }
+          result = await run(() => answer(route.c, route.access, String(a), msg.args.slice(1)));
+          break;
+        }
         case 'action': {
           const host = scope?.action?.host;
           if (!host) throw new Error('an action host answers only in a run of one of its actions');
@@ -1300,7 +1328,8 @@ export class WorkerExtensionHost {
         default:
           throw new Error(
             `host call "${String(op)}" is refused: a worker-isolated extension is declared ` +
-              'model only — its routes reach host.collections, its actions their host (ADR 0056)',
+              'model only — its routes reach host.collections and host.identity, its actions ' +
+              'their host (ADR 0056)',
           );
       }
       this.post(managed, { type: 'host:ok', id: msg.id, result });
@@ -1310,7 +1339,7 @@ export class WorkerExtensionHost {
         type: 'host:err',
         id: msg.id,
         error: (err as Error).message,
-        ...(err instanceof ProblemException ? { status: err.status } : {}),
+        ...(err instanceof ProblemException ? { status: err.status, code: err.code } : {}),
       });
     }
   }
@@ -1596,7 +1625,8 @@ export class WorkerExtensionHost {
     const scope: InvokeScope = {
       ...currentScope(reqTenantId),
       run: AsyncLocalStorage.snapshot(),
-      route: { extName, c },
+      // The manifest's `access` for the route the engine matched, not the worker's.
+      route: { extName, c, access: r.access },
     };
     // The request's own tenant transaction, joined: what the route's
     // `host.collections` calls write is kept or undone with the request.
