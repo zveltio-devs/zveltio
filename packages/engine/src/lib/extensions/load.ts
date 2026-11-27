@@ -325,9 +325,9 @@ export async function loadExtensionFromDir(
     if (worker) {
       // Worker-isolated path — deliberately does NOT import the entry module.
       //
-      // `enforcePublisherTier` above REFUSES a community (untrusted,
-      // third-party) extension that has not declared this isolation, precisely
-      // because the worker is meant to be the boundary. Importing the module here would run its TOP-LEVEL code in
+      // Every extension off the engine's inline list takes this path (ADR 0062
+      // d1), whatever its manifest says, precisely because the worker is meant
+      // to be the boundary. Importing the module here would run its TOP-LEVEL code in
       // the engine process, with engine privileges, before any worker exists —
       // so a hostile extension never has to reach a route handler to win, and
       // everything the worker enforces afterwards is irrelevant to it.
@@ -338,7 +338,8 @@ export async function loadExtensionFromDir(
       // The cost is that a worker-isolated extension cannot contribute
       // engine-side field types, cron schedules or a cleanup hook: all three
       // require running its code in this process, which is the thing being
-      // avoided. First-party extensions run inline and keep them.
+      // avoided. Only the engine's inline list (ADR 0062 d1) still runs inline
+      // and keeps them.
       //
       // ADR 0056 d1 and amendment 2026-11-21: every worker is signed — level 3
       // (operator key), 2 (registry) or 0 (registry, first-party tier: ADR 0062
