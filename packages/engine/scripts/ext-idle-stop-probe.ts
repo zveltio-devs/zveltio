@@ -120,6 +120,10 @@ try {
     );
   const file = (f: string) => `${cgroupOf(spinUnit)}/${f}`;
   for (let t = 0; t < 10_000 && !existsSync(file('cpu.max')); t += 5) await Bun.sleep(5);
+  // The burst is sent beside the start, so the cgroup can appear a few ms
+  // before it: wait for it, never past the burst's own length.
+  for (let t = 0; t < START_BURST_MS && cpuMax(spinUnit) !== '200000 1000000'; t += 5)
+    await Bun.sleep(5);
   const spin: Record<string, unknown> = { inBurst: cpuMax(spinUnit) };
   await Bun.sleep(START_BURST_MS + 200);
   spin.afterBurst = cpuMax(spinUnit);
