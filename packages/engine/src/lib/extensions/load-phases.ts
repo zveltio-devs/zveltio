@@ -28,7 +28,7 @@ import {
 import { CORE_NPM_PACKAGES, maybeSymlinkNodeModules } from './extension-deps.js';
 import { fetchRegistryCatalog } from './extension-download.js';
 import { DEFAULT_QUOTAS, QuotaExceededError } from './extension-errors.js';
-import { manifestFile, resolveExtensionsBase } from './extension-paths.js';
+import { importOutsideDir, manifestFile, resolveExtensionsBase } from './extension-paths.js';
 import { directorySizeBytes } from './extension-utils.js';
 import { checkExtensionDependencies, getEngineVersion, isCompatible } from '../version-checker.js';
 import {
@@ -629,6 +629,13 @@ export async function resolveEntryPath(
         `so peers must be inlined at pack time. Re-pack with ` +
         `\`engine.bundlePeers: true\` in manifest.json, or remove the ` +
         `peerDependencies entry if the import was inadvertent.`;
+      return { ok: false, logLevel: 'error', logArgs: [`❌ ${msg}`], lastLoadError: msg };
+    }
+    // Imported in this process: nothing it imports may come from outside the
+    // signed directory (DR-TASKS l.57).
+    const outside = importOutsideDir(extDir, bundledEntry);
+    if (outside !== null) {
+      const msg = `Extension "${extName}" refused: ${outside}.`;
       return { ok: false, logLevel: 'error', logArgs: [`❌ ${msg}`], lastLoadError: msg };
     }
     return { ok: true, value: bundledEntry };

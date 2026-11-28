@@ -3,8 +3,10 @@
 // Extracted from extension-loader.ts (loader split). Pure filesystem helpers
 // with their own short-TTL presence cache; no loader state.
 
-import { existsSync, readFileSync } from 'node:fs';
-import { isAbsolute, join } from 'path';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { isBuiltin } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'path';
 
 /**
  * The file a manifest field names (`studio.pages[].schema`, `engine.entry`, …),
@@ -27,6 +29,85 @@ export function manifestFile(extDir: string, base: string, rel: unknown): string
     );
   }
   return join(extDir, base, rel);
+}
+
+const LOADERS: Record<string, 'js' | 'jsx' | 'ts' | 'tsx'> = {
+  '.js': 'js',
+  '.mjs': 'js',
+  '.cjs': 'js',
+  '.jsx': 'jsx',
+  '.ts': 'ts',
+  '.mts': 'ts',
+  '.cts': 'ts',
+  '.tsx': 'tsx',
+};
+
+/**
+ * Why `entry` cannot be imported in the engine process, or null when it can:
+ * it, and every file it imports in turn, import only runtime builtins
+ * (`node:*`, `bun:*`, a bare `fs`) and files under `extDir`, which is what a
+ * signature covers (DR-TASKS l.57). A bare specifier resolves from the first
+ * `node_modules` up the tree — `<EXTENSIONS_DIR>/node_modules`, where the
+ * engine installs core packages and peers, or any ancestor's — and none is
+ * signed; a bundled entry inlines its dependencies (`zveltio extension pack`).
+ * A relative or absolute path out of `extDir` reaches the same files.
+ *
+ * Literal specifiers only, as `Bun.Transpiler.scanImports` reports them: a
+ * computed `import(x)` is the signed code's own act, not a resolution it
+ * did not choose.
+ */
+export function importOutsideDir(extDir: string, entry: string): string | null {
+  // `Bun.resolveSync` answers the real path: a symlink on the way to `extDir` is not a way out.
+  const roots = [extDir, realpathSync(extDir)];
+  const inside = (p: string) =>
+    roots.some((root) => {
+      const r = relative(root, p);
+      return r !== '' && r !== '..' && !r.startsWith(`..${sep}`) && !isAbsolute(r);
+    });
+  const seen = new Set<string>();
+  const queue = [entry];
+  while (queue.length > 0) {
+    const file = queue.pop() as string;
+    if (seen.has(file)) continue;
+    seen.add(file);
+    const loader = LOADERS[extname(file)];
+    if (!loader) continue; // JSON, text: imports nothing
+    const where = relative(extDir, file);
+    let imports: ReturnType<Bun.Transpiler['scanImports']>;
+    try {
+      imports = new Bun.Transpiler({ loader }).scanImports(readFileSync(file, 'utf8'));
+    } catch (err) {
+      return `${where} cannot be read for its imports: ${(err as Error).message}`;
+    }
+    for (const { path: spec } of imports) {
+      if (isBuiltin(spec)) continue;
+      const isPath = spec.startsWith('./') || spec.startsWith('../') || isAbsolute(spec);
+      if (!isPath && !spec.startsWith('file:')) {
+        return (
+          `${where} imports "${spec}", which resolves from a node_modules outside the ` +
+          `extension's directory, and nothing there is signed; bundle it in ` +
+          `(\`zveltio extension pack\`)`
+        );
+      }
+      const refuse = `${where} imports "${spec}", outside the extension's directory, which is all a signature covers`;
+      let target: string;
+      try {
+        const path = spec.replace(/[?#].*$/, ''); // the runtime drops a query too
+        target = isPath ? resolve(dirname(file), path) : fileURLToPath(path);
+      } catch {
+        return refuse;
+      }
+      if (!inside(target)) return refuse;
+      try {
+        target = Bun.resolveSync(target, dirname(file));
+      } catch {
+        continue; // unresolvable: the import itself fails, before any of it runs
+      }
+      if (!inside(target)) return refuse;
+      queue.push(target);
+    }
+  }
+  return null;
 }
 
 /**

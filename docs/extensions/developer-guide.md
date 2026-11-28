@@ -269,7 +269,7 @@ computes the SHA-256, and patches these blocks in place.
 | `engine.entry` | string | yes (v2) | Path to bundled JS. Default `engine/index.js`. |
 | `engine.format` | `"esm"` | no | Always `esm`. |
 | `engine.target` | `"bun" \| "node" \| "*"` | no | Default `"bun"`. |
-| `engine.bundled` | bool | yes (v2) | Always `true` post-alpha.111. Bun compiled binary can't resolve bare specifiers at runtime, so deps must be bundled at pack time. |
+| `engine.bundled` | bool | yes (v2) | Always `true` post-alpha.111. Bun compiled binary can't resolve bare specifiers at runtime, so deps must be bundled at pack time. A bundle the engine imports in its own process (its inline list, ADR 0062) that still imports a bare package, or a path outside its directory, is refused at load: that code would come from a `node_modules` no signature covers. |
 | `engine.bundlePeers` | bool | no | Default `false`. Set `true` to inline the `peerDependencies` into the bundle. Required when the extension uses any peer dep — external peers don't work on the binary install. See alpha.113 in CHANGELOG. |
 | `engine.isolation` | `"inline" \| "worker"` | no | **Accepted and ignored** (ADR 0062 d1): where an extension runs is the engine's choice. Every extension runs as a worker except the engine's shrinking inline list (`INLINE_EXTENSIONS`). Still parsed for extension-api v1; its removal is `v2-candidates.md` entry 14. See §13.5 below. |
 | `integrity.engineSha256` | hex64 | yes (v2) | SHA-256 of `engine/index.js`. Filled by pack; engine refuses to load a bundle whose bytes don't match. |
