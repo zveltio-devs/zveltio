@@ -292,8 +292,69 @@ export async function resolveManifest(
 }
 
 /**
- * In production a worker-isolated (third-party) extension runs on the extension
- * runner or not at all (RFC extension-runner, step 9).
+ * ADR 0062 d1: the extensions still allowed to run inline — the porting list,
+ * each reaching past the declared model (`register()`, `ctx.db`,
+ * `ctx.internals`), `auth/saml` among them (F3). Every other extension runs as
+ * a worker, whatever its manifest's `engine.isolation` says. The list only
+ * shrinks: an extension leaves it when it is ported (ADR 0062 "Order of work"
+ * step 4), and inline loading is deleted with the last one (step 6). A listed
+ * name confers nothing by itself: inline still needs the registry's signature
+ * and a first-party catalogue tier (`enforcePublisherTier`).
+ */
+export const INLINE_EXTENSIONS: ReadonlySet<string> = new Set([
+  'analytics/dashboard',
+  'auth/ldap',
+  'auth/saml',
+  'billing',
+  'compliance/gdpr',
+  'content/document-templates',
+  'content/documents',
+  'content/pages',
+  'data/export',
+  'developer/api-docs',
+  'developer/byod',
+  'integrations/api-connector',
+  'operations/traceability',
+  'sms',
+]);
+
+let inlineForTests = false;
+const ok: PhaseResult<{ firstParty: boolean }> = { ok: true, value: { firstParty: false } };
+
+/**
+ * Tests only: let an extension run inline without the registry's signature,
+ * as the removed ZVELTIO_ALLOW_INLINE_THIRD_PARTY did, and let a fixture's
+ * manifest keep choosing where it runs (`engine.isolation` unset = inline), as
+ * it did before ADR 0062 d1. A worker is held to production under it: signed,
+ * or refused (RFC v3 phase D slice 4, S4; worker fixtures sign with
+ * `testing/operator-signed.ts`). Returns the previous value to restore. Not an
+ * operator switch — nothing outside the test suite calls it.
+ */
+export function _setInlineForTests(on: boolean): boolean {
+  const was = inlineForTests;
+  inlineForTests = on;
+  return was;
+}
+
+/**
+ * Where an extension runs: the engine's choice, never the manifest's (ADR 0062
+ * d1, RFC v3 l.53–55). An operator key (level 3) always runs on the runner (ADR
+ * 0056 d1); otherwise only `INLINE_EXTENSIONS` run inline.
+ */
+export function runsAsWorker(
+  extName: string,
+  manifest: ExtensionManifest | null,
+  operatorKeyId: string | null | undefined,
+): boolean {
+  if (operatorKeyId != null) return true;
+  if (INLINE_EXTENSIONS.has(extName)) return false;
+  if (inlineForTests) return manifest?.engine?.isolation === 'worker';
+  return true;
+}
+
+/**
+ * In production a worker runs on the extension runner or not at all (RFC
+ * extension-runner, step 9).
  *
  * `extensionTransport()` picks the runner in production unless
  * ZVELTIO_EXT_TRANSPORT says `process`, which spawns the extension as the
@@ -301,11 +362,8 @@ export async function resolveManifest(
  * That is refused here, by name — never a quiet fallback to no boundary. An
  * unreachable runner fails the load later, in the worker host (`runnerUnreachable`).
  */
-export function enforceRunnerInProduction(
-  extName: string,
-  manifest: ExtensionManifest | null,
-): PhaseResult<void> {
-  if (manifest?.engine?.isolation !== 'worker') return { ok: true, value: undefined };
+export function enforceRunnerInProduction(extName: string, worker: boolean): PhaseResult<void> {
+  if (!worker) return { ok: true, value: undefined };
   if (!isProduction()) return { ok: true, value: undefined };
   if (extensionTransport() === 'runner') return { ok: true, value: undefined };
   const msg =
@@ -315,32 +373,58 @@ export function enforceRunnerInProduction(
   return { ok: false, logLevel: 'error', logArgs: [`❌ ${msg}`], lastLoadError: msg };
 }
 
-let inlineForTests = false;
-const ok: PhaseResult<void> = { ok: true, value: undefined };
+const fail = (msg: string): PhaseFail => ({
+  ok: false,
+  logLevel: 'error',
+  logArgs: [`❌ ${msg}`],
+  lastLoadError: msg,
+});
 
 /**
- * Tests only: let an inline extension load without the registry's signature,
- * as the removed ZVELTIO_ALLOW_INLINE_THIRD_PARTY did. A worker-isolated one is
- * held to production under it: signed, or refused (RFC v3 phase D slice 4, S4;
- * worker fixtures sign with `testing/operator-signed.ts`). Returns the previous
- * value to restore. Not an operator switch — nothing outside the test suite
- * calls it.
+ * Its publisher tier in the registry catalogue, by the name its registry
+ * signature binds (`verifyRegistrySignedDir` refuses an archive naming another
+ * extension). `'community'` when a catalogue loaded without it; null when none
+ * loaded (`catalogFailed` too when `ZVELTIO_REQUIRE_CATALOG=1` made that fatal).
  */
-export function _setInlineForTests(on: boolean): boolean {
-  const was = inlineForTests;
-  inlineForTests = on;
-  return was;
+async function catalogueTier(extName: string): Promise<{
+  tier: ReturnType<typeof resolvePublisherTier> | null;
+  entry: boolean;
+  catalogFailed: boolean;
+}> {
+  // `requireRemote` makes fetchRegistryCatalog throw instead of silently
+  // degrading to the local catalog — without it the fail-closed branch is
+  // unreachable, since the fetch swallows every error of its own.
+  const requireCatalog = process.env.ZVELTIO_REQUIRE_CATALOG === '1';
+  let catalog: ExtensionCatalogEntry[];
+  try {
+    catalog = await fetchRegistryCatalog({ requireRemote: requireCatalog });
+  } catch {
+    return { tier: null, entry: false, catalogFailed: requireCatalog };
+  }
+  // An extension present in a loaded catalog uses its declared tier; one that's
+  // ABSENT is unknown/unaudited and is treated as community (the strictest
+  // tier). The local hardcoded catalog (the first-party extensions + smoke
+  // fixtures) is merged in by fetchRegistryCatalog(), so genuine first-party
+  // extensions are always found.
+  const catEntry = catalog.find((e) => e.name === extName);
+  return {
+    tier: catEntry ? resolvePublisherTier(catEntry) : 'community',
+    entry: catEntry !== undefined,
+    catalogFailed: false,
+  };
 }
 
 /**
- * Phase 2 — marketplace-policy.md §2 publisher-tier gate. When the manifest did
- * NOT opt into worker isolation (and no operator inline override is set), fetch
- * the registry catalog and refuse inline execution for community/unaudited
- * extensions. It also refuses `"*"` in an action's `reads` / `writes` from any
- * extension it has not proven first-party (ADR 0053 d5).
+ * Phase 2 — marketplace-policy.md §2 publisher-tier gate, and where it runs
+ * (`runsAsWorker`, ADR 0062 d1). An inline extension must carry the registry's
+ * signature and a first-party catalogue tier. A worker must be signed and
+ * bundled. Either is refused `"*"` in an action's `reads` / `writes` unless its
+ * tier is verified first-party (ADR 0053 d5): on the runner that is level 0,
+ * a registry signature whose catalogue tier is first-party (ADR 0062 d2) —
+ * never an operator key, never the name alone.
  *
- * Returns ok when the extension is allowed to proceed inline (or the gate is
- * skipped). Failures mirror the inline `console.error(❌ …)` lines.
+ * Its value says whether the verified tier is first-party (level 0). Failures
+ * mirror the inline `console.error(❌ …)` lines.
  */
 export async function enforcePublisherTier(
   extName: string,
@@ -349,58 +433,49 @@ export async function enforcePublisherTier(
   operatorKeyId: string | null = null,
   /** Its files are the archive the registry signed, verified at this load (`verifyRegistrySignedDir`). */
   registrySigned = false,
-): Promise<PhaseResult<void>> {
-  // marketplace-policy.md §2 enforcement: publisher tier governs
-  // whether an extension may run inline. The registry catalog
-  // carries `publisher_tier` (migration 010); older registries
-  // omit it and resolvePublisherTier() falls back to is_official
-  // (official → first-party, otherwise → community). Local
-  // hardcoded catalog entries default to is_official=true, so the
-  // 54 first-party + smoke fixtures stay exempt.
-  //
-  //   first-party                       → inline allowed
-  //   verified / community (or unknown) → worker REQUIRED (verified ran
-  //     inline until RFC extension-model-v3 phase A; see tierAllowsInline)
-  //
+): Promise<PhaseResult<{ firstParty: boolean }>> {
   // No operator override lets a third party run inline: the switch that did,
   // ZVELTIO_ALLOW_INLINE_THIRD_PARTY, is gone (owner decision, 2026-10-10) —
   // the runner is how untrusted code runs. One operator knob remains:
-  //   ZVELTIO_REQUIRE_CATALOG=1 — fail-closed: if catalog fetch
-  //     fails (network, registry down) refuse rather than
-  //     fall through to local-only assumptions
-  // Worker only when bundled too: `load.ts` takes the worker path for nothing
-  // else, and imported an unbundled "worker" extension inline, past this gate.
-  //
-  // ADR 0053 d5: an action may list `"*"` (ADR 0047) only in a first-party
-  // extension. A worker-isolated one never has its tier looked up here, so it
-  // is never proven first-party — refused, whatever the catalog would say, and
-  // under the test override too.
-  const worker = manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true;
-  // ADR 0056 d1: an operator key confers level 3, which runs on the runner and
-  // never inline — whatever the catalogue says of the name, and under the test
-  // override too.
-  if (operatorKeyId !== null && !worker) {
-    const msg =
-      `Extension "${extName}" is signed by operator key "${operatorKeyId}" (level 3, private), ` +
-      `which runs on the extension runner, never inline. Pack it with engine.isolation ` +
-      `"worker" and engine.bundled true, then sign it again.`;
-    return { ok: false, logLevel: 'error', logArgs: [`❌ ${msg}`], lastLoadError: msg };
-  }
-  if (worker) {
+  //   ZVELTIO_REQUIRE_CATALOG=1 — fail-closed: if catalog fetch fails (network,
+  //     registry down) refuse inline rather than fall through to local-only
+  //     assumptions.
+  if (runsAsWorker(extName, manifest, operatorKeyId)) {
     // ADR 0056 amendment 2026-11-18: an unsigned directory never runs, on the
     // runner either. A raw registry row or an unsigned archive reached here.
     // Under the test override too: no mode in which a worker differs from
     // production (RFC v3 phase D slice 4, S4).
     if (!registrySigned && operatorKeyId === null) {
-      const msg =
+      return fail(
         `Extension "${extName}" is not signed: neither a registry signature kept with its files ` +
-        `nor an operator's ${DIR_SIGNATURE_FILE} holds at load, and an unsigned extension never ` +
-        `runs. Install it from the registry, or sign it with your own key (\`zveltio extension ` +
-        `sign --dir <its directory> --key-id <id>\`) and put that key on OPERATOR_PUBLIC_KEYS_JSON ` +
-        `— docs/extensions/signatures.md#your-own-extensions-level-3.`;
-      return { ok: false, logLevel: 'error', logArgs: [`❌ ${msg}`], lastLoadError: msg };
+          `nor an operator's ${DIR_SIGNATURE_FILE} holds at load, and an unsigned extension never ` +
+          `runs. Install it from the registry, or sign it with your own key (\`zveltio extension ` +
+          `sign --dir <its directory> --key-id <id>\`) and put that key on OPERATOR_PUBLIC_KEYS_JSON ` +
+          `— docs/extensions/signatures.md#your-own-extensions-level-3.`,
+      );
     }
-    return refuseAnyCollection(extName, manifest, 'runs in worker isolation') ?? ok;
+    // The worker imports its bundle, never a loose module tree.
+    if (manifest?.engine?.bundled !== true) {
+      return fail(
+        `Extension "${extName}" runs as a worker, on the extension runner (ADR 0062), which ` +
+          `imports only a bundled engine entry, and its manifest does not have engine.bundled ` +
+          `true. Run \`zveltio extension pack\`, which bundles it, then sign it again.`,
+      );
+    }
+    // ADR 0062 d2: level 0 on the runner — the registry's signature, and the
+    // catalogue's first-party tier for the name that signature binds.
+    if (operatorKeyId === null && (await catalogueTier(extName)).tier === 'first-party') {
+      return { ok: true, value: { firstParty: true } };
+    }
+    return (
+      refuseAnyCollection(
+        extName,
+        manifest,
+        operatorKeyId !== null
+          ? `is signed by operator key "${operatorKeyId}" (level 3)`
+          : 'runs on the extension runner with no verified first-party tier',
+      ) ?? ok
+    );
   }
   if (inlineForTests) return ok;
 
@@ -412,82 +487,44 @@ export async function enforcePublisherTier(
   // checkout is signed with a key on REGISTRY_PUBLIC_KEYS_JSON
   // (`scripts/sign-as-registry.ts`).
   if (!registrySigned) {
-    const msg =
+    return fail(
       `Extension "${extName}" is not signed by the registry (no registry signature kept with its ` +
-      `files holds at load), so it is not first-party whatever its name, and only first-party ` +
-      `code runs in the engine. Install it from the registry, or pack it with engine.isolation ` +
-      `"worker" (bundled) to run it on the extension runner. Your own extension: sign it with a ` +
-      `key on OPERATOR_PUBLIC_KEYS_JSON — docs/extensions/signatures.md#your-own-extensions-level-3. ` +
-      `A first-party source checkout: \`bun scripts/sign-as-registry.ts\` — ` +
-      `docs/extensions/signatures.md#a-first-party-source-checkout.`;
-    return { ok: false, logLevel: 'error', logArgs: [`❌ ${msg}`], lastLoadError: msg };
+        `files holds at load), so it is not first-party whatever its name, and only first-party ` +
+        `code runs in the engine. Install it from the registry. Your own extension: sign it with a ` +
+        `key on OPERATOR_PUBLIC_KEYS_JSON, and it runs on the extension runner at level 3 — ` +
+        `docs/extensions/signatures.md#your-own-extensions-level-3. ` +
+        `A first-party source checkout: \`bun scripts/sign-as-registry.ts\` — ` +
+        `docs/extensions/signatures.md#a-first-party-source-checkout.`,
+    );
   }
 
-  // `requireRemote` makes fetchRegistryCatalog throw instead of silently
-  // degrading to the local catalog — without it the fail-closed branch below is
-  // unreachable, since the fetch swallows every error of its own.
-  const requireCatalog = process.env.ZVELTIO_REQUIRE_CATALOG === '1';
-  let catalog: ExtensionCatalogEntry[] | null = null;
-  let catalogFetchFailed = false;
-  try {
-    catalog = await fetchRegistryCatalog({ requireRemote: requireCatalog });
-  } catch {
-    catalogFetchFailed = true;
-  }
-  if (catalogFetchFailed && requireCatalog) {
-    const msg =
+  const { tier, entry, catalogFailed } = await catalogueTier(extName);
+  if (catalogFailed) {
+    return fail(
       `Extension "${extName}" cannot be enabled: catalog fetch ` +
-      `failed and ZVELTIO_REQUIRE_CATALOG=1 forbids falling back ` +
-      `to local-only first-party assumptions. Retry when the ` +
-      `registry is reachable, or unset the env var.`;
-    return {
-      ok: false,
-      logLevel: 'error',
-      logArgs: [`❌ ${msg}`],
-      lastLoadError: msg,
-    };
+        `failed and ZVELTIO_REQUIRE_CATALOG=1 forbids falling back ` +
+        `to local-only first-party assumptions. Retry when the ` +
+        `registry is reachable, or unset the env var.`,
+    );
   }
-  if (catalog) {
-    // An extension present in a successfully-loaded catalog uses
-    // its declared tier; one that's ABSENT is unknown/unaudited
-    // and must be treated as community (the strictest tier) —
-    // otherwise a sideloaded inline extension that nobody
-    // published would slip past the gate. The local hardcoded
-    // catalog (the 54 first-party + smoke fixtures) is merged in
-    // by fetchRegistryCatalog(), so genuine first-party
-    // extensions are always found.
-    const catEntry = catalog.find((e) => e.name === extName);
-    const tier = catEntry ? resolvePublisherTier(catEntry) : 'community';
-    if (!tierAllowsInline(tier)) {
-      // What the manifest says, not what the runner needs: LV-05 read the needed
-      // values, printed where the current ones belong, as its own.
-      const e = manifest?.engine;
-      const declared =
-        `its manifest has engine.isolation ${e?.isolation ? `"${e.isolation}"` : 'unset (inline)'} ` +
-        `and engine.bundled ${e?.bundled === true}`;
-      const pack = `set engine.isolation "worker" and run \`zveltio extension pack\`, which bundles it`;
-      const own =
-        `sign it with a key on OPERATOR_PUBLIC_KEYS_JSON (\`zveltio extension sign\`) and enable ` +
-        `it: it runs at level 3 — docs/extensions/signatures.md#your-own-extensions-level-3.`;
-      const msg = catEntry
-        ? `Extension "${extName}" is a ${tier} submission, so it must run in worker isolation, ` +
-          `on the extension runner (marketplace-policy.md §2), but ${declared}. To run it there, ` +
-          `${pack}, then republish it; if it is your own, ${own}`
+  if (tier === null) {
+    // No catalog (fetch failed, fail-closed switch unset): inline is let through
+    // on local assumptions, but nothing here proved the tier first-party.
+    return refuseAnyCollection(extName, manifest, 'has no verified publisher tier') ?? ok;
+  }
+  if (!tierAllowsInline(tier)) {
+    return fail(
+      entry
+        ? `Extension "${extName}" is a ${tier} submission, so it may not run in the engine ` +
+            `process (marketplace-policy.md §2), and "${extName}" is on the engine's inline list ` +
+            `(ADR 0062), which is for first-party extensions only. Publish it under another name: ` +
+            `it then runs on the extension runner.`
         : `Extension "${extName}" is not in the marketplace catalog, so it is ${tier} code, not ` +
-          `first-party, and must run in worker isolation, on the extension runner, never in the ` +
-          `engine process; but ${declared}. To run it there, ${pack}, ${own}`;
-      return {
-        ok: false,
-        logLevel: 'error',
-        logArgs: [`❌ ${msg}`],
-        lastLoadError: msg,
-      };
-    }
-    return ok;
+            `first-party, and "${extName}" is on the engine's inline list (ADR 0062), which is for ` +
+            `first-party extensions only, never the engine process for anything else.`,
+    );
   }
-  // No catalog (fetch failed, fail-closed switch unset): inline is let through
-  // on local assumptions, but nothing here proved the tier first-party.
-  return refuseAnyCollection(extName, manifest, 'has no verified publisher tier') ?? ok;
+  return { ok: true, value: { firstParty: true } };
 }
 
 /**

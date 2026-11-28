@@ -217,21 +217,35 @@ d('an operator-signed extension (ADR 0056 s3)', () => {
     }
   }, 60_000);
 
-  it('never runs inline: not when the catalogue calls the name first-party, not under the test override', async () => {
-    const name = `s3${STAMP}/inline`;
-    sign(write(name, { isolation: undefined }));
-    const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockResolvedValue([
-      { name, publisher_tier: 'first-party' } as never,
-    ]);
-    try {
-      expect(await load(name)).toMatch(/level 3, private.*never inline/);
-      _setInlineForTests(true);
-      expect(await load(name)).toMatch(/never inline/);
-    } finally {
-      spy.mockRestore();
+  it('never runs inline: runs on the runner whatever the catalogue, the test override or the inline list say (ADR 0062 d1)', async () => {
+    // Its manifest declares no isolation, and one name is on the engine's inline list.
+    for (const name of [`s3${STAMP}/inline`, 'operations/traceability']) {
+      sign(write(name, { isolation: undefined }));
+      const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockResolvedValue([
+        { name, publisher_tier: 'first-party' } as never,
+      ]);
+      try {
+        for (const override of [false, true]) {
+          const was = _setInlineForTests(override);
+          try {
+            expect([name, override, await load(name)]).toEqual([name, override, undefined]);
+            expect(running(name)).toBe(true);
+            // Level 3, whatever the catalogue says of the name (ADR 0062 d2).
+            expect(
+              getWorkerHost(app)
+                .getHealth()
+                .find((h) => h.name === name)?.level,
+            ).toBe(3);
+          } finally {
+            _setInlineForTests(was);
+            await extensionLoader.unload(name).catch(() => {});
+          }
+        }
+      } finally {
+        spy.mockRestore();
+      }
+      expect(importedInline()).not.toContain(name);
     }
-    expect(importedInline()).not.toContain(name);
-    expect(extensionLoader.loaded.has(name)).toBe(false);
   }, 60_000);
 
   it('refuses a directory changed after signing: bundle, manifest, an added file, a new name', async () => {

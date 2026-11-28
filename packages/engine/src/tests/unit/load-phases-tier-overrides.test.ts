@@ -4,8 +4,9 @@
  * community → inline blocked" path; these cover the two operator/manifest
  * escape hatches and the tiers that ARE allowed to run inline.
  *
- * marketplace-policy.md §2: only first-party may run inline; verified and
- * community (or unknown) must declare engine.isolation: "worker".
+ * marketplace-policy.md §2: only first-party may run inline, and since ADR 0062
+ * d1 only a name on the engine's inline list reaches that gate; every other
+ * extension runs as a worker, whatever its manifest declares.
  */
 
 import { afterEach, describe, expect, it, spyOn } from 'bun:test';
@@ -36,10 +37,11 @@ describe('enforcePublisherTier — escape hatches', () => {
     process.env.ZVELTIO_ALLOW_INLINE_THIRD_PARTY = '1';
     const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockResolvedValue([]);
     try {
+      // A name on the inline list (ADR 0062 d1): every other one runs as a worker.
       const r = await enforcePublisherTier(
-        'sideloaded-ext',
+        'billing',
         {
-          name: 'sideloaded-ext',
+          name: 'billing',
           version: '1.0.0',
         } as never,
         null,
@@ -53,16 +55,20 @@ describe('enforcePublisherTier — escape hatches', () => {
     }
   });
 
-  it('a signed manifest declaring engine.isolation "worker" is allowed without a catalog', async () => {
+  it('a signed bundled worker runs whatever its catalogue tier; only level 0 is first-party', async () => {
     _setInlineForTests(false);
-    const spy = spyOn(extensionDownload, 'fetchRegistryCatalog');
+    const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockResolvedValue([]);
     try {
       const m = {
         name: 'worker-ext',
         version: '1.0.0',
         engine: { isolation: 'worker', bundled: true },
       } as never;
-      expect((await enforcePublisherTier('worker-ext', m, null, true)).ok).toBe(true);
+      const registry = await enforcePublisherTier('worker-ext', m, null, true);
+      expect(registry.ok && registry.value.firstParty).toBe(false);
+      expect(spy).toHaveBeenCalledTimes(1);
+      spy.mockClear();
+      // An operator key is level 3: no tier is looked up for it.
       expect((await enforcePublisherTier('worker-ext', m, 'ops-key')).ok).toBe(true);
       // ADR 0056 amendment 2026-11-18: unsigned, it never runs.
       const unsigned = await enforcePublisherTier('worker-ext', m);
@@ -81,9 +87,9 @@ describe('enforcePublisherTier — escape hatches', () => {
     }
   });
 
-  it('an unbundled "worker" manifest is held to the inline rule', async () => {
-    // load.ts takes the worker path only for a bundled entry; the gate waved an
-    // unbundled one through as a worker and the loader imported it inline.
+  it('an unbundled worker is refused, never imported inline', async () => {
+    // load.ts takes the worker path only for a bundled entry; the gate once waved
+    // an unbundled one through as a worker and the loader imported it inline.
     _setInlineForTests(false);
     const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockResolvedValue([
       catalogEntry({ name: 'c-ext', publisher_tier: 'community' }),
@@ -100,7 +106,7 @@ describe('enforcePublisherTier — escape hatches', () => {
         true,
       );
       expect(r.ok).toBe(false);
-      if (!r.ok) expect(r.lastLoadError).toContain('community');
+      if (!r.ok) expect(r.lastLoadError).toContain('engine.bundled');
     } finally {
       spy.mockRestore();
     }
@@ -114,12 +120,12 @@ describe('enforcePublisherTier — inline by tier', () => {
 
   it('a first-party catalog entry may run inline', async () => {
     const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockResolvedValue([
-      catalogEntry({ name: 'fp-ext', publisher_tier: 'first-party' }),
+      catalogEntry({ name: 'billing', publisher_tier: 'first-party' }),
     ]);
     try {
       const r = await enforcePublisherTier(
-        'fp-ext',
-        { name: 'fp-ext', version: '1.0.0' } as never,
+        'billing',
+        { name: 'billing', version: '1.0.0' } as never,
         null,
         true,
       );
@@ -131,12 +137,12 @@ describe('enforcePublisherTier — inline by tier', () => {
 
   it('a verified catalog entry is blocked inline (RFC extension-model-v3 phase A)', async () => {
     const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockResolvedValue([
-      catalogEntry({ name: 'v-ext', publisher_tier: 'verified' }),
+      catalogEntry({ name: 'billing', publisher_tier: 'verified' }),
     ]);
     try {
       const r = await enforcePublisherTier(
-        'v-ext',
-        { name: 'v-ext', version: '1.0.0' } as never,
+        'billing',
+        { name: 'billing', version: '1.0.0' } as never,
         null,
         true,
       );
@@ -149,13 +155,13 @@ describe('enforcePublisherTier — inline by tier', () => {
 
   it('an is_official entry with no publisher_tier falls back to first-party (inline ok)', async () => {
     const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockResolvedValue([
-      catalogEntry({ name: 'legacy-ext', is_official: true }),
+      catalogEntry({ name: 'billing', is_official: true }),
     ]);
     try {
       const r = await enforcePublisherTier(
-        'legacy-ext',
+        'billing',
         {
-          name: 'legacy-ext',
+          name: 'billing',
           version: '1.0.0',
         } as never,
         null,
@@ -169,12 +175,12 @@ describe('enforcePublisherTier — inline by tier', () => {
 
   it('a community catalog entry is blocked inline', async () => {
     const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockResolvedValue([
-      catalogEntry({ name: 'c-ext', publisher_tier: 'community' }),
+      catalogEntry({ name: 'billing', publisher_tier: 'community' }),
     ]);
     try {
       const r = await enforcePublisherTier(
-        'c-ext',
-        { name: 'c-ext', version: '1.0.0' } as never,
+        'billing',
+        { name: 'billing', version: '1.0.0' } as never,
         null,
         true,
       );

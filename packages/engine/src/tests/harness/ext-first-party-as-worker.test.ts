@@ -1,11 +1,18 @@
 /**
  * ADR 0062 order of work step 2 (the spike's loop, as a test): every first-party
- * extension of the sibling `zveltio-extensions` checkout is loaded as a signed
- * worker — its own files, `engine.isolation` set to `"worker"`, signed with the
- * test operator key (level 3) — through the engine's own loader, `process`
- * transport. The sets of what loads and what is refused are asserted exactly,
- * so an extension that stops loading, or one that starts loading past a
- * refusal, fails here.
+ * extension of the sibling `zveltio-extensions` checkout is loaded through the
+ * engine's own loader, `process` transport, its manifest unchanged — the
+ * engine, not `engine.isolation`, decides where it runs (d1).
+ *
+ * - Off the engine's inline list: signed as a registry download leaves it,
+ *   first-party in the catalogue, so level 0 (d2). Every one loads as a worker,
+ *   the four `"*"` ones too.
+ * - On the inline list: signed with the test operator key (level 3), which
+ *   always runs on the runner, so each shows the refusal that keeps it inline
+ *   until it is ported (the porting list).
+ *
+ * The sets are asserted exactly, so an extension that stops loading, or one
+ * that starts loading past a refusal, fails here.
  *
  * Skips when the sibling is absent (the harness jobs have none); CI runs it in
  * the job that checks out both repositories.
@@ -19,6 +26,7 @@ import { Glob } from 'bun';
 import { Hono } from 'hono';
 import type { Database } from '../../db/index.js';
 import { extensionLoader } from '../../lib/extensions/extension-loader.js';
+import { _setInlineForTests, INLINE_EXTENSIONS } from '../../lib/extensions/load-phases.js';
 import { _resetWorkerHostForTests, getWorkerHost } from '../../lib/worker-extension-host.js';
 import { sql } from 'kysely';
 import {
@@ -31,11 +39,13 @@ import {
 import { signAsOperator } from '../../testing/operator-signed.js';
 
 const SIBLING = join(import.meta.dir, '../../../../../../zveltio-extensions');
+const SIGN = join(import.meta.dir, '../../../../../scripts/sign-as-registry.ts');
 const d = harnessAvailable() && existsSync(SIBLING) ? describe : describe.skip;
 
-/** Declared model only, with no `"*"`: these run isolated today, unchanged. */
+/** Off the inline list: each runs as a worker, at level 0 (ADR 0062 d1, d2). */
 const LOADS = [
   'ai',
+  'analytics/quality',
   'auth/scim',
   'communications/mail',
   'compliance/ro/documents',
@@ -43,8 +53,10 @@ const LOADS = [
   'compliance/ro/etransport',
   'compliance/ro/procurement',
   'compliance/ro/saft',
+  'content/drafts',
   'content/media',
   'crm',
+  'data/import',
   'ecommerce/store',
   'finance/accounting',
   'finance/banking',
@@ -59,6 +71,7 @@ const LOADS = [
   'hr/payroll',
   'hr/time-tracking',
   'i18n/translations',
+  'integrations/migrators',
   'operations/assets',
   'operations/inventory',
   'operations/pos',
@@ -81,13 +94,8 @@ const LOADS = [
  */
 const LOADS_NOT_READY = ['auth/saml'];
 
-/** `"*"` in an action: first-party only, and a worker's tier never is (ADR 0053 d5, ADR 0062 F11). */
-const REFUSED_STAR = [
-  'analytics/quality',
-  'content/drafts',
-  'data/import',
-  'integrations/migrators',
-];
+/** `"*"` in an action: first-party only (ADR 0053 d5), which level 0 is on the runner (ADR 0062 d2). */
+const STAR = ['analytics/quality', 'content/drafts', 'data/import', 'integrations/migrators'];
 
 /**
  * Reach past the declared model (ADR 0062 porting list, less saml), each with
@@ -133,8 +141,12 @@ d('every first-party extension, loaded as a signed worker (ADR 0062 step 2)', ()
   /** Declared collections that did not exist before this file: dropped after it. */
   const created: string[] = [];
 
+  const keys = process.env.REGISTRY_PUBLIC_KEYS_JSON;
+  let wasInline = false;
+
   beforeAll(async () => {
     db = (await getTestApp()).db;
+    wasInline = _setInlineForTests(false);
     base = mkdtempSync(join(tmpdir(), 'fp-worker-'));
     process.env.ZVELTIO_EXT_TRANSPORT = 'process';
     _resetWorkerHostForTests();
@@ -162,11 +174,19 @@ d('every first-party extension, loaded as a signed worker (ADR 0062 step 2)', ()
         }>`SELECT to_regclass(${`zvd_${c}`})::text AS t`.execute(db);
         if (t.rows[0]?.t === null) created.push(c);
       }
-      manifest.engine.isolation = 'worker';
-      writeFileSync(join(dir, 'manifest.json'), JSON.stringify(manifest));
-      await signAsOperator(dir, name);
+      // Kept as published: the manifest does not choose where it runs (d1).
+      if (INLINE_EXTENSIONS.has(name)) await signAsOperator(dir, name);
       await markInstalled(db, name);
     }
+    const registry = names.filter(
+      (n) => outcome.get(n) !== 'no-engine' && !INLINE_EXTENSIONS.has(n),
+    );
+    const signed = Bun.spawnSync(['bun', SIGN, base, ...registry]);
+    if (signed.exitCode !== 0) throw new Error(`sign-as-registry: ${signed.stderr.toString()}`);
+    process.env.REGISTRY_PUBLIC_KEYS_JSON = signed.stdout
+      .toString()
+      .trim()
+      .replace(/^REGISTRY_PUBLIC_KEYS_JSON=/, '');
     // Dependencies first: a dependent finds its dependency loaded, as at boot.
     // Two passes are enough for the first-party graph (depth 2).
     for (let pass = 0; pass < 2; pass++) {
@@ -192,6 +212,9 @@ d('every first-party extension, loaded as a signed worker (ADR 0062 step 2)', ()
   afterAll(async () => {
     await getWorkerHost(app).stopAll();
     _resetWorkerHostForTests();
+    _setInlineForTests(wasInline);
+    if (keys === undefined) delete process.env.REGISTRY_PUBLIC_KEYS_JSON;
+    else process.env.REGISTRY_PUBLIC_KEYS_JSON = keys;
     for (const name of names) await extensionLoader.unload(name).catch(() => {});
     if (db) await forgetInstalled(db, ...names);
     // What the loads created, so a later file finds the names free.
@@ -201,30 +224,27 @@ d('every first-party extension, loaded as a signed worker (ADR 0062 step 2)', ()
 
   it('finds the 56 first-party extensions', () => {
     expect(names).toEqual(
-      [
-        ...LOADS,
-        ...LOADS_NOT_READY,
-        ...REFUSED_STAR,
-        ...Object.keys(REFUSED_PAST_MODEL),
-        ...NO_ENGINE,
-      ].sort(),
+      [...LOADS, ...LOADS_NOT_READY, ...Object.keys(REFUSED_PAST_MODEL), ...NO_ENGINE].sort(),
+    );
+    // What stays inline is the engine's list, and nothing else (ADR 0062 d1).
+    expect([...INLINE_EXTENSIONS].sort()).toEqual(
+      [...LOADS_NOT_READY, ...Object.keys(REFUSED_PAST_MODEL)].sort(),
     );
   });
 
-  it('loads the 37 declared-model extensions (and auth/saml, not ready) as workers', () => {
+  it('runs every extension off the inline list as a worker, at level 0 (ADR 0062 d1, d2)', () => {
     const loaded = names.filter((n) => outcome.get(n) === 'loaded');
     expect(loaded).toEqual([...LOADS, ...LOADS_NOT_READY].sort());
     // Running in a process of its own, not merely recorded as loaded.
-    for (const n of loaded) expect(getWorkerHost(app).isRunning(n)).toBe(true);
+    const host = getWorkerHost(app);
+    for (const n of loaded) expect(host.isRunning(n)).toBe(true);
+    const level = new Map(host.getHealth().map((h) => [h.name, h.level]));
+    for (const n of LOADS) expect([n, level.get(n)]).toEqual([n, 0]);
+    // The four "*" extensions run isolated with no port (d2).
+    for (const n of STAR) expect(LOADS).toContain(n);
   });
 
-  it('refuses the four "*" extensions, naming the first-party rule', () => {
-    for (const n of REFUSED_STAR) {
-      expect(outcome.get(n)).toMatch(/lists "\*".*first-party/);
-    }
-  });
-
-  it('refuses the thirteen that reach past the declared model, naming it', () => {
+  it('refuses the thirteen listed ones on the runner, naming what keeps them inline', () => {
     for (const [n, why] of Object.entries(REFUSED_PAST_MODEL)) {
       expect(outcome.get(n)).toMatch(why);
     }

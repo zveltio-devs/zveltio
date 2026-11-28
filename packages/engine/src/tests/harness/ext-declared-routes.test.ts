@@ -21,6 +21,7 @@ import { sql } from 'kysely';
 import type { RouteHandler, ZveltioExtension } from '@zveltio/sdk/extension';
 import type { Database } from '../../db/index.js';
 import { finalizeExtensionLoad } from '../../lib/extensions/register.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import type { ExtensionLoader } from '../../lib/extensions/extension-loader.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import type { ExtensionContext } from '../../lib/extensions/internals.js';
@@ -162,7 +163,10 @@ d('a declared route answered by a plain function (ADR 0039)', () => {
       ...(body === undefined ? {} : { body }),
     });
 
+  // Its fixtures run inline, which only the engine's list does since ADR 0062 d1.
+  let wasInline = false;
   beforeAll(async () => {
+    wasInline = _setInlineForTests(true);
     ({ app: engine, db } = await getTestApp());
     god = await createGodSession(engine, db);
     member = (await createMemberSession(engine, db, {})).cookie;
@@ -233,6 +237,7 @@ d('a declared route answered by a plain function (ADR 0039)', () => {
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(wasInline);
     invalidateActivationCache();
     if (saved.transport === undefined) delete process.env.ZVELTIO_EXT_TRANSPORT;
     else process.env.ZVELTIO_EXT_TRANSPORT = saved.transport;

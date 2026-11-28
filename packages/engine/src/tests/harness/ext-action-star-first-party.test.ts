@@ -1,11 +1,13 @@
 /**
  * ADR 0053 decision 5 (DR-47): an action may list `"*"` in `reads` / `writes`
  * only in a first-party extension — the publisher tier `enforcePublisherTier`
- * verifies, never the name. A worker-isolated extension's tier is never looked
- * up, so it is never proven first-party: it is refused at load, even under the
- * test-only inline override. A first-party one (inline) still loads.
+ * verifies, never the name. Since ADR 0062 d1 every extension off the engine's
+ * inline list runs as a worker, so on the runner (d2) the tier comes from the
+ * signature: a registry signature whose catalogue tier is first-party is level
+ * 0 and loads, as a worker; an operator key (level 3) or a registry signature of
+ * any other tier (level 2) is refused at load, before anything of it exists.
  *
- * Both go through the engine's own loader, from a directory on disk.
+ * All go through the engine's own loader, from a directory on disk.
  */
 
 import { afterAll, afterEach, beforeAll, describe, expect, it, spyOn } from 'bun:test';
@@ -33,7 +35,8 @@ const SIGN = join(import.meta.dir, '../../../../../scripts/sign-as-registry.ts')
 const d = harnessAvailable() ? describe : describe.skip;
 const STAMP = String(Date.now()).slice(-7);
 const WORKER = `starwkr${STAMP}`;
-const INLINE = `starfp${STAMP}`;
+const FIRST_PARTY = `starfp${STAMP}`;
+const LEVEL2 = `starl2${STAMP}`;
 
 /** The worker extension's migration: refused before it runs, it never exists. */
 const OWN = `zv_${WORKER}_items`;
@@ -48,7 +51,8 @@ d('"*" in an action is first-party only (ADR 0053 d5)', () => {
   const app = new Hono();
   let wasInline = false;
 
-  function write(name: string, isolation: 'worker' | undefined, reads: string[]): void {
+  /** No `engine.isolation`: the manifest does not choose where it runs (ADR 0062 d1). */
+  function write(name: string, reads: string[], migration: boolean): void {
     const dir = join(base, name);
     mkdirSync(join(dir, 'engine', 'migrations'), { recursive: true });
     writeFileSync(
@@ -57,17 +61,40 @@ d('"*" in an action is first-party only (ADR 0053 d5)', () => {
         name,
         version: '1.0.0',
         resources: [name],
-        engine: { entry: 'engine/index.js', bundled: true, ...(isolation ? { isolation } : {}) },
+        engine: { entry: 'engine/index.js', bundled: true },
         actions: [{ name: 'peek', permission: { resource: name }, input: {}, reads }],
       }),
     );
     writeFileSync(join(dir, 'engine', 'index.js'), entry(name));
-    writeFileSync(
-      join(dir, 'engine', 'migrations', '001_items.sql'),
-      `CREATE TABLE IF NOT EXISTS zv_${name}_items (id serial PRIMARY KEY);\n` +
-        `-- DOWN\nDROP TABLE IF EXISTS zv_${name}_items;\n`,
-    );
+    if (migration) {
+      writeFileSync(
+        join(dir, 'engine', 'migrations', '001_items.sql'),
+        `CREATE TABLE IF NOT EXISTS zv_${name}_items (id serial PRIMARY KEY);\n` +
+          `-- DOWN\nDROP TABLE IF EXISTS zv_${name}_items;\n`,
+      );
+    }
   }
+  /** Signed as a registry download leaves it, with this run's key on REGISTRY_PUBLIC_KEYS_JSON. */
+  function signAsRegistry(name: string): void {
+    const signed = Bun.spawnSync(['bun', SIGN, base, name]);
+    expect(signed.exitCode).toBe(0);
+    process.env.REGISTRY_PUBLIC_KEYS_JSON = signed.stdout
+      .toString()
+      .trim()
+      .replace(/^REGISTRY_PUBLIC_KEYS_JSON=/, '');
+  }
+  /** Load `name` with the catalogue saying `tier` of it: what a registry signature binds. */
+  async function loadWithTier(name: string, tier: string): Promise<void> {
+    const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockResolvedValue([
+      { name, publisher_tier: tier } as never,
+    ]);
+    try {
+      await extensionLoader.loadExtension(name, app, ctx(), base);
+    } finally {
+      spy.mockRestore();
+    }
+  }
+  const keys = process.env.REGISTRY_PUBLIC_KEYS_JSON;
   const exists = async (table: string) =>
     (await sql<{ t: string | null }>`SELECT to_regclass(${table})::text AS t`.execute(db)).rows[0]!
       .t !== null;
@@ -88,7 +115,9 @@ d('"*" in an action is first-party only (ADR 0053 d5)', () => {
   afterAll(async () => {
     await getWorkerHost(app).stopAll();
     _resetWorkerHostForTests();
-    for (const name of [WORKER, INLINE]) {
+    if (keys === undefined) delete process.env.REGISTRY_PUBLIC_KEYS_JSON;
+    else process.env.REGISTRY_PUBLIC_KEYS_JSON = keys;
+    for (const name of [WORKER, FIRST_PARTY, LEVEL2]) {
       await extensionLoader.unload(name).catch(() => {});
       await sql`DROP TABLE IF EXISTS ${sql.table(`zv_${name}_items`)}`.execute(db);
       await sql`DELETE FROM zv_migrations WHERE name LIKE ${`ext:${name}:%`}`.execute(db);
@@ -98,44 +127,44 @@ d('"*" in an action is first-party only (ADR 0053 d5)', () => {
     rmSync(base, { recursive: true, force: true });
   });
 
-  it('refuses a worker-isolated extension listing "*", signed as it must be to load', async () => {
-    write(WORKER, 'worker', ['*']);
+  it('refuses an operator-signed extension listing "*" (level 3)', async () => {
+    write(WORKER, ['*'], true);
     // An operator key: level 3, never first-party (ADR 0056 d1).
     await signAsOperator(join(base, WORKER), WORKER);
     await markInstalled(db, WORKER);
-    await extensionLoader.loadExtension(WORKER, app, ctx(), base);
+    wasInline = _setInlineForTests(false);
+    await loadWithTier(WORKER, 'first-party');
     expect(extensionLoader.loaded.has(WORKER)).toBe(false);
     // At the tier gate, before its migrations: nothing of it was created.
     expect(await exists(OWN)).toBe(false);
     expect(extensionLoader.getLastLoadError(WORKER)).toMatch(
-      /action "peek" lists "\*".*first-party/,
+      /operator key .*\(level 3\).*action "peek" lists "\*".*first-party/,
     );
   }, 60_000);
 
-  it('loads a first-party extension listing "*" (tier from the catalog, not the name)', async () => {
-    write(INLINE, undefined, ['*']);
-    await markInstalled(db, INLINE);
+  it('refuses a registry-signed extension of another tier listing "*" (level 2)', async () => {
+    write(LEVEL2, ['*'], false);
+    signAsRegistry(LEVEL2);
+    await markInstalled(db, LEVEL2);
     wasInline = _setInlineForTests(false);
-    // Inline needs the registry's signature, in every NODE_ENV (ADR 0056
-    // amendment 2026-11-21): signed as a download leaves it, with a run key.
-    const signed = Bun.spawnSync(['bun', SIGN, base, INLINE]);
-    expect(signed.exitCode).toBe(0);
-    const keys = process.env.REGISTRY_PUBLIC_KEYS_JSON;
-    process.env.REGISTRY_PUBLIC_KEYS_JSON = signed.stdout
-      .toString()
-      .trim()
-      .replace(/^REGISTRY_PUBLIC_KEYS_JSON=/, '');
-    const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockResolvedValue([
-      { name: INLINE, publisher_tier: 'first-party' } as never,
-    ]);
-    try {
-      await extensionLoader.loadExtension(INLINE, app, ctx(), base);
-    } finally {
-      spy.mockRestore();
-      if (keys === undefined) delete process.env.REGISTRY_PUBLIC_KEYS_JSON;
-      else process.env.REGISTRY_PUBLIC_KEYS_JSON = keys;
-    }
-    expect(extensionLoader.getLastLoadError(INLINE)).toBeUndefined();
-    expect(extensionLoader.loaded.has(INLINE)).toBe(true);
+    await loadWithTier(LEVEL2, 'verified');
+    expect(extensionLoader.loaded.has(LEVEL2)).toBe(false);
+    expect(extensionLoader.getLastLoadError(LEVEL2)).toMatch(
+      /no verified first-party tier.*action "peek" lists "\*"/,
+    );
+  }, 60_000);
+
+  it('loads a first-party extension listing "*" as a worker: level 0, from the signature (ADR 0062 d2)', async () => {
+    write(FIRST_PARTY, ['*'], false);
+    signAsRegistry(FIRST_PARTY);
+    await markInstalled(db, FIRST_PARTY);
+    wasInline = _setInlineForTests(false);
+    await loadWithTier(FIRST_PARTY, 'first-party');
+    expect(extensionLoader.getLastLoadError(FIRST_PARTY)).toBeUndefined();
+    expect(extensionLoader.loaded.has(FIRST_PARTY)).toBe(true);
+    // On the runner, not in the engine: its process runs, and knows its tier.
+    const host = getWorkerHost(app);
+    expect(host.isRunning(FIRST_PARTY)).toBe(true);
+    expect(host.getHealth().find((h) => h.name === FIRST_PARTY)?.level).toBe(0);
   }, 60_000);
 });

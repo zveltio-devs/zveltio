@@ -182,12 +182,11 @@ jobs:
           path: ./
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with: { bun-version: '1.4.4' }
-      - name: Stage smoke fixtures (inline subapp, worker isolation, global mount)
-        # Three fixtures, three code paths:
-        #   hello-ext        — inline + subapp (default for first-party)
-        #   hello-ext-worker — Bun.Worker isolation + subapp
-        #   hello-ext-global — inline + global mount (route at engine root)
-        # All three are self-contained bundles committed in this repo
+      - name: Stage smoke fixtures (worker isolation, UI only)
+        # Two fixtures, two code paths:
+        #   hello-ext-worker — a worker on the runner, declared route
+        #   hello-ext-uionly — no engine code
+        # Both are self-contained bundles committed in this repo
         # so the smoke job doesn't depend on registry.zveltio.com or
         # zveltio-extensions sibling clones.
         # Outside the workspace and world-readable: hello-ext-worker runs on the
@@ -197,7 +196,7 @@ jobs:
         # directory runs inline only on the registry's signature, never its name (U3).
         run: |
           sudo install -d -o "$(id -u)" -m 0755 /opt/zveltio-smoke/extensions
-          for f in hello-ext hello-ext-worker hello-ext-global hello-ext-uionly; do
+          for f in hello-ext-worker hello-ext-uionly; do
             cp -r "packages/engine/src/tests/fixtures/$f" "/opt/zveltio-smoke/extensions/$f"
           done
           bun scripts/sign-as-registry.ts /opt/zveltio-smoke/extensions >> "$GITHUB_ENV"
@@ -281,38 +280,14 @@ jobs:
             kill $ENGINE_PID 2>/dev/null || true; exit 1
           fi
 
-          # Marketplace install + enable the hello-ext fixture. This
-          # exercises the exact code path that broke alpha.100–113
-          # (kysely / hono-types / peer-deps / bundle-hash-drift /
-          # autocrlf etc.) on the compiled binary. The fixture is on
-          # disk under EXTENSIONS_DIR so no registry round-trip — the
-          # smoke job stays green even if registry.zveltio.com is down.
-          bun scripts/god-request.ts cookies.txt POST /api/marketplace/hello-ext/install > /tmp/install.json || true
-          if ! grep -q '"success":true' /tmp/install.json; then
-            echo "::error::Install failed"; cat /tmp/install.json
-            kill $ENGINE_PID 2>/dev/null || true; exit 1
-          fi
-
-          bun scripts/god-request.ts cookies.txt POST /api/marketplace/hello-ext/enable > /tmp/enable.json || true
-          if ! grep -q '"success":true' /tmp/enable.json; then
-            echo "::error::Enable failed — likely a module-resolution or schema-mismatch regression."
-            echo "::error::Body: $(cat /tmp/enable.json)"
-            kill $ENGINE_PID 2>/dev/null || true; exit 1
-          fi
-
-          # Hit the extension's route — proves register() actually ran,
-          # not just that enable returned 200.
-          ROUTE_BODY=$(curl -fsS http://localhost:3000/ext/hello-ext/health \
-            -b cookies.txt || true)
-          if ! echo "$ROUTE_BODY" | grep -q '"ok":true'; then
-            echo "::error::hello-ext route /ext/hello-ext/health did not return ok"
-            echo "::error::Body: $ROUTE_BODY"
-            kill $ENGINE_PID 2>/dev/null || true; exit 1
-          fi
-
-          echo "✅ hello-ext install + enable + route OK on the compiled binary."
-
-          # Repeat for hello-ext-worker — exercises the C-minimal
+          # Marketplace install + enable on the compiled binary: the path that
+          # broke alpha.100-113 (kysely / hono-types / peer-deps /
+          # bundle-hash-drift / autocrlf). The fixture is on disk under
+          # EXTENSIONS_DIR, so no registry round-trip. Since ADR 0062 d1 every
+          # extension off the engine's inline list runs as a worker, so the
+          # worker fixture is the one engine path left to smoke; the former
+          # inline (hello-ext) and global-mount (hello-ext-global) runs are gone.
+          # hello-ext-worker exercises the
           # worker isolation path (manifest.engine.isolation: 'worker').
           # If anything in the IPC chain (route proxy / DB proxy /
           # bundle re-import inside worker) regresses, this fails.
@@ -339,29 +314,6 @@ jobs:
           fi
           echo "✅ hello-ext-worker isolation path OK on the compiled binary."
 
-          # Repeat for hello-ext-global — exercises mountStrategy='global'
-          # which is what extensions use when they need a route outside
-          # the per-extension /ext/<name>/ namespace.
-          bun scripts/god-request.ts cookies.txt POST /api/marketplace/hello-ext-global/install > /tmp/install-global.json || true
-          if ! grep -q '"success":true' /tmp/install-global.json; then
-            echo "::error::hello-ext-global install failed"; cat /tmp/install-global.json
-            kill $ENGINE_PID 2>/dev/null || true; exit 1
-          fi
-          bun scripts/god-request.ts cookies.txt POST /api/marketplace/hello-ext-global/enable > /tmp/enable-global.json || true
-          if ! grep -q '"success":true' /tmp/enable-global.json; then
-            echo "::error::hello-ext-global enable failed"
-            echo "::error::Body: $(cat /tmp/enable-global.json)"
-            kill $ENGINE_PID 2>/dev/null || true; exit 1
-          fi
-          GLOBAL_BODY=$(curl -fsS http://localhost:3000/hello-global/health \
-            -b cookies.txt || true)
-          if ! echo "$GLOBAL_BODY" | grep -q '"mount":"global"'; then
-            echo "::error::hello-ext-global /hello-global/health did not return mount=global"
-            echo "::error::Body: $GLOBAL_BODY"
-            kill $ENGINE_PID 2>/dev/null || true; exit 1
-          fi
-          echo "✅ hello-ext-global mount strategy OK on the compiled binary."
-
           # Repeat for hello-ext-uionly — a UI-only extension
           # (contributes.engine=false, no engine entry). Regression guard for
           # the beta.14 fix: install/enable must SUCCEED for engine-less
@@ -386,7 +338,7 @@ jobs:
           # extensions with sensible per-extension records.
           HEALTH_BODY=$(curl -fsS http://localhost:3000/api/admin/extensions/health \
             -b cookies.txt || true)
-          for ext in hello-ext hello-ext-worker hello-ext-global; do
+          for ext in hello-ext-worker; do
             if ! echo "$HEALTH_BODY" | grep -q "\"name\":\"$ext\""; then
               echo "::error::extensions/health did not list $ext"
               echo "::error::Body: $HEALTH_BODY"
@@ -398,7 +350,7 @@ jobs:
             echo "::error::Body: $HEALTH_BODY"
             kill $ENGINE_PID 2>/dev/null || true; exit 1
           fi
-          echo "✅ /api/admin/extensions/health reports all 3 extensions correctly."
+          echo "✅ /api/admin/extensions/health reports the worker extension correctly."
 
           kill $ENGINE_PID 2>/dev/null || true
           wait $ENGINE_PID 2>/dev/null || true

@@ -41,6 +41,7 @@ import {
   enforceRunnerInProduction,
   resolveEntryPath,
   resolveManifest,
+  runsAsWorker,
 } from './load-phases.js';
 import { checkRevoked, revocationCheckRequired, revocationMessage } from './revocations.js';
 import type { ExtensionContext } from './internals.js';
@@ -309,7 +310,9 @@ export async function loadExtensionFromDir(
       }
       return;
     }
-    const runnerPhase = enforceRunnerInProduction(extName, manifest);
+    // ADR 0062 d1: the engine decides where it runs, never its manifest.
+    const worker = runsAsWorker(extName, manifest, operatorKeyId);
+    const runnerPhase = enforceRunnerInProduction(extName, worker);
     if (!runnerPhase.ok) {
       if (runnerPhase.logLevel !== 'none') console[runnerPhase.logLevel](...runnerPhase.logArgs);
       if (runnerPhase.lastLoadError !== null) {
@@ -319,12 +322,12 @@ export async function loadExtensionFromDir(
     }
 
     let extension: ZveltioExtension;
-    if (manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true) {
+    if (worker) {
       // Worker-isolated path — deliberately does NOT import the entry module.
       //
-      // `enforcePublisherTier` above REFUSES a community (untrusted,
-      // third-party) extension that has not declared this isolation, precisely
-      // because the worker is meant to be the boundary. Importing the module here would run its TOP-LEVEL code in
+      // Every extension off the engine's inline list takes this path (ADR 0062
+      // d1), whatever its manifest says, precisely because the worker is meant
+      // to be the boundary. Importing the module here would run its TOP-LEVEL code in
       // the engine process, with engine privileges, before any worker exists —
       // so a hostile extension never has to reach a route handler to win, and
       // everything the worker enforces afterwards is irrelevant to it.
@@ -335,15 +338,17 @@ export async function loadExtensionFromDir(
       // The cost is that a worker-isolated extension cannot contribute
       // engine-side field types, cron schedules or a cleanup hook: all three
       // require running its code in this process, which is the thing being
-      // avoided. First-party extensions run inline and keep them.
+      // avoided. Only the engine's inline list (ADR 0062 d1) still runs inline
+      // and keeps them.
       //
       // ADR 0056 d1 and amendment 2026-11-21: every worker is signed — level 3
-      // (operator key) or 2 (registry), `enforcePublisherTier` refused anything
-      // else above, under the test override too — and both are declared model
-      // only, while a migration is raw SQL run as the engine.
+      // (operator key), 2 (registry) or 0 (registry, first-party tier: ADR 0062
+      // d2); `enforcePublisherTier` refused anything else above, under the test
+      // override too — and every worker is declared model only (phase D slice 4,
+      // S2), while a migration is raw SQL run as the engine.
       const migrationDir = join(extDir, 'engine', 'migrations');
       if (existsSync(migrationDir) && readdirSync(migrationDir).some((f) => f.endsWith('.sql'))) {
-        const level = operatorKeyId !== null ? 3 : 2;
+        const level = operatorKeyId !== null ? 3 : tierPhase.value.firstParty ? 0 : 2;
         const msg =
           `Extension "${extName}" is signed by ${level === 3 ? 'operator' : 'registry'} key ` +
           `"${operatorKeyId ?? registryKeyId}" (level ${level}), which is declared model ` +
@@ -578,6 +583,7 @@ export async function loadExtensionFromDir(
       absentOptional,
       operatorKeyId ?? undefined,
       registryKeyId ?? undefined,
+      tierPhase.value.firstParty,
     );
   } catch (err) {
     const errMsg = (err as Error).message ?? String(err);

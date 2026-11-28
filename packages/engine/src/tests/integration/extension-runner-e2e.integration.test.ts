@@ -374,7 +374,8 @@ for (const [driver, transport] of LEGS) {
         true,
         { [`schema/collections/${notes}.json`]: schema },
       );
-      // The same publisher, the same declared model, without worker isolation.
+      // The same publisher, the same declared model, with no isolation in its
+      // manifest: since ADR 0062 d1 the engine runs it as a worker anyway.
       writeExt(leg.base, twin, emptyEntry(twin), {}, false);
       writeExt(leg.base, legacy, legacyEntry(legacy), {}, true);
       writeExt(leg.base, migr, emptyEntry(migr), {}, true, {
@@ -593,11 +594,12 @@ for (const [driver, transport] of LEGS) {
       if (leg.sockDir) rmSync(leg.sockDir, { recursive: true, force: true });
     }, 60_000);
 
-    it('a community extension installs and enables only in worker isolation', () => {
+    // ADR 0062 d1: the manifest's engine.isolation no longer decides; a
+    // community extension that names none runs as a worker, not refused.
+    it('a community extension installs and enables as a worker, whatever its manifest says', () => {
       expect(out[`install:${main}`]).toBe(200);
       expect(out[`enable:${main}`]).toMatchObject({ status: 200, body: { success: true } });
-      expect(out[`enable:${twin}`]).toMatchObject({ status: 422 });
-      expect(JSON.stringify(out[`enable:${twin}`])).toContain('must run in worker isolation');
+      expect(out[`enable:${twin}`]).toMatchObject({ status: 200, body: { success: true } });
     });
 
     it('level 2 is declared model only: register() code and SQL migrations fail the enable', () => {

@@ -106,6 +106,7 @@ import {
   routeCollections,
   routeHost,
 } from './actions.js';
+import { runsAsWorker } from './load-phases.js';
 import { compileJobs, hostCall, registerJobs, runsInRunner, verifiedJobsCode } from './jobs.js';
 import type { HostCall } from './job-runner.js';
 import { buildExtensionConfig } from './config.js';
@@ -729,6 +730,8 @@ async function registerExtensionRoutes(
     keyId?: string;
     /** The registry key its kept archive signature verified against (level 2). */
     registryKeyId?: string;
+    /** That registry signature's catalogue tier is first-party: level 0 (ADR 0062 d2). */
+    firstParty?: boolean;
   } | null,
   db: Database,
   actions: ReadonlyMap<string, CompiledAction> = new Map(),
@@ -786,6 +789,7 @@ async function registerExtensionRoutes(
             identityCall(c as Context, extName, access, call, args),
           keyId: isolation.keyId,
           registryKeyId: isolation.registryKeyId,
+          firstParty: isolation.firstParty,
           // ADR 0062 d3: the operator's choice; unreadable at load is the default.
           runtime: workerRuntime(
             await readRuntimePolicy(db, extName).catch(() => defaultRuntimePolicy(extName)),
@@ -990,8 +994,15 @@ export async function finalizeExtensionLoad(
   keyId?: string,
   /** The registry key the archive kept with its files verified against, if any. */
   registryKeyId?: string,
+  /** `enforcePublisherTier` verified its tier first-party (level 0 on the runner, ADR 0062 d2). */
+  firstParty = false,
 ): Promise<void> {
-  const worker = manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true;
+  // ADR 0062 d1: where it runs is the engine's choice, never its manifest's.
+  const worker = runsAsWorker(extName, manifest, keyId);
+  // `enforcePublisherTier` refused it already; never half a worker, half inline.
+  if (worker && manifest?.engine?.bundled !== true) {
+    throw new Error(`Extension "${extName}" runs as a worker, which needs a bundled engine entry`);
+  }
   // First, so a mismatch refuses the load before anything is granted for it. A
   // worker's are paired in the worker, and run there (ADR 0056).
   const actions = compileActions(
@@ -1094,7 +1105,7 @@ export async function finalizeExtensionLoad(
     ]),
   ]);
   const workerIsolation =
-    manifest?.engine?.isolation === 'worker' && manifest?.engine?.bundled === true
+    worker && manifest?.engine
       ? {
           entry: manifest.engine.entry,
           extDir,
@@ -1102,6 +1113,7 @@ export async function finalizeExtensionLoad(
           routes: manifest.routes,
           keyId,
           registryKeyId,
+          firstParty,
         }
       : undefined;
   const routes = routeCollections(manifest);
@@ -1128,7 +1140,7 @@ export async function finalizeExtensionLoad(
   // drops the sub-app on the next app rebuild — no orphan routes.
   // The default 'global' path remains unchanged for backward compatibility.
   //
-  // C-minimal worker isolation (manifest.engine.isolation === 'worker'):
+  // C-minimal worker isolation (`runsAsWorker`, ADR 0062 d1):
   // delegate register() to WorkerExtensionHost. The worker spawns,
   // re-imports the SAME bundle, and runs register() in its own thread.
   // Migrations + field types + services etc. already ran in this main

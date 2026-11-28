@@ -222,9 +222,11 @@ its manifest can bound.
 decision 5, 2026-11-15), like entries 3, 4 and 5: an extension may list `"*"`
 only when the publisher-tier gate verified it first-party, never by its name.
 Any other extension listing it is refused at load with a `lastLoadError`
-naming the action. A worker-isolated extension never has its tier looked up,
-so it is never first-party here. No external author used `"*"`; the
-first-party users are `analytics/quality`, `content/drafts` and
+naming the action. On the runner the tier comes from the signature (ADR 0062
+d2): a registry signature whose catalogue tier is first-party is level 0 and
+may list it; an operator key (level 3) or any other registry tier (level 2)
+may not. No external author used `"*"`; the first-party users are
+`analytics/quality`, `content/drafts`, `data/import` and
 `integrations/migrators`.
 
 **What v2 should do.** Decide with DR-09 whether `"*"` stays a first-party
@@ -298,3 +300,18 @@ keyring, the mail keyring's `aes256gcm:` included (ADR 0059 step 3).
 seals and opens field values); make `encryptSecret` / `decryptSecret` take the
 row they bind to, or remove them; refuse ciphertext as input; and refuse a
 `ctx.db` update that sets an encrypted field without naming one row.
+
+## 14. `engine.isolation` decides nothing — narrowing
+
+**What happened.** The manifest's `engine.isolation` (`"inline"` / `"worker"`)
+chose where an extension's code ran, against RFC extension-model-v3 l.53–55
+(the extension never decides where it runs; ADR 0062 F2). ADR 0062 d1 made
+every extension a worker, first-party included, except a shrinking inline list
+the engine keeps (`INLINE_EXTENSIONS`).
+
+**What v1 does.** Keeps parsing the field and ignores its value. The CLI's
+`extension pack` / `validate` and the registry still read it (auto-injecting
+`"worker"` for a community publisher); nothing in the engine does.
+
+**What v2 should do.** Remove `engine.isolation` from the manifest schema, and
+the CLI and registry checks of it.

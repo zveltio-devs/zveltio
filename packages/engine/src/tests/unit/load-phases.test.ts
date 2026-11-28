@@ -202,10 +202,10 @@ describe('enforcePublisherTier — fast paths', () => {
     expect(r.ok).toBe(true);
   });
 
-  it('community catalog entry without worker isolation → PhaseFail', async () => {
+  it('a listed name whose catalogue tier is community → PhaseFail', async () => {
     const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockResolvedValue([
       {
-        name: 'community-ext',
+        name: 'billing',
         displayName: 'Community',
         description: 'x',
         category: 'custom',
@@ -218,52 +218,37 @@ describe('enforcePublisherTier — fast paths', () => {
     ]);
     try {
       const r = await enforcePublisherTier(
-        'community-ext',
+        'billing',
         {
-          name: 'community-ext',
+          name: 'billing',
           version: '1.0.0',
         } as never,
         null,
         true,
       );
       expect(r.ok).toBe(false);
-      if (!r.ok) expect(r.lastLoadError).toContain('worker isolation');
+      if (!r.ok) expect(r.lastLoadError).toContain('may not run in the engine process');
     } finally {
       spy.mockRestore();
     }
   });
 
-  it('an own extension refused inline is told what its manifest says and every way to run (LV-05)', async () => {
+  it('an own unbundled extension is told how to run on the runner (LV-05, ADR 0062 d1)', async () => {
     const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockResolvedValue([]);
     try {
-      // Declares worker but is not bundled: the refusal used to read as if it ran there.
-      const r = await enforcePublisherTier(
-        'acme/own',
-        {
-          name: 'acme/own',
-          version: '1.0.0',
-          engine: { isolation: 'worker', bundled: false },
-        } as never,
-        null,
-        true,
-      );
-      expect(r.ok).toBe(false);
-      if (r.ok) return;
-      expect(r.lastLoadError).toContain(
-        'its manifest has engine.isolation "worker" and engine.bundled false',
-      );
-      expect(r.lastLoadError).toContain('zveltio extension pack');
-      expect(r.lastLoadError).toContain('zveltio extension sign`) and enable it');
-      expect(r.lastLoadError).toContain('OPERATOR_PUBLIC_KEYS_JSON');
-      expect(r.lastLoadError).not.toContain('Republish');
-      const bare = await enforcePublisherTier(
-        'acme/own',
-        { name: 'acme/own' } as never,
-        null,
-        true,
-      );
-      expect(bare.ok).toBe(false);
-      if (!bare.ok) expect(bare.lastLoadError).toContain('engine.isolation unset');
+      // Whatever its manifest declares, off the inline list it runs as a worker.
+      for (const engine of [{ isolation: 'worker', bundled: false }, undefined]) {
+        const r = await enforcePublisherTier(
+          'acme/own',
+          { name: 'acme/own', version: '1.0.0', ...(engine ? { engine } : {}) } as never,
+          null,
+          true,
+        );
+        expect(r.ok).toBe(false);
+        if (r.ok) return;
+        expect(r.lastLoadError).toContain('engine.bundled');
+        expect(r.lastLoadError).toContain('zveltio extension pack');
+      }
     } finally {
       spy.mockRestore();
     }
@@ -277,8 +262,8 @@ describe('enforcePublisherTier — fast paths', () => {
     );
     try {
       const r = await enforcePublisherTier(
-        'ext',
-        { name: 'ext', version: '1.0.0' } as never,
+        'billing',
+        { name: 'billing', version: '1.0.0' } as never,
         null,
         true,
       );
@@ -294,7 +279,7 @@ describe('enforcePublisherTier — fast paths', () => {
   it('verified publisher tier in catalog → inline refused', async () => {
     const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockResolvedValue([
       {
-        name: 'verified-ext',
+        name: 'billing',
         displayName: 'Verified',
         description: 'x',
         category: 'custom',
@@ -308,9 +293,9 @@ describe('enforcePublisherTier — fast paths', () => {
     ]);
     try {
       const r = await enforcePublisherTier(
-        'verified-ext',
+        'billing',
         {
-          name: 'verified-ext',
+          name: 'billing',
           version: '1.0.0',
         } as never,
         null,
@@ -325,7 +310,7 @@ describe('enforcePublisherTier — fast paths', () => {
   it('is_official first-party catalog entry → inline allowed', async () => {
     const spy = spyOn(extensionDownload, 'fetchRegistryCatalog').mockResolvedValue([
       {
-        name: 'finance/invoicing',
+        name: 'billing',
         displayName: 'Invoicing',
         description: 'x',
         category: 'finance',
@@ -338,9 +323,9 @@ describe('enforcePublisherTier — fast paths', () => {
     ]);
     try {
       const r = await enforcePublisherTier(
-        'finance/invoicing',
+        'billing',
         {
-          name: 'finance/invoicing',
+          name: 'billing',
           version: '1.0.0',
         } as never,
         null,

@@ -22,6 +22,7 @@ import { sql } from 'kysely';
 import type { ActionHost, JobHost, ZveltioExtension } from '@zveltio/sdk/extension';
 import type { Database } from '../../db/index.js';
 import { finalizeExtensionLoad } from '../../lib/extensions/register.js';
+import { _setInlineForTests } from '../../lib/extensions/load-phases.js';
 import type { ExtensionLoader } from '../../lib/extensions/extension-loader.js';
 import { buildExtensionInternals } from '../../lib/extensions/internals.js';
 import type { ExtensionContext } from '../../lib/extensions/internals.js';
@@ -256,7 +257,10 @@ d('a job reaches only the stored files its user hands it (ADR 0032)', () => {
     return ((await res.json()) as { result: string }).result;
   };
 
+  // Its fixtures run inline, which only the engine's list does since ADR 0062 d1.
+  let wasInline = false;
   beforeAll(async () => {
+    wasInline = _setInlineForTests(true);
     ({ app: engine, db } = await getTestApp());
     await ruleObjects(db, RES);
     await ensureDeno();
@@ -393,6 +397,7 @@ d('a job reaches only the stored files its user hands it (ADR 0032)', () => {
   }, 180_000);
 
   afterAll(async () => {
+    _setInlineForTests(wasInline);
     await forgetRuleObjects(db, RES);
     invalidateActivationCache();
     for (const e of [EXT, DEP, NOFILES, DENO]) await unregisterJobs(e);

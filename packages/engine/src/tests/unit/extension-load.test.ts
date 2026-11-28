@@ -195,7 +195,8 @@ describe('loadExtensionFromDir', () => {
     });
     const loader = fakeLoader();
     await loadExtensionFromDir(loader, 'community-ext', app, loader.ctx, base);
-    expect(loader.lastLoadError.get('community-ext')).toMatch(/not signed by the registry/);
+    // Off the inline list it runs as a worker (ADR 0062 d1), and unsigned never runs.
+    expect(loader.lastLoadError.get('community-ext')).toMatch(/is not signed/);
   });
 
   it('records lastLoadError and audits when dynamic import throws', async () => {
