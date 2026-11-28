@@ -246,6 +246,7 @@ export async function loadExtensionFromDir(
         collections,
         studio: await embedPageSchemas(extDir, early.studio),
       });
+      loader.lastLoadError.delete(extName);
       console.log(`🔌 Extension loaded: ${extName} (Studio/client-only — no engine)`);
       return;
     }

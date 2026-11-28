@@ -1232,6 +1232,8 @@ export async function finalizeExtensionLoad(
     manifestRoutes,
     routes,
   });
+  // A refusal from an earlier attempt no longer describes this extension.
+  loader.lastLoadError.delete(extName);
   console.log(`🔌 Extension loaded: ${extName}`);
 
   // Audit trail — record successful load. No userId: system events
