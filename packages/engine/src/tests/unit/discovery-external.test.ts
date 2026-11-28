@@ -2,7 +2,7 @@
  * discovery.ts — extension discovery helpers.
  */
 
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
@@ -32,15 +32,18 @@ describe('getActiveExtensionNames', () => {
 });
 
 describe('discoverExternal', () => {
-  it('lists subdirectory names under a base path', async () => {
+  it('lists each directory holding a manifest, by its path under the base', async () => {
     const base = mkdtempSync(join(tmpdir(), 'zv-disc-'));
-    mkdirSync(join(base, 'alpha'));
-    mkdirSync(join(base, 'beta'));
     // An update's staging directory, holding the previous bundle: not an extension.
-    mkdirSync(join(base, '.update-abc123'));
+    for (const dir of ['alpha', 'hr/leave', '.update-abc123']) {
+      mkdirSync(join(base, dir), { recursive: true });
+      writeFileSync(join(base, dir, 'manifest.json'), '{}');
+    }
+    // No manifest: neither an extension nor holding one.
+    mkdirSync(join(base, 'empty-category'));
     try {
       const names = await discoverExternal(base);
-      expect(names.sort()).toEqual(['alpha', 'beta']);
+      expect(names.sort()).toEqual(['alpha', 'hr/leave']);
     } finally {
       rmSync(base, { recursive: true, force: true });
     }

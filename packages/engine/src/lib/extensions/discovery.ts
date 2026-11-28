@@ -141,12 +141,23 @@ export function getActiveExtensionNames(): string[] {
     .filter(Boolean);
 }
 
-export async function discoverExternal(basePath: string): Promise<string[]> {
+export async function discoverExternal(basePath: string, prefix = ''): Promise<string[]> {
+  let entries;
   try {
-    const entries = await readdir(basePath, { withFileTypes: true });
-    // Dot-named: an update's staging directory (extension-download.ts), never an extension.
-    return entries.filter((e) => e.isDirectory() && !e.name.startsWith('.')).map((e) => e.name);
+    entries = await readdir(join(basePath, prefix), { withFileTypes: true });
   } catch {
     return [];
   }
+  // A directory holding manifest.json is an extension named by its path under
+  // the base (`hr/leave`); any other directory is a category to look inside.
+  // Dot-named: an update's staging directory (extension-download.ts), never an
+  // extension; node_modules: dependencies, never one either.
+  const names: string[] = [];
+  for (const e of entries) {
+    if (!e.isDirectory() || e.name.startsWith('.') || e.name === 'node_modules') continue;
+    const name = prefix ? `${prefix}/${e.name}` : e.name;
+    if (existsSync(join(basePath, name, 'manifest.json'))) names.push(name);
+    else names.push(...(await discoverExternal(basePath, name)));
+  }
+  return names;
 }
