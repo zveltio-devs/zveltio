@@ -29,8 +29,20 @@ describe('ExtensionLoader.loadAll — external path', () => {
     process.env.ZVELTIO_EXTENSIONS = 'bundled-one';
 
     const extRoot = mkdtempSync(join(tmpdir(), 'zv-extpath-'));
-    mkdirSync(join(extRoot, 'external-a'));
-    mkdirSync(join(extRoot, 'external-b'));
+    // A directory with a manifest is an extension, at any depth; one without
+    // is a category; node_modules and dot-named directories are neither.
+    for (const dir of [
+      'external-a',
+      'external-b',
+      'cat/external-c',
+      'node_modules/dep',
+      '.staging-x',
+    ]) {
+      mkdirSync(join(extRoot, dir), { recursive: true });
+      writeFileSync(join(extRoot, dir, 'manifest.json'), '{}');
+    }
+    mkdirSync(join(extRoot, 'external-a', 'nested'));
+    writeFileSync(join(extRoot, 'external-a', 'nested', 'manifest.json'), '{}');
     process.env.ZVELTIO_EXTENSIONS_PATH = extRoot;
 
     const loader = new ExtensionLoader();
@@ -48,7 +60,7 @@ describe('ExtensionLoader.loadAll — external path', () => {
       .filter((c) => c.basePath === extRoot)
       .map((c) => c.name)
       .sort();
-    expect(external).toEqual(['external-a', 'external-b']);
+    expect(external).toEqual(['cat/external-c', 'external-a', 'external-b']);
   });
 
   it('sorts the external extensions with the rest: a dependency there loads first', async () => {
@@ -63,6 +75,7 @@ describe('ExtensionLoader.loadAll — external path', () => {
     );
     const extRoot = mkdtempSync(join(tmpdir(), 'zv-extpath-'));
     mkdirSync(join(extRoot, 'external-dep'));
+    writeFileSync(join(extRoot, 'external-dep', 'manifest.json'), '{}');
     process.env.EXTENSIONS_DIR = base;
     process.env.ZVELTIO_EXTENSIONS = 'needs-ext';
     process.env.ZVELTIO_EXTENSIONS_PATH = extRoot;

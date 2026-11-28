@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Fixed — `ZVELTIO_EXTENSIONS_PATH` loads nested extensions (`hr/leave`), not only top-level ones.** Discovery listed the top-level directories of the path and nothing below, so a tree laid out by category (the first-party checkout) loaded 5 of its 56 extensions — the CI integration lane among them — and each category folder was refused as an extension without a manifest. A directory holding `manifest.json` is now an extension named by its path under the base, any other directory is a category looked inside; dot-named directories and `node_modules` are skipped, the rule `scripts/sign-as-registry.ts` already applied.
+
 ## [3.0.0-beta.133] - 2026-11-28
 
 **Fixed — view/2 reads an `enum` field's choices where the engine declares them (`options.values`).** The view/2 helpers looked for a field's declared choices in `options.choices` or a list in `options`, a shape no engine field type writes: an `enum` (every extension's `status`, and what Studio's field editor saves) declares them as `options.values`. So a list's `facets` entry on an `enum` field was refused by `zveltio extension validate` (`VIEW_REFERENCE`), a collection `form` drew an `enum` field as a text box, and a `board` or `matrix` grouped by one had no declared columns first, only the values the records held. `@zveltio/sdk/view` now exports `declaredChoices`, which reads `options.values` (and still a list or `options.choices`); `facetOptions`, Studio's form field and its board and matrix axes all read through it.
