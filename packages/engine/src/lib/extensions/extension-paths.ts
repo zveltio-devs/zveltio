@@ -4,7 +4,30 @@
 // with their own short-TTL presence cache; no loader state.
 
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'path';
+import { isAbsolute, join } from 'path';
+
+/**
+ * The file a manifest field names (`studio.pages[].schema`, `engine.entry`, …),
+ * under `<extDir>/<base>`. Throws when the name could reach outside the
+ * extension's directory — absolute, or with a `..` segment — because a
+ * signature covers only the files under that directory (DR-TASKS l.58): a
+ * signed manifest must not point the engine at a file nobody signed.
+ */
+export function manifestFile(extDir: string, base: string, rel: unknown): string {
+  if (
+    typeof rel !== 'string' ||
+    rel === '' ||
+    rel.includes('\0') ||
+    isAbsolute(rel) ||
+    rel.split(/[\\/]/).includes('..')
+  ) {
+    throw new Error(
+      `manifest path ${JSON.stringify(rel)} is outside the extension's directory ` +
+        `(absolute, or a ".." segment); only files under it are signed`,
+    );
+  }
+  return join(extDir, base, rel);
+}
 
 /**
  * Resolve where extension files live.  Checked in priority order:
@@ -56,7 +79,7 @@ export function extensionFilesPresent(extDir: string): boolean {
     const m = JSON.parse(readFileSync(manifestPath, 'utf8'));
     // Alternate engine entry declared in the manifest (manifest.engine.routes).
     if (m?.engine?.routes) {
-      const alt = join(extDir, (m.engine.routes as string).replace(/^\.\//, ''));
+      const alt = manifestFile(extDir, '', m.engine.routes);
       if (existsSync(alt)) return true;
     }
     // UI-only: manifest present + no engine contributed → nothing to download.

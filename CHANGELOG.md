@@ -4,6 +4,8 @@ All notable changes to Zveltio will be documented in this file.
 
 ## [Unreleased]
 
+**Fixed — a manifest path cannot name a file outside the extension's directory.** `engine.entry` (inline bundled load), `engine.routes` and `studio.pages[].schema` were joined to the extension directory unchecked, so a signed manifest naming `../x` or an absolute path made the engine import or serve a file the signature never covered (a page schema read that way was inlined into `/api/extensions`). Such a path is now refused: an `engine.entry` fails the load with `engine.entry refused`, a page schema is not served and the page warns, an `engine.routes` counts as absent. The worker path already refused an entry outside the signed files.
+
 **Fixed — `ZVELTIO_EXTENSIONS_PATH` loads nested extensions (`hr/leave`), not only top-level ones.** Discovery listed the top-level directories of the path and nothing below, so a tree laid out by category (the first-party checkout) loaded 5 of its 56 extensions — the CI integration lane among them — and each category folder was refused as an extension without a manifest. A directory holding `manifest.json` is now an extension named by its path under the base, any other directory is a category looked inside; dot-named directories and `node_modules` are skipped, the rule `scripts/sign-as-registry.ts` already applied.
 
 ## [3.0.0-beta.133] - 2026-11-28

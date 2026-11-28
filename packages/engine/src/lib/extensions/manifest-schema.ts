@@ -15,6 +15,7 @@
 import { join } from 'path';
 import { z } from 'zod';
 import { CAPABILITIES, isKnownCapability } from './capabilities.js';
+import { manifestFile } from './extension-paths.js';
 import { parseEgress, SLOT_NAME_RE } from '../edge-functions/egress.js';
 import { nextCronRun } from '../flows/index.js';
 import viewSchemaJson from '@zveltio/sdk/view/schema.json' with { type: 'json' };
@@ -860,8 +861,15 @@ export async function embedPageSchemas(
     studio.pages.map(async (p) => {
       let schema = p.schema;
       if (typeof schema === 'string') {
+        let file: string;
         try {
-          schema = JSON.parse(await Bun.file(join(extDir, 'studio', schema)).text()) as unknown;
+          file = manifestFile(extDir, 'studio', schema);
+        } catch (e) {
+          console.warn(`⚠️  Extension page "${p.path}" not served: ${(e as Error).message}`);
+          return { ...p, schema: undefined };
+        }
+        try {
+          schema = JSON.parse(await Bun.file(file).text()) as unknown;
         } catch (e) {
           console.warn(`⚠️  Extension schema "${p.schema}" failed to load: ${(e as Error).message}`);
           return p;
