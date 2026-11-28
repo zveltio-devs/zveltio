@@ -351,8 +351,32 @@ describe('pick and facets (DR-45)', () => {
       viewNameIssues(facets({ facets: ['notes', 'ghost'] }), names).map((i) => [i.path, i.message]),
     ).toEqual([
       ['/facets/1', 'field "ghost" is not a field of "deals"'],
-      ['/facets/0', 'field "notes" is neither a boolean nor has declared choices'],
+      [
+        '/facets/0',
+        'field "notes" is neither a boolean nor a single-value field with declared choices',
+      ],
     ]);
+  });
+
+  it('a facet field listed twice is refused', () => {
+    expect(paths(facets({ facets: ['stage', 'won', 'stage'] }))).toEqual(['/facets/2']);
+  });
+
+  it('facetOptions keeps a choice typed; a multi-value select offers none', () => {
+    expect(
+      facetOptions({
+        name: 'n',
+        type: 'select',
+        options: { choices: [1, { value: 2, label: 'Two' }, true] },
+      }),
+    ).toEqual([
+      { value: 1, label: '1' },
+      { value: 2, label: 'Two' },
+      { value: true, label: 'true' },
+    ]);
+    expect(
+      facetOptions({ name: 'm', type: 'select', options: { multiple: true, choices: ['a'] } }),
+    ).toEqual([]);
   });
 
   it('facetOptions: choices, or true and false for a boolean; withFacets keeps the view filter', () => {

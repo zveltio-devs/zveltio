@@ -93,6 +93,13 @@ function crossChecks(v: unknown, path: string, out: ViewIssue[]): void {
       }
     }
   }
+  if (Array.isArray(v.facets)) {
+    const all: unknown[] = v.facets;
+    all.forEach((f, i) => {
+      if (all.indexOf(f) !== i)
+        out.push({ path: `${path}/facets/${i}`, message: 'repeats a field' });
+    });
+  }
   // A facet adds `field eq value`: on a field the view's `filter` already constrains it would contradict it.
   if (Array.isArray(v.facets) && Array.isArray(v.filter)) {
     const fixed = new Set(v.filter.map((c) => (isObj(c) ? c.field : undefined)));
@@ -301,7 +308,7 @@ export function viewNameIssues(view: unknown, names: ViewNames): ViewIssue[] {
         if (typeof f === 'string' && known && known.has(f) && !facetOk.has(f)) {
           issue(
             `${path}/facets/${i}`,
-            `field "${f}" is neither a boolean nor has declared choices`,
+            `field "${f}" is neither a boolean nor a single-value field with declared choices`,
           );
         }
       });

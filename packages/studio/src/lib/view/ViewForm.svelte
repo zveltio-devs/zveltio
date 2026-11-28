@@ -154,7 +154,10 @@ const editable = $derived(
           byName.get(name)!,
           hint?.label ? host.t(hint.label) : undefined,
           // A relation field is a picker of the related records; an action form names its own.
-          relatedOf(byName.get(name)) ?? ('pick' in view ? view.pick?.[name] : undefined),
+          relatedOf(byName.get(name)) ??
+            ('pick' in view && view.pick && Object.hasOwn(view.pick, name)
+              ? view.pick[name]
+              : undefined),
         ),
       ),
   ),

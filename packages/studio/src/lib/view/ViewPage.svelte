@@ -239,7 +239,7 @@ async function press(
     toFormField(
       declared.find((f) => f.name === name) ?? { name, type: 'text' },
       undefined,
-      b.pick?.[name],
+      b.pick && Object.hasOwn(b.pick, name) ? b.pick[name] : undefined,
     ),
   );
   return new Promise<void>((resolve) => {

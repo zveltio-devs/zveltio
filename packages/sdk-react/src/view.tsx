@@ -25,6 +25,7 @@ import {
   type Fields,
   type FormView,
   fallbackFor,
+  type FacetValue,
   facetOptions,
   fieldName,
   isViewDocument,
@@ -148,13 +149,13 @@ export interface Choice {
 export interface Facet {
   field: string;
   label: string;
-  options: { value: string | boolean; label: string }[];
+  options: { value: FacetValue; label: string }[];
   /** The value picked; absent is "all". */
-  picked?: string | boolean;
+  picked?: FacetValue;
 }
 
 /** The value each facet of a list has picked (field → value); absent is "all". */
-export type Picked = Readonly<Record<string, string | boolean | undefined>>;
+export type Picked = Readonly<Record<string, FacetValue | undefined>>;
 
 const recordLabel = (r: Row): string => {
   for (const k of ['name', 'title', 'label', 'email', 'slug', 'full_name', 'display_name']) {
@@ -364,7 +365,7 @@ export interface ViewHost {
   /** A row was chosen in the pane `pane` (a split's `$selected`). */
   select: (pane: string, row: Row) => void;
   /** A facet of a list picked `value` (`undefined`: all); the list is read again. */
-  facet: (view: ListView, field: string, value: string | boolean | undefined) => void;
+  facet: (view: ListView, field: string, value: FacetValue | undefined) => void;
   /**
    * A form was sent: the values typed in, and the `submit` button that sent it
    * (a collection form saves first, then runs the button's action).
@@ -720,7 +721,7 @@ export function ExtensionView({
         };
         pick.click();
       };
-      const picks = (b.prompt ?? []).filter((n) => b.pick?.[n]);
+      const picks = (b.prompt ?? []).filter((n) => b.pick && Object.keys(b.pick).includes(n));
       if (picks.length === 0) {
         for (const name of b.prompt ?? []) {
           const v = window.prompt(name);
@@ -730,7 +731,9 @@ export function ExtensionView({
         return proceed();
       }
       // A `pick` input is a list of records to choose from: asked in a form drawn below.
-      Promise.all(picks.map((n) => pickChoices(client, b.pick?.[n] as string))).then((lists) => {
+      Promise.all(
+        picks.map((n) => pickChoices(client, (b.pick as Record<string, string>)[n] as string)),
+      ).then((lists) => {
         setAsking({
           names: b.prompt ?? [],
           choices: Object.fromEntries(picks.map((n, i) => [n, lists[i] as Choice[]])),

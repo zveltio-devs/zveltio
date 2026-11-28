@@ -126,6 +126,7 @@ describe('checkViews — pick and facets (DR-45)', () => {
           name: 'pay',
           input: { properties: { payer: { type: 'string' }, amount: { type: 'number' } } },
         },
+        { name: 'bare' },
       ],
       studio: {
         pages: Object.keys(views).map((n) => ({ schema: `views/${n}.json` })),
@@ -140,6 +141,7 @@ describe('checkViews — pick and facets (DR-45)', () => {
           { name: 'status', type: 'select', options: { choices: ['open', 'paid'] } },
           { name: 'paid', type: 'boolean' },
           { name: 'note', type: 'text' },
+          { name: 'tags', type: 'select', options: { multiple: true, choices: ['a', 'b'] } },
         ],
       }),
     );
@@ -185,6 +187,27 @@ describe('checkViews — pick and facets (DR-45)', () => {
     ]);
   });
 
+  it('VIEW_INVALID: a pick on an action that declares no input', () => {
+    const { dir, m } = withSchema({ bare: row({ action: 'bare' }) });
+    expect(checkViews(dir, m).map((e) => [e.code, e.message])).toEqual([
+      ['VIEW_INVALID', '/rowActions/0/pick/payer is not a string input of action "bare"'],
+    ]);
+  });
+
+  it('VIEW_INVALID: a repeated facet; VIEW_REFERENCE: a multi-value select is no facet', () => {
+    const { dir, m } = withSchema({
+      twice: list({ facets: ['status', 'status'] }),
+      multi: list({ facets: ['tags'] }),
+    });
+    expect(checkViews(dir, m).map((e) => [e.code, e.message])).toEqual([
+      ['VIEW_INVALID', '/facets/1 repeats a field'],
+      [
+        'VIEW_REFERENCE',
+        '/facets/0 field "tags" is neither a boolean nor a single-value field with declared choices',
+      ],
+    ]);
+  });
+
   it('VIEW_REFERENCE: a pick of a collection the extension does not own', () => {
     const { dir, m } = withSchema({ foreign: row({ pick: { payer: 'contacts' } }) });
     expect(checkViews(dir, m).map((e) => [e.code, e.message])).toEqual([
@@ -203,7 +226,10 @@ describe('checkViews — pick and facets (DR-45)', () => {
     expect(checkViews(dir, m).map((e) => [e.code, e.message])).toEqual([
       ['VIEW_INVALID', "/facets/0 is a field the view's filter already constrains"],
       ['VIEW_REFERENCE', '/facets/1 field "ghost" is not a field of "invoices"'],
-      ['VIEW_REFERENCE', '/facets/0 field "note" is neither a boolean nor has declared choices'],
+      [
+        'VIEW_REFERENCE',
+        '/facets/0 field "note" is neither a boolean nor a single-value field with declared choices',
+      ],
     ]);
   });
 });

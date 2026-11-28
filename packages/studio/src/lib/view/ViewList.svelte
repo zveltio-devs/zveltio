@@ -49,7 +49,7 @@ let chosen = $state(new Set<string>());
 let creating = $state(false);
 let editing = $state<Row | null>(null);
 /** The value picked per facet field; absent is "all". Not persisted. */
-let picked = $state<Record<string, string | boolean | undefined>>({});
+let picked = $state<Record<string, string | number | boolean | undefined>>({});
 
 const limit = $derived(view.pageSize ?? 25);
 const fields = $derived(fieldHints(viewFields(view.fields, schema, 'list') as Field[]));

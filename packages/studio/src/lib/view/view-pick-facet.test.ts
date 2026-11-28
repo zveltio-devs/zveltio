@@ -31,6 +31,7 @@ vi.mock('#lib/api.js', () => ({
                   options: { choices: ['todo', 'doing', { value: 'done', label: 'Done!' }] },
                 },
                 { name: 'done', type: 'boolean' },
+                { name: 'level', type: 'select', options: { choices: [1, 2] } },
                 { name: 'owner', type: 'm2o', options: { related_collection: 'people' } },
               ],
             },
@@ -181,7 +182,54 @@ describe('relation input (picker)', () => {
   }, 60_000);
 });
 
+describe('pick names are own keys', () => {
+  it('a prompt input named like an inherited property is no picker', async () => {
+    const { default: ViewPage } = await import('./ViewPage.svelte');
+    const { container, getByText } = render(ViewPage, {
+      props: {
+        ext: 'notes',
+        view: {
+          type: 'list',
+          collection: 'notes',
+          fields: ['title'],
+          actions: [
+            {
+              action: 'assign',
+              label: 'Assign',
+              prompt: ['constructor'],
+              pick: { assignee: 'people' },
+            },
+          ],
+        },
+      },
+    });
+    await waitFor(() => expect(getByText('Assign')).toBeTruthy());
+    await fireEvent.click(getByText('Assign'));
+    await waitFor(() => expect(getByText('Confirm')).toBeTruthy());
+    expect(container.ownerDocument.querySelector('[data-testid="view-picker"]')).toBeNull();
+  }, 60_000);
+});
+
 describe('filter facet', () => {
+  it('a numeric choice is queried as a number', async () => {
+    const { default: ViewPage } = await import('./ViewPage.svelte');
+    const { container } = render(ViewPage, {
+      props: {
+        ext: 'notes',
+        view: { type: 'list', collection: 'notes', fields: ['title'], facets: ['level'] },
+      },
+    });
+    const one = () =>
+      [...container.querySelectorAll('[data-field="level"] button')].find(
+        (b) => b.textContent?.trim() === '1',
+      ) as HTMLElement;
+    await waitFor(() => expect(one()).toBeTruthy());
+    await fireEvent.click(one());
+    await waitFor(() =>
+      expect(calls.some((c) => c.includes('"filter":"{\\"level\\":{\\"eq\\":1}}"'))).toBe(true),
+    );
+  }, 60_000);
+
   const listCalls = () => calls.filter((c) => c.startsWith('LIST notes'));
   const lastFilter = () => {
     const last = listCalls().at(-1) as string;

@@ -318,22 +318,32 @@ export function relatedOf(f: SchemaField | undefined): string | null {
     : null;
 }
 
+/** A facet value as the choice declares it. */
+export type FacetValue = string | number | boolean;
+
 /**
  * What a list's `facets` entry offers for a field: its declared choices, or
  * `true` and `false` for a boolean; nothing for any other field.
  */
-export function facetOptions(
-  f: SchemaField | undefined,
-): { value: string | boolean; label: string }[] {
+export function facetOptions(f: SchemaField | undefined): { value: FacetValue; label: string }[] {
   if (f?.type === 'boolean') {
     return [true, false].map((value) => ({ value, label: String(value) }));
   }
-  const opts = f?.options as { choices?: unknown[] } | unknown[] | null | undefined;
+  const opts = f?.options as
+    | { choices?: unknown[]; multiple?: unknown }
+    | unknown[]
+    | null
+    | undefined;
+  // A multi-value field holds a list: `eq` on one value cannot select it.
+  if (!Array.isArray(opts) && opts?.multiple === true) return [];
   const list = (Array.isArray(opts) ? opts : opts?.choices) ?? [];
+  // The choice keeps its type (a number stays a number): the query compares it as declared.
+  const typed = (v: unknown): FacetValue =>
+    typeof v === 'number' || typeof v === 'boolean' ? v : String(v);
   return list.map((c) => {
-    if (typeof c !== 'object' || c === null) return { value: String(c), label: String(c) };
+    if (typeof c !== 'object' || c === null) return { value: typed(c), label: String(c) };
     const { value, label } = c as { value: unknown; label?: unknown };
-    return { value: String(value), label: String(label ?? value) };
+    return { value: typed(value), label: String(label ?? value) };
   });
 }
 
@@ -345,7 +355,7 @@ export function facetOptions(
  */
 export function withFacets(
   filter: Conditions | undefined,
-  picked: Readonly<Record<string, string | boolean | undefined>>,
+  picked: Readonly<Record<string, FacetValue | undefined>>,
 ): Conditions | undefined {
   const own = new Set((filter ?? []).map((c) => c.field));
   const added: Condition[] = Object.entries(picked).flatMap(([field, value]) =>

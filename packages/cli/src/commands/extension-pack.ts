@@ -398,8 +398,9 @@ export function checkViews(dir: string, manifest: unknown): ValidationError[] {
   const fields = declaredFields(dir, names(m.collections), facetFields);
   const inputs = new Map(
     (Array.isArray(m.actions) ? (m.actions as { name?: unknown; input?: unknown }[]) : [])
-      .filter((a) => typeof a?.name === 'string' && a.input !== undefined)
-      .map((a) => [a.name as string, a.input] as const),
+      .filter((a) => typeof a?.name === 'string')
+      // An action with no declared input has no property a `pick` could name.
+      .map((a) => [a.name as string, a.input ?? {}] as const),
   );
   const refs = {
     collections: names(m.collections),
