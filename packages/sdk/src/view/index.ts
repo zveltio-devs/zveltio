@@ -76,6 +76,42 @@ function crossChecks(v: unknown, path: string, out: ViewIssue[]): void {
       }
     });
   }
+  // `pick` draws an input as a picker: on a button only an input it asks for, on neither one it sets.
+  if (isObj(v.pick)) {
+    const button = v.type !== 'form';
+    for (const name of Object.keys(v.pick)) {
+      if (isObj(v.input) && Object.hasOwn(v.input, name)) {
+        out.push({
+          path: `${path}/pick/${name}`,
+          message: 'names an input the button already sets',
+        });
+      } else if (button && !(Array.isArray(v.prompt) && v.prompt.includes(name))) {
+        out.push({
+          path: `${path}/pick/${name}`,
+          message: 'names an input the button does not ask for (`prompt`)',
+        });
+      }
+    }
+  }
+  if (Array.isArray(v.facets)) {
+    const all: unknown[] = v.facets;
+    all.forEach((f, i) => {
+      if (all.indexOf(f) !== i)
+        out.push({ path: `${path}/facets/${i}`, message: 'repeats a field' });
+    });
+  }
+  // A facet adds `field eq value`: on a field the view's `filter` already constrains it would contradict it.
+  if (Array.isArray(v.facets) && Array.isArray(v.filter)) {
+    const fixed = new Set(v.filter.map((c) => (isObj(c) ? c.field : undefined)));
+    v.facets.forEach((f, i) => {
+      if (fixed.has(f)) {
+        out.push({
+          path: `${path}/facets/${i}`,
+          message: "is a field the view's filter already constrains",
+        });
+      }
+    });
+  }
   const filePrompt = isObj(v.files) && isObj(v.files.prompt) ? v.files.prompt.input : undefined;
   if (typeof filePrompt === 'string' && isObj(v.input) && Object.hasOwn(v.input, filePrompt)) {
     out.push({
@@ -156,6 +192,12 @@ export interface ViewNames {
    * checked. Omit to skip.
    */
   fields?: ReadonlyMap<string, Iterable<string>>;
+  /**
+   * Each declared collection's fields a list may use as a `facets` entry: a
+   * boolean, or one with declared choices. A collection absent here is not
+   * checked. Omit to skip.
+   */
+  facetFields?: ReadonlyMap<string, Iterable<string>>;
 }
 
 /** Keys that name one field of the bound collection, by view kind (`*`: any). */
@@ -185,6 +227,7 @@ function fieldRefs(v: Record<string, unknown>): Array<[string, string]> {
   for (const k of ONE_FIELD[typeof v.type === 'string' ? v.type : ''] ?? []) add(`/${k}`, v[k]);
   fieldList(v.fields, '/fields');
   fieldList(v.card, '/card');
+  if (Array.isArray(v.facets)) v.facets.forEach((f, i) => add(`/facets/${i}`, f));
   if (Array.isArray(v.sections)) {
     v.sections.forEach((s, i) => isObj(s) && fieldList(s.fields, `/sections/${i}/fields`));
   }
@@ -223,6 +266,8 @@ export function viewNameIssues(view: unknown, names: ViewNames): ViewIssue[] {
   const keys = names.messageKeys && new Set(names.messageKeys);
   const fields =
     names.fields && new Map([...names.fields].map(([c, f]) => [c, new Set(f)] as const));
+  const facetable =
+    names.facetFields && new Map([...names.facetFields].map(([c, f]) => [c, new Set(f)] as const));
   const ids = new Set<string>();
   const out: ViewIssue[] = [];
   const issue = (path: string, message: string) => out.push({ path, message });
@@ -256,8 +301,29 @@ export function viewNameIssues(view: unknown, names: ViewNames): ViewIssue[] {
           issue(`${path}${at}`, `field "${f}" is not a field of "${v.collection}"`);
       }
     }
+    const facetOk = !valuesOnly && typeof v.collection === 'string' && facetable?.get(v.collection);
+    if (facetOk && Array.isArray(v.facets)) {
+      v.facets.forEach((f, i) => {
+        // A field the collection lacks is reported above, as every field reference.
+        if (typeof f === 'string' && known && known.has(f) && !facetOk.has(f)) {
+          issue(
+            `${path}/facets/${i}`,
+            `field "${f}" is neither a boolean nor a single-value field with declared choices`,
+          );
+        }
+      });
+    }
     for (const [k, x] of Object.entries(v)) {
       const at = `${path}/${k}`;
+      if (k === 'pick' && !valuesOnly && isObj(x)) {
+        // Input names are the caller's; each value names a collection.
+        for (const [name, c] of Object.entries(x)) {
+          if (typeof c === 'string' && !collections.has(c)) {
+            issue(`${at}/${name}`, `collection "${c}" is not declared by this extension`);
+          }
+        }
+        continue;
+      }
       if (k === '$selected') {
         if (typeof x === 'string' && !panes.has(x)) {
           issue(at, `"${x}" is not an earlier pane of an enclosing split`);
@@ -303,6 +369,46 @@ export function viewNameIssues(view: unknown, names: ViewNames): ViewIssue[] {
     }
   };
   walk(view, '', new Set(), false);
+  return out;
+}
+
+/**
+ * A `pick` names an input the action declares as a plain string (the record's
+ * id is a string): not a number, a list, an object or a fixed set of choices.
+ * `inputs`: each own action's declared input JSON Schema, by name; an action
+ * absent from it (a dependency's, or one with no schema) is not checked.
+ */
+export function pickIssues(view: unknown, inputs: ReadonlyMap<string, unknown>): ViewIssue[] {
+  const out: ViewIssue[] = [];
+  const walk = (v: unknown, path: string): void => {
+    if (Array.isArray(v)) {
+      v.forEach((x, i) => walk(x, `${path}/${i}`));
+      return;
+    }
+    if (!isObj(v)) return;
+    if (isObj(v.pick) && typeof v.action === 'string' && inputs.has(v.action)) {
+      const props = (inputs.get(v.action) as { properties?: Record<string, unknown> } | null)
+        ?.properties;
+      for (const name of Object.keys(v.pick)) {
+        const p = props && Object.hasOwn(props, name) ? props[name] : undefined;
+        const t = isObj(p) ? p.type : undefined;
+        const text =
+          t === 'string' ||
+          (Array.isArray(t) &&
+            t.length > 0 &&
+            t.every((x) => x === 'string' || x === 'null') &&
+            t.includes('string'));
+        if (!text || (isObj(p) && Array.isArray(p.enum))) {
+          out.push({
+            path: `${path}/pick/${name}`,
+            message: `is not a string input of action "${v.action}"`,
+          });
+        }
+      }
+    }
+    for (const [k, x] of Object.entries(v)) walk(x, `${path}/${k}`);
+  };
+  walk(view, '');
   return out;
 }
 

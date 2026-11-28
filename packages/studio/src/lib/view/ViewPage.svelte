@@ -45,6 +45,7 @@ import {
 } from './engine.js';
 import ViewFiles from './ViewFiles.svelte';
 import ViewNode from './ViewNode.svelte';
+import ViewPicker from './ViewPicker.svelte';
 
 interface Props {
   view: View;
@@ -235,7 +236,11 @@ async function press(
     return Promise.resolve();
   }
   const fields = ask.map((name) =>
-    toFormField(declared.find((f) => f.name === name) ?? { name, type: 'text' }),
+    toFormField(
+      declared.find((f) => f.name === name) ?? { name, type: 'text' },
+      undefined,
+      b.pick && Object.hasOwn(b.pick, name) ? b.pick[name] : undefined,
+    ),
   );
   return new Promise<void>((resolve) => {
     prompt = { fields, values: {}, file, go, done: resolve };
@@ -380,8 +385,15 @@ $effect.pre(() => {
 {#if prompt}
   <Modal open={true} size="md" onClose={closePrompt} onSubmit={submitPrompt}>
     {#if prompt.fields.length}
-      <SchemaForm formId={`view:${ext}:prompt`} schema={{ id: `view:${ext}:prompt`, fields: prompt.fields }} bind:values={prompt.values} />
+      <SchemaForm formId={`view:${ext}:prompt`} schema={{ id: `view:${ext}:prompt`, fields: prompt.fields.filter((f) => !f.pick) }} bind:values={prompt.values} />
     {/if}
+    {#each prompt.fields.filter((f) => f.pick) as f (f.name)}
+      {@const fid = `view:${ext}:prompt:${f.name}`}
+      <div class="form-control mt-2">
+        <label class="label" for={fid}><span class="label-text">{f.label}</span></label>
+        <ViewPicker id={fid} collection={String(f.pick)} value={prompt.values[f.name]} onchange={(v) => (prompt!.values[f.name] = v)} />
+      </div>
+    {/each}
     {#if prompt.file}
       {@const file = prompt.file}
       <div class="form-control mt-2">

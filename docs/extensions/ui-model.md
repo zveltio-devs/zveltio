@@ -133,6 +133,15 @@ What the specification holds:
   the pane a `$selected` names) is drawn disabled and never sent; what it
   `prompt`s for is no reference, and a form's `submit` resolves on the saved
   record. An action button may add:
+  - `pick`: `{ "<input name>": "<collection>" }` draws that prompted input as a
+    picker of the records of a collection of the extension, in the prompt
+    dialog, and stores the record's id. The input must be a declared plain
+    string property of the action's input (not a number, a list or a fixed set
+    of choices), one the button `prompt`s for and does not bind with `input`;
+    the collection is checked like every other collection a view names. An
+    action `form` takes the same `pick` for its inputs (there is no `prompt`
+    or `input` on a form). A collection form needs none: its `m2o` and
+    `reference` fields are drawn as the same picker;
   - `busyWhen`: conditions on the same record that hold while the work the
     action started is under way (a job's status: `queued`, `sending`). The
     button is busy, and the front end reads the record again until they no
@@ -187,7 +196,7 @@ Validation runs in three places, against the same schema:
 
 | Where | When | What happens to an invalid view |
 |---|---|---|
-| `zveltio extension validate` | before publishing | an error: `VIEW_INVALID` for the schema, a field and operator twice in one condition list, or a `prompt` naming a bound input; `VIEW_REFERENCE` for a collection or action the extension does not own, a `$selected` with no earlier pane, a pane id used twice, a `navigate`/`open` to no view of the extension, a message key missing from `studio/messages/en.json`, a field (`fields`, `card`, `groupBy`, `location`, `filter`, `sort`, …) its collection file does not declare |
+| `zveltio extension validate` | before publishing | an error: `VIEW_INVALID` for the schema, a field and operator twice in one condition list, or a `prompt` naming a bound input, a `pick` on an input that is not a declared string property of the action's input, that the button does not `prompt` for or already binds, a `facets` entry that repeats a field or is on a field the list's own `filter` constrains; `VIEW_REFERENCE` for a collection or action the extension does not own (a `pick` collection too), a `facets` entry that is not a boolean or a single-value field with declared choices (a `multiple` select is refused: `eq` cannot select one value of a list),, a `$selected` with no earlier pane, a pane id used twice, a `navigate`/`open` to no view of the extension, a message key missing from `studio/messages/en.json`, a field (`fields`, `card`, `groupBy`, `location`, `filter`, `sort`, …) its collection file does not declare |
 | `zveltio extension pack` | when the bundle is built | the same checks, and a page file that is missing or is not JSON; the pack stops |
 | the engine | when it loads the extension | the schema only; the page is not served and the log says why. The references and the cross-key checks above are the CLI's, and the engine's permission rules decide every call at run time |
 
@@ -230,7 +239,7 @@ It draws `list`, `detail`, `form`, `stat`, `split` and `tabs`; any other kind
 through `fallbackFor`. It shows what Studio shows as not drawn yet (a collection
 form's `lines`) and does not yet hold a button's
 `busyWhen`; a button's `prompt`, `confirm` and `files.prompt`
-use the browser's own dialogs. It carries no class names but `zv-*` hooks and a
+use the browser's own dialogs, except that a prompt with a `pick` input is a small form with a list of the first 100 records of the collection (a `form`'s `m2o`, `reference` and `pick` inputs are the same list, not a search); a list's `facets` are drawn as buttons. It carries no class names but `zv-*` hooks and a
 `data-kind` on each view, so styling is the front end's. CI draws every
 `view/2` page of the extensions catalogue with it on the server
 (`bun run proof:views` in `packages/sdk-react`).
@@ -243,8 +252,8 @@ and drawn as before.
 
 | Kind | Studio draws |
 |---|---|
-| `list` | table, `cards` or `feed`; search, paging, selection and bulk actions, row actions, `emphasisWhen`, `create` (the generated form in a dialog), `edit` (the row in that form), `delete` (after a confirm), `open` |
-| `form` | the collection's fields (or the action's input) through `SchemaForm`; `record` (a reference or `singleton`), `sections`, `submit` (an action saves first), read-only fields shown as text; a `richtext` field in an editor whose content (stored or pasted) is sanitised first, with remote images blocked while editing; a `file` field as its files, an upload button and a remove per file; on an action form, an input property that is a list of objects is a table of lines (one column per scalar property of a line, an `integer` column takes whole numbers, a line left empty is not sent, at least `minItems` filled lines and every required cell before it runs); a required object or list of scalars has no input and shows a notice, and a button's `prompt` naming one is refused |
+| `list` | table, `cards` or `feed`; search, paging, `facets` (quick filters above the rows: "all" and one button per declared choice of the field, yes and no for a boolean; one value per facet at a time, added to the query as `eq` beside the list's own `filter`; not remembered across a reload), selection and bulk actions, row actions, `emphasisWhen`, `create` (the generated form in a dialog), `edit` (the row in that form), `delete` (after a confirm), `open` |
+| `form` | the collection's fields (or the action's input) through `SchemaForm`; `record` (a reference or `singleton`), `sections`, `submit` (an action saves first), read-only fields shown as text; a `richtext` field in an editor whose content (stored or pasted) is sanitised first, with remote images blocked while editing; a `file` field as its files, an upload button and a remove per file; an `m2o` or `reference` field (and an action form's `pick` input) as a picker: it searches the related collection through the data API as the user, shows the records' labels as a matrix axis does, and stores the id, a current value the caller cannot read staying its id; on an action form, an input property that is a list of objects is a table of lines (one column per scalar property of a line, an `integer` column takes whole numbers, a line left empty is not sent, at least `minItems` filled lines and every required cell before it runs); a required object or list of scalars has no input and shows a notice, and a button's `prompt` naming one is refused |
 | `detail` | its toolbar, the record's fields (a `richtext` one inert in a sandboxed frame, a `file` one as files that open), then its `panels`, all with `$record` set to it; `onOpen` |
 | `stat` | `count` (the data API's total for the filter, read again after an action ran); `sum`, `avg`, `min`, `max` or `count` of a `field` from `GET /api/data/:collection/aggregate` (ADR 0050: the numbers the caller's own rows give; no rows is `—`); or an action's number: run once per input, only when `GET /api/actions` lists it for the caller, never because another action ran |
 | `split`, `tabs` | their views; a pane with an `id` sets `$selected` when a row is clicked |

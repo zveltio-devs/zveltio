@@ -25,11 +25,14 @@ import {
   type Fields,
   type FormView,
   fallbackFor,
+  type FacetValue,
+  facetOptions,
   fieldName,
   isViewDocument,
   type ListView,
   matches,
   readActionResult,
+  relatedOf,
   resolveFiles,
   isBound,
   resolveInput,
@@ -43,6 +46,7 @@ import {
   type ViewValidation,
   validateView,
   viewFields,
+  withFacets,
 } from '@zveltio/sdk/view';
 import { useZveltioClient } from './context.js';
 
@@ -105,7 +109,15 @@ export interface Column {
 
 /** What a view shows, read; the tree follows the view's. `from`: the kind it stands in for. */
 export type Loaded = { from?: string } & (
-  | { kind: 'list'; view: ListView; columns: Column[]; rows: Row[]; total?: number }
+  | {
+      kind: 'list';
+      view: ListView;
+      columns: Column[];
+      rows: Row[];
+      total?: number;
+      /** The quick filters of `facets`, with the value picked in each. */
+      facets: Facet[];
+    }
   | {
       kind: 'detail';
       view: DetailView;
@@ -115,11 +127,66 @@ export type Loaded = { from?: string } & (
       /** Why `onOpen` failed: reported, the record still shown. */
       error?: string;
     }
-  | { kind: 'form'; view: FormView; columns: Column[]; record: Row | null }
+  | {
+      kind: 'form';
+      view: FormView;
+      columns: Column[];
+      record: Row | null;
+      /** The records a relation (or `pick`) column offers, by column name. */
+      picks: Record<string, Choice[]>;
+    }
   | { kind: 'stat'; view: StatView; value: unknown }
   | { kind: 'split' | 'tabs'; view: View; children: Loaded[] }
   | { kind: 'notice'; view: View; text: string }
 );
+
+/** A record offered by a picker: its id is the value. */
+export interface Choice {
+  id: string;
+  label: string;
+}
+
+export interface Facet {
+  field: string;
+  label: string;
+  options: { value: FacetValue; label: string }[];
+  /** The value picked; absent is "all". */
+  picked?: FacetValue;
+}
+
+/** The value each facet of a list has picked (field → value); absent is "all". */
+export type Picked = Readonly<Record<string, FacetValue | undefined>>;
+
+const recordLabel = (r: Row): string => {
+  for (const k of ['name', 'title', 'label', 'email', 'slug', 'full_name', 'display_name']) {
+    if (r[k]) return String(r[k]);
+  }
+  return String(r.id);
+};
+
+/**
+ * The records of `collection` a picker offers, read as the caller (the first
+ * 100; Studio searches). The chosen `current` id stays offered, labelled when
+ * the caller can read it and by its id when not.
+ */
+export async function pickChoices(
+  client: ZveltioClient,
+  collection: string,
+  current?: unknown,
+): Promise<Choice[]> {
+  const ref = client.collection(collection);
+  const out = await ref.list({ limit: 100 }).then(
+    (r) => r.records.map((x: Row) => ({ id: String(x.id), label: recordLabel(x) })),
+    () => [] as Choice[],
+  );
+  if (current == null || current === '' || out.some((c) => c.id === String(current))) return out;
+  const id = String(current);
+  const found = await ref.get(id).then(
+    (x: Row | undefined) => x,
+    () => undefined,
+  );
+  return [{ id, label: found ? recordLabel(found) : id }, ...out];
+}
 
 function columns(fields: Fields, schema: readonly SchemaField[]): Column[] {
   return fields.map((f) => {
@@ -150,6 +217,7 @@ export async function loadView(
   view: View,
   scope: ViewScope = {},
   opened: WeakMap<View, unknown> = new WeakMap(),
+  facets: ReadonlyMap<View, Picked> = new Map(),
 ): Promise<Loaded> {
   let readable: Promise<Map<string, SchemaField[]>> | undefined;
   const schemaOf = async (c: string) => {
@@ -183,8 +251,15 @@ export async function loadView(
       case 'list': {
         const schema = await schemaOf(v.collection);
         const cols = columns(viewFields(v.fields, schema, 'list'), schema);
-        const filter = toFilter(v.filter, s);
-        if (!filter) return { kind: 'list', view: v, columns: cols, rows: [] };
+        const picked = facets.get(v) ?? {};
+        const facetList: Facet[] = (v.facets ?? []).map((field) => ({
+          field,
+          label: columns([field], schema)[0]?.label ?? field,
+          options: facetOptions(schema.find((f) => f.name === field)),
+          picked: picked[field],
+        }));
+        const filter = toFilter(withFacets(v.filter, picked), s);
+        if (!filter) return { kind: 'list', view: v, columns: cols, rows: [], facets: facetList };
         const r = await client
           .collection(v.collection)
           .list({ limit: v.pageSize ?? 25, filter, ...toSort(v.sort) });
@@ -194,6 +269,7 @@ export async function loadView(
           columns: cols,
           rows: r.records,
           total: r.pagination?.total,
+          facets: facetList,
         };
       }
       case 'detail': {
@@ -229,7 +305,12 @@ export async function loadView(
             .map(([n, p]) => ({ name: n, type: INPUT_TYPE[p.type ?? ''] ?? 'text' }));
           const fields =
             v.fields ?? v.sections?.flatMap((x) => x.fields) ?? schema.map((f) => f.name);
-          return { kind: 'form', view: v, columns: columns(fields, schema), record: null };
+          const picks: Record<string, Choice[]> = {};
+          for (const [name, c] of Object.entries(v.pick ?? {})) {
+            if (fields.some((f) => fieldName(f) === name))
+              picks[name] = await pickChoices(client, c);
+          }
+          return { kind: 'form', view: v, columns: columns(fields, schema), record: null, picks };
         }
         const schema = await schemaOf(v.collection);
         const fields = v.fields ?? v.sections?.flatMap((x) => x.fields);
@@ -241,7 +322,12 @@ export async function loadView(
           const id = resolveValue(v.record, s);
           if (id != null) record = await client.collection(v.collection).get(String(id));
         }
-        return { kind: 'form', view: v, columns: cols, record };
+        const picks: Record<string, Choice[]> = {};
+        for (const c of cols) {
+          const target = relatedOf(schema.find((f) => f.name === c.name));
+          if (target) picks[c.name] = await pickChoices(client, target, record?.[c.name]);
+        }
+        return { kind: 'form', view: v, columns: cols, record, picks };
       }
       case 'stat': {
         const src = v.source;
@@ -278,6 +364,8 @@ export interface ViewHost {
   press: (b: Button, scope: ViewScope) => void;
   /** A row was chosen in the pane `pane` (a split's `$selected`). */
   select: (pane: string, row: Row) => void;
+  /** A facet of a list picked `value` (`undefined`: all); the list is read again. */
+  facet: (view: ListView, field: string, value: FacetValue | undefined) => void;
   /**
    * A form was sent: the values typed in, and the `submit` button that sent it
    * (a collection form saves first, then runs the button's action).
@@ -346,39 +434,57 @@ export function ViewRenderer({ node, host }: { node: Loaded; host: ViewHost }): 
         return <output className="zv-stat">{shown(node.value)}</output>;
       case 'list': {
         const pane = node.view.id;
+        const facets = node.facets.map((f) => (
+          <span key={f.field} className="zv-facet" data-field={f.field}>
+            {t(f.label)}
+            {[{ value: undefined, label: 'all' }, ...f.options].map((o) => (
+              <button
+                key={String(o.value)}
+                type="button"
+                aria-pressed={f.picked === o.value}
+                onClick={() => host.facet(node.view, f.field, o.value)}
+              >
+                {o.label}
+              </button>
+            ))}
+          </span>
+        ));
         return (
-          <table className="zv-list">
-            <thead>
-              <tr>
-                {node.columns.map((c) => (
-                  <th key={c.name}>{t(c.label)}</th>
-                ))}
-                {node.view.rowActions && <th />}
-              </tr>
-            </thead>
-            <tbody>
-              {node.rows.map((row, i) => (
-                <tr
-                  key={String(row.id ?? i)}
-                  onClick={pane ? () => host.select(pane, row) : undefined}
-                  aria-selected={pane ? host.scope.selected?.[pane] === row.id : undefined}
-                >
+          <>
+            {facets}
+            <table className="zv-list">
+              <thead>
+                <tr>
                   {node.columns.map((c) => (
-                    <td key={c.name}>{shown(row[c.name])}</td>
+                    <th key={c.name}>{t(c.label)}</th>
                   ))}
-                  {node.view.rowActions && (
-                    <td>
-                      <Buttons
-                        buttons={node.view.rowActions}
-                        host={host}
-                        scope={{ ...host.scope, record: row }}
-                      />
-                    </td>
-                  )}
+                  {node.view.rowActions && <th />}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {node.rows.map((row, i) => (
+                  <tr
+                    key={String(row.id ?? i)}
+                    onClick={pane ? () => host.select(pane, row) : undefined}
+                    aria-selected={pane ? host.scope.selected?.[pane] === row.id : undefined}
+                  >
+                    {node.columns.map((c) => (
+                      <td key={c.name}>{shown(row[c.name])}</td>
+                    ))}
+                    {node.view.rowActions && (
+                      <td>
+                        <Buttons
+                          buttons={node.view.rowActions}
+                          host={host}
+                          scope={{ ...host.scope, record: row }}
+                        />
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
         );
       }
       case 'detail': {
@@ -413,13 +519,15 @@ export function ViewRenderer({ node, host }: { node: Loaded; host: ViewHost }): 
               const values: Row = {};
               for (const c of node.columns) {
                 values[c.name] =
-                  c.type === 'boolean'
-                    ? data.has(c.name)
-                    : c.type === 'number'
-                      ? data.get(c.name) === ''
-                        ? null
-                        : Number(data.get(c.name))
-                      : data.get(c.name);
+                  node.picks[c.name] && data.get(c.name) === ''
+                    ? null
+                    : c.type === 'boolean'
+                      ? data.has(c.name)
+                      : c.type === 'number'
+                        ? data.get(c.name) === ''
+                          ? null
+                          : Number(data.get(c.name))
+                        : data.get(c.name);
               }
               const at = (e.nativeEvent as SubmitEvent).submitter?.getAttribute('data-at');
               host.save(node, values, at ? node.view.submit?.[Number(at)] : undefined);
@@ -429,7 +537,16 @@ export function ViewRenderer({ node, host }: { node: Loaded; host: ViewHost }): 
               // biome-ignore lint/a11y/noLabelWithoutControl: the input is inside the label in both branches
               <label key={c.name}>
                 {t(c.label)}
-                {c.type === 'boolean' ? (
+                {node.picks[c.name] ? (
+                  <select name={c.name} defaultValue={shown(node.record?.[c.name])}>
+                    <option value="" />
+                    {node.picks[c.name]?.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : c.type === 'boolean' ? (
                   <input
                     type="checkbox"
                     name={c.name}
@@ -525,19 +642,26 @@ export function ExtensionView({
   const [node, setNode] = useState<Loaded | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
+  const [picked, setPicked] = useState<ReadonlyMap<View, Picked>>(new Map());
+  /** A button whose `prompt` has a `pick`: asked in a small form, not by `window.prompt`. */
+  const [asking, setAsking] = useState<{
+    names: string[];
+    choices: Record<string, Choice[]>;
+    send: (extra: Row) => void;
+  } | null>(null);
   const [opened] = useState(() => new WeakMap<View, unknown>());
 
   useEffect(() => {
     let live = true;
     // ponytail: the whole page reads again on any change; per-pane reads if pages grow large.
-    loadView(client, extension, shownView, scope, opened).then(
+    loadView(client, extension, shownView, scope, opened, picked).then(
       (n) => live && setNode(n),
       (e: unknown) => live && setNote(e instanceof Error ? e.message : String(e)),
     );
     return () => {
       live = false;
     };
-  }, [client, extension, shownView, scope, version, opened]);
+  }, [client, extension, shownView, scope, version, opened, picked]);
 
   const fail = (e: unknown) => setNote(e instanceof Error ? e.message : String(e));
   const act = async (result: unknown) => {
@@ -559,6 +683,8 @@ export function ExtensionView({
     t: t ?? ((s) => s ?? ''),
     scope,
     select: (pane, row) => setScope((s) => ({ ...s, selected: { ...s.selected, [pane]: row.id } })),
+    facet: (v, field, value) =>
+      setPicked((m) => new Map(m).set(v, { ...m.get(v), [field]: value })),
     press: (b, s) => {
       setNote(null);
       if ('navigate' in b) {
@@ -571,11 +697,6 @@ export function ExtensionView({
       const input = resolveInput(b.input, s);
       const files = b.files ? resolveFiles(b.files, s) : undefined;
       if (!input || files === null) return setNote(STALE);
-      for (const name of b.prompt ?? []) {
-        const v = window.prompt(name);
-        if (v === null) return;
-        input[name] = v;
-      }
       const send = (f: typeof files) =>
         client
           .post<{ result?: unknown }>(
@@ -583,21 +704,45 @@ export function ExtensionView({
             f ? { ...input, $files: f } : input,
           )
           .then((r) => act(r?.result ?? null), fail);
-      if (!b.files?.prompt) return void send(files);
-      // `files.prompt`: the caller picks one file; it is uploaded and its id handed with `read`.
-      const pick = document.createElement('input');
-      pick.type = 'file';
-      const { input: into, label } = b.files.prompt;
-      pick.title = label ? host.t(label) : into;
-      pick.onchange = () => {
-        const f = pick.files?.[0];
-        if (!f) return;
-        uploadFile(client, f).then((up) => {
-          input[into] = up.id;
-          send({ ...files, read: [...(files?.read ?? []), up.id] });
-        }, fail);
+      const proceed = () => {
+        if (!b.files?.prompt) return void send(files);
+        // `files.prompt`: the caller picks one file; it is uploaded and its id handed with `read`.
+        const pick = document.createElement('input');
+        pick.type = 'file';
+        const { input: into, label } = b.files.prompt;
+        pick.title = label ? host.t(label) : into;
+        pick.onchange = () => {
+          const f = pick.files?.[0];
+          if (!f) return;
+          uploadFile(client, f).then((up) => {
+            input[into] = up.id;
+            send({ ...files, read: [...(files?.read ?? []), up.id] });
+          }, fail);
+        };
+        pick.click();
       };
-      pick.click();
+      const picks = (b.prompt ?? []).filter((n) => b.pick && Object.keys(b.pick).includes(n));
+      if (picks.length === 0) {
+        for (const name of b.prompt ?? []) {
+          const v = window.prompt(name);
+          if (v === null) return;
+          input[name] = v;
+        }
+        return proceed();
+      }
+      // A `pick` input is a list of records to choose from: asked in a form drawn below.
+      Promise.all(
+        picks.map((n) => pickChoices(client, (b.pick as Record<string, string>)[n] as string)),
+      ).then((lists) => {
+        setAsking({
+          names: b.prompt ?? [],
+          choices: Object.fromEntries(picks.map((n, i) => [n, lists[i] as Choice[]])),
+          send: (extra) => {
+            Object.assign(input, extra);
+            proceed();
+          },
+        });
+      }, fail);
     },
     save: (n, values, button) => {
       setNote(null);
@@ -623,6 +768,42 @@ export function ExtensionView({
   return (
     <>
       {note && <p role="status">{note}</p>}
+      {asking && (
+        <form
+          className="zv-prompt"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const data = new FormData(e.currentTarget);
+            const extra: Row = {};
+            for (const name of asking.names) extra[name] = data.get(name);
+            setAsking(null);
+            asking.send(extra);
+          }}
+        >
+          {asking.names.map((name) => (
+            // biome-ignore lint/a11y/noLabelWithoutControl: the input is inside the label in both branches
+            <label key={name}>
+              {name}
+              {asking.choices[name] ? (
+                <select name={name} required>
+                  <option value="" />
+                  {asking.choices[name]?.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input name={name} />
+              )}
+            </label>
+          ))}
+          <button type="submit">OK</button>
+          <button type="button" onClick={() => setAsking(null)}>
+            Cancel
+          </button>
+        </form>
+      )}
       {node ? <ViewRenderer node={node} host={host} /> : <p aria-busy="true" />}
     </>
   );

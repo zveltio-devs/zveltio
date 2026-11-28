@@ -90,6 +90,8 @@ export type Button = {
   input?: Input;
   /** Input fields to ask for. */
   prompt?: Name[];
+  /** Inputs drawn as a picker of the records of a collection of the extension (`prompt` names each); the id is the value. */
+  pick?: Record<string, Name>;
   confirm?: Text;
   when?: Conditions;
   /** While the record meets these, the work the action started is under way: the button is busy, and the front end reads the record again until it no longer does. */
@@ -135,6 +137,8 @@ export type ListView = {
   collection: Name;
   fields?: Fields;
   filter?: Conditions;
+  /** Fields drawn as quick filters: "all" and one per declared choice (true and false for a boolean), one value per field at a time. Not persisted. */
+  facets?: Name[];
   sort?: Sort;
   search?: boolean;
   present?: 'table' | 'cards' | 'feed';
@@ -191,6 +195,8 @@ export type FormView = {
   /** What a front end that does not know this view kind draws instead. */
   fallback?: View;
   action: ActionName;
+  /** Inputs drawn as a picker of the records of a collection of the extension; the id is the value. */
+  pick?: Record<string, Name>;
   fields?: Fields;
   sections?: Array<{
     title?: Text;

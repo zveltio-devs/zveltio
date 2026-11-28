@@ -10,6 +10,7 @@ import {
   type Change,
   type Condition,
   type Field,
+  relatedOf,
   type SchemaField,
   toFilter,
   toSort,
@@ -165,7 +166,7 @@ const humanize = (s: string) => s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.t
  * A collection field as `SchemaForm` draws it. A `richtext` value is edited as
  * text and never rendered as HTML here (ADR 0042 decision 10).
  */
-export function toFormField(f: SchemaField, label?: string): FormField {
+export function toFormField(f: SchemaField, label?: string, pick?: string | null): FormField {
   const type = INPUT_TYPES[f.type] ?? 'text';
   const opts = f.options as { choices?: unknown[] } | unknown[] | null | undefined;
   const choices = Array.isArray(opts) ? opts : opts?.choices;
@@ -176,6 +177,8 @@ export function toFormField(f: SchemaField, label?: string): FormField {
     type: type === 'select' && !choices?.length ? 'text' : type,
     label: label ?? (typeof f.label === 'string' && f.label ? f.label : humanize(f.name)),
     required: f.required === true,
+    // Drawn as a picker of this collection's records (`ViewPicker`), not by `SchemaForm`.
+    ...(pick ? { pick } : {}),
     ...(type === 'select' && choices?.length
       ? {
           options: choices.map((c) =>
@@ -629,14 +632,7 @@ export function reorder<R extends Record<string, unknown>>(
   return { renumber: true, writes: next.map((record, k) => ({ record, patch: { [order]: k } })) };
 }
 
-/** The collection a relation field points at (`m2o`, `reference`); none for any other field. */
-export function relatedOf(f: SchemaField | undefined): string | null {
-  const target = (f?.options as { related_collection?: unknown } | null | undefined)
-    ?.related_collection;
-  return (f?.type === 'm2o' || f?.type === 'reference') && typeof target === 'string'
-    ? target
-    : null;
-}
+export { relatedOf };
 
 /**
  * The labels of records of `collection` by id, read through the data API as

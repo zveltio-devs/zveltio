@@ -242,6 +242,12 @@ const defs: Record<string, Schema> = {
           tone: ref('Tone'),
           input: ref('Input'),
           prompt: { ...arrayOf(ref('Name'), 1), description: 'Input fields to ask for.' },
+          pick: {
+            type: 'object',
+            description:
+              'Inputs drawn as a picker of the records of a collection of the extension (`prompt` names each); the id is the value.',
+            additionalProperties: ref('Name'),
+          },
           confirm: ref('Text'),
           when: ref('Conditions'),
           busyWhen: {
@@ -293,6 +299,11 @@ const defs: Record<string, Schema> = {
       collection: ref('Name'),
       fields: ref('Fields'),
       filter: ref('Conditions'),
+      facets: {
+        ...arrayOf(ref('Name'), 1),
+        description:
+          'Fields drawn as quick filters: "all" and one per declared choice (true and false for a boolean), one value per field at a time. Not persisted.',
+      },
       sort: ref('Sort'),
       search: { type: 'boolean' },
       present: { enum: ['table', 'cards', 'feed'] },
@@ -328,7 +339,16 @@ const defs: Record<string, Schema> = {
       kind(
         'form',
         "Fill an action's input; submitting runs the action.",
-        { action: ref('ActionName'), ...formProps },
+        {
+          action: ref('ActionName'),
+          pick: {
+            type: 'object',
+            description:
+              'Inputs drawn as a picker of the records of a collection of the extension; the id is the value.',
+            additionalProperties: ref('Name'),
+          },
+          ...formProps,
+        },
         ['action'],
       ),
     ],
