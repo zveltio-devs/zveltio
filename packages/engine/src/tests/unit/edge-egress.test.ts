@@ -8,7 +8,8 @@
  * no network is ext-runner-compose.sh.
  */
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
+import * as dns from 'node:dns/promises';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer, type Server } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -22,6 +23,27 @@ import {
 } from '../../lib/edge-functions/subprocess-runner.js';
 import { forgetEdgeRunner, routeConnection } from '../../lib/ext-runner.js';
 import { runScript } from '../../lib/script-runner.js';
+
+// The guard resolves every host before it fetches, and refuses one that does not
+// resolve. The hosts here are under `.test` (RFC 2606), which never resolves, so
+// they get a public address; every other name goes to whatever resolver the
+// process has. Without this the file passed only when another file had already
+// left its resolver mock in the process (run alone: 9 failures).
+const resolverBefore = dns.lookup;
+const testLookup = (async (host: string, opts?: unknown) =>
+  host.endsWith('.test')
+    ? (opts as { all?: boolean } | undefined)?.all
+      ? [{ address: '93.184.216.34', family: 4 }]
+      : { address: '93.184.216.34', family: 4 }
+    : (resolverBefore as (h: string, o?: unknown) => Promise<unknown>)(
+        host,
+        opts,
+      )) as typeof dns.lookup;
+mock.module('node:dns/promises', () => ({
+  ...dns,
+  lookup: testLookup,
+  default: { ...dns, lookup: testLookup },
+}));
 
 const REQ: EdgeRequest = { method: 'GET', headers: {}, query: {}, body: null, path: '/' };
 const dir = mkdtempSync(join(tmpdir(), 'zv-edge-egress-test-'));
