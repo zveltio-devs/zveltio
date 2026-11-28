@@ -114,7 +114,11 @@ registry archives and is never consulted for a directory, and a key in
 ## What runs inline (U3)
 
 Only code the registry signed runs inside the engine process, and the engine
-checks that at every load, not once at install (ADR 0056 amendment 4, ADR 0058):
+checks that at every load, not once at install (ADR 0056 amendment 4, ADR 0058).
+Since ADR 0062 (2026-11-28, #1923) that is only the first-party extensions on
+the engine's `INLINE_EXTENSIONS` list, which only shrinks; every other
+extension, first-party included, runs on the runner. The registry signature is
+also what keeps a first-party worker at level 0 (ADR 0062 d2):
 
 - **The download keeps the signature with the files.** A verified archive is
   kept, with its `.sig`, in `.zveltio-registry/` inside the extension's
@@ -165,11 +169,11 @@ script again after an edit. `.zveltio-registry/` is gitignored there.
 
 Why a registry key and not an operator key: an operator key confers level 3
 only (ADR 0056 d1) — the runner, declared model only — while a first-party
-extension runs inline at level 0, which only a registry signature unlocks. The
+extension runs at level 0 (inline if listed, otherwise on the runner), which only a registry signature unlocks. The
 engine trusts the key because you listed it, by the rule it applies to a
 mirror's key, in every `NODE_ENV`. Never list a development key on a production
 engine: anything signed with it whose name the catalogue calls first-party would
-run inline.
+run at level 0.
 
 Boots that load extensions from disk without the registry — the release smoke,
 the e2e boot, the integration lane and the extensions' runtime probe — do the

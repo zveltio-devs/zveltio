@@ -64,7 +64,7 @@ Every submitted extension MUST:
 
 | Publisher tier | Required `engine.isolation` |
 | --- | --- |
-| First-party (Zveltio team) | `inline` (default) — full functionality, max speed |
+| First-party (Zveltio team) | ignored: the engine runs it on the runner at level 0, or inline if it is on the engine's `INLINE_EXTENSIONS` list (ADR 0062) |
 | Verified (source read by the Zveltio team) | **`worker` REQUIRED** (until `host.collections`, RFC extension-model-v3 phase B) |
 | **Community / third-party** | **`worker` REQUIRED** |
 
@@ -102,7 +102,8 @@ status is granted manually by an admin via `enroll-publisher --tier verified`.
 Inline code receives `ctx.db`, raw SQL with no boundary, and the RFC allows
 third-party code no SQL. A reviewed version becomes level 1 (certified) once
 `host.collections` is its only data path (phase B), and still runs isolated:
-since 2026-11-16 only first-party code runs inline. The
+since 2026-11-16 only first-party code runs inline, and since ADR 0062 only
+the first-party extensions on the engine's shrinking inline list. The
 engine and the CLI enforce this; the registry still accepts a verified
 `inline` submission, which the engine then refuses at enable.
 
@@ -130,8 +131,8 @@ What worker isolation does NOT give:
 - **Engine-side field types, cron schedules or a cleanup hook.** All
   three require running the extension's code in the engine process,
   which worker isolation exists to avoid — the entry module is not
-  imported there at all. First-party extensions run inline and keep
-  them.
+  imported there at all. Only the extensions on the engine's inline list
+  (ADR 0062) could keep them; no first-party extension uses them today.
 - **An adversarially-tested sandbox.** The extension runner is an OS
   boundary (uid, cgroup, network), not a sandbox anyone has attacked.
   Publisher tier and signature decide *whether* code runs; the runner

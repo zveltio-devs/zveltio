@@ -1643,7 +1643,11 @@ service calls made in a request. A disabled extension also fails the
 > use (level 0 may list `"*"`), never where it runs.
 
 Your **publisher tier** (not a per-extension setting) determines which
-isolation values you're allowed to ship:
+isolation values you're allowed to ship. *Since ADR 0062 (#1923) the engine
+no longer reads the value to decide where an extension runs: every extension
+runs on the runner, except the first-party ones on the engine's
+`INLINE_EXTENSIONS` list. The checks below still run at pack, validate and
+publish.*
 
 | Publisher tier | `engine.isolation` allowed | How you get it |
 |----------------|----------------------------|----------------|

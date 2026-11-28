@@ -53,6 +53,10 @@ Two more problems are not about the runner at all:
 An extension is written once against **`extension-api v1`**. *Where* it runs is
 decided by its trust level and the operator's profile, not by the extension.
 Moving an extension between backends is configuration, never a rewrite.
+*(Amended by ADR 0062 d1: where an extension runs is the engine's choice alone.
+Every extension runs as a worker on the runner; `engine.isolation` in the
+manifest is still parsed and ignored. The trust level decides what an extension
+may use, never where it runs.)*
 
 | Piece | What it is |
 |---|---|
@@ -61,13 +65,13 @@ Moving an extension between backends is configuration, never a rewrite.
 | **Jobs** | asynchronous work: network, mail, ANAF, AI, heavy compute. An action or a flow enqueues a job in a transactional **outbox**. The job runs out of the request, holds no transaction, and writes back only through the public API with a key scoped to the extension. *(Amended by ADR 0022: a no-egress job keeps one transaction, timeout ≤ 60 s; an egress job opens one per host call; nothing is written back through the public API.)* |
 | **Rules** | declarative expressions for validation, state transitions and flow conditions. No code and no runtime. |
 | **UI** | Data only: semantic views each front end draws its own way (ADR 0042, [ui-model.md](../extensions/ui-model.md)). |
-| **`host`** | the only way an action or job reaches the engine: `host.collections.read/insert/update/delete` with declarative filters, `host.enqueue`, `host.audit`, `host.config`, and `host.services` (the broker). The engine generates every SQL statement. **No raw SQL and no `ctx.internals` for anything but first-party code.** |
+| **`host`** | the only way an action or job reaches the engine: `host.collections.read/insert/update/delete` with declarative filters, `host.enqueue`, `host.audit`, `host.config`, and `host.services` (the broker). The engine generates every SQL statement. **No raw SQL and no `ctx.internals` for anything but first-party code.** *(Amended by ADR 0062 d4: first-party reach is a shrinking list of extensions still inline, deleted with the last one.)* |
 
 ### Trust ladder
 
 | Level | Who | Actions run | Jobs run |
 |---|---|---|---|
-| 0 First-party | Zveltio | inline by default; isolated backend if the operator chooses | inline or job runner |
+| 0 First-party | Zveltio | isolated backend, keeping its first-party tier from the registry signature (ADR 0062 d2); the extensions on the engine's `INLINE_EXTENSIONS` list run inline until each is ported (ADR 0062 d4) | job runner; an inline-listed extension's jobs without egress run inline |
 | 1 Certified | a third party, reviewed and signed by Zveltio **per version** | isolated backend | job runner |
 | 2 Published | a third party on the registry, automated checks only | isolated backend | job runner |
 | 3 Private | an organisation's own extension, signed with a key the operator trusts | isolated backend, never inline | job runner |
@@ -94,6 +98,20 @@ boundary. A review that misses something does not hand out the whole database.
 Certification is per version, because the 2025 npm worms arrived through
 updates to trusted packages.
 
+**Amended 2026-11-28 (ADR 0062, accepted 2026-11-25; default flipped in #1923).** The 2026-11-16
+paragraph above kept level 0 inline for memory. That reason does not hold: an
+idle extension now holds no process (it starts on its first action, route or
+job and stops after 5 minutes idle), and an active one costs 15–33 MB PSS. So
+every level runs on the runner. A level 0 worker keeps its tier, read from the
+registry signature, never from its name, so `"*"` in `reads`/`writes` stays
+first-party only on the runner (ADR 0053 d5). There is no operator switch
+between inline and isolated. Inline survives only for the extensions named in
+the engine's `INLINE_EXTENSIONS` list (`packages/engine/src/lib/extensions/load-phases.ts`),
+each of which still needs an engine capability or a port. The list only
+shrinks; inline loading, the inline-lag watchdog and `FIRST_PARTY_REACH` are
+deleted with its last entry. Until then, what the 2026-11-16 paragraph says
+about an inline extension still applies to those on the list.
+
 ### Backends
 
 The backends were chosen from measurements. The reference action is "issue
@@ -103,7 +121,7 @@ All runs were warm, with Postgres CPU excluded.
 | Backend | CPU / action | 2000-line compute | Memory | Isolation |
 |---|---|---|---|---|
 | inline | 0.163 ms | 1.8 ms | 0 | none |
-| **process per extension** (Bun child, IPC) | 0.406 ms | 2.0 ms | ~60 MB | OS: uid, cgroup, egress *(egress proxy left phase D, ADR 0022)* |
+| **process per extension** (Bun child, IPC) | 0.406 ms | 2.0 ms | ~60 MB *(2026-11-25, ADR 0062: 27–28 MB RSS / 15 MB PSS idle, 15–33 MB PSS active; none when idle-stopped)* | OS: uid, cgroup, egress *(egress proxy left phase D, ADR 0022)* |
 | SES compartment in a Worker | 0.284 ms | 18.3 ms | 0.28 MB | language-level; no memory cap |
 | QuickJS-WASM | 0.790 ms | 57 ms | 0.65 MB | precise CPU and memory limits |
 
@@ -324,6 +342,8 @@ Owner, 2026-10-17.
    Certification starts with contracted partners only.
 2. **No SQL for third-party code.** `host.collections` is the only data path in
    `extension-api v1`; `db:query` stays first-party only.
+   *(Amended by ADR 0062 d4: only for the extensions still on the inline
+   list, and removed with the last of them.)*
 3. **CEL**, provided a JavaScript implementation passes the official
    conformance tests in phase C's first week. If none does, freeze
    expr-eval-fork behind a typed wrapper with decimals. Either way the choice is
@@ -342,4 +362,8 @@ Owner, 2026-10-17.
 4. **Deno is the job runtime**, added in phase D as an optional component
    fetched when the first job-capable third-party extension is enabled. It is
    not bundled in every install. First-party jobs may run inline.
+   *(Amended by ADR 0062: only the jobs without egress of an extension still
+   on the inline list; a worker's jobs all run in the job runner. ADR 0062 d6
+   recommends one Bun runtime for jobs in place of Deno, as a follow-up
+   decision.)*
 5. **Phases A–E all land before rc.1.**

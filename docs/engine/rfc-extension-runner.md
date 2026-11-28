@@ -59,6 +59,10 @@ is the shape, not any one bug.
 - First-party extensions keep running inline. They are signed and maintained in
   `zveltio-extensions`, and they use engine-side hooks (field types, cron,
   cleanup) that out-of-process code cannot provide.
+  *(Superseded by ADR 0062 d1, 2026-11-25: every extension runs on the runner;
+  no first-party extension uses field types, schedules, cleanup, services or
+  events today. Only the engine's `INLINE_EXTENSIONS` list still runs inline,
+  until each is ported.)*
 - A WebAssembly runtime for JavaScript extensions. See "Alternatives".
 
 ## Design
@@ -763,6 +767,12 @@ decision 6 on 2026-10-10.
    install scripts, `bun audit` in CI), not a process boundary. Opting a
    first-party extension into the runner stays possible once steps 6–8 make the
    contract equal, and is then a per-extension choice backed by a measurement.
+   *Superseded by ADR 0062 (accepted 2026-11-25, default flipped in #1923):*
+   re-measured on today's engine, the contract is identical, a real action costs
+   +11 % (+1.8 ms), an idle worker 27–28 MB RSS / 15 MB PSS and none once
+   idle-stopped, and a worker's writes share the request transaction. Every
+   extension runs on the runner; the engine, not the extension, decides. Only
+   the engine's `INLINE_EXTENSIONS` list still runs inline, and it only shrinks.
 
 6. **One container where there is no second one (2026-10-10).** Fly.io, Railway,
    Render and a plain `docker run` get the runner inside the engine's container

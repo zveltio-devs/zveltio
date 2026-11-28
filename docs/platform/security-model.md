@@ -294,8 +294,9 @@ What it costs, and what it still does not give:
 
 - A worker-isolated extension **cannot contribute engine-side field types, cron
   schedules or a cleanup hook.** All three require running its code in the engine
-  process, which is the thing being avoided. First-party extensions run inline
-  and keep them — only on the registry's signature, kept with their files and
+  process, which is the thing being avoided. Only the first-party extensions on
+  the engine's `INLINE_EXTENSIONS` list (ADR 0062) run inline and could keep them
+  (none uses them today) — only on the registry's signature, kept with their files and
   re-verified at every load, in every `NODE_ENV` (U3; ADR 0056 amendment
   2026-11-21: a source checkout is signed with a development registry key,
   `docs/extensions/signatures.md#a-first-party-source-checkout`).
