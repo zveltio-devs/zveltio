@@ -42,70 +42,113 @@ const LOADERS: Record<string, 'js' | 'jsx' | 'ts' | 'tsx'> = {
   '.tsx': 'tsx',
 };
 
+// A dynamic `import(` — syntax, so no alias reaches it — after anything but a
+// member access (`a.import(`; `...import(` is a spread, not one). Comments may
+// sit between the keyword and its parenthesis.
+const GAP = String.raw`(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*)*`;
+const DYNAMIC_IMPORT = new RegExp(String.raw`(?<![\w$]|(?<!\.)\.\s*)import${GAP}\(`, 'g');
+const LITERAL_ARG = new RegExp(
+  String.raw`^${GAP}(?:"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*')${GAP}[),]`,
+);
+
 /**
- * Why `entry` cannot be imported in the engine process, or null when it can:
- * it, and every file it imports in turn, import only runtime builtins
- * (`node:*`, `bun:*`, a bare `fs`) and files under `extDir`, which is what a
- * signature covers (DR-TASKS l.57). A bare specifier resolves from the first
- * `node_modules` up the tree — `<EXTENSIONS_DIR>/node_modules`, where the
- * engine installs core packages and peers, or any ancestor's — and none is
- * signed; a bundled entry inlines its dependencies (`zveltio extension pack`).
- * A relative or absolute path out of `extDir` reaches the same files.
+ * Why `file` cannot be imported in the engine process, given its `source`, or
+ * null when it can; `next` receives each file under `extDir` it imports. Its
+ * literal imports must name runtime builtins (`node:*`, `bun:*`, a bare `fs`)
+ * or files under `extDir`, which is what a signature covers (DR-TASKS l.57). A
+ * bare specifier resolves from the first `node_modules` up the tree —
+ * `<EXTENSIONS_DIR>/node_modules`, where the engine installs core packages and
+ * peers, or any ancestor's — and none is signed; a bundled entry inlines its
+ * dependencies (`zveltio extension pack`). A relative or absolute path out of
+ * `extDir` reaches the same files.
  *
- * Literal specifiers only, as `Bun.Transpiler.scanImports` reports them: a
- * computed `import(x)` is the signed code's own act, not a resolution it
- * did not choose.
+ * A computed `import(x)` is refused outright: Bun asks no runtime hook where a
+ * bare one resolves (measured, Bun 1.4.4), so nothing could hold it to these
+ * rules. A computed `require(x)` is held at run time (`inline-imports.ts`).
  */
-export function importOutsideDir(extDir: string, entry: string): string | null {
+export function fileImportsOutside(
+  extDir: string,
+  file: string,
+  source: string,
+  next: (target: string) => void = () => {},
+): string | null {
+  const loader = LOADERS[extname(file)];
+  if (!loader) return null; // JSON, text: imports nothing
+  const where = relative(extDir, file);
+  for (const m of source.matchAll(DYNAMIC_IMPORT)) {
+    const at = m.index + m[0].length;
+    if (!LITERAL_ARG.test(source.slice(at, at + 4096))) {
+      return (
+        `${where} has a computed import() (${JSON.stringify(source.slice(m.index, at + 30))}): ` +
+        `where it resolves cannot be held to the files its signature covers; import a literal path`
+      );
+    }
+  }
   // `Bun.resolveSync` answers the real path: a symlink on the way to `extDir` is not a way out.
   const roots = [extDir, realpathSync(extDir)];
-  const inside = (p: string) =>
-    roots.some((root) => {
-      const r = relative(root, p);
-      return r !== '' && r !== '..' && !r.startsWith(`..${sep}`) && !isAbsolute(r);
-    });
+  const inside = (p: string) => roots.some((root) => isUnder(root, p));
+  let imports: ReturnType<Bun.Transpiler['scanImports']>;
+  try {
+    imports = new Bun.Transpiler({ loader }).scanImports(source);
+  } catch (err) {
+    return `${where} cannot be read for its imports: ${(err as Error).message}`;
+  }
+  for (const { path: spec } of imports) {
+    if (isBuiltin(spec)) continue;
+    const isPath = spec.startsWith('./') || spec.startsWith('../') || isAbsolute(spec);
+    if (!isPath && !spec.startsWith('file:')) {
+      return (
+        `${where} imports "${spec}", which resolves from a node_modules outside the ` +
+        `extension's directory, and nothing there is signed; bundle it in ` +
+        `(\`zveltio extension pack\`)`
+      );
+    }
+    const refuse = `${where} imports "${spec}", outside the extension's directory, which is all a signature covers`;
+    let target: string;
+    try {
+      const path = spec.replace(/[?#].*$/, ''); // the runtime drops a query too
+      target = isPath ? resolve(dirname(file), path) : fileURLToPath(path);
+    } catch {
+      return refuse;
+    }
+    if (!inside(target)) return refuse;
+    try {
+      target = Bun.resolveSync(target, dirname(file));
+    } catch {
+      continue; // unresolvable: the import itself fails, before any of it runs
+    }
+    if (!inside(target)) return refuse;
+    next(target);
+  }
+  return null;
+}
+
+/** `p` is strictly under `root`. */
+export function isUnder(root: string, p: string): boolean {
+  const r = relative(root, p);
+  return r !== '' && r !== '..' && !r.startsWith(`..${sep}`) && !isAbsolute(r);
+}
+
+/**
+ * Why `entry` cannot be imported in the engine process, or null when it can:
+ * `fileImportsOutside` for it and every file it imports in turn, read from disk.
+ */
+export function importOutsideDir(extDir: string, entry: string): string | null {
   const seen = new Set<string>();
   const queue = [entry];
   while (queue.length > 0) {
     const file = queue.pop() as string;
     if (seen.has(file)) continue;
     seen.add(file);
-    const loader = LOADERS[extname(file)];
-    if (!loader) continue; // JSON, text: imports nothing
-    const where = relative(extDir, file);
-    let imports: ReturnType<Bun.Transpiler['scanImports']>;
+    if (!LOADERS[extname(file)]) continue;
+    let source: string;
     try {
-      imports = new Bun.Transpiler({ loader }).scanImports(readFileSync(file, 'utf8'));
+      source = readFileSync(file, 'utf8');
     } catch (err) {
-      return `${where} cannot be read for its imports: ${(err as Error).message}`;
+      return `${relative(extDir, file)} cannot be read for its imports: ${(err as Error).message}`;
     }
-    for (const { path: spec } of imports) {
-      if (isBuiltin(spec)) continue;
-      const isPath = spec.startsWith('./') || spec.startsWith('../') || isAbsolute(spec);
-      if (!isPath && !spec.startsWith('file:')) {
-        return (
-          `${where} imports "${spec}", which resolves from a node_modules outside the ` +
-          `extension's directory, and nothing there is signed; bundle it in ` +
-          `(\`zveltio extension pack\`)`
-        );
-      }
-      const refuse = `${where} imports "${spec}", outside the extension's directory, which is all a signature covers`;
-      let target: string;
-      try {
-        const path = spec.replace(/[?#].*$/, ''); // the runtime drops a query too
-        target = isPath ? resolve(dirname(file), path) : fileURLToPath(path);
-      } catch {
-        return refuse;
-      }
-      if (!inside(target)) return refuse;
-      try {
-        target = Bun.resolveSync(target, dirname(file));
-      } catch {
-        continue; // unresolvable: the import itself fails, before any of it runs
-      }
-      if (!inside(target)) return refuse;
-      queue.push(target);
-    }
+    const why = fileImportsOutside(extDir, file, source, (t) => queue.push(t));
+    if (why !== null) return why;
   }
   return null;
 }
