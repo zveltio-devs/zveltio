@@ -983,10 +983,13 @@ jobs:
       # amendment 2026-11-21): without this every sibling extension below is
       # refused and the lane tests a core-only engine, green. Signed: what
       # ZVELTIO_EXTENSIONS_PATH loads (`discoverExternal`: each directory with a
-      # manifest, at any depth, outside dot-named ones and node_modules) — the
-      # script's own rule when given no names.
+      # manifest, at any depth, outside dot-named ones and node_modules), listed
+      # by that same function so the next step checks each one loaded.
       - name: Sign the sibling extensions as a registry download leaves them
-        run: bun scripts/sign-as-registry.ts ../zveltio-extensions >> "$GITHUB_ENV"
+        run: |
+          bun -e "import { discoverExternal } from './packages/engine/src/lib/extensions/discovery.ts'; console.log((await discoverExternal('../zveltio-extensions')).join('\n'))" > /tmp/signed-extensions.txt
+          test -s /tmp/signed-extensions.txt
+          bun scripts/sign-as-registry.ts ../zveltio-extensions $(cat /tmp/signed-extensions.txt) >> "$GITHUB_ENV"
       - name: Start engine in background
         env:
           DATABASE_URL: ${{ env.OWNER_DATABASE_URL }}
@@ -1035,14 +1038,14 @@ jobs:
           # apart" is 60 seconds only when the server is polite. Same shape as
           # the SeaweedFS hang this commit is about.
           echo "Waiting for engine on port 3099..."
-          for i in $(seq 1 60); do
+          for i in $(seq 1 300); do
             if curl -sf --max-time 5 http://localhost:3099/api/health > /dev/null 2>&1; then
               echo "Engine ready after ${i}s"
               exit 0
             fi
             sleep 1
           done
-          echo "Engine did not become ready within 60s"
+          echo "Engine did not become ready within 300s"
           echo "--- Engine logs ---"
           cat /tmp/engine.log || true
           exit 1
