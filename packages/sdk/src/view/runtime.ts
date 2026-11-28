@@ -322,6 +322,19 @@ export function relatedOf(f: SchemaField | undefined): string | null {
 export type FacetValue = string | number | boolean;
 
 /**
+ * A field's declared choices, in order, each as the declaration gives it (a
+ * plain value or `{ value, label }`). The engine's `enum` declares them as
+ * `options.values`; a list in `options`, or `options.choices`, is read too.
+ * Nothing for a field that declares none.
+ */
+export function declaredChoices(f: SchemaField | undefined): unknown[] {
+  const opts = f?.options as { values?: unknown; choices?: unknown } | unknown[] | null | undefined;
+  if (Array.isArray(opts)) return opts;
+  const list = opts?.values ?? opts?.choices;
+  return Array.isArray(list) ? list : [];
+}
+
+/**
  * What a list's `facets` entry offers for a field: its declared choices, or
  * `true` and `false` for a boolean; nothing for any other field.
  */
@@ -329,18 +342,12 @@ export function facetOptions(f: SchemaField | undefined): { value: FacetValue; l
   if (f?.type === 'boolean') {
     return [true, false].map((value) => ({ value, label: String(value) }));
   }
-  const opts = f?.options as
-    | { choices?: unknown[]; multiple?: unknown }
-    | unknown[]
-    | null
-    | undefined;
   // A multi-value field holds a list: `eq` on one value cannot select it.
-  if (!Array.isArray(opts) && opts?.multiple === true) return [];
-  const list = (Array.isArray(opts) ? opts : opts?.choices) ?? [];
+  if ((f?.options as { multiple?: unknown } | null | undefined)?.multiple === true) return [];
   // The choice keeps its type (a number stays a number): the query compares it as declared.
   const typed = (v: unknown): FacetValue =>
     typeof v === 'number' || typeof v === 'boolean' ? v : String(v);
-  return list.map((c) => {
+  return declaredChoices(f).map((c) => {
     if (typeof c !== 'object' || c === null) return { value: typed(c), label: String(c) };
     const { value, label } = c as { value: unknown; label?: unknown };
     return { value: typed(value), label: String(label ?? value) };

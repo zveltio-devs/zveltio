@@ -70,7 +70,26 @@ describe('fields', () => {
         type: 'select',
         options: { choices: ['a', { value: 'b', label: 'B' }] },
       }),
-    ).toMatchObject({ type: 'select', options: ['a', { value: 'b', label: 'B' }] });
+    ).toMatchObject({
+      type: 'select',
+      options: [
+        { value: 'a', label: 'a' },
+        { value: 'b', label: 'B' },
+      ],
+    });
+    // The engine's enum declares its choices as `options.values`.
+    expect(
+      toFormField({ name: 'status', type: 'enum', options: { values: ['draft', 'sent'] } }),
+    ).toMatchObject({
+      type: 'select',
+      options: [
+        { value: 'draft', label: 'draft' },
+        { value: 'sent', label: 'sent' },
+      ],
+    });
+    expect(choicesOf({ name: 'status', type: 'enum', options: { values: ['a'] } })).toEqual([
+      { value: 'a', label: 'a' },
+    ]);
     // A select without choices is a text input, not an empty dropdown.
     expect(toFormField({ name: 's', type: 'select' }).type).toBe('text');
     // Untrusted rich text is edited as text, never rendered.

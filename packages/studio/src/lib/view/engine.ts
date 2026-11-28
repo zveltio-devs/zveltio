@@ -9,6 +9,7 @@ import {
   type Button,
   type Change,
   type Condition,
+  declaredChoices,
   type Field,
   relatedOf,
   type SchemaField,
@@ -168,39 +169,23 @@ const humanize = (s: string) => s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.t
  */
 export function toFormField(f: SchemaField, label?: string, pick?: string | null): FormField {
   const type = INPUT_TYPES[f.type] ?? 'text';
-  const opts = f.options as { choices?: unknown[] } | unknown[] | null | undefined;
-  const choices = Array.isArray(opts) ? opts : opts?.choices;
+  const choices = choicesOf(f);
   return {
     name: f.name,
     // The engine's type, for `formPayload`: a `json` field is edited as text.
     fieldType: f.type,
-    type: type === 'select' && !choices?.length ? 'text' : type,
+    type: type === 'select' && !choices.length ? 'text' : type,
     label: label ?? (typeof f.label === 'string' && f.label ? f.label : humanize(f.name)),
     required: f.required === true,
     // Drawn as a picker of this collection's records (`ViewPicker`), not by `SchemaForm`.
     ...(pick ? { pick } : {}),
-    ...(type === 'select' && choices?.length
-      ? {
-          options: choices.map((c) =>
-            typeof c === 'object' && c !== null
-              ? {
-                  value: String((c as { value: unknown }).value),
-                  label: String(
-                    (c as { label?: unknown }).label ?? (c as { value: unknown }).value,
-                  ),
-                }
-              : String(c),
-          ),
-        }
-      : {}),
+    ...(type === 'select' && choices.length ? { options: choices } : {}),
   };
 }
 
 /** A select or enum field's declared choices, in order; none for any other field. */
 export function choicesOf(f: SchemaField | undefined): { value: string; label: string }[] {
-  const opts = f?.options as { choices?: unknown[] } | unknown[] | null | undefined;
-  const list = Array.isArray(opts) ? opts : (opts?.choices ?? []);
-  return list.map((c) => {
+  return declaredChoices(f).map((c) => {
     if (typeof c !== 'object' || c === null) return { value: String(c), label: String(c) };
     const { value, label } = c as { value: unknown; label?: unknown };
     return { value: String(value), label: String(label ?? value) };
