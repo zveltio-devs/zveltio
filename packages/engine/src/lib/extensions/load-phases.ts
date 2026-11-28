@@ -28,7 +28,7 @@ import {
 import { CORE_NPM_PACKAGES, maybeSymlinkNodeModules } from './extension-deps.js';
 import { fetchRegistryCatalog } from './extension-download.js';
 import { DEFAULT_QUOTAS, QuotaExceededError } from './extension-errors.js';
-import { resolveExtensionsBase } from './extension-paths.js';
+import { manifestFile, resolveExtensionsBase } from './extension-paths.js';
 import { directorySizeBytes } from './extension-utils.js';
 import { checkExtensionDependencies, getEngineVersion, isCompatible } from '../version-checker.js';
 import {
@@ -579,7 +579,13 @@ export async function resolveEntryPath(
     // isBundled === true implies manifest?.engine?.bundled === true, so
     // manifest (and manifest.engine) are non-null in this branch.
     const m = manifest!;
-    const bundledEntry = join(extDir, m.engine!.entry);
+    let bundledEntry: string;
+    try {
+      bundledEntry = manifestFile(extDir, '', m.engine!.entry);
+    } catch (e) {
+      const msg = `Extension "${extName}" engine.entry refused: ${(e as Error).message}`;
+      return { ok: false, logLevel: 'error', logArgs: [`❌ ${msg}`], lastLoadError: msg };
+    }
     if (!existsSync(bundledEntry)) {
       const msg =
         `Extension "${extName}" manifest declares engine.bundled=true ` +
