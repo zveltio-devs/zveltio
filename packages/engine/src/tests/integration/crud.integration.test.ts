@@ -11,6 +11,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { asDefaultTenant } from '../../testing/app-harness.js';
 import { openConfigWindowOver } from '../../testing/step-up.js';
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL;
@@ -187,11 +188,16 @@ describe.skipIf(skipAll)('CRUD — Integration', () => {
   });
 
   it('zv_revisions — records create/update/delete revisions', async () => {
-    const revisions = await sql<{ id: string; action: string }>`
-      SELECT id, action FROM zv_revisions
-      WHERE collection = ${COLLECTION}
-      ORDER BY created_at ASC
-    `.execute(db);
+    // As the tenant the engine wrote them in: FORCE RLS binds a plain owner,
+    // and the bare pool reaches no tenant's rows.
+    const revisions = await asDefaultTenant(
+      db,
+      sql<{ id: string; action: string }>`
+        SELECT id, action FROM zv_revisions
+        WHERE collection = ${COLLECTION}
+        ORDER BY created_at ASC
+      `,
+    );
 
     const actions = revisions.rows.map((r) => r.action);
     expect(actions).toContain('create');

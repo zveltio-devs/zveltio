@@ -15,6 +15,7 @@ import { sql } from 'kysely';
 import { createDb } from '../../db/index.js';
 import type { Database } from '../../db/index.js';
 import { applyTenantRLS } from '../../lib/tenancy/tenant-manager.js';
+import { connectedAsSuperuser } from '../../testing/app-harness.js';
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL;
 const skipAll = !TEST_DB_URL;
@@ -25,12 +26,21 @@ const A = '00000000-0000-0000-0000-0000000a000a';
 const B = '00000000-0000-0000-0000-0000000b000b';
 
 let db: Database;
+/**
+ * On a superuser (every lane but the hardened one) the work runs as a plain role
+ * made here, which owns the table. As the documented NOSUPERUSER owner the
+ * connection already IS that role, and may not take on a role it creates.
+ */
+let superuser = false;
+const asPlainOwner = async (trx: Database) => {
+  if (superuser) await sql.raw(`SET LOCAL ROLE "${ROLE}"`).execute(trx);
+};
 
 // Run a unit of work as the non-superuser role with a tenant GUC set, so FORCE
 // RLS is enforced (the engine's production posture).
 function asTenant<T>(tenant: string, fn: (trx: Database) => Promise<T>): Promise<T> {
   return db.transaction().execute(async (trx) => {
-    await sql.raw(`SET LOCAL ROLE "${ROLE}"`).execute(trx);
+    await asPlainOwner(trx);
     await sql`SELECT set_config('zveltio.current_tenant', ${tenant}, true)`.execute(trx);
     return fn(trx as unknown as Database);
   });
@@ -39,21 +49,24 @@ function asTenant<T>(tenant: string, fn: (trx: Database) => Promise<T>): Promise
 beforeAll(async () => {
   if (skipAll) return;
   db = createDb(TEST_DB_URL!);
+  superuser = await connectedAsSuperuser(db);
   await sql.raw(`DROP TABLE IF EXISTS "${TABLE}"`).execute(db);
-  await sql.raw(`DROP ROLE IF EXISTS "${ROLE}"`).execute(db);
-  await sql.raw(`CREATE ROLE "${ROLE}" NOSUPERUSER`).execute(db);
   await sql
     .raw(`CREATE TABLE "${TABLE}" (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), title TEXT)`)
     .execute(db);
-  // Engine connects as a non-superuser owner in production — replicate that.
-  await sql.raw(`ALTER TABLE "${TABLE}" OWNER TO "${ROLE}"`).execute(db);
+  if (superuser) {
+    // Engine connects as a non-superuser owner in production — replicate that.
+    await sql.raw(`DROP ROLE IF EXISTS "${ROLE}"`).execute(db);
+    await sql.raw(`CREATE ROLE "${ROLE}" NOSUPERUSER`).execute(db);
+    await sql.raw(`ALTER TABLE "${TABLE}" OWNER TO "${ROLE}"`).execute(db);
+  }
   await applyTenantRLS(db, TABLE);
 });
 
 afterAll(async () => {
   if (skipAll || !db) return;
   await sql.raw(`DROP TABLE IF EXISTS "${TABLE}"`).execute(db);
-  await sql.raw(`DROP ROLE IF EXISTS "${ROLE}"`).execute(db);
+  if (superuser) await sql.raw(`DROP ROLE IF EXISTS "${ROLE}"`).execute(db);
   await (db as any).destroy?.();
 });
 
@@ -91,7 +104,7 @@ describe.skipIf(skipAll)('Tenant RLS — cross-tenant isolation', () => {
 
   it('no tenant GUC → zero rows (FORCE RLS denies background reads without context)', async () => {
     const r = await db.transaction().execute(async (trx) => {
-      await sql.raw(`SET LOCAL ROLE "${ROLE}"`).execute(trx);
+      await asPlainOwner(trx);
       return sql<{ n: string }>`SELECT count(*)::text AS n FROM ${sql.id(TABLE)}`.execute(trx);
     });
     expect(r.rows[0]?.n).toBe('0');

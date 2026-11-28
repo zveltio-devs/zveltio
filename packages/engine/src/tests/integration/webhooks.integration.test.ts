@@ -11,6 +11,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
+import { asDefaultTenant } from '../../testing/app-harness.js';
 import { openConfigWindowOver } from '../../testing/step-up.js';
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL;
@@ -48,9 +49,14 @@ async function signIn(email: string, password: string): Promise<string> {
 async function waitForDelivery(whId: string, maxMs = 5000): Promise<boolean> {
   const start = Date.now();
   while (Date.now() - start < maxMs) {
-    const rows = await sql<{ id: string }>`
-      SELECT id FROM zvd_webhook_deliveries WHERE webhook_id = ${whId} LIMIT 1
-    `.execute(db);
+    // The delivery is the default tenant's row; the bare pool of a plain owner
+    // sees none (FORCE RLS).
+    const rows = await asDefaultTenant(
+      db,
+      sql<{ id: string }>`
+        SELECT id FROM zvd_webhook_deliveries WHERE webhook_id = ${whId} LIMIT 1
+      `,
+    );
     if (rows.rows.length > 0) return true;
     await new Promise((r) => setTimeout(r, 200));
   }
@@ -176,12 +182,15 @@ describe.skipIf(skipAll)('Webhooks — Integration', () => {
   }, 15_000);
 
   it('webhook delivery record is persisted in zvd_webhook_deliveries', async () => {
-    const rows = await sql<{ id: string; status: string }>`
-      SELECT id, status FROM zvd_webhook_deliveries
-      WHERE webhook_id = ${webhookId}
-      ORDER BY created_at DESC
-      LIMIT 1
-    `.execute(db);
+    const rows = await asDefaultTenant(
+      db,
+      sql<{ id: string; status: string }>`
+        SELECT id, status FROM zvd_webhook_deliveries
+        WHERE webhook_id = ${webhookId}
+        ORDER BY created_at DESC
+        LIMIT 1
+      `,
+    );
 
     expect(rows.rows.length).toBeGreaterThan(0);
     expect(rows.rows[0]).toHaveProperty('id');
@@ -212,8 +221,9 @@ describe.skipIf(skipAll)('Webhooks — Integration', () => {
 
   it('inactive webhook does NOT trigger on insert', async () => {
     // Delete any existing deliveries for the inactive webhook
-    await sql`DELETE FROM zvd_webhook_deliveries WHERE webhook_id = ${inactiveWebhookId}`.execute(
+    await asDefaultTenant(
       db,
+      sql`DELETE FROM zvd_webhook_deliveries WHERE webhook_id = ${inactiveWebhookId}`,
     );
 
     // Insert a record
@@ -225,9 +235,14 @@ describe.skipIf(skipAll)('Webhooks — Integration', () => {
 
     // Wait briefly and confirm no delivery was created
     await new Promise((r) => setTimeout(r, 1000));
-    const rows = await sql<{ id: string }>`
-      SELECT id FROM zvd_webhook_deliveries WHERE webhook_id = ${inactiveWebhookId} LIMIT 1
-    `.execute(db);
+    // Read as the tenant, or a plain owner's bare pool sees none and this passes
+    // for the wrong reason.
+    const rows = await asDefaultTenant(
+      db,
+      sql<{ id: string }>`
+        SELECT id FROM zvd_webhook_deliveries WHERE webhook_id = ${inactiveWebhookId} LIMIT 1
+      `,
+    );
 
     expect(rows.rows.length).toBe(0);
   }, 10_000);

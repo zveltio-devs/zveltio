@@ -866,8 +866,19 @@ jobs:
           cd packages/engine && bun test src/tests/harness/ext-first-party-as-worker.test.ts
 
   integration-tests:
-    name: Integration Tests
+    # Two legs. `superuser` keeps the required check's name. `app` runs the engine
+    # AND the fixtures as the NOSUPERUSER NOBYPASSRLS owner bootstrap-db-role.sh
+    # makes (the documented install), where FORCE RLS binds: a fixture that reads
+    # or writes a tenant's rows on the bare pool, or takes on a role, passes on a
+    # superuser and fails here (DR-TASKS, from #1736).
+    name: ${{ matrix.owner == 'app' && 'Integration as a non-superuser owner' || 'Integration Tests' }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        owner: [superuser, app]
+    env:
+      OWNER_DATABASE_URL: ${{ matrix.owner == 'app' && 'postgresql://zveltio_app:ci-owner-password@localhost:5432/zveltio_test' || 'postgresql://postgres:postgres@localhost:5432/zveltio_test' }}
     services:
       postgres:
         image: pgvector/pgvector:pg18
@@ -922,6 +933,15 @@ jobs:
       # can import `@zveltio/sdk/testing` and `@zveltio/sdk/extension`.
       - name: Build SDK
         run: cd packages/sdk && bun run build
+      - name: Create the database owner role, as production does
+        # The owner leg only: a NOSUPERUSER NOBYPASSRLS owner, where FORCE RLS
+        # binds the engine and the fixtures alike.
+        if: matrix.owner == 'app'
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+        run: bash scripts/bootstrap-db-role.sh zveltio_test zveltio_app ci-owner-password
       - name: Log every DDL statement Postgres executes
         # For the intermittent `0A000 cached plan must not change result type`
         # on `select * from "zvd_collections" where "name" = $1`, which has now
@@ -953,7 +973,7 @@ jobs:
             -v ON_ERROR_STOP=1 -f scripts/sql/ddl-watch.sql
       - name: Run migrations
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
+          DATABASE_URL: ${{ env.OWNER_DATABASE_URL }}
         run: bun packages/engine/src/db/migrate.ts
       - name: Verify DB schema
         run: |
@@ -972,7 +992,7 @@ jobs:
           bun scripts/sign-as-registry.ts ../zveltio-extensions $(cat /tmp/signed-extensions.txt) >> "$GITHUB_ENV"
       - name: Start engine in background
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
+          DATABASE_URL: ${{ env.OWNER_DATABASE_URL }}
           VALKEY_URL: redis://localhost:6379
           BETTER_AUTH_SECRET: ci-test-secret-minimum-32-characters-long
           BETTER_AUTH_URL: http://localhost:3099
@@ -1089,6 +1109,9 @@ jobs:
             exit 1
           fi
       - name: No `+` on a column PostgreSQL returns as a string
+        # Once: it builds its own scratch install as the superuser, which the
+        # owner leg does not change.
+        if: matrix.owner == 'superuser'
         # This lane is the one with a migrated database, and the gate needs one:
         # it reads the BIGINT/NUMERIC column list out of `information_schema`
         # rather than parsing migrations, then flags JavaScript that adds those
@@ -1110,8 +1133,11 @@ jobs:
         run: bun run sql:numeric-arith
       - name: Run integration tests
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
-          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
+          DATABASE_URL: ${{ env.OWNER_DATABASE_URL }}
+          TEST_DATABASE_URL: ${{ env.OWNER_DATABASE_URL }}
+          # Test SETUP only a superuser may do (cluster roles); the engine's own
+          # path runs as whatever OWNER_DATABASE_URL connects as.
+          TEST_SUPERUSER_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zveltio_test
           TEST_VALKEY_URL: redis://localhost:6379
           TEST_PORT: '3099'
           NODE_ENV: test
