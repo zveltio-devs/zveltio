@@ -200,8 +200,11 @@ Ordered from most to least trusted:
    "attack" that requires being the operator is generally not a finding.
 2. **The engine process** — holds the database credentials and the encryption
    keys.
-3. **First-party extensions** — run in-process (`inline` isolation) by default.
-   They are trusted code, reviewed in the `zveltio-extensions` repository.
+3. **First-party extensions** — run on the extension runner like every other
+   extension, keeping their first-party tier from the registry signature
+   (ADR 0062). Only those on the engine's shrinking `INLINE_EXTENSIONS` list
+   still run in-process. They are trusted code, reviewed in the
+   `zveltio-extensions` repository.
 4. **Community extensions** — run **worker-isolated**: in production on the
    extension runner, a process under a uid of its own with no engine files,
    environment or database connection ([RFC](../engine/rfc-extension-runner.md));
