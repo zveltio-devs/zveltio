@@ -11,7 +11,7 @@
 
 import { createHash } from 'crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
-import { join, relative, resolve } from 'path';
+import { isAbsolute, join, relative, resolve } from 'path';
 import {
   validateExtension,
   validateSduiSchema,
@@ -548,6 +548,15 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
             .filter((x: any): x is string => typeof x === 'string')
         : [];
       for (const p of schemaPages) {
+        if (outsideExtDir(p.schema)) {
+          sduiErrors.push({
+            code: 'SDUI_SCHEMA_OUTSIDE',
+            message:
+              'schema path is absolute or has a ".." segment; the engine refuses a file outside the extension\'s directory',
+            file: String(p.schema),
+          });
+          continue;
+        }
         // manifest `schema` is relative to the extension's `studio/` dir, the
         // same base the engine uses (embedPageSchemas: join(extDir,'studio',schema)).
         const rel = join('studio', p.schema as string).replace(/\\/g, '/');
@@ -640,6 +649,7 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
     if (!m.engine) return 'v1-legacy' as const;
     if (m.engine.bundled !== true) return 'engine-not-bundled' as const;
     if (!m.engine.entry) return 'missing-engine-entry' as const;
+    if (outsideExtDir(m.engine.entry)) return 'engine-entry-outside' as const;
     if (!m.integrity?.engineSha256) return 'missing-engine-sha' as const;
     return 'v2-ok' as const;
   })();
@@ -662,9 +672,11 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
             ? c.red('engine.bundled !== true — re-pack required')
             : v2Status === 'missing-engine-entry'
               ? c.red('engine.entry missing')
-              : v2Status === 'missing-engine-sha'
-                ? c.red('integrity.engineSha256 missing — re-pack required')
-                : c.dim('unknown');
+              : v2Status === 'engine-entry-outside'
+                ? c.red('engine.entry outside the extension directory (absolute or "..")')
+                : v2Status === 'missing-engine-sha'
+                  ? c.red('integrity.engineSha256 missing — re-pack required')
+                  : c.dim('unknown');
   console.log(`  Manifest v2:   ${v2Label}`);
 
   // marketplace-policy.md §2 enforcement: community submissions MUST declare
@@ -750,6 +762,7 @@ export async function extensionValidateCommand(opts: ExtensionValidateOptions = 
   if (
     v2Status === 'engine-not-bundled' ||
     v2Status === 'missing-engine-entry' ||
+    v2Status === 'engine-entry-outside' ||
     v2Status === 'missing-engine-sha'
   ) {
     console.error(c.red('Validation failed: manifest declares v2 engine block but is incomplete.'));
@@ -822,4 +835,20 @@ function printError(e: ValidationError, severity: 'error' | 'warning' = 'error')
   console.log(`  ${code}  ${e.message}${loc}`);
 }
 
-export const _internalForTests = { inferExpectedName, recursiveSize };
+/**
+ * A manifest path the engine refuses (`manifestFile`, DR-TASKS l.58): absolute,
+ * or with a `..` segment, it could name a file outside the extension's
+ * directory, which is all a signature covers. Said here so the author learns at
+ * validate time, not at load.
+ */
+function outsideExtDir(rel: unknown): boolean {
+  return (
+    typeof rel !== 'string' ||
+    rel === '' ||
+    rel.includes('\0') ||
+    isAbsolute(rel) ||
+    rel.split(/[\\/]/).includes('..')
+  );
+}
+
+export const _internalForTests = { inferExpectedName, recursiveSize, outsideExtDir };
