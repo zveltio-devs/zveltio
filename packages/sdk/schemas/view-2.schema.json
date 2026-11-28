@@ -38,6 +38,14 @@
         "filter": {
           "$ref": "#/$defs/Conditions"
         },
+        "facets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Name"
+          },
+          "minItems": 1,
+          "description": "Fields drawn as quick filters: \"all\" and one per declared choice (true and false for a boolean), one value per field at a time. Not persisted."
+        },
         "sort": {
           "$ref": "#/$defs/Sort"
         },
@@ -228,6 +236,13 @@
             },
             "action": {
               "$ref": "#/$defs/ActionName"
+            },
+            "pick": {
+              "type": "object",
+              "description": "Inputs drawn as a picker of the records of a collection of the extension; the id is the value.",
+              "additionalProperties": {
+                "$ref": "#/$defs/Name"
+              }
             },
             "fields": {
               "$ref": "#/$defs/Fields"
@@ -1173,6 +1188,13 @@
               "minItems": 1,
               "description": "Input fields to ask for."
             },
+            "pick": {
+              "type": "object",
+              "description": "Inputs drawn as a picker of the records of a collection of the extension (`prompt` names each); the id is the value.",
+              "additionalProperties": {
+                "$ref": "#/$defs/Name"
+              }
+            },
             "confirm": {
               "$ref": "#/$defs/Text"
             },
@@ -1311,6 +1333,14 @@
         },
         "filter": {
           "$ref": "#/$defs/Conditions"
+        },
+        "facets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Name"
+          },
+          "minItems": 1,
+          "description": "Fields drawn as quick filters: \"all\" and one per declared choice (true and false for a boolean), one value per field at a time. Not persisted."
         },
         "sort": {
           "$ref": "#/$defs/Sort"
@@ -1492,6 +1522,13 @@
             },
             "action": {
               "$ref": "#/$defs/ActionName"
+            },
+            "pick": {
+              "type": "object",
+              "description": "Inputs drawn as a picker of the records of a collection of the extension; the id is the value.",
+              "additionalProperties": {
+                "$ref": "#/$defs/Name"
+              }
             },
             "fields": {
               "$ref": "#/$defs/Fields"

@@ -308,3 +308,48 @@ export function actionPath(extension: string, action: string): string {
 const EXTENSION_NAME = /^[a-z][a-z0-9-]*(\/[a-z][a-z0-9-]*)*$/;
 /** An action name, as the manifest's `actions[].name`. */
 const ACTION = /^[a-z][a-zA-Z0-9]*$/;
+
+/** The collection a relation field points at (`m2o`, `reference`); none for any other field. */
+export function relatedOf(f: SchemaField | undefined): string | null {
+  const target = (f?.options as { related_collection?: unknown } | null | undefined)
+    ?.related_collection;
+  return (f?.type === 'm2o' || f?.type === 'reference') && typeof target === 'string'
+    ? target
+    : null;
+}
+
+/**
+ * What a list's `facets` entry offers for a field: its declared choices, or
+ * `true` and `false` for a boolean; nothing for any other field.
+ */
+export function facetOptions(
+  f: SchemaField | undefined,
+): { value: string | boolean; label: string }[] {
+  if (f?.type === 'boolean') {
+    return [true, false].map((value) => ({ value, label: String(value) }));
+  }
+  const opts = f?.options as { choices?: unknown[] } | unknown[] | null | undefined;
+  const list = (Array.isArray(opts) ? opts : opts?.choices) ?? [];
+  return list.map((c) => {
+    if (typeof c !== 'object' || c === null) return { value: String(c), label: String(c) };
+    const { value, label } = c as { value: unknown; label?: unknown };
+    return { value: String(value), label: String(label ?? value) };
+  });
+}
+
+/**
+ * A list's `filter` with the facet values picked (field → value) added as
+ * `field eq value`. A facet on a field the filter constrains is refused by
+ * `validateView`; one that slips through is dropped, so the view's own
+ * condition always stands.
+ */
+export function withFacets(
+  filter: Conditions | undefined,
+  picked: Readonly<Record<string, string | boolean | undefined>>,
+): Conditions | undefined {
+  const own = new Set((filter ?? []).map((c) => c.field));
+  const added: Condition[] = Object.entries(picked).flatMap(([field, value]) =>
+    value === undefined || own.has(field) ? [] : [{ field, op: 'eq', value } as Condition],
+  );
+  return added.length ? ([...(filter ?? []), ...added] as Conditions) : filter;
+}

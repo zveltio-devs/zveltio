@@ -38,7 +38,13 @@ import { bundleExtensionEngine, EXTENSION_BUNDLE_CORE_DEPS } from '../lib/extens
 import { resolvePackIsolation } from '../lib/pack-isolation.js';
 import { resolvePublisherTier } from '../lib/publisher-tier.js';
 import { SHARED_MESSAGE_KEYS, type ValidationError } from '@zveltio/sdk/validate';
-import { isViewDocument, validateView, viewNameIssues } from '@zveltio/sdk/view';
+import {
+  facetOptions,
+  isViewDocument,
+  pickIssues,
+  validateView,
+  viewNameIssues,
+} from '@zveltio/sdk/view';
 
 // Historically this was a list of peer deps allowed to stay external —
 // the engine would install them at enable time into a shared
@@ -314,13 +320,29 @@ const SYSTEM_COLUMNS = ['id', 'created_at', 'updated_at', 'created_by', 'updated
  * (fields, relation columns, system columns). A missing or unreadable file is
  * left out: file presence and the engine report it, and its views go unchecked.
  */
-function declaredFields(dir: string, collections: string[]): Map<string, string[]> {
+function declaredFields(
+  dir: string,
+  collections: string[],
+  facets?: Map<string, string[]>,
+): Map<string, string[]> {
   const out = new Map<string, string[]>();
   for (const name of collections) {
     try {
       const file = JSON.parse(
         readFileSync(join(dir, 'schema', 'collections', `${name}.json`), 'utf8'),
       ) as { fields?: unknown; relations?: unknown };
+      if (facets && Array.isArray(file.fields)) {
+        facets.set(
+          name,
+          (file.fields as { name?: unknown; type?: unknown; options?: unknown }[])
+            .filter(
+              (f) =>
+                typeof f.name === 'string' &&
+                facetOptions({ name: f.name, type: String(f.type), options: f.options }).length > 0,
+            )
+            .map((f) => f.name as string),
+        );
+      }
       out.set(name, [
         ...SYSTEM_COLUMNS,
         ...names(file.fields, 'name'),
@@ -372,23 +394,31 @@ export function checkViews(dir: string, manifest: unknown): ValidationError[] {
   }
   const views = docs.filter((d) => isViewDocument(d.doc));
   const own = ownMessageKeys(dir);
+  const facetFields = new Map<string, string[]>();
+  const fields = declaredFields(dir, names(m.collections), facetFields);
+  const inputs = new Map(
+    (Array.isArray(m.actions) ? (m.actions as { name?: unknown; input?: unknown }[]) : [])
+      .filter((a) => typeof a?.name === 'string' && a.input !== undefined)
+      .map((a) => [a.name as string, a.input] as const),
+  );
   const refs = {
     collections: names(m.collections),
     actions: names(m.actions, 'name'),
     dependencies: [...names(m.dependencies, 'name'), ...names(m.optionalDependencies, 'name')],
     views: views.map((d) => (d.doc as { id?: unknown }).id).filter((x) => typeof x === 'string'),
     messageKeys: own && [...own, ...SHARED_MESSAGE_KEYS],
-    fields: declaredFields(dir, names(m.collections)),
+    fields,
+    facetFields,
   };
   for (const { file, doc } of views) {
     const r = validateView(doc);
-    const issues = r.ok ? viewNameIssues(doc, refs) : r.issues;
-    for (const i of issues) {
-      out.push({
-        code: r.ok ? 'VIEW_REFERENCE' : 'VIEW_INVALID',
-        message: `${i.path || '/'} ${i.message}`,
-        file,
-      });
+    const found = (code: string, issues: { path: string; message: string }[]) =>
+      issues.forEach((i) => out.push({ code, message: `${i.path || '/'} ${i.message}`, file }));
+    if (!r.ok) found('VIEW_INVALID', r.issues);
+    else {
+      // A `pick` input must be a string input of its action: the page is invalid, not mis-referenced.
+      found('VIEW_INVALID', pickIssues(doc, inputs));
+      found('VIEW_REFERENCE', viewNameIssues(doc, refs));
     }
   }
   return out;

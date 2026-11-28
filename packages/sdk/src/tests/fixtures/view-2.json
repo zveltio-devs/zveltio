@@ -1,5 +1,18 @@
 {
   "valid": {
+    "relation pickers and a facet": {
+      "spec": "zveltio.view/2",
+      "type": "list",
+      "collection": "deals",
+      "facets": ["stage", "won"],
+      "rowActions": [{ "action": "assign", "prompt": ["owner"], "pick": { "owner": "people" } }]
+    },
+    "an action form with a picker": {
+      "spec": "zveltio.view/2",
+      "type": "form",
+      "action": "assign",
+      "pick": { "owner": "people" }
+    },
     "a list that edits and deletes its rows": {
       "spec": "zveltio.view/2",
       "type": "list",
@@ -155,6 +168,30 @@
     }
   },
   "invalid": {
+    "a pick on a collection form": {
+      "spec": "zveltio.view/2",
+      "type": "form",
+      "collection": "deals",
+      "pick": { "owner": "people" }
+    },
+    "a pick naming a URL": {
+      "spec": "zveltio.view/2",
+      "type": "form",
+      "action": "assign",
+      "pick": { "owner": "/api/people" }
+    },
+    "an empty facets list": {
+      "spec": "zveltio.view/2",
+      "type": "list",
+      "collection": "deals",
+      "facets": []
+    },
+    "a facet that is not a field name": {
+      "spec": "zveltio.view/2",
+      "type": "list",
+      "collection": "deals",
+      "facets": ["Stage"]
+    },
     "a file handoff with a key view/2 does not have": {
       "spec": "zveltio.view/2",
       "type": "list",

@@ -27,6 +27,15 @@ function fakeClient(extra: Record<string, unknown> = {}) {
                 { name: 'id', type: 'uuid', is_system: true },
                 { name: 'name', type: 'text' },
                 { name: 'stage', type: 'text' },
+                { name: 'tier', type: 'select', options: { choices: ['gold', 'basic'] } },
+                { name: 'active', type: 'boolean' },
+              ],
+            },
+            {
+              name: 'invoices',
+              fields: [
+                { name: 'id', type: 'uuid', is_system: true },
+                { name: 'deal_id', type: 'm2o', options: { related_collection: 'deals' } },
               ],
             },
           ],
@@ -49,7 +58,7 @@ function fakeClient(extra: Record<string, unknown> = {}) {
       },
       get: async (id: string) => {
         calls.push(`GET ${c}/${id}`);
-        return rows.find((r) => r.id === id);
+        return c === 'invoices' ? { id: 'i1', deal_id: 'gone' } : rows.find((r) => r.id === id);
       },
     }),
     actions: {
@@ -78,6 +87,7 @@ const host: ViewHost = {
   scope: {},
   press: () => {},
   select: () => {},
+  facet: () => {},
   save: () => {},
 };
 const draw = (n: Loaded) => renderToString(<ViewRenderer node={n} host={host} />);
@@ -181,6 +191,70 @@ describe('loadView + ViewRenderer', () => {
     expect(draw(stat)).toContain('>7</output>');
   });
 
+  it('a facet draws all and one button per choice (true and false for a boolean), and filters on the pick', async () => {
+    const { client, calls } = fakeClient();
+    const view: View = { type: 'list', collection: 'deals', facets: ['tier', 'active'] };
+    const none = await loadView(client, 'crm', view);
+    expect(calls).toContain('LIST deals {} 25');
+    const html = draw(none);
+    expect(html).toContain('>gold</button>');
+    expect(html).toContain('>true</button>');
+    expect(html).toContain('>false</button>');
+    // Nothing picked: "all" is the pressed one.
+    expect(html).toContain('aria-pressed="true">all</button>');
+    const gold = await loadView(
+      client,
+      'crm',
+      view,
+      {},
+      new WeakMap(),
+      new Map([[view, { tier: 'gold' }]]),
+    );
+    expect(calls).toContain('LIST deals {"tier":{"eq":"gold"}} 25');
+    expect(draw(gold)).toContain('aria-pressed="true">gold</button>');
+    const no = await loadView(
+      client,
+      'crm',
+      view,
+      {},
+      new WeakMap(),
+      new Map([[view, { active: false }]]),
+    );
+    expect(calls).toContain('LIST deals {"active":{"eq":false}} 25');
+    expect(draw(no)).toContain('aria-pressed="true">false</button>');
+  });
+
+  it('a relation field is a picker of the related records; a value the caller cannot read keeps its id', async () => {
+    const { client, calls } = fakeClient();
+    const html = draw(
+      await loadView(
+        client,
+        'crm',
+        {
+          type: 'form',
+          collection: 'invoices',
+          record: { $param: 'id' },
+          fields: ['deal_id'],
+        },
+        { params: { id: 'i1' } },
+      ),
+    );
+    expect(calls).toContain('LIST deals {} 100');
+    expect(html).toContain('<select name="deal_id"');
+    expect(html).toContain('>Alpha</option>');
+    expect(html).toContain('<option value="gone" selected="">gone</option>');
+  });
+
+  it('an action form draws a `pick` input as a picker of the collection', async () => {
+    const { client } = fakeClient();
+    const html = draw(
+      await loadView(client, 'crm', { type: 'form', action: 'close', pick: { reason: 'deals' } }),
+    );
+    expect(html).toContain('<select name="reason"');
+    expect(html).toContain('>Beta</option>');
+    expect(html).toContain('name="amount"');
+  });
+
   it('a sum reads the aggregate route with its filter (ADR 0050)', async () => {
     const { client, calls } = fakeClient();
     const n = await loadView(client, 'crm', {
@@ -256,6 +330,7 @@ describe('loadView + ViewRenderer', () => {
       },
       columns: [],
       rows: [],
+      facets: [],
     });
     expect(html).not.toContain('>GO<');
     expect(html).toContain('>ALL<');

@@ -5,11 +5,13 @@
  */
 import {
   type Field,
+  facetOptions,
   type ListView,
   matches,
   type SchemaField,
   viewFields,
   type ViewScope,
+  withFacets,
 } from '@zveltio/sdk/view';
 import { m } from '#lib/i18n.svelte.js';
 import Pagination from '#lib/components/common/Pagination.svelte';
@@ -46,11 +48,22 @@ let waiting = $state(false);
 let chosen = $state(new Set<string>());
 let creating = $state(false);
 let editing = $state<Row | null>(null);
+/** The value picked per facet field; absent is "all". Not persisted. */
+let picked = $state<Record<string, string | boolean | undefined>>({});
 
 const limit = $derived(view.pageSize ?? 25);
 const fields = $derived(fieldHints(viewFields(view.fields, schema, 'list') as Field[]));
 const labels = $derived(new Map(schema.map((f) => [f.name, f])));
-const params = $derived(listParams(view, scope, { page, limit, search }));
+const params = $derived(
+  listParams({ ...view, filter: withFacets(view.filter, picked) }, scope, { page, limit, search }),
+);
+const facets = $derived(
+  (view.facets ?? []).map((field) => ({
+    field,
+    label: label(field, null),
+    options: facetOptions(labels.get(field)),
+  })),
+);
 
 $effect(() => {
   schemaOf(view.collection).then(
@@ -145,6 +158,26 @@ const rowButtons = $derived(!!view.rowActions?.length || !!view.edit || !!view.d
       {/if}
     </div>
   {/if}
+
+  {#each facets as facet (facet.field)}
+    <div class="flex flex-wrap items-center gap-1" data-testid="view-facet" data-field={facet.field}>
+      <span class="text-sm text-base-content/65 mr-1">{facet.label}</span>
+      {#each [{ value: undefined, label: m['common.filter.all']() }, ...facet.options.map((o) => ({ value: o.value, label: typeof o.value === 'boolean' ? (o.value ? m['common.yes']() : m['common.no']()) : o.label }))] as o (String(o.value))}
+        <button
+          type="button"
+          class="btn btn-xs"
+          class:btn-primary={picked[facet.field] === o.value}
+          aria-pressed={picked[facet.field] === o.value}
+          onclick={() => {
+            picked = { ...picked, [facet.field]: o.value };
+            page = 1;
+          }}
+        >
+          {o.label}
+        </button>
+      {/each}
+    </div>
+  {/each}
 
   {#if waiting}
     <p class="text-sm text-base-content/65 py-6 text-center">{m['view.selectFirst']()}</p>

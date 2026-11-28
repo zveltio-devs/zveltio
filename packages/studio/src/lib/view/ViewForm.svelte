@@ -4,7 +4,7 @@
  * input and run it. The fields, their types and labels come from the
  * collection (or the action's input schema); the view only selects and orders.
  * A `richtext` field is edited by `ViewRichTextEditor`, a `file` field by
- * `ViewFiles`, after the group's other fields. On a collection form an action
+ * `ViewFiles`, a relation (or a `pick` input) by `ViewPicker`, after the group's other fields. On a collection form an action
  * in `submit` saves the record first and runs on the saved record. An action
  * input property that is a list of objects is drawn by `ViewLines`.
  */
@@ -28,6 +28,7 @@ import {
   fieldHints,
   findAction,
   formPayload,
+  relatedOf,
   runnableActions,
   schemaOf,
   toFormField,
@@ -36,6 +37,7 @@ import {
 } from './engine.js';
 import ViewButtons from './ViewButtons.svelte';
 import ViewFiles from './ViewFiles.svelte';
+import ViewPicker from './ViewPicker.svelte';
 import ViewLines from './ViewLines.svelte';
 import ViewRichTextEditor from './ViewRichTextEditor.svelte';
 import ViewValue from './ViewValue.svelte';
@@ -148,14 +150,19 @@ const editable = $derived(
     g.fields
       .filter(({ name, hint }) => byName.has(name) && !shownOnly(name, hint))
       .map(({ name, hint }) =>
-        toFormField(byName.get(name)!, hint?.label ? host.t(hint.label) : undefined),
+        toFormField(
+          byName.get(name)!,
+          hint?.label ? host.t(hint.label) : undefined,
+          // A relation field is a picker of the related records; an action form names its own.
+          relatedOf(byName.get(name)) ?? ('pick' in view ? view.pick?.[name] : undefined),
+        ),
       ),
   ),
 );
 const allEditable = $derived(editable.flat() as FormField[]);
 /** Field types drawn here rather than by `SchemaForm`. */
 const OWN_EDITOR = new Set(['richtext', 'file']);
-const ownEditor = (f: FormField) => OWN_EDITOR.has(String(f.fieldType));
+const ownEditor = (f: FormField) => OWN_EDITOR.has(String(f.fieldType)) || !!f.pick;
 const multiple = (name: string) =>
   (byName.get(name)?.options as { multiple?: unknown } | null | undefined)?.multiple === true;
 /** The view names fields: only the lines it names; it names none: every line. */
@@ -276,7 +283,14 @@ async function beforeAction(scope: ViewScope): Promise<ViewScope | null> {
                 {#if f.required}<span class="text-error">*</span>{/if}
               </span>
             </label>
-            {#if f.fieldType === 'richtext'}
+            {#if f.pick}
+              <ViewPicker
+                id={fid}
+                collection={String(f.pick)}
+                value={values[f.name]}
+                onchange={(v) => (values[f.name] = v)}
+              />
+            {:else if f.fieldType === 'richtext'}
               <ViewRichTextEditor
                 id={fid}
                 label={f.label ?? f.name}

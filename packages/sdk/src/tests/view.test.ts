@@ -5,7 +5,17 @@
 import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { $, isViewDocument, VIEW_SPEC, validateView, view, viewNameIssues } from '../view/index.js';
+import {
+  $,
+  facetOptions,
+  isViewDocument,
+  pickIssues,
+  VIEW_SPEC,
+  validateView,
+  view,
+  viewNameIssues,
+  withFacets,
+} from '../view/index.js';
 // Parsed, not imported: an import would turn the `__proto__` key into a prototype.
 // Resolved through src/ so the copy tsc compiles into dist/tests finds it too.
 const fixtures = JSON.parse(
@@ -243,5 +253,127 @@ describe('builder', () => {
     );
     expect(Object.keys(built)).toEqual(['type', 'collection', 'spec']);
     expect(issues(built)).toEqual([]);
+  });
+});
+
+describe('pick and facets (DR-45)', () => {
+  const button = (extra: Record<string, unknown>) => ({
+    spec: VIEW_SPEC,
+    type: 'list',
+    collection: 'deals',
+    rowActions: [{ action: 'assign', ...extra }],
+  });
+  const names = {
+    collections: ['deals', 'people'],
+    actions: ['assign'],
+    fields: new Map([['deals', ['id', 'stage', 'won', 'notes']]]),
+    facetFields: new Map([['deals', ['stage', 'won']]]),
+  };
+
+  it('a button `pick` must be an input it asks for (`prompt`) and does not set (`input`)', () => {
+    expect(issues(button({ prompt: ['owner'], pick: { owner: 'people' } }))).toEqual([]);
+    expect(paths(button({ pick: { owner: 'people' } }))).toEqual(['/rowActions/0/pick/owner']);
+    expect(
+      paths(button({ prompt: ['owner'], input: { owner: 'x' }, pick: { owner: 'people' } })),
+    ).toContain('/rowActions/0/pick/owner');
+  });
+
+  it('an action form `pick` is accepted; a collection form takes none', () => {
+    expect(
+      issues({ spec: VIEW_SPEC, type: 'form', action: 'assign', pick: { owner: 'people' } }),
+    ).toEqual([]);
+    expect(
+      paths({ spec: VIEW_SPEC, type: 'form', collection: 'deals', pick: { owner: 'people' } }),
+    ).toEqual(['/pick']);
+  });
+
+  it('a `pick` collection must be one the extension owns', () => {
+    const v = button({ prompt: ['owner'], pick: { owner: 'contacts' } });
+    expect(viewNameIssues(v, names).map((i) => i.path)).toEqual(['/rowActions/0/pick/owner']);
+    expect(viewNameIssues(button({ prompt: ['owner'], pick: { owner: 'people' } }), names)).toEqual(
+      [],
+    );
+    // The input name is the caller's: a key named `action` or `collection` is no reference.
+    const odd = { spec: VIEW_SPEC, type: 'form', action: 'assign', pick: { action: 'people' } };
+    expect(viewNameIssues(odd, names)).toEqual([]);
+  });
+
+  it('a `pick` input must be a string property of its action input', () => {
+    const inputs = new Map<string, unknown>([
+      [
+        'assign',
+        {
+          properties: {
+            owner: { type: 'string' },
+            maybe: { type: ['string', 'null'] },
+            n: { type: 'integer' },
+            kind: { type: 'string', enum: ['a'] },
+            many: { type: 'array', items: { type: 'string' } },
+          },
+        },
+      ],
+    ]);
+    const v = (pick: Record<string, string>) => button({ prompt: Object.keys(pick), pick });
+    expect(pickIssues(v({ owner: 'people', maybe: 'people' }), inputs)).toEqual([]);
+    expect(
+      pickIssues(v({ n: 'people', kind: 'people', many: 'people', ghost: 'people' }), inputs).map(
+        (i) => i.path,
+      ),
+    ).toEqual([
+      '/rowActions/0/pick/n',
+      '/rowActions/0/pick/kind',
+      '/rowActions/0/pick/many',
+      '/rowActions/0/pick/ghost',
+    ]);
+    // An action with no known schema (a dependency's) is not checked.
+    expect(pickIssues(v({ n: 'people' }), new Map())).toEqual([]);
+  });
+
+  const facets = (extra: Record<string, unknown>) => ({
+    spec: VIEW_SPEC,
+    type: 'list',
+    collection: 'deals',
+    ...extra,
+  });
+
+  it('a facet on a field the view `filter` constrains is refused', () => {
+    expect(issues(facets({ facets: ['stage'] }))).toEqual([]);
+    expect(
+      paths(
+        facets({ facets: ['stage', 'won'], filter: [{ field: 'won', op: 'eq', value: true }] }),
+      ),
+    ).toEqual(['/facets/1']);
+  });
+
+  it('a facet must be a field of the collection with choices, or a boolean', () => {
+    expect(viewNameIssues(facets({ facets: ['stage', 'won'] }), names)).toEqual([]);
+    expect(
+      viewNameIssues(facets({ facets: ['notes', 'ghost'] }), names).map((i) => [i.path, i.message]),
+    ).toEqual([
+      ['/facets/1', 'field "ghost" is not a field of "deals"'],
+      ['/facets/0', 'field "notes" is neither a boolean nor has declared choices'],
+    ]);
+  });
+
+  it('facetOptions: choices, or true and false for a boolean; withFacets keeps the view filter', () => {
+    expect(
+      facetOptions({
+        name: 's',
+        type: 'select',
+        options: { choices: ['a', { value: 'b', label: 'B' }] },
+      }),
+    ).toEqual([
+      { value: 'a', label: 'a' },
+      { value: 'b', label: 'B' },
+    ]);
+    expect(facetOptions({ name: 'w', type: 'boolean' }).map((o) => o.value)).toEqual([true, false]);
+    expect(facetOptions({ name: 't', type: 'text' })).toEqual([]);
+    const own = [{ field: 'a', op: 'eq', value: 1 }] as never;
+    expect(withFacets(own, { b: 'x', w: false, gone: undefined })).toEqual([
+      { field: 'a', op: 'eq', value: 1 },
+      { field: 'b', op: 'eq', value: 'x' },
+      { field: 'w', op: 'eq', value: false },
+    ]);
+    expect(withFacets(own, { a: 'x' })).toBe(own);
   });
 });
