@@ -265,6 +265,7 @@ d('a key is its author to a row rule (ADR 0028)', () => {
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     await unregisterJobs(EXT);
     if (!db) return;
     await sql`DELETE FROM zv_extension_registry WHERE name = ${EXT}`.execute(db).catch(() => {});

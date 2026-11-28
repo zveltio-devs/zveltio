@@ -197,6 +197,7 @@ d('ADR 0012 pilot gaps: seeded names, required keys, relation defaults, Studio-o
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     _setInlineForTests(wasInline);
     await extensionLoader.unload(NAME).catch(() => undefined);
     extensionLoader.ctx = saved.ctx;

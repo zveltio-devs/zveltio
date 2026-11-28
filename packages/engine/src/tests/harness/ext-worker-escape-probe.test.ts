@@ -482,6 +482,7 @@ d('an extension worker cannot escape (ADR 0062 probe "security")', () => {
   }, 120_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     console.log(
       `\n[psec] probe | transport | result\n${table.map((r) => `[psec] ${r.probe} | ${r.transport} | ${r.result}`).join('\n')}`,
     );

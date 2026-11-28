@@ -219,6 +219,7 @@ d('updating an extension in place', () => {
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     _setInlineForTests(wasInline);
     globalThis.fetch = realFetch;
     await extensionLoader.unload(NAME).catch(() => undefined);

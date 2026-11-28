@@ -111,6 +111,7 @@ d('an extension action gated on a collection it declares', () => {
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     invalidateActivationCache();
     if (savedDir === undefined) delete process.env.EXTENSIONS_DIR;
     else process.env.EXTENSIONS_DIR = savedDir;

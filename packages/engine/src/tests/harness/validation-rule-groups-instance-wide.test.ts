@@ -208,6 +208,7 @@ d('validation rule groups are instance-wide', () => {
   }, 120_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     invalidateActivationCache();
     if (!db) return;
     await sql`DROP TABLE IF EXISTS zvd_validation_rule_groups`.execute(db);

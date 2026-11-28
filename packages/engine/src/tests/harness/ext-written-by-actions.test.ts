@@ -422,6 +422,7 @@ d('writtenBy: "actions" — only the owning extension’s actions and jobs write
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     await forgetRuleObjects(db, RES, RES2);
     invalidateActivationCache();
     await unregisterJobs(EXT);

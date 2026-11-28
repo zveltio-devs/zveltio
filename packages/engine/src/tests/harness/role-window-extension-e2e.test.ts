@@ -187,6 +187,7 @@ d('an extension racing an engine window reads only its tenant, as its own role',
   }, 120_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     _setInlineForTests(wasInline);
     invalidateActivationCache();
     if (!db) return;

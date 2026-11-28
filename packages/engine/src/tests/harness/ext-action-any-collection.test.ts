@@ -232,6 +232,7 @@ d('an action reaches any collection as its caller (ADR 0047)', () => {
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     _setInlineForTests(wasInline);
     invalidateActivationCache();
     if (!db) return;

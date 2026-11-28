@@ -373,6 +373,7 @@ d('a route reaches its collections through host.collections (ADR 0025)', () => {
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     _setInlineForTests(wasInline);
     invalidateActivationCache();
     if (saved.transport === undefined) delete process.env.ZVELTIO_EXT_TRANSPORT;

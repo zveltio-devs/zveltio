@@ -234,6 +234,7 @@ d('a public route reads as the public role (ADR 0020)', () => {
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     _setInlineForTests(wasInline);
     invalidateActivationCache();
     if (!db) return;

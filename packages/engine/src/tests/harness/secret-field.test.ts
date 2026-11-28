@@ -230,6 +230,7 @@ d('a secret field: write-only, read back by its own extension alone (ADR 0024)',
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     await forgetRuleObjects(db, RES);
     invalidateActivationCache();
     await unregisterJobs(EXT);

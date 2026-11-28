@@ -160,6 +160,7 @@ d('validation rules are written by an instance admin only', () => {
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     invalidateActivationCache();
     _resetExtensionDbRoleForTests();
     if (!db) return;

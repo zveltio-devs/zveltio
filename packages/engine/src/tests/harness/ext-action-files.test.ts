@@ -226,6 +226,7 @@ d('an action reads and writes the files its request hands it (ADR 0052)', () => 
   }, 120_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     invalidateActivationCache();
     if (!db) return;
     await forgetRuleObjects(db, RES);

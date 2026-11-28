@@ -148,6 +148,7 @@ d('extension schema files are checked against the digest pack wrote', () => {
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     _setInlineForTests(wasInline);
     await extensionLoader.unload(NAME).catch(() => undefined);
     extensionLoader.ctx = saved.ctx;

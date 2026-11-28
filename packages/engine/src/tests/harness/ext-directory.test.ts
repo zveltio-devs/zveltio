@@ -257,6 +257,7 @@ for (const isolated of [false, true]) {
       }, 60_000);
 
       afterAll(async () => {
+        _setInlineForTests(false);
         invalidateActivationCache();
         if (isolated) {
           if (saved.transport === undefined) delete process.env.ZVELTIO_EXT_TRANSPORT;

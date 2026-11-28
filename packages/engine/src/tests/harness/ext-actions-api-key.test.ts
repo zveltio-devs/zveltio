@@ -176,6 +176,7 @@ d('an API key runs an extension action with $ext:<name> execute', () => {
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     await forgetRuleObjects(db, RES);
     invalidateActivationCache();
     if (!db) return;

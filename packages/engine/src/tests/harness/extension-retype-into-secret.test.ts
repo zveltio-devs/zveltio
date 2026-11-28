@@ -157,6 +157,7 @@ d("an extension's update turns its text field secret (ADR 0024 §6)", () => {
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     await forgetRuleObjects(db, RES);
     invalidateActivationCache();
     if (!db) return;

@@ -270,6 +270,7 @@ for (const isolated of [false, true]) {
       }, 60_000);
 
       afterAll(async () => {
+        _setInlineForTests(false);
         _setInlineForTests(wasInline);
         invalidateActivationCache();
         if (isolated) {
