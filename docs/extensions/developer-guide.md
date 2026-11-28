@@ -326,13 +326,10 @@ the last `__` ends it, and `<KEY>` contains no `__` (ADR 0030). So
 `ZVELTIO_EXT_BILLING_STRIPE__KEY` is `billing-stripe`'s `KEY`, whatever else is
 installed.
 
-The older single-underscore spelling `ZVELTIO_EXT_<YOUR_NAME>_<KEY>` is still
-read (the engine logs each such key with its new spelling), and loses to the
-delimited one when both set a key. It is not unique (`billing`'s `STRIPE_KEY` and
-`billing-stripe`'s `KEY` are both `ZVELTIO_EXT_BILLING_STRIPE_KEY`), so a legacy
-key another installed extension's prefix also spells, or one under the engine's
-own `ZVELTIO_EXT_RUNNER_*` and `ZVELTIO_EXT_MEMORY_*`, reaches neither
-extension. v2 drops it.
+The older single-underscore spelling `ZVELTIO_EXT_<YOUR_NAME>_<KEY>` is not read
+(ADR 0063, v2 entry 6): it was not unique (`billing`'s `STRIPE_KEY` and
+`billing-stripe`'s `KEY` were both `ZVELTIO_EXT_BILLING_STRIPE_KEY`). The engine
+names each such variable at load with its delimited spelling.
 
 ```ts
 // operator sets ZVELTIO_EXT_SMS__TWILIO_ACCOUNT_SID=AC123…

@@ -1,8 +1,9 @@
 # extension-api v2 candidates
 
 extension-api v1 is frozen ([authoring.md](authoring.md#the-v1-contract-is-frozen)):
-it only grows, additively, until v2 ships before GA. Then extensions migrate
-and v1 is removed.
+it grows additively; a breaking entry below lands on master as its own breaking
+change, first-party extensions ported first (ADR 0063). v2 is cut before GA and
+v1 removed.
 
 This page collects what v1 taught us, so v2 is designed from it rather than
 from memory. Two kinds of entry:
@@ -163,7 +164,7 @@ its name. The only declarer is `storage/cloud`.
 the engine's storage rules, then retire the `storage` capability and
 `ctx.config.objectStorage`: no extension holds instance credentials.
 
-## 6. The legacy `ZVELTIO_EXT_<NAME>_<KEY>` spelling — breaking
+## 6. The legacy `ZVELTIO_EXT_<NAME>_<KEY>` spelling — breaking, shipped (ADR 0063)
 
 **What happened.** `ctx.config.vars` read `ZVELTIO_EXT_<NAME>_<KEY>`, with no
 delimiter between name and key, so one variable spells two extensions' settings
