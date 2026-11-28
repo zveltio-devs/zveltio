@@ -362,6 +362,16 @@ describe('pick and facets (DR-45)', () => {
     expect(paths(facets({ facets: ['stage', 'won', 'stage'] }))).toEqual(['/facets/2']);
   });
 
+  it("facetOptions reads the engine's enum declaration (`options.values`)", () => {
+    // The shape every extension collection file and Studio's field editor write.
+    expect(
+      facetOptions({ name: 'status', type: 'enum', options: { values: ['draft', 'sent'] } }),
+    ).toEqual([
+      { value: 'draft', label: 'draft' },
+      { value: 'sent', label: 'sent' },
+    ]);
+  });
+
   it('facetOptions keeps a choice typed; a multi-value select offers none', () => {
     expect(
       facetOptions({
