@@ -36,6 +36,7 @@ import { join, resolve } from 'node:path';
 import { sql } from 'kysely';
 import type { Database } from '../../db/index.js';
 import { schemaDigest } from '../../lib/extensions/declared-collections.js';
+import { asDefaultTenant } from '../../testing/app-harness.js';
 import { steppedUpFetch } from '../../testing/step-up.js';
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL;
@@ -512,14 +513,17 @@ for (const [driver, transport] of LEGS) {
           return { status: r.status, body: text };
         }
       };
+      // As the default tenant, whose rows these are: a plain owner's bare pool
+      // reads none under FORCE RLS (the hardened install).
       const authors = async () =>
         Object.fromEntries(
           (
-            await db$(
+            await asDefaultTenant(
+              db,
               sql<{ tag: string; by: string | null }>`SELECT tag, created_by AS by
                                                     FROM ${sql.table(table)}`,
             )
-          ).map((r) => [r.tag, r.by]),
+          ).rows.map((r) => [r.tag, r.by]),
         );
 
       out.enginePid = leg.engine?.pid;

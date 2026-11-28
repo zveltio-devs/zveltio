@@ -23,6 +23,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { sql } from 'kysely';
 import { createDb, type Database } from '../../db/index.js';
+import { asTenant } from '../../testing/app-harness.js';
 
 // A connection, not `getTestApp()`: the in-process app is a whole engine, DDL
 // queue worker included, and it claimed the live engine's create_collection jobs
@@ -62,12 +63,18 @@ d('RLS enforcement role', () => {
       .raw(`GRANT USAGE, SELECT ON SEQUENCE ${TABLE}_id_seq TO zveltio_rls`)
       .execute(db)
       .catch(() => undefined);
-    await sql
-      .raw(
-        `INSERT INTO ${TABLE} (tenant_id, label) VALUES ` +
-          `('${TENANT_A}', 'a-secret'), ('${TENANT_B}', 'b-secret')`,
-      )
-      .execute(db);
+    // Each row as its own tenant: FORCE RLS binds a plain owner (the hardened
+    // install), whose bare pool may write no tenant's row.
+    for (const [tenant, label] of [
+      [TENANT_A, 'a-secret'],
+      [TENANT_B, 'b-secret'],
+    ]) {
+      await asTenant(db, tenant!, (trx) =>
+        sql`INSERT INTO ${sql.table(TABLE)} (tenant_id, label) VALUES (${tenant}::uuid, ${label})`.execute(
+          trx,
+        ),
+      );
+    }
   });
 
   afterAll(async () => {

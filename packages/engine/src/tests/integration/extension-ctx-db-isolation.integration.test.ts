@@ -23,6 +23,7 @@ import {
   createDeniedAdminDb,
   ExtensionSecurityError,
 } from '../../lib/extensions/extension-context.js';
+import { connectedAsSuperuser } from '../../testing/app-harness.js';
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL;
 const skipAll = !TEST_DB_URL;
@@ -33,6 +34,8 @@ const A = '00000000-0000-0000-0000-00000000aa0a';
 const B = '00000000-0000-0000-0000-00000000bb0b';
 
 let db: Database;
+/** A superuser lane takes on a plain role made here; the hardened owner already is one. */
+let superuser = false;
 /** The engine pool before this suite made `db` the engine's: put back after. */
 let enginePool: Database | null = null;
 // The exact handle H-12 hands an extension as `ctx.db`: resolves the current
@@ -69,7 +72,7 @@ async function count(handle: Database): Promise<number> {
 function asTenantRequest<T>(tenant: string, fn: () => Promise<T>): Promise<T> {
   return runWithDomain(tenant, () =>
     db.transaction().execute(async (trx) => {
-      await sql.raw(`SET LOCAL ROLE "${ROLE}"`).execute(trx);
+      if (superuser) await sql.raw(`SET LOCAL ROLE "${ROLE}"`).execute(trx);
       await sql`SELECT set_config('zveltio.current_tenant', ${tenant}, true)`.execute(trx);
       // A request has an actor, and this one may read and write the collection:
       // what is under test is the tenant boundary, not collection permissions.
@@ -90,13 +93,16 @@ beforeAll(async () => {
   // definitions) run there, not on a pool another suite already closed.
   enginePool = _internalForTests.swapDbForTests(db);
   ctxDb = createRestrictedDb(() => getCurrentTenantTrx() ?? db, 'ctxdbtest', new Set([TABLE]));
+  superuser = await connectedAsSuperuser(db);
   await sql.raw(`DROP TABLE IF EXISTS "${TABLE}"`).execute(db);
-  await sql.raw(`DROP ROLE IF EXISTS "${ROLE}"`).execute(db);
-  await sql.raw(`CREATE ROLE "${ROLE}" NOSUPERUSER`).execute(db);
   await sql
     .raw(`CREATE TABLE "${TABLE}" (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), title TEXT)`)
     .execute(db);
-  await sql.raw(`ALTER TABLE "${TABLE}" OWNER TO "${ROLE}"`).execute(db);
+  if (superuser) {
+    await sql.raw(`DROP ROLE IF EXISTS "${ROLE}"`).execute(db);
+    await sql.raw(`CREATE ROLE "${ROLE}" NOSUPERUSER`).execute(db);
+    await sql.raw(`ALTER TABLE "${TABLE}" OWNER TO "${ROLE}"`).execute(db);
+  }
   await applyTenantRLS(db, TABLE);
   // Seed: 2 rows for A, 1 for B (tenant_id auto-tags from the GUC).
   // Insert through ctx.db itself — proving the write path is also tenant-tagged.
@@ -111,7 +117,7 @@ beforeAll(async () => {
 afterAll(async () => {
   if (skipAll || !db) return;
   await sql.raw(`DROP TABLE IF EXISTS "${TABLE}"`).execute(db);
-  await sql.raw(`DROP ROLE IF EXISTS "${ROLE}"`).execute(db);
+  if (superuser) await sql.raw(`DROP ROLE IF EXISTS "${ROLE}"`).execute(db);
   _internalForTests.swapDbForTests(enginePool);
   await (db as any).destroy?.();
 });
