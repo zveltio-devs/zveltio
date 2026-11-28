@@ -256,6 +256,7 @@ d('an extension writes records as the request caller, and only as them', () => {
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     invalidateActivationCache();
     if (!db) return;
     for (const id of keys) await sql`DELETE FROM zv_api_keys WHERE id = ${id}`.execute(db);

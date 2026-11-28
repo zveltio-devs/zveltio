@@ -171,6 +171,7 @@ d('validation rules per tenant, tighten-only', () => {
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     invalidateActivationCache();
     if (!db) return;
     await sql`DELETE FROM zv_validation_rules WHERE collection = ${COLL}`.execute(db);

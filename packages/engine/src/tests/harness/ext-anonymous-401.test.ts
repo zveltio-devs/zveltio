@@ -108,6 +108,7 @@ d('anonymous /ext/ answers 401, installed or not (ADR 0047 d3)', () => {
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     _setInlineForTests(wasInline);
     invalidateActivationCache();
     if (db) await sql`DELETE FROM zv_extension_registry WHERE name = ${EXT}`.execute(db);

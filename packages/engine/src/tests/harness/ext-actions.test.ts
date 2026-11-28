@@ -300,6 +300,7 @@ d('extension actions run as the caller, in the request transaction', () => {
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     await forgetRuleObjects(db, RES);
     invalidateActivationCache();
     if (!db) return;

@@ -118,6 +118,7 @@ d('asSystem names the API key that asked for it', () => {
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     invalidateActivationCache();
     if (!db) return;
     if (keyId) await sql`DELETE FROM zv_api_keys WHERE id = ${keyId}`.execute(db);

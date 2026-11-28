@@ -161,6 +161,7 @@ d('an extension declares its collections; the engine creates and owns them', () 
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     _setInlineForTests(wasInline);
     await extensionLoader.unload(NAME).catch(() => undefined);
     extensionLoader.ctx = saved.ctx;

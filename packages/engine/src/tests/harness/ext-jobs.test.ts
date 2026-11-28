@@ -321,6 +321,7 @@ d('extension jobs run after the request commits, in its tenant, as the extension
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     await forgetRuleObjects(db, RES);
     invalidateActivationCache();
     await unregisterJobs(EXT);

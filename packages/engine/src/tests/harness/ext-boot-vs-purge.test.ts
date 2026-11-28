@@ -101,6 +101,7 @@ d('boot beside a purge on another replica', () => {
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     _setInlineForTests(wasInline);
     if (saved === undefined) delete process.env.EXTENSIONS_DIR;
     else process.env.EXTENSIONS_DIR = saved;

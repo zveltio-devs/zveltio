@@ -397,6 +397,7 @@ d('a job reaches only the stored files its user hands it (ADR 0032)', () => {
   }, 180_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     _setInlineForTests(wasInline);
     await forgetRuleObjects(db, RES);
     invalidateActivationCache();

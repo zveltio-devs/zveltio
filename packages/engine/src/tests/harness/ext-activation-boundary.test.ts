@@ -68,6 +68,7 @@ d('a firm that switched an extension off is not served by it (in-process)', () =
   // An installed row with no files on disk stops every default grant after
   // this file (`claimsOfOthers`).
   afterAll(async () => {
+    _setInlineForTests(false);
     await sql`DELETE FROM zv_extension_registry WHERE name IN (${SUB}, ${GLOB})`.execute(db);
     invalidateActivationCache();
   });

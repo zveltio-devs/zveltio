@@ -275,6 +275,7 @@ d('a public route enqueues a job that writes a writtenBy collection (ADR 0018)',
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     invalidateActivationCache();
     await unregisterJobs(EXT);
     await unregisterJobs(NOSYS);

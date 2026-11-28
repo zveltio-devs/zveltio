@@ -195,6 +195,7 @@ d("a route's host.files acts as its caller (ADR 0034)", () => {
   }, 120_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     invalidateActivationCache();
     if (!db) return;
     const users = [user?.userId, colleague?.userId].filter(Boolean) as string[];

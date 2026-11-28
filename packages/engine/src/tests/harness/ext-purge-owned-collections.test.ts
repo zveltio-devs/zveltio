@@ -173,6 +173,7 @@ d('a purge drops the collections the extension owns, with all their rules', () =
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     _setInlineForTests(wasInline);
     await extensionLoader.unload(NAME).catch(() => undefined);
     extensionLoader.ctx = saved.ctx;

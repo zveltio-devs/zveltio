@@ -137,6 +137,7 @@ d('GET /api/actions lists exactly the actions the caller may run', () => {
   }, 60_000);
 
   afterAll(async () => {
+    _setInlineForTests(false);
     await forgetRuleObjects(db, RES);
     invalidateActivationCache();
     if (!db) return;
