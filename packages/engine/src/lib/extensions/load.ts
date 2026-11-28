@@ -18,7 +18,7 @@
  */
 
 import { existsSync, readdirSync, copyFileSync, unlinkSync } from 'node:fs';
-import { join, dirname, basename, extname } from 'path';
+import { join, dirname, basename, extname, relative, sep } from 'path';
 import { pathToFileURL } from 'node:url';
 import type { Hono } from 'hono';
 import type { ZveltioExtension } from '@zveltio/sdk/extension';
@@ -28,6 +28,7 @@ import { resolveExtensionsBase } from './extension-paths.js';
 import { recordManifest } from '../tenancy/index.js';
 import { verifyExtensionDir } from '../security/index.js';
 import { verifyRegistrySignedDir } from './extension-download.js';
+import { guardInlineImports } from './inline-imports.js';
 import {
   pendingExtensionMigrations,
   pendingMigrationsRefusal,
@@ -131,9 +132,12 @@ export async function loadExtensionFromDir(
     // loading the files unsigned.
     let operatorKeyId: string | null;
     let registryKeyId: string | null;
+    let registryFiles: ReadonlyMap<string, string> | null;
     try {
       operatorKeyId = (await verifyExtensionDir(extName, extDir))?.keyId ?? null;
-      registryKeyId = (await verifyRegistrySignedDir(extName, extDir))?.keyId ?? null;
+      const registrySigned = await verifyRegistrySignedDir(extName, extDir);
+      registryKeyId = registrySigned?.keyId ?? null;
+      registryFiles = registrySigned?.files ?? null;
     } catch (err) {
       const msg = (err as Error).message;
       console.error(`❌ ${msg}`);
@@ -242,6 +246,7 @@ export async function loadExtensionFromDir(
         collections,
         studio: await embedPageSchemas(extDir, early.studio),
       });
+      loader.lastLoadError.delete(extName);
       console.log(`🔌 Extension loaded: ${extName} (Studio/client-only — no engine)`);
       return;
     }
@@ -457,6 +462,16 @@ export async function loadExtensionFromDir(
         copyFileSync(resolvedPath, devReloadCopy);
         importPath = devReloadCopy;
       }
+      // A bundle runs from the bytes its registry signature lists, read as it
+      // loads (`inline-imports.ts`); the cache-buster copy is held to its entry's.
+      let signedFiles: Map<string, string> | null = null;
+      if (isBundled && registryFiles !== null) {
+        const posixRel = (p: string) => relative(extDir, p).split(sep).join('/');
+        signedFiles = new Map(registryFiles);
+        const entrySha = signedFiles.get(posixRel(resolvedPath));
+        if (devReloadCopy && entrySha) signedFiles.set(posixRel(devReloadCopy), entrySha);
+      }
+      guardInlineImports(extDir, signedFiles);
       const importHref = pathToFileURL(importPath).href;
       try {
         const module = reuse ? seen.module : await import(importHref);

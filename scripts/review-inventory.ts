@@ -448,6 +448,7 @@ const SECTIONS: Section[] = [
       `${E}lib/extensions/extension-loader.ts`,
       `${E}lib/extensions/load.ts`,
       `${E}lib/extensions/load-phases.ts`,
+      `${E}lib/extensions/inline-imports.ts`,
       `${E}lib/extensions/activation.ts`,
       `${E}lib/extensions/lifecycle.ts`,
       `${E}lib/extensions/runtime-policy.ts`,

@@ -131,6 +131,15 @@ also what keeps a first-party worker at level 0 (ADR 0062 d2):
   manifest names another extension — a signed archive copied under a
   first-party name is not that extension. A kept signature that does not hold is
   refused; the directory is never loaded as if it were unsigned.
+- **It runs the bytes the signature lists, and only those.** Every module the
+  engine loads from the directory is read once as it loads, hashed against the
+  archive, and handed to Bun as those bytes: a file the archive does not hold
+  (one planted in `.zveltio-registry/` or in a nested extension, which the
+  directory comparison leaves out) or a byte changed after the checks refuses
+  the load. Its imports name only runtime builtins (`node:*`, `bun:*`, `fs`) and
+  files of the directory, read before the import; a computed `import(x)` is
+  refused, since Bun lets nothing see where it resolves, and a computed
+  `require(x)` is refused when it runs if it names anything else.
 - **Unsigned is never inline,** whatever its name and whatever `NODE_ENV`: a
   directory put there by hand or a source checkout is refused, naming the reason
   (ADR 0056 amendment 2026-11-21: no local-dev exception).
