@@ -86,7 +86,8 @@ try {
   await Bun.sleep(START_BURST_MS + 300);
   out.capAfterBurst = cpuMax(unit);
   out.idle = (await until(() => health().status === 'idle')) ? 'idle' : health().status;
-  await until(() => active() !== 'active', 5000);
+  // `deactivating` is still on its way down: wait for the state the check asserts.
+  await until(() => active() === 'inactive', 5000);
   out.afterIdle = active();
   out.idleCrashes = health().recentCrashes;
   out.wake = (await call()).status;
