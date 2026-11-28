@@ -533,6 +533,13 @@ function arrayLiteral(items: readonly unknown[]): string {
  * change triggers here and, through the bus, on every replica.
  */
 const TYPE_CACHE_MAX = 5_000;
+/**
+ * The keys are whole statement texts, so a count alone does not bound memory:
+ * 5,000 generated multi-kilobyte texts would hold tens of megabytes. Counted in
+ * UTF-16 code units, which is what a JS string holds.
+ */
+const TYPE_CACHE_MAX_CHARS = 4_000_000;
+let paramTypeCacheChars = 0;
 /** The statements `PREPARE` accepts, after leading blanks, comments and parentheses. */
 const PREPARABLE =
   /^(?:\s|--[^\r\n]*|\/\*[\s\S]*?\*\/|\()*(?:select|insert|update|delete|merge|values|with|table)\b/i;
@@ -542,6 +549,7 @@ let describeSeq = 0;
 /** Forget every statement's parameter types — the schema they were read from changed. */
 export function clearParamTypeCache(): void {
   paramTypeCache.clear();
+  paramTypeCacheChars = 0;
 }
 
 /**
@@ -570,11 +578,20 @@ export async function paramTypes(
       `DEALLOCATE ${name}`,
   );
   const types = results.find((rows) => rows?.[0]?.t)?.[0]?.t ?? [];
-  if (paramTypeCache.size >= TYPE_CACHE_MAX) {
+  // Two concurrent misses on one text both land here; count it once. A text
+  // larger than the whole budget is answered, not kept.
+  if (paramTypeCache.has(text) || text.length > TYPE_CACHE_MAX_CHARS) return types;
+  while (
+    paramTypeCache.size >= TYPE_CACHE_MAX ||
+    paramTypeCacheChars + text.length > TYPE_CACHE_MAX_CHARS
+  ) {
     const oldest = paramTypeCache.keys().next().value;
-    if (oldest !== undefined) paramTypeCache.delete(oldest);
+    if (oldest === undefined) break;
+    paramTypeCache.delete(oldest);
+    paramTypeCacheChars -= oldest.length;
   }
   paramTypeCache.set(text, types);
+  paramTypeCacheChars += text.length;
   return types;
 }
 
