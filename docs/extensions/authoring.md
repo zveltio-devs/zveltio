@@ -465,11 +465,12 @@ These exports of `@zveltio/sdk/extension` are `extension-api v1`, frozen on
 `ZveltioExtension.actions`/`jobs`, `ActionRefusal`, `ACTION_REFUSAL`,
 `RefusalStatus`, `todayIn`, and the manifest's `actions` and `jobs` blocks.
 
-v1 is stable until v2, which ships before GA. Until then these only grow: a
-new optional member, a new host method, a wider union, a new manifest key with
-a default. Removing or renaming something, making an argument required or
-narrowing a type is a v2 change. When v2 ships, extensions migrate to it and v1
-is removed. What v2 should change, and the additive stopgaps v1 grew meanwhile,
+v1 grows additively: a new optional member, a new host method, a wider union, a
+new manifest key with a default. Removing or renaming something, making an
+argument required or narrowing a type is a v2 change, and only a v2 entry makes
+one: each lands on master as its own breaking change, with the first-party
+extensions ported first and a `Breaking` CHANGELOG entry (ADR 0063, beta only).
+When v2 is cut before GA, this frozen copy becomes v2 and v1 is removed. What v2 should change, and the additive stopgaps v1 grew meanwhile,
 are listed in [v2-candidates.md](v2-candidates.md).
 
 The frozen copy is `packages/sdk/extension-api/v1.d.ts`. CI runs

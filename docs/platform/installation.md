@@ -316,11 +316,10 @@ replaced by `_`, so `finance/banking` reads `ZVELTIO_EXT_FINANCE_BANKING__*`. Th
 last `__` ends the name, so `ZVELTIO_EXT_BILLING__STRIPE_KEY` is `billing`'s and
 `ZVELTIO_EXT_BILLING_STRIPE__KEY` is `billing-stripe`'s.
 
-The single-underscore spelling `ZVELTIO_EXT_<EXTENSION>_<KEY>` is still read and
-logged at load with its new name; rename those variables. A legacy key that two
-installed extensions' prefixes spell (`billing` and `billing-stripe` both spell
-`ZVELTIO_EXT_BILLING_STRIPE_*`) is handed to neither; the engine's own
-`ZVELTIO_EXT_RUNNER_*` and `ZVELTIO_EXT_MEMORY_*` reach no extension.
+The single-underscore spelling `ZVELTIO_EXT_<EXTENSION>_<KEY>` is not read
+(ADR 0063): rename those variables; the engine names each one left at load, with
+its new spelling. The engine's own `ZVELTIO_EXT_TRANSPORT` and
+`ZVELTIO_EXT_RUNNER_*` reach no extension.
 
 | Variable | Extension | Description |
 |----------|-----------|-------------|

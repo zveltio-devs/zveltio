@@ -25,7 +25,6 @@
 
 import type { ExtensionConfig, ObjectStorageConfig } from '@zveltio/sdk/extension';
 import { storageConfig } from '../storage/index.js';
-import { knownExtensionNames } from './ext-sql-policy.js';
 import { isProduction, modeOn, nodeEnv } from '../operational-modes.js';
 import { keyList } from '../security/index.js';
 
@@ -63,32 +62,22 @@ function flag(name: string): boolean {
  * know every extension that will ever exist.
  *
  * So the rule is generic and the names stay in the extension: everything under
- * `ZVELTIO_EXT_<NAME>_` is handed to `<NAME>` with the prefix stripped, and
+ * `ZVELTIO_EXT_<NAME>__` is handed to `<NAME>` with the prefix stripped, and
  * nothing else is handed to it at all. `finance/banking` reads
- * `ZVELTIO_EXT_FINANCE_BANKING_*`; `ai` reads `ZVELTIO_EXT_AI_*`. Operators keep
+ * `ZVELTIO_EXT_FINANCE_BANKING__*`; `ai` reads `ZVELTIO_EXT_AI__*`. Operators keep
  * configuring through the environment, which is where a self-hosted deployment
  * expects to configure things, and the engine learns nothing about what any
  * particular extension wants.
  *
- * The prefix is not delimited and the fold is not injective, so one key can
- * spell two extensions' settings: `ZVELTIO_EXT_BILLING_STRIPE_WEBHOOK_SECRET` is
- * `billing`'s `STRIPE_WEBHOOK_SECRET` and `billing-stripe`'s `WEBHOOK_SECRET`,
- * and `a-b` and `a_b` share every key. Which one the operator meant is not
- * knowable, and "longest prefix wins" (the table rule, `ownsByPrefix`) would
- * hand `billing`'s secret to whoever publishes `billing-stripe`. So a key that
- * also lies under another known extension's prefix, or under the engine's own
- * `ZVELTIO_EXT_*` settings, is handed to neither, and the operator is told.
- *
- * Withholding depends on which extensions the process knows, and this is a
- * snapshot taken at load: an extension loaded before an overlapping one is
- * installed keeps the newcomer's keys until it reloads. So there is a
- * delimited form (ADR 0030), `ZVELTIO_EXT_<NAME>__<KEY>`: the LAST `__` ends
- * the name, the key has none, and a fold names one installed extension
- * (#1600), so the variable belongs to exactly one extension whatever else is
- * installed. A variable with `__` after `ZVELTIO_EXT_` is read only that way,
- * never as a legacy key under a shorter prefix. The legacy form stays (v1 is
- * frozen); each legacy key is logged with its delimited spelling, and the
- * delimited value wins when both set one key.
+ * The name ends at the LAST `__` (ADR 0030, extension-api v2 entry 6): an
+ * extension reads `ZVELTIO_EXT_<NAME>__<KEY>`, the key has no `__`, and a fold
+ * names one installed extension (#1600), so each variable belongs to exactly
+ * one extension whatever else is installed. The single-underscore spelling
+ * `ZVELTIO_EXT_<NAME>_<KEY>` is no longer read (ADR 0063): it spelled two
+ * extensions' settings at once (`billing`'s `STRIPE_KEY` was `billing-stripe`'s
+ * `KEY`). The engine's own `ZVELTIO_EXT_*` settings (`TRANSPORT`,
+ * `RUNNER_SOCKET`, …) carry no `__`, so no extension reads them. A legacy
+ * variable left set is named at load, so the operator learns to rename it.
  *
  * Read at build time, not per access: `register()` runs once per load, and a
  * frozen snapshot means an extension cannot be handed a value that changed
@@ -97,45 +86,25 @@ function flag(name: string): boolean {
 function namespacedEnv(extName: string | undefined): Readonly<Record<string, string>> {
   if (!extName) return Object.freeze({});
   const name = envName(extName);
-  const prefix = `${ENV_ROOT}${name}_`;
-  const others = [...knownExtensionNames().filter((n) => n !== extName), ...ENGINE_NAMESPACES].map(
-    (n) => `${ENV_ROOT}${envName(n)}_`,
-  );
-  const legacy: Record<string, string> = {};
-  const delimited: Record<string, string> = {};
-  const withheld: string[] = [];
-  const moved: string[] = [];
+  const vars: Record<string, string> = {};
+  const legacy: string[] = [];
   for (const [key, value] of Object.entries(process.env)) {
     if (typeof value !== 'string' || !key.startsWith(ENV_ROOT)) continue;
     const rest = key.slice(ENV_ROOT.length);
     const cut = rest.lastIndexOf('__');
     if (cut !== -1) {
-      if (rest.slice(0, cut) === name && cut + 2 < rest.length)
-        delimited[rest.slice(cut + 2)] = value;
-      continue;
+      if (rest.slice(0, cut) === name && cut + 2 < rest.length) vars[rest.slice(cut + 2)] = value;
+    } else if (rest.startsWith(`${name}_`)) {
+      legacy.push(`${key} -> ${ENV_ROOT}${name}__${rest.slice(name.length + 1)}`);
     }
-    if (!key.startsWith(prefix)) continue;
-    if (others.some((p) => key.startsWith(p))) {
-      withheld.push(key);
-      continue;
-    }
-    const k = key.slice(prefix.length);
-    legacy[k] = value;
-    moved.push(`${key} -> ${ENV_ROOT}${name}__${k}`);
   }
-  if (withheld.length > 0) {
+  if (legacy.length > 0) {
     console.warn(
-      `[extensions] "${extName}": ${withheld.join(', ')} also name another extension's ` +
-        `or the engine's settings; withheld from "${extName}"`,
+      `[extensions] "${extName}": not read, the single-underscore spelling was removed ` +
+        `(ADR 0063); rename: ${legacy.join(', ')}`,
     );
   }
-  if (moved.length > 0) {
-    console.warn(
-      `[extensions] "${extName}": legacy settings, read for now; rename them (ADR 0030): ` +
-        moved.join(', '),
-    );
-  }
-  return Object.freeze({ ...legacy, ...delimited });
+  return Object.freeze(vars);
 }
 
 const ENV_ROOT = 'ZVELTIO_EXT_';
@@ -144,13 +113,6 @@ const ENV_ROOT = 'ZVELTIO_EXT_';
 function envName(name: string): string {
   return name.replace(/[^a-z0-9]/gi, '_').toUpperCase();
 }
-
-/**
- * The engine's own `ZVELTIO_EXT_*` settings, as namespaces no extension reads:
- * `RUNNER_SOCKET` and `RUNNER_UID_BASE` (ext-runner.ts), and `MEMORY_MB`
- * (rfc-extension-runner.md).
- */
-const ENGINE_NAMESPACES = ['runner', 'memory'];
 
 export function buildExtensionConfig(
   capabilities: readonly string[],
